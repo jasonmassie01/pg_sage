@@ -541,6 +541,400 @@ provider_advice:
   enabled: true   # default; a source runs only when its provider is detected and its credentials exist
 ```
 
+## Aurora clone rehearsal
+
+`clone.provider: aurora_clone` rehearses a migration or an index on an Aurora copy-on-write
+clone of the monitored Aurora PostgreSQL cluster. A clone shares the source's storage
+until either side writes, so it is ready in 10 to 20 minutes (AWS's figure) and is billed
+for its one instance and the pages that change, not a full copy.
+
+```yaml
+clone:
+  provider: aurora_clone
+  aurora:
+    region: us-east-1          # the monitored cluster's region (required)
+    instance_class: ""         # default: the source writer's class (db.serverless for Serverless v2)
+    ttl_minutes: 60            # 30-1440: the longest a clone lives; a rehearsal ends by then
+```
+
+What pg_sage does for each clone:
+
+- The source is the cluster whose endpoint pg_sage connects to: an Aurora cluster endpoint
+  (`<cluster>.cluster-<id>.<region>.rds.amazonaws.com`) or its `cluster-ro-` reader. An
+  instance endpoint, a custom endpoint, RDS Proxy or custom DNS is refused with "not an
+  Aurora cluster", as is an Aurora MySQL cluster or a cluster in another region.
+- It restores cluster `sage-<purpose>-<8 hex>` with `RestoreDBClusterToPointInTime`, restore
+  type `copy-on-write`, the latest restorable time, the source's subnet group, security
+  groups and cluster parameter group, and deletion protection off. The cluster is tagged
+  `pg-sage-receipt=<its name>` and `pg-sage-expires-at=<now + ttl_minutes>`.
+- It adds one instance `sage-<purpose>-<8 hex>-1` of `clone.aurora.instance_class` (default:
+  the writer's class) with the writer's parameter group and public accessibility, and
+  waits until the cluster and the instance are available.
+- The clone's DSN is the monitored DSN with the clone's endpoint in place of the source's:
+  the same users and passwords (the data is a copy). Its `sslmode` is at least `require`.
+  A DSN that sets `hostaddr`, `service` or more than one host is refused.
+- Aurora makes at most 15 copy-on-write clones of one source (clones of clones included);
+  the 16th would be a full copy at full price, so pg_sage refuses it and names the limit.
+- Teardown deletes the instance, waits for it to go, then deletes the cluster with no final
+  snapshot and no retained automated backups. Only a `sage-*` cluster tagged with its own
+  name and without deletion protection is ever deleted.
+- A failure after the cluster exists deletes it before the error returns. A restore whose
+  outcome is unknown (a 5xx, a lost reply, or "already exists" when the SDK retried one RDS
+  accepted) is looked for by tag and deleted; when it is not listed yet, or a create is cut
+  short, the receipt stays `create_uncertain` and the reaper looks for the cluster by its
+  tag and destroys it. Aurora has no server-side expiry, so the reaper
+  is the backstop: check `aws rds describe-db-clusters` for `sage-*` clusters if a sidecar
+  was down for long.
+
+Credentials come from the AWS default chain (environment, shared config, web identity or
+an instance role), as for telemetry. Without them nothing is created or deleted and
+rehearsals are recommendation-only with reason `clone_unavailable`. The API cannot switch
+`clone.provider` to `aurora_clone`; set it in YAML and restart.
+
+The IAM policy the sidecar needs, on top of the telemetry reads. To narrow `Resource`, keep
+the deletes on `arn:aws:rds:<region>:<account>:cluster:sage-*` and `...:db:sage-*`; the
+restore and the instance create are also authorized against the source cluster, its subnet
+group and its parameter groups, so their `Resource` must name those ARNs too, or the create
+is refused (403) and the rehearsal is recommendation-only:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PgSageAuroraCloneRead",
+      "Effect": "Allow",
+      "Action": ["rds:DescribeDBClusters", "rds:DescribeDBInstances"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PgSageAuroraCloneWrite",
+      "Effect": "Allow",
+      "Action": [
+        "rds:RestoreDBClusterToPointInTime",
+        "rds:CreateDBInstance",
+        "rds:DeleteDBInstance",
+        "rds:DeleteDBCluster",
+        "rds:AddTagsToResource"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+`RestoreDBClusterToPointInTime` also needs read access to the source cluster, its subnet
+group, security groups and parameter groups, and `kms:CreateGrant` / `kms:DescribeKey` on
+the source's KMS key when its storage is encrypted with a customer-managed key.
+
+Cost: each receipt carries a cost label of instance-hours for its lifetime, priced only by
+a `cost.rates` entry you supply (pg_sage ships no prices). The number that says it works:
+Aurora rehearsals that got a clone, their median time to ready, clone instance-hours per
+week from the receipts, and clones left after 24 hours (0).
+
+## RDS restore rehearsal
+
+> **Cost warning: read this before the first run.** RDS for PostgreSQL has no
+> copy-on-write clone. Every `rds_restore` rehearsal restores a **whole new instance** of
+> production's class and storage, billed at the **full instance price** (compute and the
+> full allocated storage) from the restore until teardown: up to
+> `clone.restore_deadline_minutes` of restore plus up to an hour of rehearsal. A restore
+> takes tens of minutes to hours, growing with the volume and the WAL to replay. pg_sage
+> creates nothing unless you set `clone.allow_full_copy: true`, logs this cost at every
+> startup, and writes each clone's instance-hours on its receipt before RDS is asked for it.
+
+`clone.provider: rds_restore` rehearses a migration or an index on a point-in-time restore of
+the monitored RDS for PostgreSQL instance.
+
+```yaml
+clone:
+  provider: rds_restore
+  allow_full_copy: true          # required: without it startup fails
+  restore_deadline_minutes: 120  # 30-720: the longest a restore may take to become available
+  rds:
+    region: us-east-1            # the monitored instance's region (required)
+    instance_class: ""           # default: the source instance's class
+```
+
+What pg_sage does for each clone:
+
+- The source is the instance whose endpoint pg_sage connects to
+  (`<instance>.<id>.<region>.rds.amazonaws.com`). An Aurora endpoint, a Multi-AZ DB cluster
+  member, RDS Proxy, custom DNS, another engine or another region is refused with "not an
+  RDS for PostgreSQL instance" (Aurora uses `aurora_clone`). A source with automated backups
+  off (retention 0) has no restorable time and is refused.
+- It restores instance `sage-<purpose>-<8 hex>` with `RestoreDBInstanceToPointInTime` at the
+  latest restorable time, in the source's subnet group, security groups, parameter group,
+  storage type (and IOPS for `io1`/`io2`) and public accessibility, single-AZ and without
+  deletion protection, tagged `pg-sage-receipt=<its name>` and `pg-sage-expires-at`. It waits
+  until the instance is available, at most `clone.restore_deadline_minutes`.
+- The clone's DSN is the monitored DSN on the restored instance's endpoint (same users and
+  passwords; `sslmode` at least `require`). A restored instance that answers on production's
+  host is refused and deleted.
+- Teardown deletes the instance with no final snapshot and no retained automated backups.
+  Only a `sage-*` instance tagged with its own name and without deletion protection is ever
+  deleted.
+- A restore RDS refused made nothing. A failed instance is deleted before the error
+  returns. A restore whose outcome is unknown (a 5xx, a lost reply, "already exists") is
+  looked up by name and tag and deleted. A restore not available by the deadline, or not
+  described yet, leaves its receipt `create_uncertain`, and the reaper finds the instance
+  by name and tag and destroys it. RDS has no server-side expiry, so the reaper is the
+  backstop: check `aws rds describe-db-instances` for `sage-*` instances if a sidecar was
+  down for long.
+- The receipt and the rehearsal bound cover the restore: a rehearsal on a full copy may run
+  `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer.
+- A caller that ends before `restore_deadline_minutes` is refused before anything is
+  created (reason `clone_unavailable`): a stdio MCP call (`mcp.call_timeout_seconds`, at most
+  10 minutes) can never wait out a full copy, so `apply_migration` over stdio is
+  recommendation-only with `rds_restore`. Use the HTTP transport or the sidecar's own
+  rehearsals.
+
+Credentials come from the AWS default chain, as for `aurora_clone`. Without them, or
+without the monitored pool, nothing is created and rehearsals are recommendation-only with
+reason `clone_unavailable`. The API cannot switch `clone.provider` to `rds_restore`; set it
+in YAML and restart.
+
+The IAM policy the sidecar needs, on top of the telemetry reads (narrow the delete to
+`arn:aws:rds:<region>:<account>:db:sage-*`; the restore is also authorized against the
+source instance, its subnet group and its parameter group):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PgSageRDSRestoreRead",
+      "Effect": "Allow",
+      "Action": ["rds:DescribeDBInstances"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PgSageRDSRestoreWrite",
+      "Effect": "Allow",
+      "Action": [
+        "rds:RestoreDBInstanceToPointInTime",
+        "rds:DeleteDBInstance",
+        "rds:AddTagsToResource"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+A source encrypted with a customer-managed KMS key also needs `kms:CreateGrant` and
+`kms:DescribeKey` on that key.
+
+Cost: each receipt carries the instance-hours of one instance of the restore's class for the
+receipt's lifetime (`restore_deadline_minutes` plus 75 minutes), priced only by a
+`cost.rates` entry you supply for the source (pg_sage ships no prices; storage is not
+priced). The number that says it works: restores that reach ready within their estimate,
+their instance-hours, and instances left after 24 hours (0).
+
+## Cloud SQL clone rehearsal
+
+> **Cost warning: read this before the first run.** Cloud SQL has no copy-on-write clone.
+> Every `cloudsql_clone` rehearsal clones production into a **whole new instance** of its
+> tier and disk, billed at the **full instance price** (vCPUs, memory and the full disk) from
+> the clone until teardown: up to `clone.restore_deadline_minutes` of cloning plus up to an
+> hour of rehearsal. A clone takes minutes to hours, growing with the disk. pg_sage creates
+> nothing unless you set `clone.allow_full_copy: true`, logs this cost at every startup, and
+> writes each clone's instance-hours on its receipt before Cloud SQL is asked for it.
+
+`clone.provider: cloudsql_clone` rehearses a migration or an index on a clone
+(`instances.clone`) of the monitored Cloud SQL for PostgreSQL instance, in the same project.
+
+```yaml
+clone:
+  provider: cloudsql_clone
+  allow_full_copy: true          # required: without it startup fails
+  restore_deadline_minutes: 120  # 30-720: the longest a clone may take to be ready
+  cloudsql:
+    project: acme-prod-1234      # the monitored instance's project (required)
+    instance: shop               # its instance id (required)
+```
+
+What pg_sage does for each clone:
+
+- The source is `clone.cloudsql.instance`. It must be a `RUNNABLE` PostgreSQL primary (not
+  a read replica), and pg_sage must connect to one of its IPs, private or public. A DSN
+  through the Cloud SQL Auth Proxy, a Unix socket or a DNS name is refused with "not the
+  configured Cloud SQL for PostgreSQL instance", because pg_sage could not tell that it
+  monitors that instance, nor reach the clone the same way.
+- It asks for clone `sage-<purpose>-<8 hex>` (lowercase, at most 63 characters, the label
+  limit) and polls the operation. When it is done, pg_sage labels the clone
+  `pg-sage-receipt=<its name>` and `pg-sage-expires-at=<Unix seconds>`, keeps the source's
+  other labels, lifts the deletion protection the clone copied from production and makes it
+  zonal (no high-availability standby is billed). All of this happens within
+  `clone.restore_deadline_minutes`.
+- The clone's DSN is the monitored DSN on the clone's IP of the same kind (private for
+  private, public for public): the same users and passwords, `sslmode` at least `require`.
+  `verify-ca` and `verify-full` are kept, so they need the clone's server CA. A clone that
+  answers on one of production's IPs is refused and deleted.
+- Teardown deletes the instance. Only a `sage-*` instance labelled with its own name, or not
+  labelled at all, is deleted. An unlabelled one is a clone whose labelling never finished:
+  its name is the receipt's random one, so its copied deletion protection is lifted first.
+  An instance labelled for another receipt, or protected again after pg_sage labelled it, is
+  never deleted.
+- A clone Google refused (4xx, including a name that already exists) made nothing. A failed
+  clone operation or a failed labelling deletes the clone before the error returns. A lost
+  reply or a 5xx is looked up by name and deleted. A clone not done by the deadline leaves
+  its receipt `create_uncertain`, and the reaper finds the instance by name and destroys it.
+  Cloud SQL has no server-side expiry, so the reaper is the backstop: check
+  `gcloud sql instances list --filter='name:sage-*'` if a sidecar was down for long.
+- The receipt and the rehearsal bound cover the clone: a rehearsal on it may run
+  `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer.
+- A caller that ends before `restore_deadline_minutes` is refused before the clone is asked
+  for (reason `clone_unavailable`), so `apply_migration` over stdio MCP is
+  recommendation-only with `cloudsql_clone`, as with `rds_restore`.
+- Cloud SQL does not let you reuse an instance name for up to a week after deletion. Every
+  receipt has a fresh random name, so this never blocks a rehearsal.
+
+Credentials come from Google Application Default Credentials, the same chain as Cloud SQL
+telemetry (`GOOGLE_APPLICATION_CREDENTIALS`, the gcloud ADC file, then the metadata server).
+Without them, or without the monitored pool, nothing is created and rehearsals are
+recommendation-only with reason `clone_unavailable`. A refused call names the permission it
+needs. The API cannot switch `clone.provider` to `cloudsql_clone`; set it in YAML and
+restart.
+
+The permissions the sidecar's identity needs, on top of the telemetry reads (a custom role on
+the project; `roles/cloudsql.admin` also covers them):
+
+| Permission | Used for |
+| --- | --- |
+| `cloudsql.instances.get` | Read the source and the clone, and poll operations |
+| `cloudsql.instances.clone` | Clone the source |
+| `cloudsql.instances.update` | Label the clone, and lift its copied deletion protection and HA |
+| `cloudsql.instances.delete` | Delete the clone |
+
+An IAM condition on `resource.name` starting with
+`projects/<project>/instances/sage-` can narrow `update` and `delete` to pg_sage's clones.
+
+Cost: each receipt carries the instance-hours of one instance for the receipt's lifetime
+(`restore_deadline_minutes` plus 75 minutes), priced only by a `cost.rates` entry you supply
+for the source (pg_sage ships no prices; the disk is not priced). The number that says it
+works: clones that are ready within their estimate, their instance-hours, and instances left
+after 24 hours (0).
+
+The live check (`SAGE_CLOUDSQL_LIVE=1` with `SAGE_CLOUDSQL_LIVE_DATABASE_URL`,
+`SAGE_CLOUDSQL_PROJECT`, `SAGE_CLOUDSQL_INSTANCE` and `SAGE_TEST_DATABASE_URL`) runs the
+clone contract on a real, funded instance; it is owner-run and never in CI.
+
+## AlloyDB restore rehearsal
+
+> **Cost warning: read this before the first run.** AlloyDB has no copy-on-write clone.
+> Every `alloydb_restore` rehearsal restores production into a **whole new cluster** with
+> its own primary instance of the source primary's machine size, billed at the **full
+> price** (vCPUs, memory and the restored storage) from the restore until teardown: up to
+> `clone.restore_deadline_minutes` of restoring plus up to an hour of rehearsal. A restore
+> takes minutes to hours, growing with the data. pg_sage creates nothing unless you set
+> `clone.allow_full_copy: true`, logs this cost at every startup, and writes each clone's
+> instance-hours on its receipt before AlloyDB is asked for it.
+
+`clone.provider: alloydb_restore` rehearses a migration or an index on a point-in-time
+restore (`clusters:restore` from continuous backup) of the monitored AlloyDB cluster, in the
+same project and region.
+
+```yaml
+clone:
+  provider: alloydb_restore
+  allow_full_copy: true          # required: without it startup fails
+  restore_deadline_minutes: 120  # 30-720: the longest a restore may take to be ready
+  alloydb:
+    project: acme-prod-1234      # the monitored cluster's project (required)
+    location: us-central1        # its region, not a zone (required)
+    cluster: shop                # its cluster id (required)
+```
+
+What pg_sage does for each clone:
+
+- The source is `clone.alloydb.cluster`. It must be a `READY` PostgreSQL primary cluster
+  (not a secondary) with **continuous backup on**: a cluster with
+  `continuousBackupConfig.enabled` false is refused with that setting named (turn it on with
+  `gcloud alloydb clusters update <cluster> --region <region> --enable-continuous-backup`).
+  pg_sage must connect to the private or public IP of the cluster's `READY` primary
+  instance. A read pool, the AlloyDB Auth Proxy, a Unix socket or a DNS name is refused with
+  "not the configured AlloyDB primary cluster".
+- The point in time is five minutes ago (`AlloyDBRestoreLag`), so continuous backup already
+  holds it. One before the cluster's earliest restorable time (continuous backup was turned
+  on recently) is refused with reason `clone_unavailable`.
+- It restores cluster `sage-<purpose>-<8 hex>` (lowercase, at most 63 characters) into the
+  source's network (`networkConfig`, or `network`) under the source's encryption key
+  (`encryptionConfig`, so a CMEK cluster stays CMEK), labelled `pg-sage-receipt=<its name>`
+  and `pg-sage-expires-at=<Unix seconds>` as it is created, with the source's other labels
+  kept, and with automated backups off (`automatedBackupPolicy.enabled: false`), so no
+  backup of the clone, a copy of production, outlives it. When the restore is done, pg_sage adds a zonal primary instance (no
+  high-availability standby is billed) with the source primary's `machineConfig` and
+  `networkConfig` (public IP and authorized networks). All of this happens within
+  `clone.restore_deadline_minutes`.
+- The clone's DSN is the monitored DSN on the new primary's IP of the same kind (private for
+  private, public for public): the same users and passwords, `sslmode` at least `require`.
+  A clone that answers on one of production's IPs is refused and deleted.
+- Teardown deletes the cluster with `force`, which deletes its instances too. Only a
+  `sage-*` cluster labelled with its own name is deleted. The restore labels the cluster as
+  it creates it, so an unlabelled cluster is never pg_sage's and is never deleted: if
+  AlloyDB ever restores one without the labels, pg_sage reports it left behind and names the
+  `gcloud alloydb clusters delete` command to run by hand. The reaper never closes the
+  receipt of such a cluster as gone: its lookup reports the cluster left behind, so the
+  receipt stays `create_uncertain` until the cluster is deleted.
+- A restore Google refused (4xx, including an id that already exists) made nothing. A
+  failed restore operation, an instance create that fails after the cluster exists, a failed
+  instance operation or a primary that is not `READY` deletes the cluster before the error
+  returns. A lost reply or a 5xx is looked up by name and deleted. A restore or instance not
+  done by the deadline leaves its receipt `create_uncertain`, and the reaper finds the
+  cluster by name and destroys it. AlloyDB has no server-side expiry, so the reaper is the
+  backstop: check `gcloud alloydb clusters list --region <region>` for `sage-*` clusters if
+  a sidecar was down for long.
+- The receipt and the rehearsal bound cover the clone: a rehearsal on it may run
+  `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer. Receipts
+  are scoped `gcp/<project>/<region>`.
+- A caller that ends before `restore_deadline_minutes` is refused before the restore is
+  asked for (reason `clone_unavailable`), so `apply_migration` over stdio MCP is
+  recommendation-only with `alloydb_restore`, as with `rds_restore` and `cloudsql_clone`.
+
+Credentials come from Google Application Default Credentials, the same chain as Cloud SQL
+and AlloyDB telemetry (`GOOGLE_APPLICATION_CREDENTIALS`, the gcloud ADC file, then the
+metadata server). Without them, or without the monitored pool, nothing is created and
+rehearsals are recommendation-only with reason `clone_unavailable`. A refused call names the
+permission it needs. The API cannot switch `clone.provider` to `alloydb_restore`; set it in
+YAML and restart.
+
+The permissions the sidecar's identity needs, on top of the telemetry reads (a custom role on
+the project; `roles/alloydb.admin` also covers them):
+
+| Permission | Used for |
+| --- | --- |
+| `alloydb.clusters.get` | Read the source and the restored cluster |
+| `alloydb.instances.list`, `alloydb.instances.get` | Find the source primary, read the new one |
+| `alloydb.operations.get` | Poll the restore and instance operations |
+| `alloydb.clusters.restore` | Restore the source's continuous backup to a new cluster |
+| `alloydb.instances.create` | Add the restored cluster's primary instance |
+| `alloydb.clusters.delete` | Delete the restored cluster and its instances |
+
+An IAM condition on `resource.name` starting with
+`projects/<project>/locations/<region>/clusters/sage-` can narrow `instances.create` and
+`clusters.delete` to pg_sage's clones. The live check confirms the permission names, that
+the restore applies the requested labels and accepts the automated backup policy.
+
+Cost: each receipt carries the instance-hours of one primary instance for the receipt's
+lifetime (`restore_deadline_minutes` plus 75 minutes), priced only by a `cost.rates` entry
+you supply for the source (pg_sage ships no prices; storage is not priced). The number that
+says it works: restores that are ready within their estimate, their instance-hours, and
+clusters left after 24 hours (0).
+
+The live check (`SAGE_ALLOYDB_LIVE=1` with `SAGE_ALLOYDB_LIVE_DATABASE_URL`,
+`SAGE_ALLOYDB_PROJECT`, `SAGE_ALLOYDB_LOCATION`, `SAGE_ALLOYDB_CLUSTER` and
+`SAGE_TEST_DATABASE_URL`) runs the clone contract on a real, funded cluster; it is
+owner-run and never in CI.
+
+## Azure restore rehearsal
+
+`clone.provider: azure_restore` rehearses on a point-in-time restore of the monitored Azure
+flexible server to a new server in the same region and major version: a full copy at the full
+server price, which needs `clone.allow_full_copy: true`. See
+[Azure: restore rehearsal](azure.md#restore-rehearsal) for the cost warning, the flow and the
+RBAC actions.
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):

@@ -546,6 +546,37 @@
       "SourceBranch": "",
       "TTLMinutes": 60,
       "EndpointMaxCU": 1
+    },
+    "Neon": {
+      "ProjectID": "",
+      "ParentBranch": "",
+      "APIKey": "",
+      "EndpointMaxCU": 1,
+      "TTLMinutes": 60
+    },
+    "Aurora": {
+      "Region": "",
+      "InstanceClass": "",
+      "TTLMinutes": 60
+    },
+    "RestoreDeadlineMinutes": 120,
+    "RDS": {
+      "Region": "",
+      "InstanceClass": ""
+    },
+    "CloudSQL": {
+      "Project": "",
+      "Instance": ""
+    },
+    "AlloyDB": {
+      "Project": "",
+      "Location": "",
+      "Cluster": ""
+    },
+    "Azure": {
+      "SubscriptionID": "",
+      "ResourceGroup": "",
+      "Server": ""
     }
   },
   "Custodian": {

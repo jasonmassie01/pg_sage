@@ -12,11 +12,11 @@ type Snapshot struct {
 	CreatedAt time.Time
 }
 
-// SnapshotAPI is the control-plane boundary of a full-copy restore. This
-// build ships no implementation: SnapshotProvider is the shared full-copy
-// wrapper the rds_restore, cloudsql_clone, alloydb_restore and
-// azure_restore adapters (lab-05d to lab-05g) build on, and until they do
-// clone.provider refuses those names. Lakebase clones by branch
+// SnapshotAPI is the control-plane boundary of a full-copy restore.
+// SnapshotProvider is the shared full-copy wrapper the rds_restore
+// (RDSRestoreAPI, lab-05d), cloudsql_clone, alloydb_restore and
+// azure_restore adapters build on; clone.provider refuses the names whose
+// adapter is not built yet. Lakebase clones by branch
 // (LakebaseBranchProvider).
 type SnapshotAPI interface {
 	LatestSnapshot(context.Context) (Snapshot, error)
@@ -97,4 +97,23 @@ func validateSnapshot(snapshot Snapshot, now time.Time) error {
 	return nil
 }
 
-var _ Provider = (*SnapshotProvider)(nil)
+// ErrNoFinder: the full-copy API cannot look a clone up by name, so a
+// create of unknown outcome is reported, never guessed.
+var ErrNoFinder = errors.New("clone: this full-copy API cannot find a clone by name")
+
+// FindByName is the API's lookup (lab-05a Finder), so a restore of unknown
+// outcome is resolved by its name; an API without one reports ErrNoFinder
+// and the reaper leaves the receipt unresolved.
+func (p *SnapshotProvider) FindByName(ctx context.Context, name string) (string, bool,
+	error) {
+	f, ok := p.api.(Finder)
+	if !ok {
+		return "", false, fmt.Errorf("%w: clone %s stays unresolved", ErrNoFinder, name)
+	}
+	return f.FindByName(ctx, name)
+}
+
+var (
+	_ Provider = (*SnapshotProvider)(nil)
+	_ Finder   = (*SnapshotProvider)(nil)
+)

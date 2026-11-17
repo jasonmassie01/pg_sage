@@ -46,6 +46,7 @@ var envExplicitPaths = map[string]string{
 	"SAGE_CLONE_PROVIDER":                      "clone.provider",
 	"SAGE_CLONE_DLE_ENDPOINT":                  "clone.dle_endpoint",
 	"SAGE_CLONE_DLE_TOKEN":                     "clone.dle_token",
+	"SAGE_CLONE_NEON_API_KEY":                  "clone.neon.api_key",
 	"SAGE_CLONE_MAX_AGE_MINUTES":               "clone.max_clone_age_minutes",
 	"SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT":     "custodian.freeze.red_buffer_pct",
 	"SAGE_CUSTODIAN_WAL_ABANDON_AFTER_MINUTES": "custodian.wal.abandon_after_minutes",

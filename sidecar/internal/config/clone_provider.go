@@ -14,18 +14,20 @@ const CloneLakebaseMaxTTLMinutes = 1440
 
 var cloneLakebaseID = regexp.MustCompile(`^` + lakebaseid.Pattern + `$`)
 
-// validate checks the clone block. The lakebase block is checked only when
-// lakebase_branch is the provider, so a leftover block never stops another
-// adapter.
+// validate checks the clone block. The lakebase, neon and aurora blocks are
+// checked only when their provider is chosen, so a leftover block never
+// stops another adapter.
 func (c CloneProviderConfig) validate() error {
 	switch c.Provider {
 	case "snapshot":
 		return fmt.Errorf("clone.provider snapshot has no adapter in this build: it was "+
-			"replaced by the full-copy providers %s; use dle, lakebase_branch or none",
-			strings.Join(CloneFullCopyProviders, ", "))
+			"replaced by the full-copy providers %s; use dle, lakebase_branch, neon_branch, "+
+			"aurora_clone, rds_restore, cloudsql_clone, alloydb_restore, azure_restore or "+
+			"none", strings.Join(CloneFullCopyProviders, ", "))
 	case CloneRDSRestore, CloneCloudSQLClone, CloneAlloyDBRestore, CloneAzureRestore:
-		return fmt.Errorf("clone.provider %s is not in this build yet: use dle, "+
-			"lakebase_branch or none", c.Provider)
+		if err := c.validateFullCopy(); err != nil {
+			return err
+		}
 	case "none":
 	case "dle":
 		if c.DLEEndpoint == "" {
@@ -35,9 +37,19 @@ func (c CloneProviderConfig) validate() error {
 		if err := c.Lakebase.validate(); err != nil {
 			return err
 		}
+	case CloneNeonBranch:
+		if err := c.Neon.validate(); err != nil {
+			return err
+		}
+	case CloneAuroraClone:
+		if err := c.Aurora.validate(); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("clone.provider must be none or dle (Database Lab) or " +
-			"lakebase_branch (Lakebase)")
+		return fmt.Errorf("clone.provider must be none or dle (Database Lab), " +
+			"lakebase_branch (Lakebase), neon_branch (Neon), aurora_clone (Aurora), " +
+			"rds_restore (RDS), cloudsql_clone (Cloud SQL), alloydb_restore (AlloyDB) or " +
+			"azure_restore (Azure flexible server)")
 	}
 	if c.MaxCloneAgeMinutes <= 0 {
 		return fmt.Errorf("clone.max_clone_age_minutes must be positive")
@@ -45,9 +57,23 @@ func (c CloneProviderConfig) validate() error {
 	return c.validateRehearsals()
 }
 
+// validateFullCopy checks the block of the full-copy provider chosen.
+func (c CloneProviderConfig) validateFullCopy() error {
+	switch c.Provider {
+	case CloneRDSRestore:
+		return c.validateRDS()
+	case CloneCloudSQLClone:
+		return c.validateCloudSQL()
+	case CloneAlloyDBRestore:
+		return c.validateAlloyDB()
+	}
+	return c.validateAzure()
+}
+
 // The full-copy clone providers (lab-05a): each restores a whole instance,
 // so each needs clone.allow_full_copy. They replace clone.provider
-// snapshot; lab-05d to lab-05g add their adapters.
+// snapshot; lab-05d built rds_restore, lab-05e cloudsql_clone, lab-05f
+// alloydb_restore and lab-05g azure_restore.
 const (
 	CloneRDSRestore     = "rds_restore"
 	CloneCloudSQLClone  = "cloudsql_clone"
@@ -62,15 +88,21 @@ var CloneFullCopyProviders = []string{CloneRDSRestore, CloneCloudSQLClone,
 // CloneMaxCreatesPerHour bounds clone.max_creates_per_hour.
 const CloneMaxCreatesPerHour = 60
 
-// Warnings are the clone settings that are valid but do nothing:
-// allow_full_copy without a full-copy provider.
+// Warnings are the clone settings that are valid but do nothing
+// (neon_branch without an API key, allow_full_copy without a full-copy
+// provider) and the cost of a full-copy provider, logged at start before
+// any restore.
 func (c CloneProviderConfig) Warnings() []string {
+	if c.Provider == CloneNeonBranch && strings.TrimSpace(c.Neon.APIKey) == "" {
+		return []string{"clone.provider neon_branch has no clone.neon.api_key (or " +
+			"SAGE_CLONE_NEON_API_KEY): no branch can be made, rehearsals are recommend-only"}
+	}
 	if !c.AllowFullCopy {
 		return nil
 	}
 	for _, name := range CloneFullCopyProviders {
 		if c.Provider == name {
-			return nil
+			return []string{c.fullCopyCostWarning()}
 		}
 	}
 	provider := c.Provider
