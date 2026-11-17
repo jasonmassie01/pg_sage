@@ -69,7 +69,7 @@ func (m *Monitor) Detect(ctx context.Context) ([]analyzer.Finding, error) {
 		return nil, ErrNoPool
 	}
 	cfg := m.opts.Config()
-	fp, err := m.fingerprint(ctx)
+	fp, err := m.fingerprint(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -167,13 +167,20 @@ func (m *Monitor) LastEvaluatedCategories() []string {
 	return append([]string(nil), m.evaluated...)
 }
 
-func (m *Monitor) fingerprint(ctx context.Context) (int64, error) {
+// fingerprint is the catalog fingerprint with cfg's Data API state folded in.
+func (m *Monitor) fingerprint(ctx context.Context, cfg Config) (int64, error) {
 	tx, err := beginRead(ctx, m.pool, m.opts.StatementTimeout)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }() // read-only
-	return Fingerprint(ctx, tx)
+	fp, err := Fingerprint(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	// The Supabase Data API state is evidence of AP-03 and AP-04 that the
+	// catalog does not hold (fleetpol-02c): a change of it alone is due.
+	return fp ^ cfg.Platform.dataAPIFingerprint(), nil
 }
 
 // Due reasons.

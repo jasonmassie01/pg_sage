@@ -103,6 +103,10 @@ func (ap03) Detect(ctx context.Context, in Input) ([]Finding, error) {
 // roles granted it directly and the inherited groups granted it; for a
 // group it also offers ending the exposed role's membership.
 func ap03Finding(env Env, r ap03Row, reach []Role) Finding {
+	return withDataAPI(env.Config.Platform, r.schema, ap03RelationFinding(env, r, reach))
+}
+
+func ap03RelationFinding(env Env, r ap03Row, reach []Role) Finding {
 	obj := r.schema + "." + r.name
 	qn := sqlident.Qualified(r.schema, r.name)
 	granted := grantText(env, r.grants)
@@ -149,6 +153,10 @@ func ap03Finding(env Env, r ap03Row, reach []Role) Finding {
 // from every role that holds one of them (PUBLIC included) and lists the
 // RLS alternative for the first tables.
 func ap03SchemaFinding(env Env, schema string, items []ap03Item) Finding {
+	return withDataAPI(env.Config.Platform, schema, ap03GroupFinding(env, schema, items))
+}
+
+func ap03GroupFinding(env Env, schema string, items []ap03Item) Finding {
 	var reach, targets []Role
 	var ps []Path
 	objs := make([]string, len(items))

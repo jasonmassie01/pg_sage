@@ -95,6 +95,10 @@ type Finding struct {
 	FixScript      string
 	Caveat         string
 	Evidence       []Evidence
+	// DataAPIExposed is whether the Supabase Data API serves the finding's
+	// schema (AP-03, AP-04): DataAPIExposed, DataAPINotExposed or
+	// DataAPIUnknown; "" off Supabase (fleetpol-02c).
+	DataAPIExposed string
 }
 
 // Category is the finding's category in sage.findings.

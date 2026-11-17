@@ -22,6 +22,9 @@ func (f Finding) AnalyzerFinding() analyzer.Finding {
 	if len(f.Evidence) > 0 {
 		detail["evidence"] = f.Evidence
 	}
+	if f.DataAPIExposed != "" {
+		detail["data_api_exposed"] = f.DataAPIExposed
+	}
 	exposureDetail(f.Detector, detail)
 	return analyzer.Finding{
 		Category:         f.Category(),

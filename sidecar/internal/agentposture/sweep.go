@@ -92,7 +92,7 @@ func (m *Monitor) Sweep(ctx context.Context) (analyzer.OutOfCycle, bool, error) 
 		return analyzer.OutOfCycle{}, false, ErrNoPool
 	}
 	cfg := m.opts.Config()
-	fp, err := m.fingerprint(ctx)
+	fp, err := m.fingerprint(ctx, cfg)
 	if err != nil {
 		return analyzer.OutOfCycle{}, false, err
 	}
