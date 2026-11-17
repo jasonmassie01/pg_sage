@@ -76,9 +76,15 @@ func (j *judge) cliffSteps(c *cliff) []candidate.Candidate {
 	reason := fmt.Sprintf("%s. Raising its statistics target from %d to %d samples %d "+
 		"rows instead of %d; the ANALYZE after it builds the larger sample.", c.why, current,
 		next, 300*next, 300*current)
-	if !t.Owned || executor.ValidateExecutorSQL(forward) != nil {
+	if !t.Owned {
 		return []candidate.Candidate{operatorStep(base, forward, rollback, analyze, next,
-			reason)}
+			reason+" pg_sage cannot run it (SET STATISTICS needs table ownership), so the "+
+				"table owner runs it.")}
+	}
+	if err := executor.ValidateExecutorSQL(forward); err != nil {
+		return []candidate.Candidate{operatorStep(base, forward, rollback, analyze, next,
+			reason+" pg_sage's executor refuses this statement ("+err.Error()+"), so the "+
+				"table owner runs it.")}
 	}
 	step := base
 	step.ActionType, step.ForwardSQL, step.RollbackSQL = executor.ActionTypeSetColumnStatistics,
@@ -119,12 +125,11 @@ func advice(c candidate.Candidate, kind, reason string) candidate.Candidate {
 }
 
 // operatorStep is the step pg_sage cannot run (no ownership, or a name
-// the executor's validator refuses), with the exact SQL.
+// the executor's validator refuses), with the exact SQL; reason says which.
 func operatorStep(c candidate.Candidate, forward, rollback, analyze string, next int,
 	reason string) candidate.Candidate {
 	c.ActionType, c.Approval = candidate.ActionOperator, candidate.ApprovalRequired
-	c.Reason = reason + " pg_sage cannot run it (SET STATISTICS needs table ownership), " +
-		"so the table owner runs it."
+	c.Reason = reason
 	c.Operator = &candidate.Operator{Command: forward + "; " + analyze, Revert: rollback,
 		Setting: "pg_attribute.attstattarget of " + c.Target, Value: strconv.Itoa(next)}
 	c.Reversible = true

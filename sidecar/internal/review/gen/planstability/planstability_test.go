@@ -345,3 +345,51 @@ func TestGenerate_ConcurrentCallsAgree(t *testing.T) {
 		}
 	}
 }
+
+// An operator step says why pg_sage cannot run it: ownership, or the
+// executor refusing the statement; never ownership for a table it owns
+// (review-02c review).
+func TestGenerate_OperatorStepSaysWhy(t *testing.T) {
+	users := clerkUsers()
+	users.Columns[`del;at`] = col(0.9999, 4)
+	q := clerkQuery()
+	q.text = `SELECT id FROM public.users WHERE "del;at" IS NOT NULL`
+	src := source(map[string]TableFacts{"public.users": users})
+	cands, _ := generate(t, src, packOf(t, []query{q}, clerkStats(), nil))
+	ops := byAction(cands, candidate.ActionOperator)
+	if len(ops) != 1 || strings.Contains(ops[0].Reason, "ownership") ||
+		!strings.Contains(ops[0].Reason, "executor refuses") {
+		t.Fatalf("owned table, refused name: operator steps %+v, want the refusal reason", ops)
+	}
+	users.Owned = false
+	cands, _ = generate(t, source(map[string]TableFacts{"public.users": users}),
+		packOf(t, []query{q}, clerkStats(), nil))
+	ops = byAction(cands, candidate.ActionOperator)
+	if len(ops) != 1 || !strings.Contains(ops[0].Reason, "needs table ownership") {
+		t.Fatalf("not owned: operator steps %+v, want the ownership reason", ops)
+	}
+}
+
+// A filtered column with no pg_stats row (a partitioned table keeps only
+// inherited statistics) is unknown, noted once, never silently "no risk".
+func TestGenerate_ColumnWithoutStatsIsNoted(t *testing.T) {
+	users := clerkUsers()
+	users.Columns["deleted_at"] = ColumnFacts{}
+	second := clerkQuery()
+	second.qid, second.execMs = "102", 50_000
+	src := source(map[string]TableFacts{"public.users": users})
+	cands, cov := generate(t, src, packOf(t, []query{clerkQuery(), second}, clerkStats(), nil))
+	if len(cands) != 0 {
+		t.Fatalf("no statistics gave %+v, want no candidate", cands)
+	}
+	n := 0
+	for _, note := range cov.Notes {
+		if strings.Contains(note, "public.users.deleted_at is unknown") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("notes %q: want exactly one unknown note for public.users.deleted_at",
+			cov.Notes)
+	}
+}

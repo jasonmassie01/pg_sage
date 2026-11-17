@@ -25,6 +25,25 @@ type judge struct {
 	cov    *candidate.Coverage
 	cliffs map[string]*cliff // "schema.table.column"
 	stx    []candidate.Candidate
+	// unjudged: filtered columns with no pg_stats row, noted once each.
+	unjudged map[string]bool
+}
+
+// noStats notes a filtered column the planner has no statistics for: a
+// partitioned table keeps only inherited ones, and a column added after
+// the last ANALYZE has none. Its plan stability is unknown, not "no risk".
+func (j *judge) noStats(table, column string) {
+	key := table + "." + column
+	if j.unjudged[key] {
+		return
+	}
+	if j.unjudged == nil {
+		j.unjudged = map[string]bool{}
+	}
+	j.unjudged[key] = true
+	j.cov.Note("plan stability of %s is unknown, not \"no risk\": pg_stats has no "+
+		"non-inherited row for the column (a partitioned table, or a column added since the "+
+		"last ANALYZE)", key)
 }
 
 // unknownTables records each table whose statistics are not readable as
@@ -116,6 +135,7 @@ func (j *judge) columnRules(q parsedQuery, p predicate, table, column string) {
 	t := j.facts.Tables[table]
 	c := t.Columns[column]
 	if !c.HasStats {
+		j.noStats(table, column)
 		return
 	}
 	current, _, _ := j.targets(c)

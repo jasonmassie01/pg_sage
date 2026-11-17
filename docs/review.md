@@ -257,4 +257,6 @@ says so; without a captured plan it is not checked, and the coverage says which 
 A table whose statistics pg_sage cannot read is `unknown`, never "no risk": the coverage is
 partial with `pg_stats:<table>` missing and a note with the reason, which is the exact
 `GRANT SELECT ON TABLE ... TO <role>` when the role cannot read it, "never analyzed" when the
-table has no statistics yet, or "not found".
+table has no statistics yet, or "not found". A filtered column with no `pg_stats` row of its
+own (a partitioned table keeps only inherited statistics, or the column was added since the last
+ANALYZE) is noted as unknown the same way.
