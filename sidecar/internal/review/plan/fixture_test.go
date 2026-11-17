@@ -58,7 +58,7 @@ func fixtureSpec(db string) reviewtest.Spec {
 			{ID: "index/idx/public.orders_pkey", Schema: "public", Table: "orders",
 				Index: "orders_pkey", Method: "btree", Valid: true, Unique: true, Primary: true,
 				ConstraintBacking: true, Scans: int64(90000),
-				Definition: "CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)",
+				Definition:  "CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)",
 				DuplicateOf: []string{}, PrefixOf: []string{}},
 			{ID: "index/idx/public.orders_pkey_dup", Schema: "public", Table: "orders",
 				Index: "orders_pkey_dup", Method: "btree", Valid: true, Scans: int64(5000),
@@ -68,9 +68,9 @@ func fixtureSpec(db string) reviewtest.Spec {
 		Schema: &workpack.Schema{Tables: []workpack.TableFact{orders, customers, mixed},
 			TablesTotal: 3},
 		Settings: &workpack.Settings{Status: "ok", Settings: []workpack.SettingFact{
-			{ID: "settings/work_mem", Name: "work_mem", Value: "4096", Unit: "kB",
+			{ID: "setting/work_mem", Name: "work_mem", Value: "4096", Unit: "kB",
 				Source: "default", Changes: []workpack.SettingChange{}},
-			{ID: "settings/random_page_cost", Name: "random_page_cost", Value: "1.5",
+			{ID: "setting/random_page_cost", Name: "random_page_cost", Value: "1.5",
 				Source: "database", Changes: []workpack.SettingChange{}}}}}
 }
 
@@ -88,7 +88,8 @@ func mustPack(t *testing.T, s reviewtest.Spec) *workpack.Pack {
 func customersIndex() candidate.Candidate {
 	c := candidate.Candidate{Generator: "indexes", Dimension: "schema", Kind: "missing",
 		Target: "public.customers", ActionType: "create_index_concurrently",
-		ForwardSQL:  "CREATE INDEX CONCURRENTLY sage_customers_email_idx ON public.customers (email)",
+		ForwardSQL: "CREATE INDEX CONCURRENTLY sage_customers_email_idx ON " +
+			"public.customers (email)",
 		RollbackSQL: "DROP INDEX CONCURRENTLY IF EXISTS public.sage_customers_email_idx",
 		EvidenceIDs: []string{"schema/table/public.customers", "workload/query/21"},
 		Reversible:  true, Approval: candidate.ApprovalAutomatic, Reason: "email lookups scan",

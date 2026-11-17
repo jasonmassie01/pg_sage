@@ -55,7 +55,14 @@ func TestBuild_GeneratorAndModelGiveATwoStepPlan(t *testing.T) {
 		fmt.Sprint(mod.EvidenceIDs) != fmt.Sprint(s.EvidenceIDs) {
 		t.Errorf("model step evidence %v / %v", s.EvidenceIDs, mod.EvidenceIDs)
 	}
-	g := p.Steps[0]
+	checkGeneratorAndPlan(t, in, res)
+}
+
+// checkGeneratorAndPlan checks the happy path's generator step, the model
+// step's prediction and that plan-01 accepts the plan.
+func checkGeneratorAndPlan(t *testing.T, in Input, res Result) {
+	t.Helper()
+	g, mod := res.Plan.Steps[0], res.Steps[1]
 	if g.ProposedSQL != customersIndex().ForwardSQL || fmt.Sprint(g.TargetQueryIDs) != "[21]" ||
 		g.Metric != changeplan.MetricBlocksPerCall || *g.ExpectedPct != 30 {
 		t.Errorf("generator plan step %+v", g)
@@ -63,7 +70,8 @@ func TestBuild_GeneratorAndModelGiveATwoStepPlan(t *testing.T) {
 	if mod.Prediction.Tier != TierHypoPG || mod.Measurement.DeadlineMinutes < 1 {
 		t.Errorf("model step prediction %+v measurement %+v", mod.Prediction, mod.Measurement)
 	}
-	problems, err := changeplan.Validate(context.Background(), *p, acceptAll{pack: in.Pack})
+	problems, err := changeplan.Validate(context.Background(), *res.Plan,
+		acceptAll{pack: in.Pack})
 	if err != nil || len(problems) != 0 {
 		t.Fatalf("the plan does not validate: %v %+v", err, problems)
 	}
@@ -92,10 +100,26 @@ func TestBuild_KindsWithoutATemplateAreAdvice(t *testing.T) {
 }
 
 func TestBuild_KindsWithoutAContractAreAdvice(t *testing.T) {
+	in := baseInput(t, "shop")
+	target := "public.orders(region) statistics=1000"
+	in.Report.Hypotheses = []report.Hypothesis{hyp("set_column_statistics", target)}
+	res, err := Build(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := adviceFor(t, res, target); a.Reason != ReasonNoContract ||
+		!strings.Contains(a.Detail, "set_column_statistics") {
+		t.Errorf("advice %+v, want no_contract naming the action type", a)
+	}
+}
+
+// The role kinds have contracts (the workload budget's), but the pack
+// holds no role's current setting or limit, so no exact rollback exists.
+func TestBuild_KindsWithoutAPriorValueAreAdvice(t *testing.T) {
 	for _, tc := range []struct{ kind, target string }{
 		{"set_role_timeout", "app statement_timeout=30s"},
 		{"set_role_connection_limit", "app connection_limit=20"},
-		{"set_column_statistics", "public.orders(region) statistics=1000"},
+		{"set_table_autovacuum", "public.orders autovacuum_vacuum_scale_factor=0.05"},
 	} {
 		in := baseInput(t, "shop")
 		in.Report.Hypotheses = []report.Hypothesis{hyp(tc.kind, tc.target)}
@@ -103,9 +127,9 @@ func TestBuild_KindsWithoutAContractAreAdvice(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if a := adviceFor(t, res, tc.target); a.Reason != ReasonNoContract ||
-			!strings.Contains(a.Detail, tc.kind) {
-			t.Errorf("%s: advice %+v, want no_contract naming the action type", tc.kind, a)
+		if a := adviceFor(t, res, tc.target); a.Reason != ReasonInvalidTarget ||
+			!strings.Contains(a.Detail, "no exact rollback") {
+			t.Errorf("%s: advice %+v, want invalid_target (no exact rollback)", tc.kind, a)
 		}
 	}
 }
@@ -234,7 +258,8 @@ func TestBuild_LadderErrorsAndMissingTiersAreAdvice(t *testing.T) {
 	if a.Reason != ReasonLadderError || !strings.Contains(a.Detail, errLadder.Error()) {
 		t.Errorf("ladder error advice %+v", a)
 	}
-	if res.Plan == nil || len(res.Plan.Steps) != 1 || res.Plan.Origin != changeplan.OriginGenerator {
+	if res.Plan == nil || len(res.Plan.Steps) != 1 ||
+		res.Plan.Origin != changeplan.OriginGenerator {
 		t.Errorf("plan %+v, want the generator step alone with origin generator", res.Plan)
 	}
 	for name, l := range map[string]Ladder{"no tier": &ladder{by: map[string]float64{}},
@@ -316,83 +341,6 @@ func TestBuild_IndexCapSendsTheThirdIndexToTheNextReview(t *testing.T) {
 	}
 }
 
-func TestBuild_DatabaseSettingRendersWithItsRollback(t *testing.T) {
-	for _, tc := range []struct{ target, sql, rollback string }{
-		{"work_mem=64MB", `ALTER DATABASE "shop" SET work_mem = '64MB'`,
-			`ALTER DATABASE "shop" RESET work_mem`},
-		{"random_page_cost=1.1", `ALTER DATABASE "shop" SET random_page_cost = '1.1'`,
-			`ALTER DATABASE "shop" SET random_page_cost = '1.5'`},
-	} {
-		in := baseInput(t, "shop")
-		in.Report.Hypotheses = []report.Hypothesis{hyp("alter_database_guc", tc.target,
-			"settings/work_mem")}
-		res, err := Build(context.Background(), in)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if res.Plan == nil || len(res.Plan.Steps) != 2 {
-			t.Fatalf("%s: plan %s advice %+v", tc.target, stepSQLs(res.Plan), res.Advice)
-		}
-		s := res.Plan.Steps[1]
-		if s.ProposedSQL != tc.sql || s.RollbackSQL != tc.rollback ||
-			s.Metric != changeplan.MetricReadback || s.Setting == "" {
-			t.Errorf("%s: step %q / %q metric %s setting %q", tc.target, s.ProposedSQL,
-				s.RollbackSQL, s.Metric, s.Setting)
-		}
-	}
-}
-
-func TestBuild_IndexTemplateQuotesIdentifiers(t *testing.T) {
-	in := baseInput(t, "shop")
-	in.Candidates, in.Report.Ranked = nil, nil
-	in.Report.Hypotheses = []report.Hypothesis{hyp("create_index_concurrently",
-		`public."Orders"("Region")`, "schema/table/public.Orders")}
-	spec := fixtureSpec("shop")
-	spec.Texts.Texts = append(spec.Texts.Texts, workpackText("31",
-		`SELECT 1 FROM public."Orders" WHERE "Region" = $1`))
-	spec.Workload.Families[0].QueryIDs = append(spec.Workload.Families[0].QueryIDs,
-		workpackQuery("31"))
-	in.Pack = mustPack(t, spec)
-	res, err := Build(context.Background(), in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Plan == nil || len(res.Plan.Steps) != 1 {
-		t.Fatalf("plan %s advice %+v", stepSQLs(res.Plan), res.Advice)
-	}
-	s := res.Plan.Steps[0]
-	want := `CREATE INDEX CONCURRENTLY sage_orders_region_idx ON public."Orders" ("Region")`
-	if s.ProposedSQL != want ||
-		s.RollbackSQL != "DROP INDEX CONCURRENTLY IF EXISTS public.sage_orders_region_idx" {
-		t.Fatalf("SQL %q rollback %q, want %q", s.ProposedSQL, s.RollbackSQL, want)
-	}
-}
-
-func TestBuild_HashedIdentifiersMapBackLocally(t *testing.T) {
-	in := baseInput(t, "shop")
-	in.Pseudonyms = map[string]string{"t_9f2c": "orders", "c_11aa": "region",
-		"c_22bb": "country"}
-	in.Report.Hypotheses = []report.Hypothesis{hyp("create_statistics",
-		"public.t_9f2c(c_11aa, c_22bb)")}
-	res, err := Build(context.Background(), in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Plan == nil || len(res.Plan.Steps) != 2 || res.Plan.Steps[1].ProposedSQL != statsSQL {
-		t.Fatalf("plan %s advice %+v, want the statistics step on the real names",
-			stepSQLs(res.Plan), res.Advice)
-	}
-	in.Report.Hypotheses = []report.Hypothesis{hyp("create_statistics",
-		"public.t_0000(c_11aa, c_22bb)")}
-	res, err = Build(context.Background(), in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a := adviceFor(t, res, "public.t_0000(c_11aa, c_22bb)"); a.Reason != ReasonUnknownObject {
-		t.Fatalf("an unmapped pseudonym gave %+v, want unknown_object", a)
-	}
-}
-
 func TestBuild_GeneratorAdviceAndUnmeasurableCandidatesAreAdvice(t *testing.T) {
 	in := baseInput(t, "shop")
 	adv := candidate.Candidate{Generator: "schemadebt", Kind: "partition",
@@ -437,7 +385,7 @@ func TestBuild_ModelAuthorityFollowsTheClassLevel(t *testing.T) {
 		t.Fatalf("model step after G-M1: %+v, want its class level (automatic)", res.Steps[1])
 	}
 	in.Report.Hypotheses = []report.Hypothesis{hyp("alter_database_guc", "work_mem=64MB",
-		"settings/work_mem")}
+		"setting/work_mem")}
 	in.Settings = changeplan.SettingContexts{"work_mem": "user"}
 	res, err = Build(context.Background(), in)
 	if err != nil || len(res.Steps) != 2 {

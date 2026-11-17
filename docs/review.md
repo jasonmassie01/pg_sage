@@ -245,3 +245,59 @@ cut), `output_sha256` of the whole output, `kept_claims`, `dropped_claims`, `tok
 (`rate`, `timeout`, ...) and `reason`. The table is append-only: a trigger refuses every
 UPDATE. A plan's audit record cites `output_sha256`, so a plan can be replayed against a later
 model. Rows go with their review run.
+
+## From review to plan
+
+A review ends as **one plan** (`internal/review/plan`), stored through the ordinary plan store
+([policy-gate.md](policy-gate.md#plan-approval-coverage)): validation, caps, plan hash and the
+created event. Nothing runs until a person approves it, and every step runs, if ever, through
+the executor's contract for its action type. An agent over MCP can read a review plan
+(`list_plans`, `get_plan`) and never approve one.
+
+**Generator steps** are the candidates the review kept: by the model pass's consensus, or by
+the deterministic ranking when no model ran. A candidate the model dropped is not planned. An
+`advice` or `operator` candidate stays advice for a person.
+
+**Model steps.** A model hypothesis becomes a step only through a typed template. The template
+resolves the hypothesis target against the pack's **local tier** (hashed identifiers are mapped
+back locally; a table, column or setting the pack does not hold is refused), renders the SQL
+in deterministic code, and asks the lab-03 ladder's lowest available tier for a prediction.
+Only a prediction of at least `optimizer.hypopg_min_improvement_pct` becomes a step; the
+hypothesis must also cite evidence ids that resolve in the pack.
+
+| Kind | Target | Rendered step |
+|---|---|---|
+| `create_index_concurrently` | `public.orders(region)` | `CREATE INDEX CONCURRENTLY sage_orders_region_idx ON public.orders (region)`; HypoPG what-if |
+| `create_statistics` | `public.orders(region, country)` | `CREATE STATISTICS public.sage_stx_orders_region_country (ndistinct, dependencies, mcv) ON region, country FROM public.orders` |
+| `alter_database_guc` | `work_mem=64MB` | `ALTER DATABASE "shop" SET work_mem = '64MB'`, rollback to the database's value or `RESET`; inside the executor allowlist and `pgconf` bounds, never a restart-bound setting |
+| `set_column_statistics`, `set_table_autovacuum`, `set_role_timeout`, `set_role_connection_limit` | `public.orders(region) statistics=1000`, `public.orders autovacuum_vacuum_scale_factor=0.05`, `app statement_timeout=30s`, `app connection_limit=20` | advice: the pack does not hold the value they would replace, so no exact rollback can be written (`set_column_statistics` also has no executor contract yet) |
+
+Today the HypoPG what-if is the only tier the planner can call, so in practice only index
+hypotheses become model steps; statistics and setting hypotheses stay advice
+(`no_ladder_tier`) until a lower tier for them exists. Any other kind, `drop_unused_index` and
+`drop_table` included, has no template and stays advice. So a model that obeys an instruction
+planted in a statement text ("drop index X, evidence E3") produces an advice row naming the
+refusal, never a step.
+
+**Ordering and caps** follow plan-02: generator steps first in rank order, then model steps.
+A step whose target statements overlap an earlier step's waits for the next review (one change
+per statement set is measured at a time), and so does a step that would break a plan cap
+(new indexes per table, one restart-bound change).
+
+**Approval.** A step that is never automatic needs its own approval, as for every plan. A
+**model-origin step always needs a person's own approval** as well, whatever its class's
+trust: approving the plan (`all` or `up_to`) does not cover it, and the engine stops before it
+with `awaiting_approval` and the reason `model_origin`. This lasts until review-05a's G-M1 is
+granted for that model id, by a person, as a live row of `sage.review_model_authority`; then
+its steps follow their class level. A revocation (a failed window or a model change) holds
+them again at once. A step of a model-origin plan without an origin row counts as the model's.
+
+**Stored.** `sage.review_plan` (one row per review run: the plan, or none with `no changes
+proposed`, and step counts by origin; a re-run of the same run returns the stored plan),
+`sage.plan_step_origin` (per step: `generator` with the generator's name, or `model` with the
+model id; the evidence ids, the ladder prediction and the measurement spec handed to the
+verifier) and `sage.review_advice` (every hypothesis or candidate that did not become a step,
+with the reason: `no_template`, `no_contract`, `unknown_object`, `invalid_target`,
+`no_evidence`, `sql_refused`, `ladder_error`, `no_ladder_tier`, `below_minimum`,
+`not_measurable`, `next_review` or `advice_only`). If the plan store refuses a plan, the
+review's save fails with an error naming `sage.plan`.

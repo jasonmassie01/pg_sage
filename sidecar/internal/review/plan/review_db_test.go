@@ -101,9 +101,13 @@ func fullReview(t *testing.T, ctx context.Context, pool *pgxpool.Pool, db string
 	if err != nil || len(cands) == 0 {
 		t.Fatalf("index generator: %d candidates, %v", len(cands), err)
 	}
-	tier, err := workpack.ForModel(local, workpack.ModelOptions{})
+	derived, err := workpack.ForModel(local, workpack.ModelOptions{})
 	if err != nil {
 		t.Fatalf("model tier: %v", err)
+	}
+	tier, err := workpack.Decode(derived.Body, derived.Manifest)
+	if err != nil {
+		t.Fatalf("open the model tier: %v", err)
 	}
 	settings := modelpass.Settings{Mode: "auto", Runs: 1, Consensus: "majority"}
 	deps := modelpass.Deps{Store: modelpass.NewStore(pool), Protocol: agentloop.ProtocolNative,
