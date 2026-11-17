@@ -95,6 +95,9 @@ type RuntimeDeps struct {
 	// Audit serves the E2 audit routes; its Pool, Control and DatabaseID are
 	// filled from the fleet and the control pool.
 	Audit AuditDeps
+	// WorkloadPseudonymKey keys the workload pack model tier's identifier
+	// hashing (evid-02c); nil refuses hash_identifiers.
+	WorkloadPseudonymKey []byte
 	// LLMBudgets covers every LLM client (general, optimizer, per-database)
 	// and the fleet budget; nil falls back to the shared manager (G3-B14).
 	LLMBudgets LLMBudgetRegistry
@@ -252,7 +255,7 @@ func registerFleetScopedRoutes(
 	registerDeploymentStatusRoutes(apiMux, cfg, rt, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	// Sage SRE investigations live with each database's runtime (D3-style
 	// fleet resolution), not in the control pool.
-	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
+	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy), cfg, workloadPackKeys(rt, pool))
 	registerSRESignalRoutes(apiMux, mgr, cfg)
 	if rt.DatabricksAppAuth {
 		registerAppSLISampleRoute(apiMux, mgr, cfg)

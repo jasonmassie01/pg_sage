@@ -557,6 +557,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`agent_whoami`](#agent_whoami) | `read` | always |
 | [`agent_request_capability`](#agent_request_capability) | `propose` | always |
 | [`upgrade_readiness`](#upgrade_readiness) | `read` | always |
+| [`get_workload_pack`](#get_workload_pack) | `read` | always |
 
 ### `get_policy`
 
@@ -983,7 +984,7 @@ Scope: `propose`
 
 ### `list_facts`
 
-List pg_sage's typed facts about a database (who owns an object, test fixtures, CDC slots, archives, table windows): proposed ones awaiting a person and confirmed ones, which bind pg_sage.
+List pg_sage's typed facts about a database (who owns an object, test fixtures, CDC slots, archives, table windows, the owner brief): proposed ones awaiting a person and confirmed ones, which bind pg_sage (the owner brief is context only).
 
 Scope: `read`
 
@@ -991,7 +992,7 @@ Scope: `read`
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `status` | string | no |  |
-| `type` | string | no | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window` |
+| `type` | string | no | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window`, `owner_brief`, `do_not_touch` |
 
 ### `propose_fact`
 
@@ -1004,8 +1005,8 @@ Scope: `propose`
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `evidence` | string | yes | length <= 500 |
 | `subject` | string | yes | length <= 300 |
-| `subject_kind` | string | yes | one of `index`, `table`, `schema`, `slot` |
-| `type` | string | yes | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window` |
+| `subject_kind` | string | yes | one of `index`, `table`, `schema`, `slot`, `database` |
+| `type` | string | yes | one of `owned_by_app_migrations`, `test_fixture`, `slot_consumer`, `append_only`, `table_window`, `owner_brief`, `do_not_touch` |
 | `value` | object | no |  |
 
 ### `decide_fact`
@@ -1270,5 +1271,16 @@ Scope: `read`
 | `method` | string | no | default pg_upgrade; one of `pg_upgrade`, `blue_green`, `logical` |
 | `target_database` | string | no | a monitored database already at target_major to compare extensions against; length <= 63 |
 | `target_major` | integer | yes | the major to upgrade to (above the server's, at most the newest pg_sage knows); value >= 1 |
+
+### `get_workload_pack`
+
+Read a workload evidence pack's model tier: the redacted form a model may read (numeric column statistics, sanitized statement texts, plan shapes, schema and settings with literals redacted, sparkline charts as PNG data URIs) and its size. It never returns the local tier: no statement text as written, no most-common value, no plan condition. List packs and build one in the dashboard or with POST /api/v1/databases/{db}/workload-packs.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `content_sha256` | string | yes | the pack's content hash (64 lower-case hex); pattern `^[0-9a-f]{64}$` |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

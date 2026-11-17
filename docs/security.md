@@ -486,6 +486,25 @@ redirects. The AWS SDK's own IMDS client is outside pg_sage's code. A
 census test fails the build on any HTTP client, transport or dialer built
 outside `internal/egress`.
 
+### Workload evidence pack tiers
+
+A workload evidence pack (`docs/architecture.md`) is stored whole, its local tier, and
+never leaves pg_sage. Only its model tier is meant for a model. It holds numeric
+statistics and redacted text: no most-common values or histogram bounds, no plan filter
+values, no literals in statement texts, definitions or owner notes, no long compared
+numbers, no credential-bearing settings and no confirmer emails. A leak guard refuses
+the tier if anything the local tier read reaches it. Viewers can open the model tier on
+the database page ("What would leave"), so the owner sees exactly what would leave
+before any model reads it. The signed export holds the local tier's statement texts:
+only admins download it, and each download is recorded in `sage.auth_audit`.
+
+Decision D3 is open (OWNER ACTION). It decides which LLM providers may receive the
+model tier by default and whether `hash_identifiers` is on by default. Until the owner
+decides, no code path sends the tier to a model, and identifiers are not hashed unless
+asked for. The spec's recommendation: send only the model tier, keep identifiers
+hashable, check each provider's data-retention terms before enabling it by default, and
+keep a local-model path.
+
 ### Model output is data
 
 The configuration advisor's prompts carry query text and table names that any

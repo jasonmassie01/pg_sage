@@ -141,6 +141,129 @@ workload explorer shows it as one line under the top statements, silent when `ok
 90%. A history migration (`pg_sage history migrate`) copies the daily and coverage rows
 and rebuilds the hourly tier from the copied snapshots ("hourly rollup rebuilt").
 
+**Workload evidence pack.** A pack (`internal/evidence/workpack`, format
+`pg_sage-workload/1`) is one database's workload over a window of 14 to 100 whole UTC days
+(default 28), as canonical JSON sections sealed with the evidence pack format:
+`header.json` (database, window, hour-of-week timezone `baseline.timezone`, version,
+platform, collector capabilities, and each day's tier: a day the rolling hourly purge
+(`query_rollup_hourly_days`, with an hour's margin for the purge's time zone) has reached,
+even in part, reads the daily rollup and is listed `daily`; a daily day the window only
+partly covers is not counted), `coverage.json` (the coverage report of the window), `workload.json`
+(families, each a statement's command plus its sorted referenced relations or
+`unparsed:<queryid>`: totals, top 20 queryids and a 168-bucket hour-of-week shape from
+the hourly days, a bucket seen under three weeks marked learning; at most 50 families and
+500 queryids by execution time, with `truncated`) and `growth.json` (weekly calls and
+execution time per family, daily database and 50 largest table sizes, each with slope,
+R2 and the slope's standard error; under three points the trend is `unknown`, a day with
+no snapshot is `null` and counted in `missing_days`). `content_sha256` is the SHA-256 of
+the sorted `name sha256` lines, so the same window and data give the same hash; when and
+by whom it was built is stored beside it, never in it. Every fact has an evidence id from
+what it is about (`workload/family/<12 hex of the key's SHA-256>`, `workload/query/<queryid>`,
+`coverage/window/all`, `growth/workload/<family>`, `growth/db/size`,
+`growth/table/<schema.table>`), resolved against the pack that holds it. A build only
+reads the history store, in one read-only transaction with a 30 s statement timeout, and
+stores the pack once per database and hash in `sage.workload_packs` beside the history
+(`history.store`); a stored pack is never changed, and
+`retention.workload_packs_days` (180) deletes old ones. `POST
+/api/v1/databases/{db}/workload-packs` (operator) builds one within 60 s, answering
+`reused: true` for a window whose data is already stored; `GET
+.../workload-packs`, `.../{sha}` and `.../{sha}/evidence/{id}` read them (viewer, scoped to
+the database). `pg_sage_workload_pack_builds_total{database,result}` and
+`pg_sage_workload_pack_bytes{database}` report builds.
+
+Packs built since evid-02b hold nine more sections, each fact with an id. Nothing
+pg_sage could not measure is ever zero or left out: it is `unknown` (or `absent`,
+`unreadable`, `unavailable`).
+- `indexes.json` (`index/idx/<schema.index>`): every index of the user schemas, from
+  `pg_index`. Each has its size, definition, the unique, primary, constraint, valid and
+  partial flags, and exact-duplicate and left-prefix overlaps (same table, method,
+  predicate, keys, operator classes, collations and options). It also has the window's
+  scans and its table's writes, from the first and last `indexes` and `tables` snapshots.
+  Both are `unknown` when the relation-statistics epoch moved in between. There is no
+  advice.
+- `settings.json` (`setting/<name>`): the last config snapshot's settings, with their
+  changes by day. Beside them are the measures they are judged by: temp bytes per hour,
+  requested and timed checkpoints and WAL bytes per hour, each only within one
+  statistics epoch, and peak client backends against `max_connections` less the
+  reserved slots. Hardware (vCPUs, memory) comes from `sage.host_usage_hourly` for the
+  database's cloud resource.
+- `autovacuum.json` (`table/av/<schema.table>`): autovacuum and autoanalyze runs over the
+  window, the last times, a daily dead-tuple series and the reloptions (one that does not
+  parse is kept as text).
+- `schema.json` (`schema/table/<schema.table>`): tables and partition roots, with size,
+  partition key and partition count, columns, constraints and index definitions. At most
+  2,000 tables and 20,000 columns, with `truncated`; a table whose constraint or index
+  list reached its bound is left out with the tables after it, never listed half.
+  pg_sage's and the system schemas are left out.
+- `plans.json` (`plan/query/<queryid>`): the latest captured plan before the window's
+  end of each of the top 50 queryids. It is shape only (`planhash.Shape`: structure,
+  plan rows, total cost, actual rows and loops), with its fingerprint.
+- `connections.json` (`connections/hour/<0-167>`): mean client sessions per hour of week,
+  by state and by connection age (under 1 min, 1-10 min, 10-60 min, 1 h or more, and
+  `unknown` for a session whose start the monitoring role cannot see).
+- `provider.json` (`provider/<fact>`): instance class, vCPUs, memory, storage and the
+  serverless flag from the cloud telemetry, or `provider/status = unknown`. It is never
+  inferred.
+- `stats.json` (`stats/column/<schema.table.column>`, `stats/table/<schema.table>`):
+  `null_frac`, `n_distinct`, `correlation` and `avg_width` of the referenced tables'
+  columns.
+- `context.json` (`context/brief`, `context/fact/<type.kind.subject>`): the confirmed
+  owner brief and binding facts, with who confirmed them and when.
+
+Each catalog section reads the monitored database in its own read-only transaction with
+the safety statement and lock timeouts. A failed section fails the build and names the
+section and the bounds. The exception is `provider`, which records `unavailable` with its
+error class. A build's body may set `include_conditions` (each full plan, every string's
+literals redacted) and `include_value_samples` (`pg_stats` most common values and
+histogram bounds, into `stats.json` only). Both are off by default. The manifest's
+`completeness` gives, per section, whether every fact is known, and the share of
+sections that are. Packs built before keep their hash and still open.
+
+Since evid-02c a pack also holds `texts.json`: the statement text of each listed queryid
+(at most 16 KB, `truncated` past it). It has no evidence ids, so resolving facts never
+returns a text. A pack has three redaction tiers:
+- **local**: the stored pack. It never leaves pg_sage.
+- **model** (`workpack.ForModel`, `GET .../workload-packs/{sha}?tier=model`, viewer; MCP
+  `get_workload_pack`): what a model may read. Statement texts go through
+  `llm.SanitizeForLLMStrict`, which redacts literals and comments and long compared
+  numbers whatever `llm.redact_numeric_literals` says, and are cut at 2,000 characters.
+  `stats.json` keeps only its four numeric fields. Plan conditions are dropped.
+  Constraint, index and partition definitions go through `llm.RedactSQLLiterals`, and so
+  do owner notes, cut at 300 characters. Who confirmed a fact (an email) is dropped.
+  Settings whose name holds `conninfo`, `password`, `passphrase`, `command`, `secret` or
+  `token` read `redacted`. With `hash_identifiers=true`, every schema, table, index and
+  column name becomes `t_<10 hex>` of an HMAC-SHA256 keyed by the install's pseudonym key.
+  That key is 32 random bytes in `sage.workload_pseudonym_key` on the control database,
+  sealed under `encryption_key`, so a name keeps its pseudonym across packs, restarts and
+  key rotations. The map back to names is returned beside the tier, never inside it.
+  `tier.json` names the local pack the tier came from. `charts/<family>.png` and
+  `charts/<family>-growth.png` are 336 x 64 PNG sparklines of the top 10 families'
+  hour-of-week exec time and weekly growth. A leak guard checks every string of the tier
+  before it is returned. It refuses the tier (`422 model_leak`, naming the section and
+  field, never the value) when a string holds any of these:
+  - a most-common value or histogram bound the build read;
+  - a string literal of the local tier's texts, plans, definitions or notes;
+  - a credential-shaped token (`sk-`, `AKIA`, `ghp_`, `xox`, `-----BEGIN`).
+
+  The guard skips values under 6 characters, values without a letter, names of the pack
+  and words of its statement structure. A value matches only as a whole token
+  (`is_active` does not hold `active`). Credential-shaped tokens are refused everywhere,
+  but values are not searched for in map keys (session states, option names), in strings
+  that are exactly a name of the pack, or in fixed-vocabulary fields such as a setting's
+  `source`, a plan's `Node Type` or the header's `timezone`. Without these exemptions,
+  a common literal such as `'active'` or `'default'` would refuse nearly every tier.
+- **export** (`GET .../workload-packs/{sha}/export`, admin): the local tier without value
+  samples, plus the charts, as a tar.gz in format `pg_sage-workload/1`. It is signed with
+  the evidence key and checks with `evidence.Verify` or `sha256sum -c SHA256SUMS`. It
+  holds the statement texts, so it is admin only and recorded as `evidence_exported` in
+  `sage.auth_audit`. Without a signing key it is refused (`409 no_signing_key`), never
+  sent unsigned.
+
+The database page's "Evidence packs" card builds packs (operator), shows "What would
+leave" (the model tier) and downloads the signed export (admin). Nothing sends the model
+tier to a model yet. Decision D3 decides which providers may receive it and whether
+identifiers are hashed by default.
+
 **The workload rule.** The collector keeps every statement. Advice paths (findings, the
 tuning agent, plan capture, verification targets, the briefing) read only application
 workload as `internal/workload` classifies it: pg_sage's own tagged statements,
@@ -165,7 +288,9 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 `index_bloat` (the largest btree indexes' bloat estimated from planner statistics, at most 200),
 `workload_sessions` (this database's client sessions by role, application and state, at most
 200 groups, its 50 longest-running sessions with their sqlcommenter tags, and per-role
-statement time and cluster-wide session counts, which workload budgets read),
+statement time and cluster-wide session counts, which workload budgets read, and its
+client sessions by state and connection age: under 1 min, 1-10 min, 10-60 min, 1 h and
+over; snapshots written before carry no ages),
 `wait_events` (this database's active client sessions grouped by wait class and event, a
 session without a wait event counted as `CPU`: one aggregate of `pg_stat_activity` per
 cycle, with no query text and no pid, and without pg_sage's own sessions; it is sampled

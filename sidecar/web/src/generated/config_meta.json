@@ -3274,6 +3274,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "retention.workload_packs_days": {
+    "type": "int",
+    "default": 180,
+    "doc": "Days to keep stored workload evidence packs (sage.workload_packs), from when each was built. 0 disables. Range 0-3650. Default 180.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
   "runaway.enabled": {
     "type": "bool",
     "default": false,

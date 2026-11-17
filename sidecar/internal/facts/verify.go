@@ -91,7 +91,9 @@ func (s *Store) check(ctx context.Context, f Fact, now time.Time, fresh bool) (v
 	if f.ExpiresAt != nil && !f.ExpiresAt.After(now) {
 		return s.expireFor(ctx, f, expiryDatePassed, f.Status == StatusConfirmed, false)
 	}
-	if fresh {
+	if fresh || f.Kind == KindDatabase {
+		// A database fact's subject is the database itself: always present,
+		// with no catalog lookup.
 		return verdict{present: true}, nil
 	}
 	p, err := ParsePattern(f.Kind, f.Subject)

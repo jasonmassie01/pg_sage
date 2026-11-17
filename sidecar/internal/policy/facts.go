@@ -29,7 +29,7 @@ type FactBinding struct {
 	Type    string
 	Subject string
 	// Route is where the work goes instead: source_fix, alert, keep,
-	// excluded or wait_for_window.
+	// excluded, wait_for_window or hold (do_not_touch: nothing runs).
 	Route string
 	// Summary is the fact in words; Object the request's object it matched.
 	Summary     string

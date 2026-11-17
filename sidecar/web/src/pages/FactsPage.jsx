@@ -7,12 +7,14 @@ import { EmptyState } from '../components/EmptyState'
 import { canDecideFacts, factsListURL } from '../lib/facts'
 import { FactCard } from './facts/FactCard'
 import { DeclareFactForm } from './facts/DeclareFactForm'
+import { OwnerBriefForm } from './facts/OwnerBriefForm'
 
 // Binding facts (roadmap 2.3): what is true about a database that pg_sage
 // cannot see in the catalog (an index owned by the app's migrations, a
 // test-fixture schema, a slot's consumer, an append-only table, a
-// maintenance window). Proposed facts change nothing; confirmed facts only
-// narrow or redirect what pg_sage does on its own.
+// maintenance window, a table that must not be touched) and the owner
+// brief. Proposed facts change nothing; confirmed facts only narrow or
+// redirect what pg_sage does on its own.
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
@@ -32,6 +34,7 @@ export function FactsPage({ database, user }) {
   return (
     <section className="space-y-4" data-testid="facts-page">
       <FactsExplainer />
+      <OwnerBriefForm database={database} canDecide={canDecide} onDeclared={list.refetch} />
       <div className="flex flex-wrap gap-2" aria-label="Fact status filters">
         {TABS.map(t => (
           <button key={t.value} type="button" data-testid={`facts-tab-${t.value}`}

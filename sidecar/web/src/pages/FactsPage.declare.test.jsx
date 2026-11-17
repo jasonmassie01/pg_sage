@@ -44,11 +44,11 @@ async function renderForm(database = 'orders', role = 'operator') {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Declare a fact form', () => {
-  it('offers the five fact types and limits the subject kind by type', async () => {
+  it('offers the six fact types and limits the subject kind by type', async () => {
     stubFetch()
     await renderForm()
     expect(options('declare-type')).toEqual(['owned_by_app_migrations', 'test_fixture',
-      'slot_consumer', 'append_only', 'table_window'])
+      'slot_consumer', 'append_only', 'table_window', 'do_not_touch'])
     expect(options('declare-kind')).toEqual(['index', 'table', 'schema'])
     choose('declare-type', 'test_fixture')
     expect(options('declare-kind')).toEqual(['schema'])

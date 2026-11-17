@@ -79,6 +79,9 @@ type WorkloadSessions struct {
 	Truncated bool                  `json:"truncated"`
 	Long      []WorkloadLongSession `json:"long"`
 	Roles     []WorkloadRoleStats   `json:"roles"`
+	// Ages is the sessions by state and connection-age bucket (evid-02b);
+	// nil (absent) on snapshots written before it.
+	Ages []WorkloadAgeBucket `json:"ages,omitempty"`
 }
 
 var workloadSessionFilter = `
@@ -145,6 +148,9 @@ func (c *Collector) collectWorkloadSessions(ctx context.Context) (*WorkloadSessi
 	}
 	if ws.Roles, err = c.workloadRoles(ctx); err != nil {
 		return nil, fmt.Errorf("workload role statistics: %w", err)
+	}
+	if ws.Ages, err = c.workloadAges(ctx); err != nil {
+		return nil, fmt.Errorf("workload connection ages: %w", err)
 	}
 	return ws, nil
 }

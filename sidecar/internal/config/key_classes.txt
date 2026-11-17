@@ -391,6 +391,7 @@ derivable retention.query_store_days
 derivable retention.sage_size_warning_pct
 derivable retention.snapshots_days
 derivable retention.snapshots_max_pct
+derivable retention.workload_packs_days
 
 # Sage SRE: actions and autonomy are authority; detectors, runways, SLO
 # proxies and sampling are derivable thresholds and cadences.
