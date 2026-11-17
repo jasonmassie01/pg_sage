@@ -44,7 +44,7 @@ type IOCapacityConfig struct {
 }
 
 type CloneProviderConfig struct {
-	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab), lakebase_branch (a Lakebase branch per rehearsal) or neon_branch (a Neon branch per rehearsal)." api:"clone_provider" enum:"none|dle|lakebase_branch|neon_branch"`
+	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab), lakebase_branch (a Lakebase branch per rehearsal), neon_branch (a Neon branch per rehearsal) or aurora_clone (an Aurora copy-on-write clone per rehearsal)." api:"clone_provider" enum:"none|dle|lakebase_branch|neon_branch|aurora_clone"`
 	DLEEndpoint        string `yaml:"dle_endpoint" doc:"Database Lab Engine API endpoint." api:"string"`
 	DLEToken           string `yaml:"dle_token" doc:"Database Lab bearer token." secret:"true" api:"string"`
 	MaxCloneAgeMinutes int    `yaml:"max_clone_age_minutes" doc:"Maximum source snapshot age." api:"int_pos"`
@@ -64,6 +64,8 @@ type CloneProviderConfig struct {
 	Lakebase CloneLakebaseConfig `yaml:"lakebase"`
 	// Neon configures clone.provider neon_branch (lab-05b).
 	Neon CloneNeonConfig `yaml:"neon"`
+	// Aurora configures clone.provider aurora_clone (lab-05c).
+	Aurora CloneAuroraConfig `yaml:"aurora"`
 }
 
 // CloneLakebaseConfig is the Lakebase project rehearsal branches are made

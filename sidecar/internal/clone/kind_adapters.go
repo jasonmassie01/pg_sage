@@ -22,8 +22,8 @@ const (
 
 // AdapterNames are every registered clone adapter name.
 func AdapterNames() []string {
-	return []string{DLEAdapter, LakebaseAdapter, NeonAdapter, RDSRestoreAdapter,
-		CloudSQLCloneAdapter, AlloyDBRestoreAdapter, AzureRestoreAdapter}
+	return []string{DLEAdapter, LakebaseAdapter, NeonAdapter, AuroraAdapter,
+		RDSRestoreAdapter, CloudSQLCloneAdapter, AlloyDBRestoreAdapter, AzureRestoreAdapter}
 }
 
 // Typical create times, used for the cost label and operator guidance.

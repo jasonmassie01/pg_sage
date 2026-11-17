@@ -135,6 +135,9 @@
 | `budgets` | `restart` | `-` | `safety_critical` |
 | `checks` | `restart` | `-` | `safety_critical` |
 | `clone.allow_full_copy` | `restart` | `-` | `safety_critical` |
+| `clone.aurora.instance_class` | `restart` | `-` | `operator_preference` |
+| `clone.aurora.region` | `restart` | `-` | `safety_critical` |
+| `clone.aurora.ttl_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.lakebase.endpoint_max_cu` | `restart` | `-` | `operator_preference` |

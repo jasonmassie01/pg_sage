@@ -391,6 +391,18 @@ func TestAuroraNew_InvalidConfigIsRefused(t *testing.T) {
 	}
 }
 
+func TestAuroraAdapter_IsRegistered(t *testing.T) {
+	if clone.AuroraAdapter != "aurora_clone" {
+		t.Fatalf("adapter name = %q", clone.AuroraAdapter)
+	}
+	for _, name := range clone.AdapterNames() {
+		if name == clone.AuroraAdapter {
+			return
+		}
+	}
+	t.Fatalf("aurora_clone is not in %v", clone.AdapterNames())
+}
+
 func TestAuroraDescribe_IsCopyOnWriteWithTheVendorReadyTime(t *testing.T) {
 	p := newAuroraProvider(t, newAuroraFake(t), func(c *clone.AuroraConfig) {
 		c.TTL = 90 * time.Minute

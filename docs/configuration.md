@@ -289,7 +289,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_VERIFY_REGRESS_PCT` | `15` | Regression percentage that triggers a revert (`verify.regress_pct`) |
 | `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum rise of the table's WAL bytes per written tuple (`verify.write_impact_pct`) |
 | `SAGE_VERIFY_MIN_SAMPLES` | `30` | Minimum verification samples (`verify.min_samples`) |
-| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch` or `neon_branch` |
+| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch`, `neon_branch` or `aurora_clone` |
 | `SAGE_CLONE_DLE_ENDPOINT` | (none) | Database Lab Engine API endpoint (`clone.dle_endpoint`) |
 | `SAGE_CLONE_DLE_TOKEN` / `_FILE` | (none) | Database Lab bearer token (`clone.dle_token`) |
 | `SAGE_CLONE_NEON_API_KEY` / `_FILE` | (none) | Neon API key for `neon_branch` rehearsal branches (`clone.neon.api_key`) |

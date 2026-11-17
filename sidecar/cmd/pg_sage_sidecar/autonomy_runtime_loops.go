@@ -193,7 +193,7 @@ func gameDayProvider(s config.SREGameDaysConfig, cloneCfg config.CloneProviderCo
 		return nil, "", nil
 	}
 	if cloneCfg.Provider == "dle" || cloneCfg.Provider == clone.LakebaseAdapter ||
-		cloneCfg.Provider == clone.NeonAdapter {
+		cloneCfg.Provider == clone.NeonAdapter || cloneCfg.Provider == clone.AuroraAdapter {
 		p, err := cloneProviderFor(cloneCfg, guard.own)
 		return p, cloneCfg.Provider, err
 	}

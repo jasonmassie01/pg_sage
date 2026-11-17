@@ -36,13 +36,14 @@ type SREAutonomyConfig struct {
 // SREGameDaysConfig configures game days: PGIncidentBench fault programs
 // on a disposable clone (clone.provider) of the customer's database.
 type SREGameDaysConfig struct {
-	Enabled       bool     `yaml:"enabled" doc:"Run game days. Needs clone.provider dle, lakebase_branch or neon_branch, or local_dsn. Default: false."`
+	Enabled       bool     `yaml:"enabled" doc:"Run game days. Needs clone.provider dle, lakebase_branch, neon_branch or aurora_clone, or local_dsn. Default: false."`
 	IntervalHours int      `yaml:"interval_hours" doc:"Hours between scheduled game days, 24-2160. Default: 168."`
 	LocalDSN      string   `yaml:"local_dsn" doc:"Fallback when clone.provider is none: a database for game days and local bench runs, on its own cluster and marked by COMMENT ON DATABASE <db> IS 'pg_sage:gameday_target'." secret:"true"`
 	Families      []string `yaml:"families" doc:"Incident families to exercise. Empty: every family the bench covers."`
 	// CustomerPrograms (benches-12) nil: on when the clone provider's
-	// clones hold customer objects (dle, lakebase_branch, neon_branch).
-	CustomerPrograms *bool `yaml:"customer_programs" doc:"Run the customer programs, which exercise the monitored database's own hottest table on the clone. Nil defaults to on when the clone provider copies the database (dle, lakebase_branch, neon_branch); never on local_dsn."`
+	// clones hold customer objects (dle, lakebase_branch, neon_branch,
+	// aurora_clone).
+	CustomerPrograms *bool `yaml:"customer_programs" doc:"Run the customer programs, which exercise the monitored database's own hottest table on the clone. Nil defaults to on when the clone provider copies the database (dle, lakebase_branch, neon_branch, aurora_clone); never on local_dsn."`
 }
 
 // SRECanaryConfig configures the fleet canary for remediations.

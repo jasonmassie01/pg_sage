@@ -1161,6 +1161,27 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "clone.aurora.instance_class": {
+    "type": "string",
+    "default": "",
+    "doc": "Instance class of the clone's one instance, such as db.r6g.large or db.serverless. Default: the source writer's class (db.serverless for a Serverless v2 writer).",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.aurora.region": {
+    "type": "string",
+    "default": "",
+    "doc": "AWS region of the monitored Aurora PostgreSQL cluster; its copy-on-write clones are made there and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.aurora.ttl_minutes": {
+    "type": "int",
+    "default": 60,
+    "doc": "Longest a clone lives, in minutes, 30 to 1440; tagged on the clone, and a rehearsal ends by then. Aurora has no server-side expiry, so the reaper destroys a leaked clone. Default: 60.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "clone.dle_endpoint": {
     "type": "string",
     "default": "",
@@ -1259,14 +1280,15 @@
   "clone.provider": {
     "type": "string",
     "default": "none",
-    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch (a Lakebase branch per rehearsal) or neon_branch (a Neon branch per rehearsal).",
+    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch (a Lakebase branch per rehearsal), neon_branch (a Neon branch per rehearsal) or aurora_clone (an Aurora copy-on-write clone per rehearsal).",
     "class": "safety_critical",
     "lifecycle": "restart",
     "enum": [
       "none",
       "dle",
       "lakebase_branch",
-      "neon_branch"
+      "neon_branch",
+      "aurora_clone"
     ]
   },
   "clone.rehearsal_statement_timeout_seconds": {
@@ -3861,7 +3883,7 @@
   "sre.autonomy.game_days.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Run game days. Needs clone.provider dle, lakebase_branch or neon_branch, or local_dsn. Default: false.",
+    "doc": "Run game days. Needs clone.provider dle, lakebase_branch, neon_branch or aurora_clone, or local_dsn. Default: false.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

@@ -441,6 +441,7 @@ func defaultCloneConfig() CloneProviderConfig {
 			EndpointMaxCU: DefaultCloneLakebaseEndpointMaxCU},
 		Neon: CloneNeonConfig{TTLMinutes: DefaultCloneNeonTTLMinutes,
 			EndpointMaxCU: DefaultCloneNeonEndpointMaxCU},
+		Aurora: CloneAuroraConfig{TTLMinutes: DefaultCloneAuroraTTLMinutes},
 	}
 }
 

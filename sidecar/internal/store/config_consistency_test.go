@@ -43,6 +43,9 @@ var excludedPrefixes = []string{
 	// lab-05b: the Neon project, parent branch and API key of rehearsal
 	// branches: YAML or env only, restart-bound, the key a secret
 	"clone.neon.",
+	// lab-05c: the Aurora region and clone size: YAML only, restart-bound,
+	// the region safety-critical
+	"clone.aurora.",
 	"sre.read_policy.", // trusted observation boundary; never a model-derived grant
 	"self_config.",     // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound

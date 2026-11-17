@@ -14,18 +14,18 @@ const CloneLakebaseMaxTTLMinutes = 1440
 
 var cloneLakebaseID = regexp.MustCompile(`^` + lakebaseid.Pattern + `$`)
 
-// validate checks the clone block. The lakebase and neon blocks are
+// validate checks the clone block. The lakebase, neon and aurora blocks are
 // checked only when their provider is chosen, so a leftover block never
 // stops another adapter.
 func (c CloneProviderConfig) validate() error {
 	switch c.Provider {
 	case "snapshot":
 		return fmt.Errorf("clone.provider snapshot has no adapter in this build: it was "+
-			"replaced by the full-copy providers %s; use dle, lakebase_branch, neon_branch "+
-			"or none", strings.Join(CloneFullCopyProviders, ", "))
+			"replaced by the full-copy providers %s; use dle, lakebase_branch, neon_branch, "+
+			"aurora_clone or none", strings.Join(CloneFullCopyProviders, ", "))
 	case CloneRDSRestore, CloneCloudSQLClone, CloneAlloyDBRestore, CloneAzureRestore:
 		return fmt.Errorf("clone.provider %s is not in this build yet: use dle, "+
-			"lakebase_branch, neon_branch or none", c.Provider)
+			"lakebase_branch, neon_branch, aurora_clone or none", c.Provider)
 	case "none":
 	case "dle":
 		if c.DLEEndpoint == "" {
@@ -39,9 +39,13 @@ func (c CloneProviderConfig) validate() error {
 		if err := c.Neon.validate(); err != nil {
 			return err
 		}
+	case CloneAuroraClone:
+		if err := c.Aurora.validate(); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("clone.provider must be none or dle (Database Lab), " +
-			"lakebase_branch (Lakebase) or neon_branch (Neon)")
+			"lakebase_branch (Lakebase), neon_branch (Neon) or aurora_clone (Aurora)")
 	}
 	if c.MaxCloneAgeMinutes <= 0 {
 		return fmt.Errorf("clone.max_clone_age_minutes must be positive")

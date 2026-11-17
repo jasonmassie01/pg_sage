@@ -53,21 +53,25 @@ func cloneProviderFor(cloneConfig config.CloneProviderConfig,
 		return lakebaseCloneProvider(cloneConfig, monitored)
 	case clonepkg.NeonAdapter:
 		return neonCloneProvider(cloneConfig, monitored)
+	case clonepkg.AuroraAdapter:
+		return auroraCloneProvider(cloneConfig, monitored)
 	default:
 		return nil, errors.New("unsupported clone provider " + cloneConfig.Provider +
-			" (this build has none, dle, lakebase_branch or neon_branch)")
+			" (this build has none, dle, lakebase_branch, neon_branch or aurora_clone)")
 	}
 }
 
 // cloneReceiptScope is the provider scope receipts are written under: the
-// Lakebase or Neon project, or the adapter's endpoint without credentials
-// or a trailing slash.
+// Lakebase or Neon project, the Aurora region, or the adapter's endpoint
+// without credentials or a trailing slash.
 func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
 	switch cloneConfig.Provider {
 	case clonepkg.LakebaseAdapter:
 		return "projects/" + cloneConfig.Lakebase.Project
 	case clonepkg.NeonAdapter:
 		return "projects/" + cloneConfig.Neon.ProjectID
+	case clonepkg.AuroraAdapter:
+		return "aws/" + cloneConfig.Aurora.Region
 	}
 	parsed, err := url.Parse(cloneConfig.DLEEndpoint)
 	if err != nil || parsed.Host == "" {
@@ -197,8 +201,9 @@ func migrationPlanner(loaded *config.Config) *planpkg.Planner {
 // rehearsalMaxDuration bounds one rehearsal, clone creation included. A
 // lakebase_branch or neon_branch branch expires on the server ttl_minutes
 // after its create starts, so the rehearsal ends by then (market-03,
-// lab-05b): never later than the branch, and never zero (the
-// orchestrator's default), at least a minute.
+// lab-05b), as it does by an aurora_clone clone's ttl_minutes (lab-05c):
+// never later than the clone, and never zero (the orchestrator's
+// default), at least a minute.
 func rehearsalMaxDuration(cloneConfig config.CloneProviderConfig) time.Duration {
 	bound := rehearsalpkg.DefaultMaxDuration
 	var minutes int
@@ -207,6 +212,8 @@ func rehearsalMaxDuration(cloneConfig config.CloneProviderConfig) time.Duration 
 		minutes = cloneConfig.Lakebase.TTLMinutes
 	case clonepkg.NeonAdapter:
 		minutes = cloneConfig.Neon.TTLMinutes
+	case clonepkg.AuroraAdapter:
+		minutes = cloneConfig.Aurora.TTLMinutes
 	default:
 		return bound
 	}

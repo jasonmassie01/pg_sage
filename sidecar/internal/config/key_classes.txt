@@ -186,6 +186,9 @@ safety_critical clone.neon.parent_branch
 safety_critical clone.neon.api_key
 operator_preference clone.neon.endpoint_max_cu
 operator_preference clone.neon.ttl_minutes
+safety_critical clone.aurora.region
+operator_preference clone.aurora.instance_class
+operator_preference clone.aurora.ttl_minutes
 safety_critical clone.provider
 operator_preference value.toil_model_version
 

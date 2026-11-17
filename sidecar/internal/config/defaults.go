@@ -245,7 +245,10 @@ const (
 	// bound (1 h), so a leaked branch lives no longer than one.
 	DefaultCloneNeonTTLMinutes = 60
 	// DefaultCloneNeonEndpointMaxCU is clone.neon.endpoint_max_cu.
-	DefaultCloneNeonEndpointMaxCU    = 1.0
+	DefaultCloneNeonEndpointMaxCU = 1.0
+	// DefaultCloneAuroraTTLMinutes is clone.aurora.ttl_minutes: the
+	// rehearsal bound (1 h), clone creation included.
+	DefaultCloneAuroraTTLMinutes     = 60
 	DefaultFreezeRedBufferPct        = 25.0
 	DefaultWALAbandonAfterMinutes    = 1440
 	DefaultWALRetainedDiskPctCeiling = 10.0

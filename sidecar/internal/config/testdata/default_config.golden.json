@@ -552,6 +552,11 @@
       "APIKey": "",
       "EndpointMaxCU": 1,
       "TTLMinutes": 60
+    },
+    "Aurora": {
+      "Region": "",
+      "InstanceClass": "",
+      "TTLMinutes": 60
     }
   },
   "Custodian": {
