@@ -541,6 +541,93 @@ provider_advice:
   enabled: true   # default; a source runs only when its provider is detected and its credentials exist
 ```
 
+## Aurora clone rehearsal
+
+`clone.provider: aurora_clone` rehearses a migration or an index on an Aurora copy-on-write
+clone of the monitored Aurora PostgreSQL cluster. A clone shares the source's storage
+until either side writes, so it is ready in 10 to 20 minutes (AWS's figure) and is billed
+for its one instance and the pages that change, not a full copy.
+
+```yaml
+clone:
+  provider: aurora_clone
+  aurora:
+    region: us-east-1          # the monitored cluster's region (required)
+    instance_class: ""         # default: the source writer's class (db.serverless for Serverless v2)
+    ttl_minutes: 60            # 30-1440: the longest a clone lives; a rehearsal ends by then
+```
+
+What pg_sage does for each clone:
+
+- The source is the cluster whose endpoint pg_sage connects to: an Aurora cluster endpoint
+  (`<cluster>.cluster-<id>.<region>.rds.amazonaws.com`) or its `cluster-ro-` reader. An
+  instance endpoint, a custom endpoint, RDS Proxy or custom DNS is refused with "not an
+  Aurora cluster", as is an Aurora MySQL cluster or a cluster in another region.
+- It restores cluster `sage-<purpose>-<8 hex>` with `RestoreDBClusterToPointInTime`, restore
+  type `copy-on-write`, the latest restorable time, the source's subnet group, security
+  groups and cluster parameter group, and deletion protection off. The cluster is tagged
+  `pg-sage-receipt=<its name>` and `pg-sage-expires-at=<now + ttl_minutes>`.
+- It adds one instance `sage-<purpose>-<8 hex>-1` of `clone.aurora.instance_class` (default:
+  the writer's class) with the writer's parameter group and public accessibility, and
+  waits until the cluster and the instance are available.
+- The clone's DSN is the monitored DSN with the clone's endpoint in place of the source's:
+  the same users and passwords (the data is a copy). Its `sslmode` is at least `require`.
+  A DSN that sets `hostaddr`, `service` or more than one host is refused.
+- Aurora makes at most 15 copy-on-write clones of one source (clones of clones included);
+  the 16th would be a full copy at full price, so pg_sage refuses it and names the limit.
+- Teardown deletes the instance, waits for it to go, then deletes the cluster with no final
+  snapshot and no retained automated backups. Only a `sage-*` cluster tagged with its own
+  name and without deletion protection is ever deleted.
+- A failure after the cluster exists deletes it before the error returns. A restore answered
+  with 5xx, or a create cut short, leaves the receipt `create_uncertain`; the reaper finds
+  the cluster by its tag and destroys it. Aurora has no server-side expiry, so the reaper
+  is the backstop: check `aws rds describe-db-clusters` for `sage-*` clusters if a sidecar
+  was down for long.
+
+Credentials come from the AWS default chain (environment, shared config, web identity or
+an instance role), as for telemetry. Without them nothing is created or deleted and
+rehearsals are recommendation-only with reason `clone_unavailable`. The API cannot switch
+`clone.provider` to `aurora_clone`; set it in YAML and restart.
+
+The IAM policy the sidecar needs, on top of the telemetry reads (narrow `Resource` to your
+account's cluster and instance ARNs, `arn:aws:rds:<region>:<account>:cluster:sage-*` and
+`...:db:sage-*` for the writes):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PgSageAuroraCloneRead",
+      "Effect": "Allow",
+      "Action": ["rds:DescribeDBClusters", "rds:DescribeDBInstances"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PgSageAuroraCloneWrite",
+      "Effect": "Allow",
+      "Action": [
+        "rds:RestoreDBClusterToPointInTime",
+        "rds:CreateDBInstance",
+        "rds:DeleteDBInstance",
+        "rds:DeleteDBCluster",
+        "rds:AddTagsToResource"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+`RestoreDBClusterToPointInTime` also needs read access to the source cluster, its subnet
+group, security groups and parameter groups, and `kms:CreateGrant` / `kms:DescribeKey` on
+the source's KMS key when its storage is encrypted with a customer-managed key.
+
+Cost: each receipt carries a cost label of instance-hours for its lifetime, priced only by
+a `cost.rates` entry you supply (pg_sage ships no prices). The number that says it works:
+Aurora rehearsals that got a clone, their median time to ready, clone instance-hours per
+week from the receipts, and clones left after 24 hours (0).
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):
