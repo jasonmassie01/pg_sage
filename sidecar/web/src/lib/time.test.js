@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  TIME_ZONE_PREF, formatTime, setTimeZoneMode, subscribeTimeZoneMode, timeZoneMode,
+  TIME_ZONE_PREF, formatClock, formatTime, intlTimeZone, setTimeZoneMode,
+  subscribeTimeZoneMode, timeZoneMode,
 } from './time'
 
 // ux-05d (win 15): every time the dashboard prints names its zone, so a
@@ -93,6 +94,35 @@ describe('formatTime', () => {
     expect(formatTime(AT)).toBe('2026-11-15 20:05 UTC')
     setTimeZoneMode('local')
     expect(formatTime(AT)).toBe(formatTime(AT, { zone: 'local' }))
+  })
+})
+
+describe('formatClock', () => {
+  it('prints the time of day with its zone in both modes', () => {
+    expect(formatClock(AT, { zone: 'utc' })).toBe('20:05 UTC')
+    expect(formatClock(AT, { zone: 'America/Chicago' })).toBe('14:05 CST')
+    setTimeZoneMode('utc')
+    expect(formatClock(AT)).toBe('20:05 UTC')
+  })
+
+  it('treats missing and unreadable values as formatTime does', () => {
+    expect(formatClock(null)).toBe('—')
+    expect(formatClock('')).toBe('—')
+    expect(formatClock('not a date')).toBe('unknown time')
+    expect(formatClock(0, { zone: 'utc' })).toBe('00:00 UTC')
+  })
+
+  it('names the right side of the DST change', () => {
+    expect(formatClock('2026-11-01T06:30:00Z', { zone: 'America/Chicago' })).toBe('01:30 CDT')
+    expect(formatClock('2026-11-01T07:30:00Z', { zone: 'America/Chicago' })).toBe('01:30 CST')
+  })
+})
+
+describe('intlTimeZone', () => {
+  it('is UTC in utc mode and the browser zone (undefined) in local mode', () => {
+    expect(intlTimeZone()).toBeUndefined()
+    setTimeZoneMode('utc')
+    expect(intlTimeZone()).toBe('UTC')
   })
 })
 

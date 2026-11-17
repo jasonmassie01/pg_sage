@@ -73,11 +73,10 @@ function toDate(value) {
   return null
 }
 
-// formatTime prints value (a Date, an ISO string or epoch milliseconds) as
-// "YYYY-MM-DD HH:MM ZONE". zone is "local", "utc" or an IANA zone name and
-// defaults to the viewer's choice. A missing value prints an em dash and an
-// unreadable one "unknown time", never "Invalid Date".
-export function formatTime(value, { zone } = {}) {
+// zonedParts splits value into its year to minute fields and zone name in
+// zone (the viewer's choice when none is given), or returns the text for a
+// missing ("—") or unreadable ("unknown time") value.
+function zonedParts(value, zone) {
   if (value === null || value === undefined || value === '') return MISSING
   const date = toDate(value)
   if (!date || Number.isNaN(date.getTime())) return UNKNOWN
@@ -85,6 +84,30 @@ export function formatTime(value, { zone } = {}) {
   for (const part of formatterFor(zone || timeZoneMode()).formatToParts(date)) {
     parts[part.type] = part.value
   }
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} `
-    + parts.timeZoneName
+  return parts
+}
+
+// formatTime prints value (a Date, an ISO string or epoch milliseconds) as
+// "YYYY-MM-DD HH:MM ZONE". zone is "local", "utc" or an IANA zone name and
+// defaults to the viewer's choice. A missing value prints an em dash and an
+// unreadable one "unknown time", never "Invalid Date".
+export function formatTime(value, { zone } = {}) {
+  const p = zonedParts(value, zone)
+  if (typeof p === 'string') return p
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute} ${p.timeZoneName}`
+}
+
+// formatClock prints only the time of day with its zone, "14:05 CST", for
+// times that are plainly today: a last collection, a budget reset, a chart
+// tick. It follows the viewer's choice and treats bad input as formatTime.
+export function formatClock(value, { zone } = {}) {
+  const p = zonedParts(value, zone)
+  if (typeof p === 'string') return p
+  return `${p.hour}:${p.minute} ${p.timeZoneName}`
+}
+
+// intlTimeZone is the timeZone option for a caller that keeps its own
+// Intl format (with timeZoneName), so it still follows the viewer's choice.
+export function intlTimeZone() {
+  return timeZoneMode() === 'utc' ? 'UTC' : undefined
 }
