@@ -128,9 +128,21 @@ and the gate can only lower these.
 **Production writes (D7).** A write or DDL in `prod` needs point-in-time recovery: the
 provider's PITR flag from cloud telemetry, else WAL archiving that is on and has a command or
 library. Without it the request is refused (`agent_no_pitr`). L3 is earned only with a passed
-restore drill in the last 14 days; pg_sage does not run restore drills yet, so production
-writes and DDL stay at L2, where a person approves each one, even with PITR on. Whether PITR
-actually works is reported separately by `wal_archive_failing`, `wal_archive_stale` and
+restore drill in the last 14 days (a pass exactly 14 days old still counts; one second older
+caps at L2). The drill time D7 reads is the database's newest passed row of
+`sage.restore_drills`, on both PITR paths; a failed drill after a pass does not reset it, and
+with no passed drill (or none readable) production writes and DDL stay at L2, where a person
+approves each one, even with PITR on.
+
+pg_sage earns that drill itself: the fleet leader runs a restore drill on `clone.provider`
+([restore drills](managed-clouds.md#restore-drills)). Branch and copy-on-write kinds
+(`lakebase_branch`, `neon_branch`, `aurora_clone`) and `dle` drill every 30 days by default;
+when the agent gate is on for a production database the cadence of a cheap kind is shortened
+to 12 days (`require_restore_drill_days` - 2), so the monthly default does not keep D7 at L2.
+Full copies drill only when both `clone.allow_full_copy` and the policy document's
+`drill.kinds` include them. A failed drill opens the critical finding `restore_drill_failed`;
+without a provider the database gets `recoverability_unknown` and stays at L2. Whether PITR
+actually works is also reported by `wal_archive_failing`, `wal_archive_stale` and
 `backup_stale` (see [Backups and WAL archiving](findings.md#backups-and-wal-archiving)).
 
 **Environment ceiling.** The effective ceiling is the narrower of the agent's `env_ceiling`

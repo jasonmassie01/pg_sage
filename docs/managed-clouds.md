@@ -935,6 +935,48 @@ server price, which needs `clone.allow_full_copy: true`. See
 [Azure: restore rehearsal](azure.md#restore-rehearsal) for the cost warning, the flow and the
 RBAC actions.
 
+## Restore drills
+
+pg_sage checks that a database's latest backup actually restores (drill-01a). Every hour the
+fleet leader starts the drills that are due on `clone.provider`, at most
+`drill.max_concurrent_per_fleet` (2) at once and one per database, on top of
+`clone.max_creates_per_hour` and the provider's backoff. Each database's cadence, kinds,
+budget and marker query are in its standing policy document's
+[drill block](policy-gate.md#restore-drills).
+
+A drill:
+
+1. Writes the clone's receipt (purpose `drill`, expiring an hour after the drill budget) and
+   logs its cost label first (instance-hours; an amount only with an operator `cost.rates`
+   entry, never a price table).
+2. Asks the provider for a clone at the latest restorable point: a branch (Neon, Lakebase),
+   an Aurora clone, a Database Lab thin clone, or a full restore (RDS, Cloud SQL, AlloyDB,
+   Azure).
+3. Connects only after the identity guard shows the clone is not the source
+   (`target_is_production` otherwise).
+4. Runs its checks read-only in one `READ ONLY` transaction with a statement timeout: the
+   source's 20 largest tables exist with the same columns, row estimates within 5%, exact
+   counts of the 3 smallest within 5%, a primary-key sample checksum, `SELECT 1` on each, and
+   the newest committed marker. The only statements sent to the source are the same
+   read-only, bounded catalog, count and sample queries.
+5. Destroys the clone, always, even when a check failed or the drill timed out. A teardown
+   that fails leaves the receipt `destroying` for the clone reaper, which also destroys a
+   drill clone a killed sidecar left once its receipt expires.
+6. Records the result in `sage.restore_drills` (kept 400 days): measured RTO (clone ready and
+   checks done, from the request) and RPO (the restore point minus the newest marker on the
+   clone; unknown, with the reason, when no marker exists).
+
+| Platform | Drill |
+|---|---|
+| Neon, Lakebase, Aurora, Database Lab | On by default (cheap: branch, copy-on-write or thin clone) |
+| RDS, Cloud SQL, AlloyDB, Azure | Opt-in: `clone.allow_full_copy: true` and `full_copy` in `drill.kinds`; a full instance bill for the drill |
+| Self-managed, no clone provider | No drill: the info finding `recoverability_unknown` says what to configure |
+
+A failed or errored drill opens the critical finding
+[`restore_drill_failed`](findings.md#restore_drill_failed), which pages through the finding
+alerts and resolves on the next pass. A drill held back by the create limit or the provider's
+backoff is retried on the next pass and records nothing.
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):

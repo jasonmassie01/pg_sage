@@ -829,6 +829,17 @@ These keys only open and close findings (see
 pg_sage may do. They are YAML only. A self-managed server's backup tool leaves no evidence
 in the catalog, so there its backup freshness is unknown and only the WAL archiver is judged.
 
+### Restore drills
+
+| Parameter | Default | Description |
+|---|---|---|
+| `drill.max_concurrent_per_fleet` | `2` | Most restore drills the fleet leader runs at once, across every database, `1`-`10`. Each database runs one drill at a time, and every drill clone still counts against `clone.max_creates_per_hour`. Restart to apply |
+
+Each database's drill is set in its standing policy document's `drill` block (cadence,
+clone kinds, time budget, marker query; see
+[restore drills](policy-gate.md#restore-drills)), and drills run on `clone.provider`
+([managed clouds](managed-clouds.md#restore-drills)). YAML only.
+
 ### HA role checks
 
 | Parameter | Default | Description |

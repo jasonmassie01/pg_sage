@@ -263,6 +263,34 @@ The gate checks one action at a time. A plan runs many, so the standing policy d
   - `caps_unavailable` or `size_unavailable`: the policy or a size could not be read. The
     step waits and never passes the cap.
 
+## Restore drills
+
+The standing policy document's `drill` block sets the database's restore drill
+([managed clouds](managed-clouds.md#restore-drills)). A passed drill is what lets D7 lift
+production agent writes above L2 ([agent governance](agent-governance.md)).
+
+```json
+"drill": {
+  "enabled": true,
+  "cadence_days": 30,
+  "kinds": ["thin_clone", "branch", "copy_on_write"],
+  "max_duration_minutes": 240,
+  "marker_query": "SELECT max(created_at) FROM app.orders"
+}
+```
+
+| Field | Default | Range | What it sets |
+|---|---|---|---|
+| `enabled` | `true` | | `false` stops drills for the database (D7 then stays at L2). |
+| `cadence_days` | 30 | 1-365 | Days between drills. With the agent gate on for a production database, a cheap kind drills at least every `require_restore_drill_days` - 2 days. A failed cheap drill is retried after a day. |
+| `kinds` | `thin_clone`, `branch`, `copy_on_write` | those and `full_copy` | Clone kinds a drill may use. `full_copy` (RDS, Cloud SQL, AlloyDB, Azure restore) also needs `clone.allow_full_copy: true`; an empty list is refused. |
+| `max_duration_minutes` | 240 | 1-1440 | The whole drill, the clone's creation included. The clone's receipt lives an hour longer, so the reaper never destroys a clone in use. |
+| `marker_query` | none | one `SELECT` or `WITH`, no `;`, at most 2,000 characters | Run on the clone only, read-only, to find the newest committed timestamp when the sage schema is not in the database. Without it and without the sage schema, RPO is reported unknown. |
+
+A document without the block, or with a field left out, gets the defaults; an explicit `0`
+or an out-of-range value is refused when the document is parsed, and the error names the
+field. The block is written back only when it differs from the defaults.
+
   A step that waits past its `deadline_minutes`, counted from when it first waited, ends
   `skipped` with verdict `expired`, and its `on_expired` decides. `halt_ask` (the default)
   halts the plan. `keep` and `revert_step` let it go on, since nothing ran.
