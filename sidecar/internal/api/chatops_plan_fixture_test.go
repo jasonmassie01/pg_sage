@@ -32,6 +32,14 @@ func (planResolver) TargetCalls(context.Context, []int64, time.Duration) (int64,
 	return 5000, nil
 }
 
+// SettingExists and ManagedChangeExists accept too (plan-02d widened
+// changeplan.Resolver on another branch).
+func (planResolver) SettingExists(context.Context, string) (bool, error) { return true, nil }
+
+func (planResolver) ManagedChangeExists(context.Context, int64) (bool, error) {
+	return true, nil
+}
+
 // moderateStep is a reversible index create (risk tier moderate).
 func moderateStep(ordinal int, table string) changeplan.Step {
 	name := fmt.Sprintf("idx_%s_%d", table, ordinal)
