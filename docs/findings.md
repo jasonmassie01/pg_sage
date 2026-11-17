@@ -1619,3 +1619,8 @@ why, each recorded state (`requested`, `cloned`, `upgraded`, `analyzed`,
 `ANALYZE` ran and how long they took. One rehearsal runs per database at a time.
 Supabase branches hold no data, so they cannot rehearse; a database with no
 clone provider gets the brief only.
+
+The rehearsal is built into the sidecar but not yet exposed: no API route, MCP
+tool or `config.yaml` key starts one, and the restore command's `upgrade_argv`
+cannot be set from the configuration yet. Until that wiring lands, the brief
+carries a `rehearsal` section only when the sidecar's code stores one.
