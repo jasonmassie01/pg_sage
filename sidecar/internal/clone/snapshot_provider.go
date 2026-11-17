@@ -12,10 +12,12 @@ type Snapshot struct {
 	CreatedAt time.Time
 }
 
-// SnapshotAPI is the control-plane boundary a managed-snapshot adapter
-// would implement. This build ships none: RDS/Aurora, Cloud SQL and AlloyDB
-// snapshot adapters are out of scope (owner question 6), so clone.provider
-// snapshot is refused. Lakebase clones by branch (LakebaseBranchProvider).
+// SnapshotAPI is the control-plane boundary of a full-copy restore. This
+// build ships no implementation: SnapshotProvider is the shared full-copy
+// wrapper the rds_restore, cloudsql_clone, alloydb_restore and
+// azure_restore adapters (lab-05d to lab-05g) build on, and until they do
+// clone.provider refuses those names. Lakebase clones by branch
+// (LakebaseBranchProvider).
 type SnapshotAPI interface {
 	LatestSnapshot(context.Context) (Snapshot, error)
 	Restore(context.Context, Snapshot, CloneSpec) (Clone, error)
