@@ -32,6 +32,10 @@ type configChange struct {
 	priorToast    map[string]string
 	role          roleBudgetStmt
 	priorRole     roleBudgetPrior
+	// colStats and priorStatTarget: a set_column_statistics change
+	// (review-02c); priorStatTarget nil is NULL, the PG17+ default.
+	colStats        ColumnStatisticsStmt
+	priorStatTarget *int16
 	rollbackSQL   string
 	outcome       *outcomeBaseline
 }
@@ -87,6 +91,11 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 		}
 		c.priorDatabase = prior
 		c.rollbackSQL = databaseRollbackSQL(stmt, prior)
+	} else if stmt, ok := ParseSetColumnStatistics(sql); ok {
+		if err := e.prepareColumnStatistics(ctx, c, stmt); err != nil {
+			return nil, err
+		}
+		return c, nil // no outcome metric: the ANALYZE that uses it is its own step
 	} else if stmt, ok := pgconf.ParseAlterTableReloptions(sql); ok {
 		c.kind, c.table = configKindReloption, stmt
 		main, toast, err := captureReloptions(ctx, e.pool, stmt.Table)
@@ -130,6 +139,8 @@ func (c *configChange) record(state map[string]any) {
 		change["database"], change["name"], change["requested"], change["prior"] = c.priorDatabase.Database, c.guc.Name, c.guc.Value, c.priorDatabase
 	case configKindRoleBudget:
 		change["role"], change["prior"] = c.role.Role, c.priorRole
+	case configKindColumnStatistics:
+		c.recordColumnStatistics(change)
 	default:
 		change["table"] = c.table.Table
 		change["prior"] = map[string]any{"table": c.priorMain, "toast": c.priorToast}

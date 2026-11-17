@@ -38,7 +38,7 @@ var pinnedContractActionTypes = []string{
 	"prepare_query_rewrite", "promote_role_work_mem", "set_role_timeout",
 	"set_role_connection_limit", "retire_query_hint",
 	"apply_query_hint", "investigate_query_plan", "create_statistics",
-	"prepare_parameterized_query", "retention_delete", "revert_created_index",
+	"set_column_statistics", "prepare_parameterized_query", "retention_delete", "revert_created_index",
 	"restore_dropped_index", "replace_index", "revert_created_statistics",
 	"guard_role_ensure", "guard_role_retire", "guard_freeze",
 	"guard_kill", "guard_unfreeze", "guard_grant",

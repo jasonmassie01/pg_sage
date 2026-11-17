@@ -57,6 +57,9 @@ func (e *Executor) readBackConfig(
 	if c.kind == configKindRoleBudget {
 		return e.readRoleBudget(ctx, c)
 	}
+	if c.kind == configKindColumnStatistics {
+		return e.readColumnStatistics(ctx, c)
+	}
 	if c.kind == configKindGUC {
 		// The reload is part of the change: the role that ran ALTER SYSTEM
 		// reloads it (security-09), not the observation role.
