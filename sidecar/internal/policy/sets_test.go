@@ -317,3 +317,20 @@ func TestDocumentDiff_ListsChangedFields(t *testing.T) {
 }
 
 func ptr64(v int64) *int64 { return &v }
+
+func TestDecodeMemberTags_ObjectListAndInvalid(t *testing.T) {
+	got, err := decodeMemberTags([]byte(`{"tier":"prod"}`))
+	if err != nil || got["tier"] != "prod" || len(got) != 1 {
+		t.Fatalf("object tags = %v, %v", got, err)
+	}
+	got, err = decodeMemberTags([]byte(`["tier=prod","canary"]`))
+	if err != nil || got["tier"] != "prod" || got["canary"] != "" || len(got) != 2 {
+		t.Fatalf("list tags = %v, %v", got, err)
+	}
+	if got, err := decodeMemberTags([]byte(`{}`)); err != nil || len(got) != 0 {
+		t.Fatalf("empty tags = %v, %v", got, err)
+	}
+	if _, err := decodeMemberTags([]byte(`{"tier":7}`)); err == nil {
+		t.Fatal("a non-string tag value decoded; resolution must fail closed on it")
+	}
+}

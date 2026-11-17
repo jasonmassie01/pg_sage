@@ -364,6 +364,7 @@ func registerControlPoolRoutes(
 	registerPolicyRoutesWith(apiMux, policy.NewStore(pool), func() bool {
 		return cfg != nil && cfg.Agents.SingleOperatorMode
 	})
+	registerPolicySetRoutes(apiMux, policy.NewStore(pool)) // fleetpol-01a
 	registerDecommissionRoutes(apiMux, pool)
 	registerSecurityPostureRoutes(apiMux, rt.SecretsPosture)
 }

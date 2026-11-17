@@ -28,7 +28,7 @@ func DecodeSet(raw []byte) (PolicySet, error) {
 	if len(strings.TrimSpace(string(raw))) == 0 {
 		return PolicySet{}, fmt.Errorf("%w: empty body", ErrInvalidSet)
 	}
-	if err := decodeJSONStrict(raw, &set); err != nil {
+	if err := DecodeStrictJSON(raw, &set); err != nil {
 		return PolicySet{}, fmt.Errorf("%w: %v", ErrInvalidSet, err)
 	}
 	return set, nil

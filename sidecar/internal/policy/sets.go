@@ -245,7 +245,9 @@ func exceptionFor(member Member, setName string, own *Policy, exc *Exception) *E
 // setScope is the sage.policy.scope of a set's rows.
 func setScope(name string) string { return setScopePrefix + name }
 
-func decodeJSONStrict(raw []byte, out any) error {
+// DecodeStrictJSON decodes one JSON value, refusing unknown fields and
+// trailing data.
+func DecodeStrictJSON(raw []byte, out any) error {
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(out); err != nil {
