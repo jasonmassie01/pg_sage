@@ -249,6 +249,7 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlPlanOperatorSteps", ddlPlanOperatorSteps},                       // plan-02d
 		{"ddlPlanApprovalModes", ddlPlanApprovalModes},                       // plan-03a
 		{"ddlWorkloadPseudonymKey", ddlWorkloadPseudonymKey},                 // evid-02c
+		{"ddlUserInboxSeenAt", ddlUserInboxSeenAt},                           // ux-01b
 		{"ddlActionQueueLadder", ddlActionQueueLadder},                       // lab-03a
 		{"ddlCloneInstancesHolder", ddlCloneInstancesHolder},                 // lab-05a
 		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},               // lab-03b

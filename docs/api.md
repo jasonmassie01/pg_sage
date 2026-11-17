@@ -72,6 +72,48 @@ databases they are granted.
 The same read and parameters, without the items:
 `{"total", "counts_by_kind", "lower_bound", "errors"}`.
 
+### `GET` and `POST /api/v1/inbox/seen`
+
+The time the signed-in person last saw the Inbox, kept on their user row
+(`sage.users.inbox_seen_at`), so it follows them across devices. `GET` answers
+`{"seen_at": "<RFC 3339>"}`, or `{"seen_at": null}` on a first visit. `POST`
+takes an optional `{"seen_at": "<RFC 3339>"}` (the time the page showed; absent
+means now) and answers the stored time. The time only moves forward: an
+earlier time, or two tabs marking at once, leaves the later one, and a time
+after the server's clock is stored as now. Every role may read and mark its
+own time and no one else's; it changes no monitored database. Without a
+control database the routes are absent (404). Errors: 400 for a body that is
+not that object, 401 without a signed-in user, 404 when the user row is gone.
+
+### The Inbox page
+
+The dashboard's home page (`#/`) is the Inbox. **Needs you** lists the inbox
+items; a change approval opens its approval card in place, a proposed fact is
+confirmed or rejected in place and an autonomy promotion is approved in place
+after a confirm (a HIGH one needs the typed phrase). Every other kind links to
+its own page. Each decision goes to the item's own route with
+`X-Sage-Surface: inbox`. **Since you were last here** lists the outcome ledger
+rows executed since `inbox_seen_at` (the last 24 hours on a first visit, said
+so on the page), each once; a row whose rollback is `available` offers
+**Undo**, which loads the action, shows its stored rollback SQL and asks for a
+reason. When nothing waits and every source answered, the page says so from
+counts, for example "Nothing needs you. 6 changes since Tuesday, all
+verified." When a source could not be read the page names it ("Could not
+read: autonomy promotions") and never claims that nothing waits. The page
+marks itself seen after 5 seconds visible. The Value page moved to `#/value`;
+the Inbox shows one Value line linking to it. The one nav badge is on Inbox:
+`/api/v1/inbox/count` `total`, `N+` for a lower bound and `99+` above 99.
+
+Rollbacks from the Inbox and from Actions require a reason (3 to 500
+characters), sent as `reason` in `POST /api/v1/actions/{id}/rollback` with
+`record_kind`; the ledger and the action history keep it.
+
+Actions takes exact links: `#/actions?tab=<key>` opens a tab
+(`recommendations`, `pending`, `progress`, `executed` or `decisions`) and
+`queue=<id>` outlines a queued proposal's approval card on the review tab;
+`action=<id>` still focuses an executed change. An unknown tab or a malformed
+id is ignored.
+
 ### Over MCP
 
 `get_inbox` answers the same payload to an agent supervisor

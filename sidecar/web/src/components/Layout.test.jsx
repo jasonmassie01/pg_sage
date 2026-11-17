@@ -47,7 +47,7 @@ describe('Layout fleet data', () => {
     renderLayout()
     expect(screen.getByText('page')).toBeInTheDocument()
     // dashboard-02: the badge is scoped to the selected database.
-    expect(requestedURLs()).toContain('/api/v1/actions/pending/count?database=orders')
+    expect(requestedURLs()).toContain('/api/v1/inbox/count?database=orders')
     expect(requestedURLs()).not.toContain('/api/v1/databases')
   })
 
@@ -100,10 +100,6 @@ const fleetRow = (name, trust_level, families, extra = {}) => ({
 })
 const fleetOf = (rows, summary = {}) => ({
   summary: { emergency_stopped: false, ...summary }, databases: rows,
-})
-const pendingData = data => url => ({
-  data: url?.startsWith('/api/v1/actions/pending/count') ? data : null,
-  refetch: vi.fn(), updatedAt: null,
 })
 const idleAPI = () => ({ data: null, refetch: vi.fn(), updatedAt: null })
 
@@ -197,49 +193,8 @@ describe('Layout header autonomy', () => {
   })
 })
 
-describe('Layout pending badge', () => {
-  afterEach(() => { useAPI.mockImplementation(idleAPI) })
-
-  it('shows N+ and names the databases it could not count', () => {
-    useAPI.mockImplementation(pendingData({
-      count: 3, errors: [{ database: 'b', error: 'not connected' }],
-    }))
-    renderLayout({ selectedDB: 'all' })
-    const badge = screen.getByText('3+')
-    expect(badge.getAttribute('title')).toMatch(/\bb\b/)
-    expect(badge.getAttribute('title')).toMatch(/not connected/)
-  })
-
-  it('shows an exact count when every database answered', () => {
-    useAPI.mockImplementation(pendingData({ count: 3, errors: [] }))
-    renderLayout({ selectedDB: 'all' })
-    expect(screen.getByText('3')).toBeInTheDocument()
-    expect(screen.queryByText('3+')).toBeNull()
-  })
-
-  it('shows 0+ when nothing was counted because a database failed', () => {
-    useAPI.mockImplementation(pendingData({
-      count: 0, errors: [{ database: 'b', error: 'count pending actions failed' }],
-    }))
-    renderLayout({ selectedDB: 'all' })
-    expect(screen.getByText('0+')).toBeInTheDocument()
-  })
-
-  it('scopes the count to the selected database', () => {
-    const { rerender } = renderLayout({ selectedDB: 'all' })
-    expect(requestedURLs()).toContain('/api/v1/actions/pending/count')
-    rerenderLayout(rerender, { selectedDB: 'a' })
-    // The last pending-count request: the secrets banner (security-08) also
-    // calls useAPI, after the badge.
-    const counts = requestedURLs().filter(u => u?.startsWith('/api/v1/actions/pending/count'))
-    expect(counts.at(-1)).toBe('/api/v1/actions/pending/count?database=a')
-  })
-
-  it('does not poll the count for a viewer', () => {
-    renderLayout({ user: { email: 'v@example.com', role: 'viewer' } })
-    expect(requestedURLs().filter(Boolean)).toEqual([])
-  })
-})
+// The nav badge tests moved to Layout.badge.test.jsx with the badge itself
+// (ux-01b: one badge, on Inbox, from /api/v1/inbox/count).
 
 // dashboard-06: the nav is derived from the route registry.
 describe('Layout navigation', () => {
@@ -290,7 +245,7 @@ describe('Layout navigation', () => {
     window.location.hash = '#/advanced/findings'
     renderLayout({ user: admin })
     expect(screen.getByTestId('nav-cases')).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByTestId('nav-value')).not.toHaveAttribute('aria-current')
+    expect(screen.getByTestId('nav-inbox')).not.toHaveAttribute('aria-current')
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Cases')
   })
 

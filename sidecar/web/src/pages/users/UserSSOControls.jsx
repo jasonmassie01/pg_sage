@@ -1,3 +1,4 @@
+import { formatTime } from '../../lib/time'
 // D7: per-user SSO status and admin actions for the Users table, plus the
 // one-time link notice shown after a grant is issued.
 
@@ -47,7 +48,7 @@ export function SSOGrantNotice({ grant, onDismiss }) {
         color: 'var(--text-primary)' }}>
       <div className="mb-1">
         One-time SSO link for <strong>{grant.email}</strong>. It works once and
-        expires at {new Date(grant.expiresAt).toLocaleString()}. Send it over a
+        expires at {formatTime(grant.expiresAt)}. Send it over a
         trusted channel; it is not shown again.
       </div>
       <code className="block break-all text-xs p-2 rounded"

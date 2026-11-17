@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { cardStyle, DELIVERY_STATUS_COLORS as STATUS_COLORS } from './shared'
+import { formatTime } from '../../lib/time'
 
 // logURL is the log read for the selected database; the fleet-wide
 // scope ('all') or none lists every database (alerting-06c).
@@ -114,7 +115,7 @@ export function LogTab({ database } = {}) {
                     style={{
                       color: 'var(--text-secondary)',
                     }}>
-                    {new Date(e.sent_at).toLocaleString()}
+                    {formatTime(e.sent_at)}
                   </td>
                 </tr>
               ))}

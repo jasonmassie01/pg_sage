@@ -3,6 +3,7 @@
 // its agent principal or its owner. A retired agent's token is refused by
 // the server, and a frozen agent's gets agent_frozen, so the row says so.
 import { revocable, tokenStatus } from './tokenApi'
+import { formatTime } from '../../lib/time'
 
 const STATUS_COLORS = {
   active: 'var(--accent)',
@@ -16,7 +17,7 @@ const HEADERS = ['Name', 'Kind', 'Principal', 'Owner', 'Scopes', 'Databases',
   'Status', 'Expires', 'Last used', '']
 
 function when(ts) {
-  return new Date(ts).toLocaleString()
+  return formatTime(ts)
 }
 
 function lifecycle(token, status) {

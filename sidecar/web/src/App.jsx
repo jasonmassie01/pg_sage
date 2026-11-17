@@ -3,6 +3,7 @@ import { Layout } from './components/Layout'
 import { LoginPage } from './pages/LoginPage'
 import { LinkSSOPage } from './pages/LinkSSOPage'
 import { useAPI } from './hooks/useAPI'
+import { useTimeZoneMode } from './lib/time'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { readPref, writePref } from './lib/storage'
 import { TimeRangeProvider } from './context/TimeRangeContext'
@@ -43,6 +44,9 @@ function PlatformSignInError({ mode, onReload }) {
 export default function App({ reloadPage = () => window.location.reload() }) {
   const [route, setRoute] = useState(getRoute())
   const [selectedDB, setSelectedDB] = useState(() => readPref('pg_sage_db', 'all'))
+  // ux-05d: the header local/UTC choice re-renders the whole page, so every
+  // time printed through formatTime follows it.
+  useTimeZoneMode()
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [authMode, setAuthMode] = useState(null)

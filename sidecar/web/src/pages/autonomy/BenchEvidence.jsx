@@ -5,12 +5,13 @@
 // show none after an upgrade until the new release report is ingested.
 
 import { scoredText, skipReasons } from './gameDayText'
+import { formatTime } from '../../lib/time'
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
 
 function when(at) {
-  return at ? new Date(at).toLocaleString() : ''
+  return at ? formatTime(at) : ''
 }
 
 export function BenchEvidence({ families, benchRuns }) {

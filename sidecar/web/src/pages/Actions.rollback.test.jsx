@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Actions } from './Actions'
 
+// ux-01b: a rollback now requires the operator's reason; these tests type one
+// before Confirm, and the posted body carries it.
+const giveReason = () => fireEvent.change(screen.getByTestId('confirm-dialog-reason'),
+  { target: { value: 'operator rollback reason' } })
+
 // dashboard-10: rollback goes through the shared ConfirmDialog. It names the
 // action, the target database, the exact rollback SQL and the risk tier, and
 // nothing is sent until Confirm. The request body is unchanged.
@@ -59,6 +64,7 @@ describe('Rollback confirm dialog', () => {
     vi.stubGlobal('fetch', fetch)
     openRow()
     fireEvent.click(screen.getByTestId('rollback-action-button'))
+    giveReason()
     const dialog = screen.getByRole('dialog', { name: /Roll back action 42/ })
     expect(within(dialog).getByTestId('confirm-dialog-database')).toHaveTextContent('orders')
     expect(within(dialog).getByTestId('confirm-dialog-sql'))
@@ -87,6 +93,7 @@ describe('Rollback confirm dialog', () => {
     vi.stubGlobal('fetch', fetch)
     openRow()
     fireEvent.click(screen.getByTestId('rollback-action-button'))
+    giveReason()
     await act(async () => { fireEvent.click(screen.getByTestId('confirm-dialog-confirm')) })
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
     const [url, init] = fetch.mock.calls[0]
@@ -95,7 +102,7 @@ describe('Rollback confirm dialog', () => {
     expect(init.credentials).toBe('include')
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' })
     expect(JSON.parse(init.body)).toEqual({
-      reason: 'manual rollback from actions UI', record_kind: 'executed',
+      reason: 'operator rollback reason', record_kind: 'executed',
     })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(toast.success).toHaveBeenCalledWith('Action 42 rolled back')
@@ -107,6 +114,7 @@ describe('Rollback confirm dialog', () => {
     }))
     openRow()
     fireEvent.click(screen.getByTestId('rollback-action-button'))
+    giveReason()
     await act(async () => { fireEvent.click(screen.getByTestId('confirm-dialog-confirm')) })
     const error = await screen.findByTestId('confirm-dialog-error')
     expect(error).toHaveTextContent('index is not pg_sage owned')
@@ -121,6 +129,7 @@ describe('Rollback confirm dialog', () => {
     }))
     openRow()
     fireEvent.click(screen.getByTestId('rollback-action-button'))
+    giveReason()
     await act(async () => { fireEvent.click(screen.getByTestId('confirm-dialog-confirm')) })
     expect(await screen.findByTestId('confirm-dialog-error'))
       .toHaveTextContent('Rollback failed (502)')
@@ -130,6 +139,7 @@ describe('Rollback confirm dialog', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
     openRow()
     fireEvent.click(screen.getByTestId('rollback-action-button'))
+    giveReason()
     await act(async () => { fireEvent.click(screen.getByTestId('confirm-dialog-confirm')) })
     expect(await screen.findByTestId('confirm-dialog-error'))
       .toHaveTextContent('Failed to fetch')
@@ -141,6 +151,7 @@ describe('Rollback confirm dialog', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise(resolve => { finish = resolve })))
     openRow()
     fireEvent.click(screen.getByTestId('rollback-action-button'))
+    giveReason()
     await act(async () => { fireEvent.click(screen.getByTestId('confirm-dialog-confirm')) })
     const dialog = screen.getByRole('dialog')
     fireEvent.keyDown(dialog, { key: 'Escape' })
@@ -158,6 +169,7 @@ describe('Rollback confirm dialog', () => {
     vi.stubGlobal('fetch', fetch)
     openRow()
     fireEvent.click(screen.getByTestId('rollback-action-button'))
+    giveReason()
     const confirm = screen.getByTestId('confirm-dialog-confirm')
     expect(confirm).toBeDisabled()
     fireEvent.change(screen.getByTestId('confirm-dialog-phrase'), { target: { value: 'orders ' } })
@@ -173,6 +185,7 @@ describe('Rollback confirm dialog', () => {
     fireEvent.click(screen.getByTestId('actions-tab-executed'))
     fireEvent.click(screen.getAllByLabelText('Expand row')[0])
     fireEvent.click(screen.getByTestId('rollback-action-button'))
+    giveReason()
     expect(screen.getByTestId('confirm-dialog-database')).toHaveTextContent('billing')
   })
 })

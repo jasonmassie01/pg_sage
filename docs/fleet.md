@@ -349,6 +349,15 @@ sre:
       stage_wait_hours: 24   # 168 covers a full weekly cycle
 ```
 
+## Finding a database
+
+The Databases page has a filter above its table: it matches a name, a host
+or a tag (`key`, `value` or `key=value`), ignoring case and treating every
+character literally, and shows at most 100 rows at a time. From six
+databases the header scope picker adds a **Find database** box over the same
+names: typing narrows the list, and a unique exact name, or Enter on a single
+match, selects it.
+
 ## API routes
 
 All three routes need a session with the viewer, operator or admin role.

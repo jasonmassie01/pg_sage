@@ -443,7 +443,9 @@ series there above zero means the ledger is missing decisions.
 operator or admin role, read one database at a time (all of them by default), return no SQL
 text and record nothing.
 
-**Actions > Decisions** and `GET /api/v1/decisions` list the open withheld decisions: rows
+**Actions > Held back** (formerly Decisions) and `GET /api/v1/decisions` list the open
+withheld decisions, with each verdict and reason in words and a link to the exact approval
+request (`#/actions?tab=pending&queue=<id>`) or finding (`#/cases?finding=<id>`): rows
 with a `queue_approval`, `parked`, `blocked` or `observe_only` verdict that no execute has
 resolved and no approval queue item has taken over. A withheld row recorded outside the gate's
 repeats (a lease conflict's `ddl_conflict` park, a `custodian_backoff` escalation, a schema

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Play, ShieldAlert } from 'lucide-react'
+import { formatTime } from '../lib/time'
 
 // D8: the header emergency stop. It follows the database picker, needs
 // arm + confirm for both stop and resume, and names who stopped a
@@ -53,7 +54,7 @@ async function postControl(url, failure) {
 
 function StoppedAt({ at }) {
   if (!at) return null
-  return <time dateTime={at}>{new Date(at).toLocaleString()}</time>
+  return <time dateTime={at}>{formatTime(at)}</time>
 }
 
 function Attribution({ db }) {
@@ -106,7 +107,7 @@ function EmergencyStopBadge({ scope, summaryStopped, fleetStop }) {
       role="status"
       className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs
         font-semibold"
-      style={{ background: 'var(--red, #e53e3e)', color: '#fff' }}>
+      style={{ background: 'var(--red-solid)', color: '#fff' }}>
       <ShieldAlert size={14} aria-hidden="true" />
       <span>{content}</span>
     </span>
@@ -148,7 +149,7 @@ function ConfirmPanel({
         <button type="button" ref={confirmRef} onClick={onConfirm}
           disabled={busy} data-testid={`${testId}-confirm`}
           className="px-3 py-1.5 rounded font-semibold"
-          style={{ background: 'var(--red, #e53e3e)', color: '#fff' }}>
+          style={{ background: 'var(--red-solid)', color: '#fff' }}>
           {busy ? 'Working...' : confirmLabel}
         </button>
       </div>

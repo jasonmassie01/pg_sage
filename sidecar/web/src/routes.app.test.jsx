@@ -121,6 +121,9 @@ describe('App routes from the registry', () => {
     await open('#/alert-log')
     expect(screen.getByTestId('not-found')).toBeInTheDocument()
     expect(title()).toHaveTextContent('Not found')
+    // ux-05c: no page is called Dashboard; the way back names the Inbox.
+    expect(screen.getByRole('link', { name: 'Go to Inbox' })).toHaveAttribute('href', '#/')
+    expect(screen.queryByText(/go to dashboard/i)).toBeNull()
   })
 
   it('keeps the filtered case views and the signed-in login route', async () => {

@@ -888,6 +888,43 @@ routes with `SAGE_API_URL` (https, or http to localhost only) and
 exits 0 when decided, 1 when the sidecar refused (stale hash, not pending, a
 server error), 2 on a usage error and 3 when the token was refused.
 
+**Plan review in the dashboard (ux-03).** Actions has a **Plans** tab, first in
+its tab bar, listing the plans of the selected databases;
+`#/actions?tab=plans&plan=<id>&database=<db>` opens one plan's review (the
+Inbox's `plan_approval` item and a case link there; `plan=<id>` alone also
+opens the Plans tab). The header shows the
+goal, scope, expected effect of each stage, risk (which stages always need
+their own approval), origin (generator, model, person or agent, with the
+model and who made it) and the evidence pack hash. Each stage, in ordinal
+order, shows its status, evidence ids (linking to the outcome ledger
+filtered by that evidence), the exact SQL as text, the expected effect and
+the ladder tier it was tested at (the ledger row's highest passed tier once
+it ran, else its expected source), the measured effect and verdict from the
+outcome ledger row of its action (`not measured yet` until there is one,
+`could not be read` with the error when the ledger read failed),
+the gate to the next stage (automatic on the verdict, or a person when the
+next stage needs its own approval) and its rollback with the stages that
+depend on it, which reverting it would also revert. An operator stage reads
+"You run this" with the exact command and pg_sage's observed landing, and
+offers no rollback.
+
+A proposed plan offers Approve all, Approve up to stage N (only stages
+before the first never-automatic one; up to the last stage is all) and Step
+by step, each sent with the plan hash shown; editing is not offered. A
+stale hash (409 `content_changed`) reads "This plan changed after approval;
+approval voided" and reloads the plan; a plan whose approvals are all voided
+or at another hash says the same. After a step-by-step approval each stage
+not yet covered offers its own Approve. A halted plan shows the stage it
+halted at and why (after a revert to a checkpoint, the stage that
+regressed, not the earlier stages the walk reverted), and which stages were
+reverted, kept and never started.
+Viewers see plans; operators and admins decide them.
+
+A finding case whose finding is a step of a live plan (not draft, rejected,
+voided or cancelled) carries `plans: [{id, goal}]` in `GET /api/v1/cases`
+(at most five, newest first) and shows "Part of plan: <goal>" linking to the
+plan's review; `plans_unavailable: true` says the plans could not be read.
+
 ### API + Dashboard (Web UI)
 
 REST API and embedded React SPA on `:8080` (configurable). The v1 UI is

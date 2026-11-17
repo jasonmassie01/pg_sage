@@ -43,16 +43,84 @@ describe('DecisionsTab', () => {
     render(<DecisionsTab database="all" />)
     const rows = screen.getAllByTestId('decision-row')
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toHaveTextContent('parked')
-    expect(rows[0]).toHaveTextContent('rate limit exceeded (next frees at 18:00)')
+    expect(rows[0]).toHaveTextContent('Parked')
+    expect(rows[0]).toHaveTextContent('Rate limit exceeded. It is retried when the limit frees.')
     expect(rows[0]).toHaveTextContent('3 times')
     expect(rows[0]).toHaveTextContent('public.orders')
     expect(rows[0]).toHaveTextContent('alpha')
     expect(screen.getAllByTestId('decision-budget')[0]).toHaveTextContent(
       'Budget: next frees at 18:00')
-    expect(rows[1]).toHaveTextContent('outside maintenance window')
+    expect(rows[1]).toHaveTextContent('Outside the maintenance window')
     expect(rows[1]).not.toHaveTextContent('Budget:')
     expect(rows[1].querySelector('a[href*="actions"]')).not.toBeNull()
+  })
+
+  // ux-05b win 6: the verdict reads as the filter names it, never the enum.
+  it('labels a queue_approval verdict and links to the exact queued card', () => {
+    response.decisions = [{ ...blocked, verdict: 'queue_approval', reason: 'approval_required',
+      human_reason: 'approval required', queue_id: 9 }]
+    render(<DecisionsTab database="all" />)
+    const row = screen.getByTestId('decision-row')
+    expect(row).toHaveTextContent('Waiting for approval')
+    expect(row).toHaveTextContent(/needs a person's approval/i)
+    expect(row).not.toHaveTextContent('queue_approval')
+    expect(row).not.toHaveTextContent('approval required')
+    const link = screen.getByRole('link', { name: 'Approval request #9' })
+    expect(link).toHaveAttribute('href', '#/actions?tab=pending&queue=9&database=beta')
+  })
+
+  // ux-05b win 13: a finding link names the finding the Cases page focuses.
+  it('links a finding decision to that finding on Cases', () => {
+    response.decisions = [{ ...park, finding_id: 17 }]
+    render(<DecisionsTab database="all" />)
+    expect(screen.getByRole('link', { name: 'Finding #17' }))
+      .toHaveAttribute('href', '#/cases?finding=17&database=alpha')
+  })
+
+  it('encodes the database and ids in the link', () => {
+    response.decisions = [{ ...park, database: 'a b&c', queue_id: 5 }]
+    render(<DecisionsTab database="all" />)
+    expect(screen.getByRole('link', { name: 'Approval request #5' }))
+      .toHaveAttribute('href', '#/actions?tab=pending&queue=5&database=a+b%26c')
+  })
+
+  it('renders an unknown verdict as text, never as markup', () => {
+    response.decisions = [{ ...park, verdict: '<img src=x onerror=alert(1)>' }]
+    const { container } = render(<DecisionsTab database="all" />)
+    expect(screen.getByTestId('decision-row')).toHaveTextContent(
+      'Unknown verdict (<img src=x onerror=alert(1)>)')
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('has no link for a row with neither queue nor finding id', () => {
+    response.decisions = [{ ...park, queue_id: undefined, finding_id: undefined }]
+    render(<DecisionsTab database="all" />)
+    expect(screen.getByTestId('decision-row').querySelector('a')).toBeNull()
+  })
+
+  it('says no reason was recorded for an empty reason', () => {
+    response.decisions = [{ ...park, reason: '', human_reason: '' }]
+    render(<DecisionsTab database="all" />)
+    expect(screen.getByTestId('decision-row')).toHaveTextContent('No reason recorded.')
+  })
+
+  it('shows no raw enum for any held-back reason', () => {
+    const reasons = ['budget_exceeded', 'awaiting_verification', 'emergency_stop',
+      'replica_mutation', 'no_typed_contract', 'ddl_conflict', 'custodian_backoff']
+    response.decisions = reasons.map((reason, i) => ({ ...park, decision_id: i, reason,
+      human_reason: reason.replaceAll('_', ' '), verdict: 'blocked', budget_detail: undefined,
+      risk_tier: 'read_only' }))
+    render(<DecisionsTab database="alpha" />)
+    const rows = screen.getAllByTestId('decision-row')
+    expect(rows).toHaveLength(reasons.length)
+    rows.forEach((row, i) => {
+      expect(row.textContent).not.toContain(reasons[i])
+      // The product's own name is the one snake_case word a label may carry.
+      expect(row.textContent.replaceAll('pg_sage', 'pg-sage'))
+        .not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/)
+    })
+    expect(rows[2]).toHaveTextContent(
+      'Emergency stop is on. Release it in the header to resume.')
   })
 
   it('requests the selected database and verdict filter', () => {

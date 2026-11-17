@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { usePendingActionsRefetch } from '../../components/Layout'
 import { useToast } from '../../components/Toast'
-import { approvalOutcomeMessage } from './ApprovalCard'
+import { approvalOutcomeMessage } from './approvalOutcome'
 import { actionRowKey } from './actionFormat'
 
 function decisionURL(action, verb) {
