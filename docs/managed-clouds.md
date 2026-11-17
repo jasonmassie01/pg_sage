@@ -632,6 +632,100 @@ a `cost.rates` entry you supply (pg_sage ships no prices). The number that says 
 Aurora rehearsals that got a clone, their median time to ready, clone instance-hours per
 week from the receipts, and clones left after 24 hours (0).
 
+## RDS restore rehearsal
+
+> **Cost warning: read this before the first run.** RDS for PostgreSQL has no
+> copy-on-write clone. Every `rds_restore` rehearsal restores a **whole new instance** of
+> production's class and storage, billed at the **full instance price** (compute and the
+> full allocated storage) from the restore until teardown: up to
+> `clone.restore_deadline_minutes` of restore plus up to an hour of rehearsal. A restore
+> takes tens of minutes to hours, growing with the volume and the WAL to replay. pg_sage
+> creates nothing unless you set `clone.allow_full_copy: true`, logs this cost at every
+> startup, and writes each clone's instance-hours on its receipt before RDS is asked for it.
+
+`clone.provider: rds_restore` rehearses a migration or an index on a point-in-time restore of
+the monitored RDS for PostgreSQL instance.
+
+```yaml
+clone:
+  provider: rds_restore
+  allow_full_copy: true          # required: without it startup fails
+  restore_deadline_minutes: 120  # 30-720: the longest a restore may take to become available
+  rds:
+    region: us-east-1            # the monitored instance's region (required)
+    instance_class: ""           # default: the source instance's class
+```
+
+What pg_sage does for each clone:
+
+- The source is the instance whose endpoint pg_sage connects to
+  (`<instance>.<id>.<region>.rds.amazonaws.com`). An Aurora endpoint, a Multi-AZ DB cluster
+  member, RDS Proxy, custom DNS, another engine or another region is refused with "not an
+  RDS for PostgreSQL instance" (Aurora uses `aurora_clone`). A source with automated backups
+  off (retention 0) has no restorable time and is refused.
+- It restores instance `sage-<purpose>-<8 hex>` with `RestoreDBInstanceToPointInTime` at the
+  latest restorable time, in the source's subnet group, security groups, parameter group,
+  storage type (and IOPS for `io1`/`io2`) and public accessibility, single-AZ and without
+  deletion protection, tagged `pg-sage-receipt=<its name>` and `pg-sage-expires-at`. It waits
+  until the instance is available, at most `clone.restore_deadline_minutes`.
+- The clone's DSN is the monitored DSN on the restored instance's endpoint (same users and
+  passwords; `sslmode` at least `require`). A restored instance that answers on production's
+  host is refused and deleted.
+- Teardown deletes the instance with no final snapshot and no retained automated backups.
+  Only a `sage-*` instance tagged with its own name and without deletion protection is ever
+  deleted.
+- A restore RDS refused made nothing. A failed instance is deleted before the error
+  returns. A restore whose outcome is unknown (a 5xx, a lost reply, "already exists") is
+  looked up by name and tag and deleted. A restore not available by the deadline, or not
+  described yet, leaves its receipt `create_uncertain`, and the reaper finds the instance
+  by name and tag and destroys it. RDS has no server-side expiry, so the reaper is the
+  backstop: check `aws rds describe-db-instances` for `sage-*` instances if a sidecar was
+  down for long.
+- The receipt and the rehearsal bound cover the restore: a rehearsal on a full copy may run
+  `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer.
+
+Credentials come from the AWS default chain, as for `aurora_clone`. Without them, or
+without the monitored pool, nothing is created and rehearsals are recommendation-only with
+reason `clone_unavailable`. The API cannot switch `clone.provider` to `rds_restore`; set it
+in YAML and restart.
+
+The IAM policy the sidecar needs, on top of the telemetry reads (narrow the delete to
+`arn:aws:rds:<region>:<account>:db:sage-*`; the restore is also authorized against the
+source instance, its subnet group and its parameter group):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PgSageRDSRestoreRead",
+      "Effect": "Allow",
+      "Action": ["rds:DescribeDBInstances"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PgSageRDSRestoreWrite",
+      "Effect": "Allow",
+      "Action": [
+        "rds:RestoreDBInstanceToPointInTime",
+        "rds:DeleteDBInstance",
+        "rds:AddTagsToResource"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+A source encrypted with a customer-managed KMS key also needs `kms:CreateGrant` and
+`kms:DescribeKey` on that key.
+
+Cost: each receipt carries the instance-hours of one instance of the restore's class for the
+receipt's lifetime (`restore_deadline_minutes` plus 75 minutes), priced only by a
+`cost.rates` entry you supply for the source (pg_sage ships no prices; storage is not
+priced). The number that says it works: restores that reach ready within their estimate,
+their instance-hours, and instances left after 24 hours (0).
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):

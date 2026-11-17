@@ -248,12 +248,15 @@ const (
 	DefaultCloneNeonEndpointMaxCU = 1.0
 	// DefaultCloneAuroraTTLMinutes is clone.aurora.ttl_minutes: the
 	// rehearsal bound (1 h), clone creation included.
-	DefaultCloneAuroraTTLMinutes     = 60
-	DefaultFreezeRedBufferPct        = 25.0
-	DefaultWALAbandonAfterMinutes    = 1440
-	DefaultWALRetainedDiskPctCeiling = 10.0
-	DefaultMCPEnabled                = true
-	DefaultMCPTransport              = "http"
+	DefaultCloneAuroraTTLMinutes = 60
+	// DefaultCloneRestoreDeadlineMinutes is clone.restore_deadline_minutes:
+	// how long a full-copy restore may take to become available.
+	DefaultCloneRestoreDeadlineMinutes = 120
+	DefaultFreezeRedBufferPct          = 25.0
+	DefaultWALAbandonAfterMinutes      = 1440
+	DefaultWALRetainedDiskPctCeiling   = 10.0
+	DefaultMCPEnabled                  = true
+	DefaultMCPTransport                = "http"
 	// mcp.call_timeout_seconds: default and accepted range.
 	DefaultMCPCallTimeoutSeconds = 90
 	MinMCPCallTimeoutSeconds     = 5

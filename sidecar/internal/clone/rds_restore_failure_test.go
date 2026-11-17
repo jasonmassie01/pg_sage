@@ -292,3 +292,23 @@ func (f *rdsFake) setSourceStatus(id, status string) {
 	defer f.mu.Unlock()
 	f.instances[id].Status = status
 }
+
+// Without a production identity nothing asks for AWS credentials: the
+// reaper's adapter never loads them for a create it cannot make.
+func TestRDSRestore_NoProductionNeverLoadsCredentials(t *testing.T) {
+	loaded := false
+	p := newRDSProvider(t, newRDSFake(t), func(c *clone.RDSRestoreConfig) {
+		c.Production = nil
+		c.API = func(context.Context) (clone.RDSRestoreClient, error) {
+			loaded = true
+			return nil, errors.New("must not be called")
+		}
+	})
+	if _, err := p.Create(context.Background(), clone.CloneSpec{ResourceName: rdsName}); !errors.Is(
+		err, clone.ErrCloneUnavailable) || loaded {
+		t.Fatalf("create = %v, credentials loaded %v", err, loaded)
+	}
+	if _, err := p.SnapshotAge(context.Background()); err == nil || loaded {
+		t.Fatalf("snapshot age = %v, credentials loaded %v", err, loaded)
+	}
+}

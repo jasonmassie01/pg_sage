@@ -22,10 +22,14 @@ func (c CloneProviderConfig) validate() error {
 	case "snapshot":
 		return fmt.Errorf("clone.provider snapshot has no adapter in this build: it was "+
 			"replaced by the full-copy providers %s; use dle, lakebase_branch, neon_branch, "+
-			"aurora_clone or none", strings.Join(CloneFullCopyProviders, ", "))
-	case CloneRDSRestore, CloneCloudSQLClone, CloneAlloyDBRestore, CloneAzureRestore:
+			"aurora_clone, rds_restore or none", strings.Join(CloneFullCopyProviders, ", "))
+	case CloneCloudSQLClone, CloneAlloyDBRestore, CloneAzureRestore:
 		return fmt.Errorf("clone.provider %s is not in this build yet: use dle, "+
-			"lakebase_branch, neon_branch, aurora_clone or none", c.Provider)
+			"lakebase_branch, neon_branch, aurora_clone, rds_restore or none", c.Provider)
+	case CloneRDSRestore:
+		if err := c.validateRDS(); err != nil {
+			return err
+		}
 	case "none":
 	case "dle":
 		if c.DLEEndpoint == "" {
@@ -45,7 +49,8 @@ func (c CloneProviderConfig) validate() error {
 		}
 	default:
 		return fmt.Errorf("clone.provider must be none or dle (Database Lab), " +
-			"lakebase_branch (Lakebase), neon_branch (Neon) or aurora_clone (Aurora)")
+			"lakebase_branch (Lakebase), neon_branch (Neon), aurora_clone (Aurora) or " +
+			"rds_restore (RDS)")
 	}
 	if c.MaxCloneAgeMinutes <= 0 {
 		return fmt.Errorf("clone.max_clone_age_minutes must be positive")
@@ -55,7 +60,7 @@ func (c CloneProviderConfig) validate() error {
 
 // The full-copy clone providers (lab-05a): each restores a whole instance,
 // so each needs clone.allow_full_copy. They replace clone.provider
-// snapshot; lab-05d to lab-05g add their adapters.
+// snapshot; lab-05d built rds_restore, lab-05e to lab-05g add the rest.
 const (
 	CloneRDSRestore     = "rds_restore"
 	CloneCloudSQLClone  = "cloudsql_clone"
@@ -70,9 +75,10 @@ var CloneFullCopyProviders = []string{CloneRDSRestore, CloneCloudSQLClone,
 // CloneMaxCreatesPerHour bounds clone.max_creates_per_hour.
 const CloneMaxCreatesPerHour = 60
 
-// Warnings are the clone settings that are valid but do nothing:
-// neon_branch without an API key, or allow_full_copy without a full-copy
-// provider.
+// Warnings are the clone settings that are valid but do nothing
+// (neon_branch without an API key, allow_full_copy without a full-copy
+// provider) and the cost of a full-copy provider, logged at start before
+// any restore.
 func (c CloneProviderConfig) Warnings() []string {
 	if c.Provider == CloneNeonBranch && strings.TrimSpace(c.Neon.APIKey) == "" {
 		return []string{"clone.provider neon_branch has no clone.neon.api_key (or " +
@@ -83,7 +89,7 @@ func (c CloneProviderConfig) Warnings() []string {
 	}
 	for _, name := range CloneFullCopyProviders {
 		if c.Provider == name {
-			return nil
+			return []string{c.fullCopyCostWarning()}
 		}
 	}
 	provider := c.Provider

@@ -557,6 +557,11 @@
       "Region": "",
       "InstanceClass": "",
       "TTLMinutes": 60
+    },
+    "RestoreDeadlineMinutes": 120,
+    "RDS": {
+      "Region": "",
+      "InstanceClass": ""
     }
   },
   "Custodian": {

@@ -7,6 +7,16 @@ import (
 	"time"
 )
 
+// requireProduction refuses a restore without a production identity
+// before AWS is contacted: the reaper's adapter only destroys.
+func (a *RDSRestoreAPI) requireProduction() error {
+	if a.cfg.Production == nil {
+		return fmt.Errorf("%w: rds_restore has no production identity to tell a clone "+
+			"from production", ErrCloneUnavailable)
+	}
+	return nil
+}
+
 // rdsSource is the monitored instance a restore is taken from.
 type rdsSource struct {
 	dsn, host string
@@ -16,6 +26,9 @@ type rdsSource struct {
 // LatestSnapshot is the monitored instance and its latest restorable
 // time: what a restore made now copies.
 func (a *RDSRestoreAPI) LatestSnapshot(ctx context.Context) (Snapshot, error) {
+	if err := a.requireProduction(); err != nil {
+		return Snapshot{}, err
+	}
 	api, err := a.client(ctx)
 	if err != nil {
 		return Snapshot{}, err
@@ -35,9 +48,8 @@ func (a *RDSRestoreAPI) LatestSnapshot(ctx context.Context) (Snapshot, error) {
 // told apart from it, so the restore is unavailable (fail closed). Errors
 // never quote the DSN.
 func (a *RDSRestoreAPI) source(ctx context.Context, api RDSRestoreClient) (rdsSource, error) {
-	if a.cfg.Production == nil {
-		return rdsSource{}, fmt.Errorf("%w: rds_restore has no production identity to tell "+
-			"a clone from production", ErrCloneUnavailable)
+	if err := a.requireProduction(); err != nil {
+		return rdsSource{}, err
 	}
 	prod, err := a.cfg.Production(ctx)
 	if err != nil {
@@ -102,6 +114,9 @@ func (a *RDSRestoreAPI) readSource(ctx context.Context, api RDSRestoreClient, id
 // cut short leaves it to the reaper, which finds it by tag.
 func (a *RDSRestoreAPI) Restore(ctx context.Context, snap Snapshot,
 	spec CloneSpec) (Clone, error) {
+	if err := a.requireProduction(); err != nil {
+		return Clone{}, err
+	}
 	api, err := a.client(ctx)
 	if err != nil {
 		return Clone{}, err

@@ -46,6 +46,9 @@ var excludedPrefixes = []string{
 	// lab-05c: the Aurora region and clone size: YAML only, restart-bound,
 	// the region safety-critical
 	"clone.aurora.",
+	// lab-05d: the RDS region and class and the full-copy restore deadline:
+	// YAML only, restart-bound, the region safety-critical
+	"clone.rds.", "clone.restore_deadline_minutes",
 	"sre.read_policy.", // trusted observation boundary; never a model-derived grant
 	"self_config.",     // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound

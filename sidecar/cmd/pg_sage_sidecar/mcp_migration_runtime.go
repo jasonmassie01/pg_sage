@@ -23,10 +23,18 @@ type mcpMigrationFactory func(
 	*pgxpool.Pool, policy.Gate, config.CloneProviderConfig,
 ) (mcp.MigrationRuntime, error)
 
-// rehearsalReceiptTTL is how long a rehearsal clone's receipt lives: the
-// rehearsal bound plus a margin, so the reaper never destroys a clone in
+// rehearsalReceiptMargin is how much longer a rehearsal clone's receipt
+// lives than the rehearsal bound, so the reaper never destroys a clone in
 // use (migration-07).
-const rehearsalReceiptTTL = rehearsalpkg.DefaultMaxDuration + 15*time.Minute
+const rehearsalReceiptMargin = 15 * time.Minute
+
+// rehearsalReceiptTTL is how long a rehearsal clone's receipt lives: the
+// rehearsal bound (never under the default one) plus the margin. A full
+// copy's bound includes its restore deadline (lab-05d).
+func rehearsalReceiptTTL(cloneConfig config.CloneProviderConfig) time.Duration {
+	return max(rehearsalpkg.DefaultMaxDuration, rehearsalMaxDuration(cloneConfig)) +
+		rehearsalReceiptMargin
+}
 
 // configuredMCPCloneProvider is the clone adapter clone.provider names, or
 // nil for none, with no production database: a lakebase_branch adapter
@@ -55,14 +63,17 @@ func cloneProviderFor(cloneConfig config.CloneProviderConfig,
 		return neonCloneProvider(cloneConfig, monitored)
 	case clonepkg.AuroraAdapter:
 		return auroraCloneProvider(cloneConfig, monitored)
+	case clonepkg.RDSRestoreAdapter:
+		return rdsRestoreCloneProvider(cloneConfig, monitored)
 	default:
 		return nil, errors.New("unsupported clone provider " + cloneConfig.Provider +
-			" (this build has none, dle, lakebase_branch, neon_branch or aurora_clone)")
+			" (this build has none, dle, lakebase_branch, neon_branch, aurora_clone or " +
+			"rds_restore)")
 	}
 }
 
 // cloneReceiptScope is the provider scope receipts are written under: the
-// Lakebase or Neon project, the Aurora region, or the adapter's endpoint
+// Lakebase or Neon project, the Aurora or RDS region, or the adapter's endpoint
 // without credentials or a trailing slash.
 func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
 	switch cloneConfig.Provider {
@@ -72,6 +83,8 @@ func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
 		return "projects/" + cloneConfig.Neon.ProjectID
 	case clonepkg.AuroraAdapter:
 		return "aws/" + cloneConfig.Aurora.Region
+	case clonepkg.RDSRestoreAdapter:
+		return "aws/" + cloneConfig.RDS.Region
 	}
 	parsed, err := url.Parse(cloneConfig.DLEEndpoint)
 	if err != nil || parsed.Host == "" {
@@ -109,7 +122,7 @@ func pricedRehearsalProvider(adapter clonepkg.Provider, receiptPool *pgxpool.Poo
 			Deployment: func(ctx context.Context) (string, error) {
 				return earned.EnsureDeployment(ctx, receiptPool)
 			},
-			Purpose: clonepkg.PurposeRehearsal, TTL: rehearsalReceiptTTL,
+			Purpose: clonepkg.PurposeRehearsal, TTL: rehearsalReceiptTTL(cloneConfig),
 			AllowFullCopy: cloneConfig.AllowFullCopy, Rate: rate,
 			MaxCreatesPerHour: cloneConfig.MaxCreatesPerHour,
 			Holder:            clonepkg.ProcessHolder(),
@@ -203,11 +216,15 @@ func migrationPlanner(loaded *config.Config) *planpkg.Planner {
 // after its create starts, so the rehearsal ends by then (market-03,
 // lab-05b), as it does by an aurora_clone clone's ttl_minutes (lab-05c):
 // never later than the clone, and never zero (the orchestrator's
-// default), at least a minute.
+// default), at least a minute. An rds_restore rehearsal waits up to
+// clone.restore_deadline_minutes for its full copy, then has the default
+// bound (lab-05d).
 func rehearsalMaxDuration(cloneConfig config.CloneProviderConfig) time.Duration {
 	bound := rehearsalpkg.DefaultMaxDuration
 	var minutes int
 	switch cloneConfig.Provider {
+	case clonepkg.RDSRestoreAdapter:
+		return restoreDeadline(cloneConfig) + bound
 	case clonepkg.LakebaseAdapter:
 		minutes = cloneConfig.Lakebase.TTLMinutes
 	case clonepkg.NeonAdapter:

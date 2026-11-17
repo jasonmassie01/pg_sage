@@ -52,22 +52,34 @@ func loadAWSConfig(ctx context.Context, region string) (aws.Config, error) {
 func auroraRDSAPI(region string, load func(context.Context, string) (aws.Config, error),
 ) func(context.Context) (clonepkg.AuroraAPI, error) {
 	return func(ctx context.Context) (clonepkg.AuroraAPI, error) {
-		cfg, err := load(ctx, region)
+		client, err := cloneRDSClient(ctx, region, load)
 		if err != nil {
-			return nil, fmt.Errorf("load the AWS configuration for %s: %w", region, err)
+			return nil, err
 		}
-		if cfg.Credentials == nil {
-			return nil, errors.New("the AWS default chain has no credential provider")
-		}
-		probe, cancel := context.WithTimeout(ctx, awsCredentialProbe)
-		defer cancel()
-		if _, err := cfg.Credentials.Retrieve(probe); err != nil {
-			return nil, fmt.Errorf("retrieve AWS credentials: %w", err)
-		}
-		return clonepkg.NewAuroraSDKAPI(rds.NewFromConfig(cfg, func(o *rds.Options) {
-			o.HTTPClient = egress.HTTPClient(0)
-		})), nil
+		return clonepkg.NewAuroraSDKAPI(client), nil
 	}
+}
+
+// cloneRDSClient is the RDS client of region on the egress floor's HTTP
+// client, once the AWS default chain's credentials were retrieved
+// (bounded): aurora_clone and rds_restore share it.
+func cloneRDSClient(ctx context.Context, region string,
+	load func(context.Context, string) (aws.Config, error)) (*rds.Client, error) {
+	cfg, err := load(ctx, region)
+	if err != nil {
+		return nil, fmt.Errorf("load the AWS configuration for %s: %w", region, err)
+	}
+	if cfg.Credentials == nil {
+		return nil, errors.New("the AWS default chain has no credential provider")
+	}
+	probe, cancel := context.WithTimeout(ctx, awsCredentialProbe)
+	defer cancel()
+	if _, err := cfg.Credentials.Retrieve(probe); err != nil {
+		return nil, fmt.Errorf("retrieve AWS credentials: %w", err)
+	}
+	return rds.NewFromConfig(cfg, func(o *rds.Options) {
+		o.HTTPClient = egress.HTTPClient(0)
+	}), nil
 }
 
 // auroraProduction is the DSN pool was opened with: the monitored cluster

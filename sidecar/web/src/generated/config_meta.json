@@ -1280,7 +1280,7 @@
   "clone.provider": {
     "type": "string",
     "default": "none",
-    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch (a Lakebase branch per rehearsal), neon_branch (a Neon branch per rehearsal) or aurora_clone (an Aurora copy-on-write clone per rehearsal).",
+    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch per rehearsal), aurora_clone (an Aurora clone) or rds_restore (an RDS restore: a full copy, needs allow_full_copy).",
     "class": "safety_critical",
     "lifecycle": "restart",
     "enum": [
@@ -1288,8 +1288,23 @@
       "dle",
       "lakebase_branch",
       "neon_branch",
-      "aurora_clone"
+      "aurora_clone",
+      "rds_restore"
     ]
+  },
+  "clone.rds.instance_class": {
+    "type": "string",
+    "default": "",
+    "doc": "Instance class of the restored instance, such as db.m6g.large. Default: the source instance's class.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.rds.region": {
+    "type": "string",
+    "default": "",
+    "doc": "AWS region of the monitored RDS for PostgreSQL instance; its point-in-time restores are made there and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
   },
   "clone.rehearsal_statement_timeout_seconds": {
     "type": "int",
@@ -1302,6 +1317,13 @@
     "type": "int",
     "default": 2,
     "doc": "Most index rehearsals on a clone one database starts in any hour, 1 to 60. Default: 2.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.restore_deadline_minutes": {
+    "type": "int",
+    "default": 120,
+    "doc": "Longest a full-copy restore (rds_restore) may take to become available, in minutes, 30 to 720; one still not ready is left to the reaper. Default: 120.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },

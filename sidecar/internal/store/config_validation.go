@@ -66,10 +66,11 @@ func validateSpec(spec config.KeySpec, value string) error {
 	return nil
 }
 
-// validateAPICloneProvider refuses lakebase_branch, neon_branch and
-// aurora_clone on save: they need the clone.lakebase or clone.neon project
-// binding (and Neon's API key) or the clone.aurora region, which are YAML
-// or env only and restart-bound, so the API cannot switch to them.
+// validateAPICloneProvider refuses lakebase_branch, neon_branch,
+// aurora_clone and rds_restore on save: they need the clone.lakebase or
+// clone.neon project binding (and Neon's API key), the clone.aurora region
+// or the clone.rds region, which are YAML or env only and restart-bound,
+// so the API cannot switch to them.
 func validateAPICloneProvider(value string) error {
 	switch value {
 	case "lakebase_branch":
@@ -81,6 +82,9 @@ func validateAPICloneProvider(value string) error {
 	case config.CloneAuroraClone:
 		return fmt.Errorf("validate: clone.provider aurora_clone is set in YAML with its " +
 			"clone.aurora region, not through the API")
+	case config.CloneRDSRestore:
+		return fmt.Errorf("validate: clone.provider rds_restore is set in YAML with its " +
+			"clone.rds region and clone.allow_full_copy, not through the API")
 	}
 	return nil
 }
