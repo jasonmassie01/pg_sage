@@ -263,3 +263,55 @@ func TestCloudSQL_FindByName(t *testing.T) {
 		t.Fatal("a failed lookup reported not found")
 	}
 }
+
+// The clone operation's targetId may name the source instance the call was
+// made on rather than the new one: both are this clone's operation.
+func TestCloudSQL_CloneOperationNamingTheSourceIsAccepted(t *testing.T) {
+	f, base := newCloudSQLFake(t)
+	f.cloneOpTarget = sqlSource
+	c, err := createSQL(t, base, nil)
+	if err != nil || c.ID != sqlName {
+		t.Fatalf("create = %+v, %v; want clone %s", c, err, sqlName)
+	}
+	in := f.instance(sqlName)
+	if in.Labels[clone.CloudSQLReceiptLabel] != sqlName || in.Protected {
+		t.Fatalf("clone labels %v, protected %v: want it labelled and unprotected",
+			in.Labels, in.Protected)
+	}
+}
+
+// A clone reply naming a third instance is not this clone's operation:
+// the clone this request made is deleted and the error names both.
+func TestCloudSQL_CloneOperationNamingAnotherInstanceDeletesTheClone(t *testing.T) {
+	f, base := newCloudSQLFake(t)
+	f.cloneOpTarget = "billing"
+	_, err := createSQL(t, base, nil)
+	if err == nil || !strings.Contains(err.Error(), `"billing"`) ||
+		!strings.Contains(err.Error(), sqlName) {
+		t.Fatalf("err = %v, want the mismatched operation named", err)
+	}
+	if f.exists(sqlName) || !strings.Contains(strings.Join(f.mutating(), "|"),
+		"delete "+sqlName) {
+		t.Fatalf("mutating calls %q, exists %v: want the clone deleted", f.mutating(),
+			f.exists(sqlName))
+	}
+}
+
+// A 409 on delete is another operation in progress on the clone, never
+// "already exists": the error keeps the status and nothing is deleted.
+func TestCloudSQL_ConflictOnDeleteIsAnOperationInProgress(t *testing.T) {
+	f, base := newCloudSQLFake(t)
+	f.put(fakeSQLInstance{Name: sqlName, State: "RUNNABLE",
+		Labels: map[string]string{clone.CloudSQLReceiptLabel: sqlName}})
+	f.deleteStatus = 409
+	err := newCloudSQLAPI(t, base, nil).Destroy(context.Background(), sqlName)
+	var status *clone.ProviderStatusError
+	if !errors.As(err, &status) || status.StatusCode != 409 ||
+		errors.Is(err, clone.ErrCloudSQLAlreadyExists) ||
+		!strings.Contains(err.Error(), "another operation") {
+		t.Fatalf("err = %v, want a 409 operation-in-progress status error", err)
+	}
+	if !f.exists(sqlName) {
+		t.Fatal("the clone was removed despite the refused delete")
+	}
+}

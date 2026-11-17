@@ -40,6 +40,7 @@ type cloudSQLFake struct {
 	getStatus     int             // every instance read fails with this status
 	forbid        map[string]bool // op ("get", "clone", "patch", "delete", "operation"): 403
 	cloneIP       string          // the clone's private IP ("": a fresh one)
+	cloneOpTarget string          // the targetId the clone operation reports ("": the clone)
 }
 
 type fakeSQLInstance struct {
@@ -51,6 +52,7 @@ type fakeSQLInstance struct {
 
 type fakeSQLOp struct {
 	name, target, kind, errMsg string
+	reported                   string // targetId in replies ("": target)
 	polls                      int
 }
 
@@ -134,7 +136,11 @@ func (f *cloudSQLFake) newOp(kind, target, errMsg string) *fakeSQLOp {
 }
 
 func (op *fakeSQLOp) json(done bool) map[string]any {
-	out := map[string]any{"name": op.name, "targetId": op.target,
+	target := op.target
+	if op.reported != "" {
+		target = op.reported
+	}
+	out := map[string]any{"name": op.name, "targetId": target,
 		"operationType": strings.ToUpper(op.kind), "status": "RUNNING"}
 	if done {
 		out["status"] = "DONE"
@@ -203,6 +209,7 @@ func (f *cloudSQLFake) clone(w http.ResponseWriter, source string, body map[stri
 	}
 	f.instances[dest] = &in
 	op := f.newOp("clone", dest, f.opError)
+	op.reported = f.cloneOpTarget
 	if f.cloneThenCode != 0 {
 		writeSQLError(w, f.cloneThenCode, "backend error")
 		return

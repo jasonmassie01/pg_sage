@@ -167,7 +167,11 @@ func (r *sqlClone) clone(ctx context.Context) (Clone, error) {
 		}
 		return Clone{}, r.cleanupByName(err)
 	}
-	if op.Name == "" || (op.TargetID != "" && op.TargetID != r.name) {
+	// The operation's targetId may name the new instance or the source the
+	// call was made on (unconfirmed live, CHECK-37); any other instance
+	// means the reply is not this clone's.
+	if op.Name == "" || (op.TargetID != "" && op.TargetID != r.name &&
+		op.TargetID != r.src.inst.Name) {
 		return Clone{}, r.cleanup(fmt.Errorf("cloudsql_clone: the clone reply names "+
 			"operation %q for instance %q, not %s", op.Name, op.TargetID, r.name))
 	}
