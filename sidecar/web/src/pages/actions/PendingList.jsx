@@ -49,8 +49,8 @@ function ActionMessage({ msg }) {
   if (!msg) return null
   return (
     <div className="p-2 rounded text-sm" style={{
-      background: msg.type === 'success' ? 'var(--green)' : 'var(--red)',
-      color: '#fff', opacity: 0.9 }}>
+      background: msg.type === 'success' ? 'var(--green-solid)' : 'var(--red-solid)',
+      color: '#fff' }}>
       {msg.text}
     </div>
   )

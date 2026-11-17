@@ -66,7 +66,7 @@ function PromotionApproval({ item, onDecided }) {
   }
   return <>
     <button type="button" className={button} onClick={() => setOpen(true)}
-      style={{ background: 'var(--green)', color: '#fff' }}>Approve</button>
+      style={{ background: 'var(--green-solid)', color: '#fff' }}>Approve</button>
     <ConfirmDialog open={open} title={`Approve: ${item.title}`} action="Approve"
       database={item.database} riskTier={item.risk} busy={busy} error={error}
       consequence="pg_sage may then run this class of change on its own on this database."
@@ -93,7 +93,7 @@ function FactDecision({ item, onDecided }) {
   }
   return <>
     <button type="button" className={button} disabled={busy} onClick={() => decide('confirm')}
-      style={{ background: 'var(--green)', color: '#fff' }}>Confirm</button>
+      style={{ background: 'var(--green-solid)', color: '#fff' }}>Confirm</button>
     <button type="button" className={button} disabled={busy} onClick={() => decide('reject')}
       style={{ border: '1px solid var(--border)', color: 'var(--text-primary)' }}>Reject</button>
     {error && <span role="alert" className="text-sm" style={{ color: 'var(--red)' }}>{error}</span>}

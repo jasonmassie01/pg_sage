@@ -67,7 +67,7 @@ function NavLink({ route, active, pending }) {
           title={pending.title}
           className="ml-auto px-1.5 py-0.5 rounded-full text-xs"
           style={{
-            background: 'var(--red, #e53e3e)',
+            background: 'var(--red-solid)',
             color: '#fff',
             fontSize: '0.65rem',
             lineHeight: 1,

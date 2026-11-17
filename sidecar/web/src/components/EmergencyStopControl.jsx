@@ -106,7 +106,7 @@ function EmergencyStopBadge({ scope, summaryStopped, fleetStop }) {
       role="status"
       className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs
         font-semibold"
-      style={{ background: 'var(--red, #e53e3e)', color: '#fff' }}>
+      style={{ background: 'var(--red-solid)', color: '#fff' }}>
       <ShieldAlert size={14} aria-hidden="true" />
       <span>{content}</span>
     </span>
@@ -148,7 +148,7 @@ function ConfirmPanel({
         <button type="button" ref={confirmRef} onClick={onConfirm}
           disabled={busy} data-testid={`${testId}-confirm`}
           className="px-3 py-1.5 rounded font-semibold"
-          style={{ background: 'var(--red, #e53e3e)', color: '#fff' }}>
+          style={{ background: 'var(--red-solid)', color: '#fff' }}>
           {busy ? 'Working...' : confirmLabel}
         </button>
       </div>

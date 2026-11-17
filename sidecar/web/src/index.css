@@ -14,6 +14,10 @@
   --green: #72e6c7;
   --yellow: #eac083;
   --red: #ff8b91;
+  /* ux-05a: dark fills for white-labelled Approve, Reject and danger buttons;
+     src/lint/contrast.test.js holds them at WCAG AA (4.5:1) under #fff. */
+  --green-solid: #13705a;
+  --red-solid: #b4232c;
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 }
 
@@ -47,6 +51,15 @@ button[style*="background: var(--accent)"] {
 }
 button[style*="background: var(--accent)"]:hover:not(:disabled) {
   background: #1d826c !important;
+}
+
+/* ux-05a win 25: on narrow screens an approval card's decision row stays in
+   view at the bottom of the screen instead of the end of a long card. */
+@media (max-width: 767px) {
+  .approval-action-bar {
+    position: sticky; bottom: 0; z-index: 1;
+    background: var(--bg-card); padding-block: 8px;
+  }
 }
 
 .sage-shell { isolation: isolate; }
