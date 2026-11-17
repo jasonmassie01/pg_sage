@@ -1578,8 +1578,9 @@ community major pg_sage knows. The brief has:
 A section whose read fails is `unknown` with its SQLSTATE. The brief only reads
 the monitored database; pg_sage keeps it in `sage.upgrade_briefs` only when it
 changed (`stored`, `brief_id`, and `stored_at`, the brief's age), so a resolved
-blocker adds a row and keeps the old one. The upgrade itself stays with the
-operator.
+blocker adds a row and keeps the old one. `query_time_share` is not part of that
+comparison (it moves with every statement): a known share is refreshed on the
+latest row instead. The upgrade itself stays with the operator.
 
 #### Upgrade rehearsal
 
@@ -1640,8 +1641,10 @@ never approved: a person approves it, and every step runs through the executor.
    a superuser), ordered by the stored brief's `query_time_share` (the latest brief
    of the database, its target first), then the tables not in it by size, largest
    first. `pg_stat_statements` starts empty after `pg_upgrade`, so the live view
-   cannot order it. A list longer than 10,000 characters is a database-wide
-   `ANALYZE`. On PostgreSQL 18 and later there is no ANALYZE step, with the reason
+   cannot order it. Tables above `tuner.analyze_max_table_mb` (a partitioned
+   table counts its partitions) are left out, as the executor leaves its own
+   ANALYZE findings, and the statement stops at 10,000 characters; the tables left
+   out are operator text. On PostgreSQL 18 and later there is no ANALYZE step, with the reason
    "statistics carried over" (extended statistics are not: ANALYZE the tables
    that have them).
 2. `reindex_concurrently`: one `REINDEX INDEX CONCURRENTLY` per index in the
