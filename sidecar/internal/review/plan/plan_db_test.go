@@ -267,3 +267,28 @@ func TestSaveDB_PlanInsertFailureNamesSagePlan(t *testing.T) {
 		t.Fatal("a result with no run id was saved")
 	}
 }
+
+// A record that fails after the plan was created voids the plan, so no
+// orphan waits for an approval, and the error names the failed table. The
+// step's origin "agent" breaks sage.plan_step_origin's CHECK, a long
+// error that the void's reason must still fit (plan-01's 200 runes).
+func TestSaveDB_RecordFailureVoidsTheCreatedPlan(t *testing.T) {
+	pool, ctx := livePool(t)
+	seedCalls(t, ctx, pool)
+	res := built(t, ctx, pool, "shop")
+	res.Steps[0].Origin = "agent"
+	_, err := newStore(pool).Save(ctx, res)
+	if err == nil || !strings.Contains(err.Error(), "sage.plan_step_origin") {
+		t.Fatalf("save: %v, want an error naming sage.plan_step_origin", err)
+	}
+	var status string
+	var plans, rows int
+	if err := pool.QueryRow(ctx, `SELECT count(*), max(status) FROM sage.plan`).
+		Scan(&plans, &status); err != nil || plans != 1 || status != "voided" {
+		t.Fatalf("%d plans, status %q (%v): want the created plan voided", plans, status, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sage.review_plan`).Scan(&rows); err != nil ||
+		rows != 0 {
+		t.Fatalf("%d review plan rows after a failed record (%v)", rows, err)
+	}
+}

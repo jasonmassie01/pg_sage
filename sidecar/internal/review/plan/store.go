@@ -73,13 +73,26 @@ func (s *Store) Save(ctx context.Context, res Result) (Saved, error) {
 	}
 	if err != nil {
 		if stored.ID > 0 {
-			_ = s.plans.Void(context.WithoutCancel(ctx), stored.ID,
-				"the review could not record its plan: "+err.Error())
+			err = errors.Join(err, s.voidOrphan(ctx, stored.ID, err))
 		}
 		return Saved{}, fmt.Errorf("save the review plan of run %d: %w", res.RunID, err)
 	}
 	return saved, nil
 }
+
+// voidOrphan voids plan id, created before its review rows failed with
+// cause, so no orphan waits for an approval. The reason fits plan-01's
+// bound (a long database error would otherwise make the void fail too).
+func (s *Store) voidOrphan(ctx context.Context, id int64, cause error) error {
+	reason := clip("the review could not record its plan: "+cause.Error(), maxVoidReasonRunes)
+	if err := s.plans.Void(context.WithoutCancel(ctx), id, reason); err != nil {
+		return fmt.Errorf("plan %d stays proposed without its review rows: %w", id, err)
+	}
+	return nil
+}
+
+// maxVoidReasonRunes is changeplan's bound on a void's reason.
+const maxVoidReasonRunes = 200
 
 // lockRun locks run's row for the save and returns its stored review plan
 // when there is one.
