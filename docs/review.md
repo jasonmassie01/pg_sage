@@ -327,3 +327,34 @@ partial with `pg_stats:<table>` missing and a note with the reason, which is the
 table has no statistics yet, or "not found". A filtered column with no `pg_stats` row of its
 own (a partitioned table keeps only inherited statistics, or the column was added since the last
 ANALYZE) is noted as unknown the same way.
+
+## Capacity generator
+
+The `capacity` generator (rubric dimension `capacity_cost`) gives a review one capacity
+section. It reads the pack's growth section (the daily database size and the largest tables'
+sizes), the window's query rollups by day, and, with a cloud provider resource, the hourly host
+usage `cost` right-sizes from. Every output is `advice` for a person.
+
+| Kind | When | Output |
+|---|---|---|
+| `growth_plan`, `table_growth` | A size series with 7 or more daily points. | A least-squares line through the days (a missing day keeps its place), projected 30, 90 and 365 days past the last measured day, each with a band of twice a prediction's standard error, and the fit error (the residual standard error). A falling fit projects shrinkage and never a size below zero. |
+| `storage_headroom` | Cloud telemetry reports the allocated storage, and the database's 90-day projection plus its band reaches 85% of it. | Grow the instance's storage. The database is a lower bound: WAL and other databases come on top. |
+| `right_size` | `cost.EvaluateRightsize` says downsize or upsize. | The current and target class, the CPU projection, and the monthly compute change at the `cost.rates` entry's prices, with their source and date; without rates, "unknown: no operator rates". |
+| `idle_database` | 14 or more observed days in a row, ending at the window's end, without a workload call (pg_sage's own statements are not workload). | The database's size and, with a `storage_gb_month` rate, its monthly storage cost; archiving and dropping it is the operator's decision. |
+
+**Never automatic.** An instance class or storage change is an operator step at the provider,
+at every trust level; no candidate carries SQL. pg_sage ships no price tables: no dollar figure
+appears anywhere in the section without `cost.rates`.
+
+**Unknown, not silent.** Fewer than 7 daily points is a note, not a projection. A right-size
+verdict of unknown (no hourly usage, a size with no vCPU count, stale telemetry) and a
+right-size error are carried in the coverage as `unknown:` with their text, and the coverage is
+partial with `rightsize` missing. Without a cloud resource, the coverage says SQL alone gives
+growth and idle databases. A day the rollup did not observe (no rollup row, pg_sage's own
+included, and no coverage hour) ends the quiet run: no history is no proof of idleness. A
+statement whose text pg_sage never captured counts as workload.
+
+The review's number is the forecast error: each review records its 30-day database size
+projection in `sage.review_capacity_forecast`, and the first later review whose pack holds the
+target day's size measures it once, as (projected - measured) / measured. A second pass at the
+same mark changes nothing. `capacity.Idle` is the idle rule fleetpol-03 reuses.
