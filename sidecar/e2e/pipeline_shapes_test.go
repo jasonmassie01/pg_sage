@@ -60,6 +60,9 @@ func TestPipelineCoverage_SQLShapes(t *testing.T) {
 	t.Run("B06_drop_duplicate_index", func(t *testing.T) {
 		shapeDropDuplicateIndex(t, pool, report)
 	})
+	t.Run("B06n_unrehearsed_drop_waits", func(t *testing.T) {
+		shapeUnrehearsedDropWaits(t, pool, report)
+	})
 	t.Run("B07_vacuum_table_bloat", func(t *testing.T) {
 		shapeVacuum(t, pool, report)
 	})
@@ -257,7 +260,7 @@ func shapeDropDuplicateIndex(
 		Title:          "duplicate of shp_b06_dup_b",
 		RecommendedSQL: "DROP INDEX CONCURRENTLY public.shp_b06_dup_a;",
 		RollbackSQL:    "CREATE INDEX CONCURRENTLY shp_b06_dup_a ON public.shp_b06 (s)",
-		ActionRisk:     "safe",
+		ActionRisk:     "safe", Detail: map[string]any{"ladder": rehearsedLadder()},
 	})
 	act, ok := latestActionFor(t, pool, "duplicate_index", "public.shp_b06_dup_a")
 	r.add(t, "CHECK-B06a", ok && isExecutedOutcome(act.Outcome),
@@ -470,7 +473,7 @@ func shapeHighRiskBlocked(
 		ObjectType: "index", ObjectIdentifier: "public.shp_b14_subset",
 		Title:          "subset of shp_b14_wide (advisory)",
 		RecommendedSQL: "DROP INDEX CONCURRENTLY public.shp_b14_subset;",
-		ActionRisk:     "high_risk",
+		ActionRisk:     "high_risk", Detail: map[string]any{"ladder": rehearsedLadder()},
 	})
 	act, acted := latestActionFor(t, pool, "duplicate_index", "public.shp_b14_subset")
 	_, _, exists := indexAccessMethod(t, pool, "shp_b14_subset")
