@@ -97,6 +97,28 @@ still goes through the policy gate and the trust ledger.
   "ok". `pg_stat_archiver` is still read on managed servers, but providers often run their own
   archiving, so the provider's restorable time is the evidence to trust there. See
   [Backups and WAL archiving](findings.md#backups-and-wal-archiving).
+- **Backup isolation.** A backup deleted in the same call that deletes the database is no
+  backup against that call. pg_sage records whether any backup it can see outlives a delete
+  of the instance, and how far back point-in-time recovery reaches:
+  - RDS: one `DescribeDBSnapshots` (manual snapshots, 20 records) and one
+    `DescribeDBInstanceAutomatedBackups` (the active backup's restore window) per 6 hours,
+    15 minutes after a failed read. A manual snapshot no older than `backup.max_age_hours`,
+    an AWS Backup recovery point or a cross-region backup replication (both in the instance
+    description) outlives the instance. Automated backups alone do not: `DeleteDBInstance`
+    deletes them unless the caller asks to retain them.
+  - Aurora: one `DescribeDBClusterSnapshots` (manual) per 6 hours; the window is the
+    cluster's latest minus earliest restorable time, both in the cluster description.
+  - Cloud SQL: `settings.retainBackupsOnDelete` in the instance description; the window is
+    the transaction log retention while point-in-time recovery is on.
+  - AWS Backup vaults, exports and copies in other accounts are not read; name one in
+    `backup.external_source` and `backup_shares_delete_path` resolves. Azure, AlloyDB, Neon
+    and Lakebase report isolation unknown (no adapter reads it yet).
+
+  Findings: `backup_shares_delete_path` (warning; critical on a production database with the
+  agent gate on), `deletion_protection_off` (warning, production only) and
+  `pitr_window_below_policy` (below `backup.min_pitr_hours`, 24). An unknown value evaluates
+  nothing, so an open finding stays open; a denied read is logged once per reason and
+  leaves the rest of the posture as read.
 - **Parameter drift.** Values set in the parameter group or flags that PostgreSQL does not run
   (pending a reboot, overridden by a database/role setting, or not in effect) open
   `managed_parameter_drift` findings.
@@ -362,7 +384,9 @@ Credentials come only from the standard chains and are never stored, logged or p
 
 - **AWS:** the default chain (environment, shared config/SSO, web identity, ECS task or EC2
   instance role). Read-only permissions: `cloudwatch:GetMetricData`, `pi:GetResourceMetrics`,
-  `rds:DescribeDBInstances`, `rds:DescribeDBClusters`, `rds:DescribeDBParameters`.
+  `rds:DescribeDBInstances`, `rds:DescribeDBClusters`, `rds:DescribeDBParameters`, and for
+  backup isolation `rds:DescribeDBSnapshots`, `rds:DescribeDBClusterSnapshots` and
+  `rds:DescribeDBInstanceAutomatedBackups`.
 - **Google Cloud:** Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` with a
   service-account key or user credentials, `gcloud auth application-default login`, or the
   metadata server on GCE/GKE/Cloud Run). Roles: `roles/monitoring.viewer`,

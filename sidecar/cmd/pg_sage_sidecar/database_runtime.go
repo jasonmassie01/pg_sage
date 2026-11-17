@@ -152,6 +152,8 @@ type databaseRuntime struct {
 	cloudResolver managedparam.Resolver
 	// backupNote logs a withheld backup freshness once per reason.
 	backupNote reasonLatch
+	// isolationNote logs a withheld backup isolation read once per reason.
+	isolationNote reasonLatch
 	// azureParams is the database's Azure ARM adapter (nil off Azure or
 	// without the azure: identity): the managed-change worker reads server
 	// parameters through it.

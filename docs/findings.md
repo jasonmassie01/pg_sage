@@ -1230,6 +1230,51 @@ Retention 0 is AP-11's "backups off" case and is left to it.
 
 **Detail:** `retention_days`, `min_retention_days` and `resource`.
 
+### backup_shares_delete_path
+
+**Severity:** warning, or critical on a production database with the agent gate on
+
+**What it detects:** no backup the provider shows outlives a delete of the instance, so
+one delete call would remove the database and its backups together. RDS: no manual
+snapshot within `backup.max_age_hours`, no AWS Backup recovery point and no cross-region
+backup replication (automated backups are deleted with the instance unless the delete
+retains them). Aurora: no manual cluster snapshot within that age. Cloud SQL:
+`settings.retainBackupsOnDelete` is false. Snapshots and automated backups are read once
+per 6 hours (15 minutes after a failed read); a snapshot without a create time or not yet
+`available` does not count, and one exactly `backup.max_age_hours` old does. A denied
+read, a missing field or a provider without an adapter (Azure, AlloyDB, Neon, Lakebase)
+leaves the category unevaluated, so an open finding stays open. Production is the agent
+gate's environment binding (a database the gate cannot classify counts as production);
+pg_sage cannot see which agent holds a cloud credential able to delete the instance, so
+with the gate on a production database is the critical case. Naming a backup in
+`backup.external_source` resolves it.
+
+**Detail:** `isolation_evidence` (what decided it), `survives_delete`, `production` and
+`resource`.
+
+### deletion_protection_off
+
+**Severity:** warning
+
+**What it detects:** a production database (by the agent gate's environment binding, as
+above) whose instance, or Aurora cluster, has deletion protection off. Without the agent
+gate the environment is unknown and the category is not evaluated; AP-11 still reports
+deletion protection off on every managed instance.
+
+**Detail:** `deletion_protection` and `resource`.
+
+### pitr_window_below_policy
+
+**Severity:** warning
+
+**What it detects:** point-in-time recovery reaches back less than `backup.min_pitr_hours`
+(default 24; 24 hours passes, 23 h 59 m fails; 0 turns the check off). RDS: the active
+automated backup's restore window; Aurora: the cluster's latest minus earliest restorable
+time; Cloud SQL: the transaction log retention while point-in-time recovery is on. With
+point-in-time recovery off there is no window and AP-11 reports it.
+
+**Detail:** `pitr_window_minutes`, `min_pitr_hours` and `resource`.
+
 ### restore_drill_failed
 
 **Severity:** critical

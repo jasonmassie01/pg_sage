@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/agentguard/decide"
-	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/clone"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/drill"
@@ -48,15 +47,7 @@ func drillTarget(ctx context.Context, c *config.Config, cloneCfg config.ClonePro
 // cadence is the safe side), so D7 needs a drill newer than
 // require_restore_drill_days.
 func agentGateNeedsDrill(ctx context.Context, database string) bool {
-	state := agentGate.Load()
-	if state == nil {
-		return false
-	}
-	if state.envs == nil {
-		return true
-	}
-	b, err := envSource{svc: state.envs}.Environment(ctx, database)
-	return err != nil || b.Env == envbind.EnvProd
+	return productionOf(ctx, database) == prodYes
 }
 
 // drillRun is one database's drill, built when the scheduler starts it.
