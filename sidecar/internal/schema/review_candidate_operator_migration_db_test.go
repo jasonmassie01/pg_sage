@@ -47,11 +47,16 @@ func TestReviewCandidateOperatorMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-func TestReviewCandidateOperatorStep_IsTheLastT6StepAndBounded(t *testing.T) {
+func TestReviewCandidateOperatorStep_FollowsTheCandidatesAndIsBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewCandidateOperator" {
-		t.Fatalf("T6 steps end with %v, want ddlReviewCandidateOperator",
-			steps[len(steps)-1])
+	at := map[string]int{}
+	for i, s := range steps {
+		at[s[0]] = i + 1
+	}
+	if at["ddlReviewCandidateOperator"] == 0 ||
+		at["ddlReviewCandidateOperator"] < at["ddlReviewCandidates"] {
+		t.Fatalf("T6 steps %v: ddlReviewCandidateOperator must follow ddlReviewCandidates",
+			steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ADD COLUMN IF NOT EXISTS operator jsonb"} {

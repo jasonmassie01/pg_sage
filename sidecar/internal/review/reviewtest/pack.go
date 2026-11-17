@@ -39,6 +39,8 @@ type Spec struct {
 	// review-02c: the stats (pg_stats) and plans sections.
 	Stats *workpack.Stats
 	Plans *workpack.Plans
+	// review-02f: the growth section (nil: an empty database size series).
+	Growth *workpack.Growth
 }
 
 // Window is the days-long window ending at 2026-11-01 00:00 UTC.
@@ -55,6 +57,9 @@ func Build(s Spec) (*workpack.Pack, error) {
 		"coverage.json": workpack.Coverage{ID: "coverage/window/all", Status: "ok"},
 		"workload.json": s.Workload,
 		"growth.json":   workpack.Growth{DBSize: workpack.Series{ID: "growth/db/size"}},
+	}
+	if s.Growth != nil {
+		files["growth.json"] = *s.Growth
 	}
 	if s.Texts != nil {
 		files["texts.json"] = *s.Texts
