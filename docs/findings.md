@@ -1579,3 +1579,43 @@ the monitored database; pg_sage keeps it in `sage.upgrade_briefs` only when it
 changed (`stored`, `brief_id`, and `stored_at`, the brief's age), so a resolved
 blocker adds a row and keeps the old one. The upgrade itself stays with the
 operator.
+
+#### Upgrade rehearsal
+
+Plans flip after a major upgrade because, before PG18, `pg_upgrade` does not
+carry the planner statistics. An upgrade rehearsal measures that on a clone,
+never on the monitored database:
+
+1. Read the database's top 50 statements by total time from production's
+   `pg_stat_statements` (queries only; `BEGIN`, `SET` and other utility
+   statements are left out) in a bounded read-only transaction.
+2. Create a clone under a receipt of purpose `rehearsal` (so the reaper
+   destroys it if pg_sage dies mid-rehearsal). A full-copy provider needs
+   `clone.allow_full_copy`, and the receipt carries the cost label, as for a
+   restore drill.
+3. Capture each statement's plan and shared blocks per call on the clone.
+   Only a statement `explain.ReadOnlyStatement` admits is sent to the clone, and
+   it is executed with `EXPLAIN (ANALYZE, BUFFERS)` only when the analyze guard
+   proves it read-only, in a READ ONLY rolled-back transaction under a 5 s
+   timeout. Any other statement is listed as `skipped` and never executed. A
+   statement with `$n` parameters is planned with `EXPLAIN (GENERIC_PLAN)` when
+   both majors are PG16 or later, else it is `not_comparable`.
+4. Upgrade the clone. Aurora and RDS upgrade the clone cluster or instance
+   (`ModifyDBCluster` / `ModifyDBInstance`, the newest engine version AWS offers
+   at the target major), and only when a live `rehearsal` receipt names it and it
+   is not the source. Neon cannot change a project's major, so a Neon rehearsal
+   is refused. A self-managed restore command upgrades it through the
+   operator's `upgrade_argv` (given `SAGE_CLONE_ID` and `SAGE_TARGET_MAJOR`).
+   The clone must then answer at the target major.
+5. Capture again with no `ANALYZE` ("as cut over"), run `ANALYZE` on the clone
+   (bounded at 30 minutes), capture a third time, and destroy the clone.
+
+The report (the brief's `rehearsal` section, carried onto later briefs of the
+same target) lists every statement whose plan fingerprint changed (`changed`,
+with `blocks_per_call_delta_as_cut_over` and `..._after_analyze`), the counts
+`plans_changed` and `recovered_after_analyze`, the statements not compared and
+why, each recorded state (`requested`, `cloned`, `upgraded`, `analyzed`,
+`destroyed`, or `failed` with the provider's message), and when the upgrade and
+`ANALYZE` ran and how long they took. One rehearsal runs per database at a time.
+Supabase branches hold no data, so they cannot rehearse; a database with no
+clone provider gets the brief only.
