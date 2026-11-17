@@ -102,6 +102,15 @@ var runtimeEnvVars = []EnvVar{
 		"([secrets at rest](security.md#secrets-at-rest))"},
 	{Name: "SAGE_ENCRYPTION_KEY_PREVIOUS", Default: envNone, File: true,
 		Doc: "The previous passphrase during a key rotation"},
+	{Name: "SAGE_DRILL_ID", Default: envNone, Doc: "Set by pg_sage, never read: the " +
+		"drill id a `drill.command.restore_argv` program restores under " +
+		"([restore drills](restore-drills.md))"},
+	{Name: "SAGE_DRILL_DATABASE", Default: envNone, Doc: "Set by pg_sage, never read: " +
+		"the pg_sage name of the database a `drill.command.restore_argv` program restores " +
+		"([restore drills](restore-drills.md))"},
+	{Name: "SAGE_CLONE_ID", Default: envNone, Doc: "Set by pg_sage, never read: the " +
+		"restore id a `drill.command.destroy_argv` program removes " +
+		"([restore drills](restore-drills.md))"},
 	{Name: "SAGE_DATA_DIR", Default: envNone, Doc: "Persistent directory; without an " +
 		"encryption key, pg_sage generates `encryption.key` there " +
 		"([secrets at rest](security.md#secrets-at-rest))"},

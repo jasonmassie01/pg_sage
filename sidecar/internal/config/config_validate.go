@@ -159,6 +159,7 @@ func (c *Config) validateOperations() error {
 		func() error { return c.HA.validate() },
 		func() error { return c.Backup.validate() },
 		func() error { return c.Drill.validate() },
+		c.validateDrillCommand,
 		func() error { return c.Agents.validate() },
 		func() error { return c.Audit.validate() },
 		func() error { return c.MCP.OAuth.validate(c.MCP.Transport) },

@@ -998,7 +998,8 @@ A drill:
 |---|---|
 | Neon, Lakebase, Aurora, Database Lab | On by default (cheap: branch, copy-on-write or thin clone) |
 | RDS, Cloud SQL, AlloyDB, Azure | Opt-in: `clone.allow_full_copy: true` and `full_copy` in `drill.kinds`; a full instance bill for the drill |
-| Self-managed, no clone provider | No drill: the info finding `recoverability_unknown` says what to configure |
+| Self-managed, with `drill.command.restore_argv` | Opt-in: your restore command restores your own backups (pgBackRest, Barman, WAL-G); see [restore drills on self-managed servers](restore-drills.md) |
+| Self-managed, no clone provider or restore command | No drill: the info finding `recoverability_unknown` says what to configure |
 
 A failed or errored drill opens the critical finding
 [`restore_drill_failed`](findings.md#restore_drill_failed), which pages through the finding

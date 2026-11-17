@@ -18,8 +18,9 @@ import (
 
 // Restore drills (drill-01a): every hour the fleet leader reads each
 // database's standing policy drill block and starts the drills that are
-// due on clone.provider, at most drill.max_concurrent_per_fleet at once.
-// Without a provider the database gets the info finding
+// due on clone.provider (or the drill.command restore command, drill-01c),
+// at most drill.max_concurrent_per_fleet at once.
+// Without either the database gets the info finding
 // recoverability_unknown instead. Drill clones are receipted (purpose
 // drill) and reaped by the clone reaper; results live where receipts live.
 
@@ -41,6 +42,9 @@ func startRestoreDrills(ctx context.Context, c *config.Config, mgr *fleet.Databa
 	})
 	logInfo("drill", "restore drill scheduler started (every %s, at most %d at once)",
 		restoreDrillInterval, sched.MaxConcurrent)
+	if line := restoreCommandStartupLine(c.Drill.Command); line != "" {
+		logInfo("drill", "%s", line)
+	}
 }
 
 // restoreDrillPass runs one scheduler pass on the leader; it returns the
@@ -139,8 +143,10 @@ func restoreDrillTargets(ctx context.Context, c *config.Config,
 			continue
 		}
 		pager := sharedNotifyDispatcher(inst.runtime)
-		if cloneCfg.Provider == "" || cloneCfg.Provider == "none" {
-			reportRecoverabilityUnknown(ctx, inst, pager, "clone.provider is none")
+		if !c.Drill.Command.Configured() &&
+			(cloneCfg.Provider == "" || cloneCfg.Provider == "none") {
+			reportRecoverabilityUnknown(ctx, inst, pager, "clone.provider is none and "+
+				"drill.command.restore_argv is not set")
 			continue
 		}
 		t, err := drillTarget(ctx, c, cloneCfg, inst, doc, pager)

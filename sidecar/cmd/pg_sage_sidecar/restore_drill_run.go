@@ -14,13 +14,15 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-// drillTarget is inst's scheduler target on clone.provider: its kind (for
-// the opt-ins and cadence), the policy's cadence and kinds, whether the
-// agent gate needs a fresh drill, and the run itself.
+// drillTarget is inst's scheduler target on its drill adapter (the
+// restore command, else clone.provider): its kind (for the opt-ins and
+// cadence), the policy's cadence and kinds, whether the agent gate needs a
+// fresh drill, and the run itself.
 func drillTarget(ctx context.Context, c *config.Config, cloneCfg config.CloneProviderConfig,
 	inst drillInstance, doc policy.DrillPolicy, pager *notify.Dispatcher) (drill.Target,
 	error) {
-	adapter, err := cloneProviderFor(cloneCfg, inst.pool)
+	resolved := doc.Resolved()
+	adapter, name, scope, err := drillAdapter(c, cloneCfg, inst, resolved.MaxDurationMinutes)
 	if err != nil {
 		return drill.Target{}, err
 	}
@@ -28,13 +30,13 @@ func drillTarget(ctx context.Context, c *config.Config, cloneCfg config.ClonePro
 	if err != nil {
 		return drill.Target{}, err
 	}
-	resolved := doc.Resolved()
 	kinds := []clone.Kind(nil)
 	for _, k := range resolved.Kinds {
 		kinds = append(kinds, clone.Kind(k))
 	}
 	run := drillRun{c: c, cloneCfg: cloneCfg, inst: inst, adapter: adapter,
-		capability: capability, doc: resolved, pager: pager}
+		adapterName: name, scope: scope, capability: capability, doc: resolved,
+		pager: pager}
 	return drill.Target{Database: inst.name, Enabled: true, Kind: capability.Kind,
 		AllowFullCopy: cloneCfg.AllowFullCopy, Kinds: kinds,
 		CadenceDays:      int(resolved.CadenceDays),
@@ -52,13 +54,15 @@ func agentGateNeedsDrill(ctx context.Context, database string) bool {
 
 // drillRun is one database's drill, built when the scheduler starts it.
 type drillRun struct {
-	c          *config.Config
-	cloneCfg   config.CloneProviderConfig
-	inst       drillInstance
-	adapter    clone.Provider
-	capability clone.Capability
-	doc        policy.DrillPolicy
-	pager      *notify.Dispatcher
+	c        *config.Config
+	cloneCfg config.CloneProviderConfig
+	inst     drillInstance
+	adapter  clone.Provider
+	// adapterName and scope name the adapter's receipts.
+	adapterName, scope string
+	capability         clone.Capability
+	doc                policy.DrillPolicy
+	pager              *notify.Dispatcher
 }
 
 func (r drillRun) run(ctx context.Context) {
@@ -66,7 +70,7 @@ func (r drillRun) run(ctx context.Context) {
 	rate := cloneRateFor(r.c.Cost, r.inst.name)
 	results := r.inst.results
 	provider, err := drill.NewReceiptedProvider(r.adapter, clone.NewReceiptStore(results),
-		drill.ProviderConfig{Adapter: r.cloneCfg.Provider, Scope: cloneReceiptScope(r.cloneCfg),
+		drill.ProviderConfig{Adapter: r.adapterName, Scope: r.scope,
 			Deployment: func(ctx context.Context) (string, error) {
 				return earned.EnsureDeployment(ctx, results)
 			},
@@ -77,7 +81,7 @@ func (r drillRun) run(ctx context.Context) {
 		return
 	}
 	d := drill.Drill{Database: r.inst.name, DatabaseID: r.inst.id, Source: r.inst.pool,
-		Provider: provider, ProviderName: r.cloneCfg.Provider, Kind: r.capability.Kind,
+		Provider: provider, ProviderName: r.adapterName, Kind: r.capability.Kind,
 		CostLabel:  r.capability.Estimate(drill.ReceiptTTL(budget), rate).Label,
 		Invariants: drill.Invariants{MarkerQuery: r.doc.MarkerQuery}, Budget: budget,
 		Store: drill.NewStore(results),

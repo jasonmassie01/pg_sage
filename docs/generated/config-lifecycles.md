@@ -197,6 +197,9 @@
 | `defaults.execution_mode` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `defaults.max_connections` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `defaults.trust_level` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `drill.command.destroy_argv` | `restart` | `-` | `safety_critical` |
+| `drill.command.env_allow` | `restart` | `-` | `safety_critical` |
+| `drill.command.restore_argv` | `restart` | `-` | `safety_critical` |
 | `drill.max_concurrent_per_fleet` | `restart` | `-` | `operator_preference` |
 | `encryption_key` | `restart` | `-` | `safety_critical` |
 | `encryption_key_previous` | `restart` | `-` | `safety_critical` |

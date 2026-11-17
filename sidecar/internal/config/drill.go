@@ -7,6 +7,8 @@ import "fmt"
 // standing policy document's drill block.
 type DrillConfig struct {
 	MaxConcurrentPerFleet int `yaml:"max_concurrent_per_fleet" doc:"Most restore drills the fleet leader runs at once, across every database, 1-10, on top of clone.max_creates_per_hour. Each database runs one drill at a time. Default: 2."`
+	// Command is the self-managed restore command (drill_command.go, drill-01c).
+	Command DrillCommandConfig `yaml:"command"`
 }
 
 // DefaultDrillMaxConcurrentPerFleet is drill.max_concurrent_per_fleet.

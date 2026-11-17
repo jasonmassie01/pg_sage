@@ -256,6 +256,9 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_SUPERVISED` | (unset) | `1` or `true` declares a supervisor that relaunches the sidecar on exit code 42; only then does the dashboard's restart endpoint work (otherwise it answers 501) |
 | `SAGE_ENCRYPTION_KEY` / `_FILE` | (none) | Passphrase that encrypts stored secrets, including API-set config secrets ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_ENCRYPTION_KEY_PREVIOUS` / `_FILE` | (none) | The previous passphrase during a key rotation |
+| `SAGE_DRILL_ID` | (none) | Set by pg_sage, never read: the drill id a `drill.command.restore_argv` program restores under ([restore drills](restore-drills.md)) |
+| `SAGE_DRILL_DATABASE` | (none) | Set by pg_sage, never read: the pg_sage name of the database a `drill.command.restore_argv` program restores ([restore drills](restore-drills.md)) |
+| `SAGE_CLONE_ID` | (none) | Set by pg_sage, never read: the restore id a `drill.command.destroy_argv` program removes ([restore drills](restore-drills.md)) |
 | `SAGE_DATA_DIR` | (none) | Persistent directory; without an encryption key, pg_sage generates `encryption.key` there ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_BREAK_GLASS_PASSWORD_HASH` / `_FILE` | (none) | bcrypt hash of the [break-glass admin](security.md#break-glass-admin) password |
 | `SAGE_BOOTSTRAP_ADMIN_EMAIL` | (none) | Email of the first admin, created only when the users table is empty |
@@ -836,11 +839,16 @@ in the catalog, so there its backup freshness is unknown and only the WAL archiv
 | Parameter | Default | Description |
 |---|---|---|
 | `drill.max_concurrent_per_fleet` | `2` | Most restore drills the fleet leader runs at once, across every database, `1`-`10`. Each database runs one drill at a time, and every drill clone still counts against `clone.max_creates_per_hour`. Restart to apply |
+| `drill.command.restore_argv` | unset | Self-managed servers only: the program (an absolute path) and arguments that restore the database's own backups and print one JSON line `{"dsn", "id", "recovery_point"}`. Set, drills use it instead of `clone.provider`; it is a full copy, so it needs `clone.allow_full_copy` and `full_copy` in the policy's drill kinds. Refused at startup next to a managed `clone.provider` or a database whose `provider` is managed ("use the provider's clone kind"). Restart to apply |
+| `drill.command.destroy_argv` | unset | Required with `restore_argv`: the program and arguments that remove a restore, given `SAGE_CLONE_ID`. The clone reaper may run it again for the same id. Restart to apply |
+| `drill.command.env_allow` | `[]` | Names of sidecar environment variables passed to both programs besides `PATH`, for example a repository passphrase. `SAGE_` names are refused. Values are never logged. Restart to apply |
 
 Each database's drill is set in its standing policy document's `drill` block (cadence,
 clone kinds, time budget, marker query; see
 [restore drills](policy-gate.md#restore-drills)), and drills run on `clone.provider`
-([managed clouds](managed-clouds.md#restore-drills)). YAML only.
+([managed clouds](managed-clouds.md#restore-drills)) or, on a self-managed server, on
+`drill.command` ([restore drills on self-managed servers](restore-drills.md)), which needs
+`data_dir`: the programs run in `data_dir/restore-drills`. YAML only.
 
 ### HA role checks
 

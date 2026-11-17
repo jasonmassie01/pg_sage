@@ -11,6 +11,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/clone"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/restorecmd"
 )
 
 // drill-01a unit tests: the parts of a restore drill that need no
@@ -19,6 +20,10 @@ import (
 // types; the scheduler's concurrency is in scheduler_test.go.
 
 func TestMain(m *testing.M) {
+	// drill-01c: the binary may be started as a fake restore program.
+	if restorecmd.Main() {
+		return
+	}
 	os.Exit(testdb.Run(m.Run, "internal/drill"))
 }
 

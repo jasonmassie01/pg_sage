@@ -691,7 +691,12 @@
     "ExternalSource": ""
   },
   "Drill": {
-    "MaxConcurrentPerFleet": 2
+    "MaxConcurrentPerFleet": 2,
+    "Command": {
+      "RestoreArgv": null,
+      "DestroyArgv": null,
+      "EnvAllow": null
+    }
   },
   "CloudTelemetry": {
     "Enabled": null,
