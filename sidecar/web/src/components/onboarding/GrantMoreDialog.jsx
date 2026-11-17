@@ -83,8 +83,7 @@ async function applyTrust(grant, level) {
   }
 }
 
-function GrantAction({ guide, choice, onGranted }) {
-  const [busy, setBusy] = useState(false)
+function GrantAction({ guide, choice, onGranted, busy, setBusy }) {
   const [error, setError] = useState(null)
   if (!choice || choice === guide.current) return null
   if (guide.grant?.method !== 'api') {
@@ -125,13 +124,16 @@ function GrantAction({ guide, choice, onGranted }) {
 export function GrantMoreDialog({ database, onClose, onGranted }) {
   const { data: guide, error, refetch } = useAPI(trustURL(database), 0)
   const [picked, setPicked] = useState(null)
+  // busy holds the dialog open while a grant is in flight (ux-05d review).
+  const [busy, setBusy] = useState(false)
   const choice = picked || guide?.current
   return (
-    <Dialog open title="Grant more" onClose={onClose} width={768}
+    <Dialog open title="Grant more" onClose={onClose} width={768} busy={busy}
       testId="grant-more-dialog">
       <div className="max-h-[70vh] space-y-3 overflow-y-auto">
         <div className="flex justify-end">
-          <button type="button" onClick={onClose} className="text-sm">Close</button>
+          <button type="button" onClick={onClose} disabled={busy}
+            className="text-sm">Close</button>
         </div>
         {!guide && error && <LoadError what="Trust levels" error={error} onRetry={refetch} />}
         {!guide && !error && <p role="status">Loading trust levels…</p>}
@@ -145,7 +147,8 @@ export function GrantMoreDialog({ database, onClose, onGranted }) {
               <LevelCard key={level.level} level={level}
                 selected={choice === level.level} onSelect={setPicked} />
             ))}
-            <GrantAction guide={guide} choice={choice} onGranted={onGranted} />
+            <GrantAction guide={guide} choice={choice} onGranted={onGranted}
+              busy={busy} setBusy={setBusy} />
           </>
         )}
       </div>

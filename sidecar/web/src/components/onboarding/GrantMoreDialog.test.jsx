@@ -201,3 +201,37 @@ describe('GrantMoreDialog in the shared Dialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+// ux-05d review: a trust raise in flight keeps the dialog open (the shared
+// Dialog's busy contract), so the person always sees whether it applied.
+describe('GrantMoreDialog while a grant is in flight', () => {
+  beforeEach(() => {
+    api.useAPI.mockReset()
+    globalThis.fetch = vi.fn()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('cannot be closed until the grant answers, then can', async () => {
+    respond(guide)
+    const onClose = vi.fn()
+    let answer
+    globalThis.fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ desired_generation: 7 }) })
+      .mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    render(<GrantMoreDialog database="app" onClose={onClose} />)
+    fireEvent.click(screen.getAllByRole('radio')[1])
+    fireEvent.click(screen.getByRole('button', { name: 'Grant advisory' }))
+    const dialog = screen.getByRole('dialog', { name: 'Grant more' })
+    const close = within(dialog).getByRole('button', { name: 'Close' })
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+    expect(close).toBeDisabled()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    fireEvent.click(close)
+    expect(onClose).not.toHaveBeenCalled()
+    answer({ ok: false, status: 409, json: async () => ({ error: 'generation moved' }) })
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('generation moved')
+    expect(close).toBeEnabled()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
