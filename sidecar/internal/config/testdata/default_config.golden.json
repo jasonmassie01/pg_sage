@@ -611,7 +611,8 @@
   },
   "Review": {
     "Enabled": true,
-    "GradeIntervalHours": 24
+    "GradeIntervalHours": 24,
+    "WindowDays": 90
   },
   "Facts": {
     "ConfirmedAbsenceDays": 7
