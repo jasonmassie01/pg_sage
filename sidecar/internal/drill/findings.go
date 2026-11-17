@@ -87,11 +87,7 @@ func ReportUnknown(ctx context.Context, pool *pgxpool.Pool, pager Pager, databas
 		ObjectType: "database", ObjectIdentifier: objectID(database),
 		Title:  "SQL only: recoverability unknown for " + database,
 		Detail: map[string]any{"reason": reason},
-		Recommendation: "pg_sage cannot prove this database restores without a clone. " +
-			"Set clone.provider (lakebase_branch, neon_branch, aurora_clone or dle run " +
-			"drills by default; a full copy needs clone.allow_full_copy and full_copy in " +
-			"the policy document's drill.kinds) and grant it what the provider's section " +
-			"of docs/managed-clouds.md lists. Until then D7 keeps agent writes at L2."}
+		Recommendation: UnknownAdvice}
 	return open(ctx, pool, pager, database, f)
 }
 
