@@ -143,6 +143,13 @@ func (a *Analyzer) planFlipOf(ctx context.Context, db planFlipDB, p planPair, re
 	if !ok {
 		return nil, nil
 	}
+	if last, _ := lastSageAnalyze(sage, c, now); last.After(p.CurrentAt) {
+		// The newest plan predates pg_sage's ANALYZE of the relation: the
+		// next capture decides (follow-up). Re-emitting the flip now would
+		// reopen the row that ANALYZE resolved before its verdict.
+		a.eval.keep(categoryPlanFlip, reg.ObjectIdentifier)
+		return nil, nil
+	}
 	b, err := db.blocksPerCall(ctx, p.QueryID, c.At)
 	if err != nil {
 		a.logFn("WARN", "analyzer: %s: blocks per call of query %d unavailable: %v",
@@ -163,19 +170,19 @@ func (a *Analyzer) followUpPlanFlips(ctx context.Context, db planFlipDB) ([]Find
 	}
 	var out []Finding
 	for _, o := range rows {
-		qid, _ := o.Detail["queryid"].(float64)
-		if qid == 0 {
+		qid, ok := flipQueryID(o)
+		if !ok {
 			a.keepOpenFlip(o)
 			continue
 		}
-		latest, err := db.latestCapture(ctx, int64(qid))
+		latest, err := db.latestCapture(ctx, qid)
 		if err != nil {
 			a.keepOpenFlip(o)
 			a.logFn("WARN", "analyzer: %s: %s left unevaluated: %v", categoryPlanFlip,
 				o.Ident, err)
 			continue
 		}
-		blocks := a.blocksAfterReanalyze(ctx, db, o, int64(qid))
+		blocks := a.blocksAfterReanalyze(ctx, db, o, qid)
 		switch v := judgeReanalyze(o, latest, blocks); v {
 		case verdictNoChange:
 			out = append(out, followUpFinding(o, v, latest, blocks))

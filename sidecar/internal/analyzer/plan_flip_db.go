@@ -159,9 +159,11 @@ func (d pgPlanFlipDB) openFlips(ctx context.Context) ([]openFlip, error) {
 			&action, &at); err != nil {
 			return nil, fmt.Errorf("scan flip: %w", err)
 		}
-		if err := json.Unmarshal(raw, &o.Detail); err != nil {
+		detail, err := decodeFlipDetail(raw)
+		if err != nil {
 			return nil, fmt.Errorf("decode the detail of finding %d: %w", o.ID, err)
 		}
+		o.Detail = detail
 		if action != nil && at != nil {
 			o.ActionID, o.ActionAt = *action, *at
 		}

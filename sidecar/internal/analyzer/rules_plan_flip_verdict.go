@@ -1,7 +1,10 @@
 package analyzer
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -68,11 +71,50 @@ func judgeReanalyze(o openFlip, latest *latestCapture, blocksAfter *float64) str
 	if latest.Hash == flipped {
 		return verdictNoChange
 	}
-	if during, ok := o.Detail["blocks_per_call_after"].(float64); ok && blocksAfter != nil &&
+	if during, ok := flipDetailNumber(o.Detail["blocks_per_call_after"]); ok && blocksAfter != nil &&
 		*blocksAfter > during {
 		return verdictNoChange
 	}
 	return verdictImproved
+}
+
+// decodeFlipDetail decodes a stored finding detail keeping numbers exact:
+// a pg_stat_statements queryid is a 64-bit hash that float64 would round.
+func decodeFlipDetail(raw []byte) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var d map[string]any
+	if err := dec.Decode(&d); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// flipDetailNumber reads a detail number decoded exactly (json.Number) or built
+// in memory (float64).
+func flipDetailNumber(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	return 0, false
+}
+
+// flipQueryID is the open flip's queryid, from its identity "queryid:N"
+// (exact, unlike a float64 detail value); false when it names none.
+func flipQueryID(o openFlip) (int64, bool) {
+	s, ok := strings.CutPrefix(o.Ident, "queryid:")
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return id, true
 }
 
 // verdictDetail is the open flip's detail with the verdict recorded; the
@@ -106,12 +148,12 @@ func verdictDetail(o openFlip, verdict string, latest *latestCapture,
 func followUpFinding(o openFlip, verdict string, latest *latestCapture,
 	blocksAfter *float64) Finding {
 	rel, _ := o.Detail["relation"].(string)
-	qid, _ := o.Detail["queryid"].(float64)
+	qid, _ := flipQueryID(o)
 	return Finding{Category: categoryPlanFlip, Severity: o.Severity, ObjectType: "query",
 		ObjectIdentifier: o.Ident, Title: o.Title,
 		Detail: verdictDetail(o, verdict, latest, blocksAfter),
 		Recommendation: fmt.Sprintf("One re-ANALYZE of %s did not restore the earlier "+
-			"plan of query %.0f, so pg_sage does not run it again. The plan-stability "+
+			"plan of query %d, so pg_sage does not run it again. The plan-stability "+
 			"review proposes a larger per-column statistics target "+
 			"(set_column_statistics) or extended statistics for the columns this "+
 			"query filters on.", rel, qid)}
