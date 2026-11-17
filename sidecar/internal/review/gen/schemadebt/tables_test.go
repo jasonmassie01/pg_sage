@@ -37,7 +37,7 @@ func TestBuild_TimestampWithoutTimeZoneOnATopQueryTableIsAPlannedSwap(t *testing
 	cands := build(t, schemaPack(t, readers(), nil, bigintOrders(1<<20)), timestampInputs(),
 		Options{})
 	c := only(t, cands, KindTimestampNoTZ)
-	if c.ActionType != candidate.ActionOperator || c.Approval != candidate.ApprovalRequired {
+	if c.ActionType != candidate.ActionAdvice || c.Approval != candidate.ApprovalRequired {
 		t.Fatalf("timestamp candidate %s / %s", c.ActionType, c.Approval)
 	}
 	if c.Target != "public.orders.placed_at" {

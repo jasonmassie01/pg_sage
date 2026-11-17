@@ -140,12 +140,14 @@ type Autovacuum struct {
 	Days      []string         `json:"days"`
 }
 
-// AutovacuumFact is one table's maintenance history. Reloptions are the
-// storage parameters that parse as name=value; ReloptionsText the ones
-// that do not, kept as written.
+// AutovacuumFact is one table's maintenance history. LiveTuples is the
+// window's last tables snapshot's n_live_tup, or "unknown" (review-02b).
+// Reloptions are the storage parameters that parse as name=value;
+// ReloptionsText the ones that do not, kept as written.
 type AutovacuumFact struct {
 	ID              string            `json:"id"`
 	Table           string            `json:"table"`
+	LiveTuples      any               `json:"live_tuples"`
 	Autovacuums     any               `json:"autovacuums"`
 	Autoanalyzes    any               `json:"autoanalyzes"`
 	LastAutovacuum  any               `json:"last_autovacuum"`

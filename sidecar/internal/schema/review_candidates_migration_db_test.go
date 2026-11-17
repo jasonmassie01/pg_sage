@@ -80,14 +80,14 @@ func checkCandidateConstraints(t *testing.T, ctx context.Context, pool *pgxpool.
 	}
 }
 
-func TestReviewCandidatesStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// review-02b appends ddlReviewCandidateOperator, which adds a column to
+// review_candidate, so ddlReviewCandidates is the step just before it.
+func TestReviewCandidatesStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	// review-03a and review-03b appended steps after it (the last-step pin
-	// moved), so the pin is its place: just before ddlReviewModelRuns.
 	at := stepIndex(steps, "ddlReviewCandidates")
-	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewModelRuns" {
-		t.Fatalf("T6 steps %v, want ddlReviewCandidates just before ddlReviewModelRuns",
-			steps)
+	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewCandidateOperator" {
+		t.Fatalf("T6 steps %v, want ddlReviewCandidates just before "+
+			"ddlReviewCandidateOperator", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_candidate",

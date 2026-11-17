@@ -57,10 +57,11 @@ func TestReviewRunsMigration_BootstrapTwice(t *testing.T) {
 }
 
 // review-02a appends ddlReviewCandidates, whose rows reference review_run,
-// so ddlReviewRuns is the step just before it rather than the last.
+// so ddlReviewRuns must come right before it; later items append after.
 func TestReviewRunsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	// review-03a and review-03b appended steps after ddlReviewCandidates.
+	// review-02b, review-02f, review-03a and review-03b appended steps after
+	// ddlReviewCandidates.
 	at := stepIndex(steps, "ddlReviewRuns")
 	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewCandidates" {
 		t.Fatalf("T6 steps %v, want ddlReviewRuns just before ddlReviewCandidates", steps)

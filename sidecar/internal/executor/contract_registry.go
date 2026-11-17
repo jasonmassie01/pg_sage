@@ -44,6 +44,7 @@ var contractRegistry = []contractRow{
 	{"apply_query_hint", fixed(applyQueryHintContract)},
 	{"investigate_query_plan", fixed(investigateQueryPlanContract)},
 	{"create_statistics", fixed(createStatisticsContract)},
+	{ActionTypeSetColumnStatistics, fixed(setColumnStatisticsContract)},
 	{"prepare_parameterized_query", fixed(prepareParameterizedQueryContract)},
 	{"retention_delete", fixed(retentionDeleteContract)},
 	{"revert_created_index", fixed(revertCreatedIndexContract)},

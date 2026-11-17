@@ -165,6 +165,200 @@ write blocks it saves a day: the table's inserted and updated rows a day, one le
 row per index. That is an upper bound, since a HOT update writes no index. The review's numbers
 are the sum over its steps.
 
+## Schema debt generator
+
+The `schemadebt` generator joins the shapes the schema lint finds to a rate. The lint says
+"int4 key"; the runway monitor says "sequence at 80%"; this generator says "exhausts in 247
+days" and attaches the migration plan. It reads the pack's schema, workload and index sections,
+the catalog facts of the debt columns (bounded, read-only), and the sequences' samples in
+`sage.runway_samples` since the pack window's start (the newest epoch of each sequence only).
+
+| Kind | When | Output |
+|---|---|---|
+| `int4_key` | A single-column `smallint` or `integer` primary key fed by a sequence (serial or identity). | Under 365 days of measured runway: `prepare_sequence_capacity_migration` with the sequence playbook's forward-fix script. Otherwise `advice`. |
+| `fk_type_mismatch` | An integer foreign key column narrower than the key it references. | `advice`: the referenced key's sequence rate against the column's own limit. |
+| `timestamp_without_time_zone` | A `timestamp without time zone` column of a table the window's top query families read. | `advice` carrying the online swap to `timestamptz`, or `advice` saying why it cannot be planned. |
+| `large_unpartitioned_table` | An unpartitioned table of at least `review.large_table_bytes` (default 10 GiB) whose primary key or an index leads with a date or timestamp column. | `advice`: range partitioning on that column. |
+| `queue_table`, `soft_delete_table` | At least 100000 rows updated or deleted over the window, at least half of all its writes, and a `status`/`state` or `deleted_at`/`is_deleted`/`deleted` column. | `advice`. |
+| `column_swap` | Beside an int4 key or a foreign key mismatch, when the migration planner drafts the online widening. | `advice` carrying the planner's expand, backfill and contract script for a person to run. An `operator` step needs a setting landing pg_sage can watch, and a column type is not one. |
+
+**The runway arithmetic.** The rate is a least-squares fit of the sequence's samples against
+time, in values a day. The remaining values run from the newest sample to the binding limit:
+the smaller of the sequence's own limit (as the runway store records it) and the column's type
+(2147483647 for `integer`; the minimum, -2147483648, for a descending sequence, which the store
+samples negated). The runway is the whole days of remaining values at that rate, and the
+statement gives the range at the rate plus and minus 2 standard errors. With fewer than 3
+samples, or samples all at one instant, the statement is `rate not measured yet` and no date
+is given. A rate at or below zero is "not consuming values", also without a date.
+
+**Never automatic.** Every schema-debt candidate needs a person's approval at every trust
+level: the capacity migration's contract is forward-fix only and direct execution is disabled;
+a type change, a table rewrite and a partition conversion are never automatic. When the planner
+refuses a column (an identity column, a default that is not the column's own sequence, a
+partitioned table, foreign keys it cannot carry over), the refusal is attached to the debt
+item's reason and the runway is kept.
+
+The review's numbers are the debt items with a measured runway, and the share of int4 keys
+whose runway is measured rather than `rate not measured yet`.
+
+## Configuration generator
+
+The `config` generator judges the server's settings as a set. Every setting of the pack whose
+source is not the built-in default is listed as a fact. Then a fixed rule table checks each
+judged setting, default or not, against the workload and hardware facts that contradict it:
+
+| Setting | Judged against | Rule |
+|---|---|---|
+| shared_buffers | the server's memory | Under 15% or over 40% of memory (from the provider's memory fact) proposes 25%. |
+| work_mem | the temp files written per hour | 256MiB or more of temp files an hour doubles work_mem, capped at 25% of memory shared by `max_connections`. |
+| max_wal_size | requested against timed checkpoints and the WAL rate | More requested than timed checkpoints sizes max_wal_size to one `checkpoint_timeout` of WAL times (1 + `checkpoint_completion_target`), rounded up to a whole GB. |
+| random_page_cost | the storage class | 2 or more on a managed service (SSD storage) proposes 1.1. A self-managed server's storage is not known, so it is not judged. |
+| effective_io_concurrency, io_method | PostgreSQL 18's asynchronous I/O | On 18, an `effective_io_concurrency` of 1 or less set outside the defaults becomes 18's default 16; `io_method = sync` is advice. |
+| idle_in_transaction_session_timeout | sessions idle in a transaction | Off while sessions sit idle in a transaction is advice for 30min, set per database with approval. |
+
+Values are computed in code and clamped to the `pgconf` safe range; a value outside it is never
+emitted. How a contradiction becomes a candidate:
+
+- A reloadable setting on a self-managed server is an `alter_system_guc` step that needs
+  approval. Its rollback restores the value the pack saw; the executor captures the live prior
+  again when the step runs.
+- A restart-bound setting (`pgconf.RequiresRestart`) on a self-managed server is an
+  **operator** step: the operator runs `ALTER SYSTEM` and restarts, and pg_sage watches the
+  setting land. At most one restart-bound step is proposed per review; another goes to the next
+  review.
+- On a managed service every setting is an operator step carrying managedparam's proposal (the
+  provider command and its revert). pg_sage never applies or reverts it.
+- Where managedparam cannot describe the change (Neon, Supabase, Lakebase, an unknown platform),
+  the candidate is advice, with the reason.
+
+Every configuration prediction says it has no control group: a global setting is verified as an
+interrupted time series against the seasonal baseline. The review's number is the count of
+settings the workload contradicts. The LLM configuration advisor keeps running as before.
+
+## Autovacuum generator
+
+The `autovacuum` generator sizes each table's own autovacuum settings from its vacuum history in
+the pack: its live rows, its dead tuples on each day of the window, and the server's autovacuum
+settings (PostgreSQL's defaults when the pack has none).
+
+1. The target is a dead-tuple peak of at most 5% of the live rows. A table whose peak is at or
+   under the target gets nothing.
+2. Growth is the median day-over-day rise of the dead tuples, per hour. A drop is a vacuum and is
+   left out.
+3. The trigger budget is the target less the growth over `autovacuum_naptime` plus one hour.
+4. The threshold keeps its value unless it is over a tenth of the budget. The scale factor takes
+   the rest of the budget (at least 0.001), and the analyze scale factor half of it.
+5. The step is `ALTER TABLE ... SET (...)` (`set_table_autovacuum`). Its rollback is `RESET` of
+   the keys the table had no value for, or `SET` of their prior values. One statement must roll
+   back exactly, so a key whose prior state differs from the scale factor's is left out.
+
+A table with fewer than two days of dead tuples, unknown live rows, autovacuum switched off by
+its owner, or storage parameters that do not parse is left alone, with the reason in the
+coverage. A table under 100,000 rows is left alone without a note. When no trigger can hold the
+target, because the growth outruns it, the table's own threshold (left alone, see step 5) or the
+0.001 floor keeps the predicted peak over it, or the table is already tuned tighter, the candidate
+is advice that autovacuum is falling behind.
+
+## Connection generator
+
+The `connections` generator judges the connection architecture from the window's
+`workload_sessions` snapshots: the newest 288 for recycle herds, and the whole window for each
+role's cluster-wide peak, each role's longest idle-in-transaction session and each
+application's state mix. It reads `pg_sage`'s history and, on the monitored database, the
+roles it names (bounded, read-only). Its candidates cite the pack's connection hours and the
+`max_connections` setting.
+
+| Kind | When | Output |
+|---|---|---|
+| `recycle_herd` | In at least 3 samples, more than 30% of an application's sessions (10 or more) connected in the same minute. | `advice`: jitter the pool's connection lifetime, so its sessions stop reconnecting together. |
+| `pooler_sizing` | An application with 10 or more sessions on average, at least half of them idle. | `advice`: a pooler in transaction mode with a pool of its active peak plus 20%, and what transaction mode breaks. |
+| `idle_in_transaction_timeout` | A role's session sat idle in a transaction for more than 10 minutes, and the role's own timeout is unset or looser. | `set_role_timeout`: `idle_in_transaction_session_timeout = '600000ms'` for the role in this database. Its rollback restores the role's prior value, or resets it. |
+| `role_connection_limit` | Under 10% of usable connections (`max_connections` less the reserved slots) were free at the window's peak, and the role's peak is over its fair share (the usable connections over the roles seen). | `set_role_connection_limit`: the role's peak plus 20%, capped at the usable connections, and never below the peak plus the contract's margin (2 sessions or 10%). Its rollback restores the prior limit. |
+
+A session whose `backend_start` pg_sage's role cannot see has no age and is skipped. A
+negative age (clock skew, or a session that connected during the read) is skipped too. The
+coverage counts both. A truncated age read is judged against the application's session
+total, so a cut list never inflates a share.
+
+**Always approved.** Both steps need a person's approval at every trust level, because a
+review has none of a workload budget's warn-mode shadow data. A role the role-budget contract
+refuses (a superuser, pg_sage's own role, a `pg_` role or a provider administration role) gets
+no step, and the coverage names it. When the roles cannot be read, each step becomes advice.
+Pooler mode, pool size and lifetimes are advice only: pg_sage never changes a pooler.
+
+Application names never enter a model tier: the pack's connections section holds none, and
+candidates are not part of a pack. The review's numbers are the herds found and the headroom
+at peak. The headroom after accepted steps is the next review's headroom at peak.
+
+## Plan-stability generator
+
+The `planstability` generator looks for the statistical cliffs a plan can fall off before it
+does: a column the planner's sample describes badly that a top query filters on. It reads the
+pack's top 20 queries by total time, their statement texts (filters are read from the
+normalized text: `col = $1`, `$1 = col`, `col IS NOT NULL`, `col < $1`; a text that does not lex
+is skipped with the reason) and, from the monitored database through the bounded read-only
+reader, `pg_stats` (null fraction, distinct values, correlation and the leading
+`most_common_freqs` value: a frequency, never a value), `pg_attribute.attstattarget`,
+`pg_class.reltuples` and `n_mod_since_analyze`. No user data is read.
+
+| Cliff | Flagged when | Proposal |
+|---|---|---|
+| Tiny non-null share | `null_frac` >= 0.999 on a column filtered with `=` or `IS NOT NULL` | `set_column_statistics`, then `analyze_table` |
+| Skew beyond the sample | leading `most_common_freqs` > 0.5 with more than 1000 distinct values | `set_column_statistics`, then `analyze_table` |
+| Time-ordered inserts past the histogram | `correlation` > 0.95, more than 10% of `reltuples` changed since the last ANALYZE, and more distinct values than the column's target (fewer means every value is in the most-common list and there is no histogram) | `set_column_statistics`, then `analyze_table` |
+| Correlated predicates | two or more equality columns of one table whose stored plan's scan estimate is off from its actual rows by more than 10x | `create_statistics` (`dependencies`, `mcv`), pg_sage's form |
+
+The new target is 10 times the column's current one (the `default_statistics_target` when it has
+none), at most 10000; the rollback sets the prior target back (`-1` for the default, which reads
+`NULL` on PostgreSQL 17+). A column already at 10000, or with statistics switched off (target 0)
+by its owner, gets advice instead. `set_column_statistics` is a moderate, reversible action
+that follows the planner-statistics class's trust level, like `create_statistics`; it takes
+SHARE UPDATE EXCLUSIVE under `lock_timeout`, and its read-back is `pg_attribute.attstattarget`.
+Without table ownership (which `SET STATISTICS` needs), or for a name the executor's validator
+refuses (a `;` in an identifier), the step is an operator step with the exact SQL.
+
+Without an executed plan (no `auto_explain`, as on Neon and Lakebase) the correlated-predicate
+rule compares the stored estimate with the rows each call returned (estimate drift only) and
+says so; without a captured plan it is not checked, and the coverage says which query.
+
+A table whose statistics pg_sage cannot read is `unknown`, never "no risk": the coverage is
+partial with `pg_stats:<table>` missing and a note with the reason, which is the exact
+`GRANT SELECT ON TABLE ... TO <role>` when the role cannot read it, "never analyzed" when the
+table has no statistics yet, or "not found". A filtered column with no `pg_stats` row of its
+own (a partitioned table keeps only inherited statistics, or the column was added since the last
+ANALYZE) is noted as unknown the same way.
+
+## Capacity generator
+
+The `capacity` generator (rubric dimension `capacity_cost`) gives a review one capacity
+section. It reads the pack's growth section (the daily database size and the largest tables'
+sizes), the window's query rollups by day, and, with a cloud provider resource, the hourly host
+usage `cost` right-sizes from. Every output is `advice` for a person.
+
+| Kind | When | Output |
+|---|---|---|
+| `growth_plan`, `table_growth` | A size series with 7 or more daily points. | A least-squares line through the days (a missing day keeps its place), projected 30, 90 and 365 days past the last measured day, each with a band of twice a prediction's standard error, and the fit error (the residual standard error). A falling fit projects shrinkage and never a size below zero. |
+| `storage_headroom` | Cloud telemetry reports the allocated storage, and the database's 90-day projection plus its band reaches 85% of it. | Grow the instance's storage. The database is a lower bound: WAL and other databases come on top. |
+| `right_size` | `cost.EvaluateRightsize` says downsize or upsize. | The current and target class, the CPU projection, and the monthly compute change at the `cost.rates` entry's prices, with their source and date; without rates, "unknown: no operator rates". |
+| `idle_database` | 14 or more observed days in a row, ending at the window's end, without a workload call (pg_sage's own statements are not workload). | The database's size and, with a `storage_gb_month` rate, its monthly storage cost; archiving and dropping it is the operator's decision. |
+
+**Never automatic.** An instance class or storage change is an operator step at the provider,
+at every trust level; no candidate carries SQL. pg_sage ships no price tables: no dollar figure
+appears anywhere in the section without `cost.rates`.
+
+**Unknown, not silent.** Fewer than 7 daily points is a note, not a projection. A right-size
+verdict of unknown (no hourly usage, a size with no vCPU count, stale telemetry) and a
+right-size error are carried in the coverage as `unknown:` with their text, and the coverage is
+partial with `rightsize` missing. Without a cloud resource, the coverage says SQL alone gives
+growth and idle databases. A day the rollup did not observe (no rollup row, pg_sage's own
+included, and no coverage hour) ends the quiet run: no history is no proof of idleness. A
+statement whose text pg_sage never captured counts as workload.
+
+The review's number is the forecast error: each review records its 30-day database size
+projection in `sage.review_capacity_forecast`, and the first later review whose pack holds the
+target day's size measures it once, as (projected - measured) / measured. A second pass at the
+same mark changes nothing. `capacity.Idle` is the idle rule fleetpol-03 reuses.
+
 ## Model pass
 
 After the generators, a model **ranks** the candidates, **attacks** each one (what could make
@@ -270,7 +464,7 @@ hypothesis must also cite evidence ids that resolve in the pack.
 | `create_index_concurrently` | `public.orders(region)` | `CREATE INDEX CONCURRENTLY sage_orders_region_idx ON public.orders (region)`; HypoPG what-if |
 | `create_statistics` | `public.orders(region, country)` | `CREATE STATISTICS public.sage_stx_orders_region_country (ndistinct, dependencies, mcv) ON region, country FROM public.orders` |
 | `alter_database_guc` | `work_mem=64MB` | `ALTER DATABASE "shop" SET work_mem = '64MB'`, rollback to the database's value or `RESET`; inside the executor allowlist and `pgconf` bounds, never a restart-bound setting |
-| `set_column_statistics`, `set_table_autovacuum`, `set_role_timeout`, `set_role_connection_limit` | `public.orders(region) statistics=1000`, `public.orders autovacuum_vacuum_scale_factor=0.05`, `app statement_timeout=30s`, `app connection_limit=20` | advice: the pack does not hold the value they would replace, so no exact rollback can be written (`set_column_statistics` also has no executor contract yet) |
+| `set_column_statistics`, `set_table_autovacuum`, `set_role_timeout`, `set_role_connection_limit` | `public.orders(region) statistics=1000`, `public.orders autovacuum_vacuum_scale_factor=0.05`, `app statement_timeout=30s`, `app connection_limit=20` | advice: the pack does not hold the value they would replace, so no exact rollback can be written |
 
 Today the HypoPG what-if is the only tier the planner can call, so in practice only index
 hypotheses become model steps; statistics and setting hypotheses stay advice

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/changeplan"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/review/candidate"
 	"github.com/pg-sage/sidecar/internal/review/gen/indexes"
 	"github.com/pg-sage/sidecar/internal/review/report"
@@ -99,17 +100,15 @@ func TestBuild_KindsWithoutATemplateAreAdvice(t *testing.T) {
 	}
 }
 
-func TestBuild_KindsWithoutAContractAreAdvice(t *testing.T) {
-	in := baseInput(t, "shop")
-	target := "public.orders(region) statistics=1000"
-	in.Report.Hypotheses = []report.Hypothesis{hyp("set_column_statistics", target)}
-	res, err := Build(context.Background(), in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a := adviceFor(t, res, target); a.Reason != ReasonNoContract ||
-		!strings.Contains(a.Detail, "set_column_statistics") {
-		t.Errorf("advice %+v, want no_contract naming the action type", a)
+// review-02c gave set_column_statistics an executor contract, so every
+// template's action now has one; the no_contract refusal stays as the fail
+// closed guard for a template added before its contract.
+func TestTemplates_EveryActionHasAnExecutorContract(t *testing.T) {
+	for kind, tpl := range templates {
+		if _, ok := executor.ContractForActionType(tpl.action); !ok {
+			t.Errorf("template %q renders action %s, which has no executor contract",
+				kind, tpl.action)
+		}
 	}
 }
 
@@ -120,6 +119,7 @@ func TestBuild_KindsWithoutAPriorValueAreAdvice(t *testing.T) {
 		{"set_role_timeout", "app statement_timeout=30s"},
 		{"set_role_connection_limit", "app connection_limit=20"},
 		{"set_table_autovacuum", "public.orders autovacuum_vacuum_scale_factor=0.05"},
+		{"set_column_statistics", "public.orders(region) statistics=1000"},
 	} {
 		in := baseInput(t, "shop")
 		in.Report.Hypotheses = []report.Hypothesis{hyp(tc.kind, tc.target)}

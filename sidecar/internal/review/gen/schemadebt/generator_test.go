@@ -157,7 +157,7 @@ func everyKind(t *testing.T) ([]candidate.Candidate, []string) {
 }
 
 // CHECK-21: no schema-debt candidate has an action type outside advice,
-// prepare_sequence_capacity_migration and an approval-only operator plan.
+// prepare_sequence_capacity_migration and approval-only advice.
 func TestBuild_EveryDebtKindStaysInsideTheAllowedActions(t *testing.T) {
 	cands, kinds := everyKind(t)
 	allowed := map[string]bool{candidate.ActionAdvice: true, capacityAction: true,
@@ -198,5 +198,18 @@ func TestTotals_CountsMeasuredRunwaysAndInt4Keys(t *testing.T) {
 	}
 	if m, k, km := Totals(nil); m != 0 || k != 0 || km != 0 {
 		t.Fatalf("nil totals %d %d %d", m, k, km)
+	}
+}
+
+// Post-test audit: a source that read only MaxColumns columns makes the
+// coverage partial and says so.
+func TestBuild_TruncatedColumnReadIsPartial(t *testing.T) {
+	in := keyInputs(linear(ordersSeq, 1.9e9, 1e6, 5, int4Max))
+	in.Truncated = true
+	_, cov, err := Build(t.Context(), schemaPack(t, nil, nil, ordersTable(1<<20)), in, env(),
+		Options{})
+	if err != nil || cov.Status != candidate.CoveragePartial ||
+		!strings.Contains(strings.Join(cov.Notes, " "), "at most 64 columns") {
+		t.Fatalf("truncated read coverage %+v (%v)", cov, err)
 	}
 }
