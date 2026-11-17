@@ -60,6 +60,23 @@ func TestNeonCreate_HappyPathBranchesFromTheMonitoredEndpoint(t *testing.T) {
 	}
 }
 
+// A connection URI that asks for a weaker sslmode is raised to require.
+func TestNeonCreate_DSNAlwaysRequiresTLS(t *testing.T) {
+	f := newNeonFake(t)
+	f.uriQuery = "sslmode=disable&application_name=x"
+	c, err := newNeonProvider(t, f, nil).Create(context.Background(), neonSpec(neonName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(c.DSN)
+	if err != nil {
+		t.Fatal("clone DSN does not parse")
+	}
+	if got := u.Query(); got.Get("sslmode") != "require" || got.Get("application_name") != "x" {
+		t.Fatalf("clone DSN query = %v, want sslmode=require and the rest kept", got)
+	}
+}
+
 func TestNeonCreate_PoolerHostResolvesTheProductionBranch(t *testing.T) {
 	f := newNeonFake(t)
 	p := newNeonProvider(t, f, func(c *clone.NeonConfig) {

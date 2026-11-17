@@ -36,6 +36,7 @@ type neonFake struct {
 	opsNeverFinish bool
 	pollsToFinish  int
 	noURI          bool
+	uriQuery       string // query of every connection URI; "": Neon's
 	endpointHost   string // every new endpoint answers on this host
 	deleteStatus   int    // answer every delete with this status
 }
@@ -272,8 +273,12 @@ func (f *neonFake) connectionURI(w http.ResponseWriter, r *http.Request) {
 		neonError(w, http.StatusNotFound, "endpoint, database or role not found")
 		return
 	}
-	uri := fmt.Sprintf("postgresql://%s:%s@%s/%s?sslmode=require&channel_binding=require",
-		q.Get("role_name"), neonFakePassword, host, q.Get("database_name"))
+	query := "sslmode=require&channel_binding=require"
+	if f.uriQuery != "" {
+		query = f.uriQuery
+	}
+	uri := fmt.Sprintf("postgresql://%s:%s@%s/%s?%s", q.Get("role_name"),
+		neonFakePassword, host, q.Get("database_name"), query)
 	if f.noURI {
 		uri = ""
 	}
