@@ -13,3 +13,7 @@ func SetCloudSQLDeadlineForTest(a *CloudSQLCloneAPI, d time.Duration) { a.cfg.De
 // SetAlloyDBDeadlineForTest shortens a's restore deadline below the
 // configurable minimum, so a test can wait it out.
 func SetAlloyDBDeadlineForTest(a *AlloyDBRestoreAPI, d time.Duration) { a.cfg.Deadline = d }
+
+// SetAzureRestoreDeadlineForTest shortens a's restore deadline below the
+// configurable minimum, so a test can wait it out.
+func SetAzureRestoreDeadlineForTest(a *AzureRestoreAPI, d time.Duration) { a.cfg.Deadline = d }

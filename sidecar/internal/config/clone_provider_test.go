@@ -168,19 +168,17 @@ func TestCloneProviderSnapshotNamesItsReplacements(t *testing.T) {
 	}
 }
 
-func TestCloneFullCopyProvidersHaveNoAdapterYet(t *testing.T) {
+// lab-05g built the last full-copy adapter: every full-copy provider is
+// in this build, and each refuses to start without clone.allow_full_copy.
+func TestEveryFullCopyProviderNeedsAllowFullCopy(t *testing.T) {
 	for _, name := range CloneFullCopyProviders {
-		if name == CloneRDSRestore || name == CloneCloudSQLClone || name == CloneAlloyDBRestore {
-			continue // lab-05d to lab-05f built them (clone_rds_test.go, clone_cloudsql_test.go,
-			// clone_alloydb_test.go)
-		}
 		cfg := DefaultConfig()
 		cfg.Clone.Provider = name
-		cfg.Clone.AllowFullCopy = true
 		err := cfg.validateAgentNative()
 		if err == nil || !strings.Contains(err.Error(), name) ||
-			!strings.Contains(err.Error(), "not in this build") {
-			t.Errorf("clone.provider %s: %v", name, err)
+			!strings.Contains(err.Error(), "clone.allow_full_copy") ||
+			strings.Contains(err.Error(), "not in this build") {
+			t.Errorf("clone.provider %s without allow_full_copy: %v", name, err)
 		}
 	}
 }

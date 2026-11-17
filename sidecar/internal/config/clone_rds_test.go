@@ -132,15 +132,3 @@ func TestCloneRDSBlockIgnoredForOtherProviders(t *testing.T) {
 		t.Fatalf("provider none with a broken rds block: %v", err)
 	}
 }
-
-// The other full-copy providers are still not in this build.
-func TestCloneRDSIsTheOnlyFullCopyProviderBuilt(t *testing.T) {
-	for _, name := range []string{CloneAzureRestore} {
-		cfg := rdsRestoreConfig()
-		cfg.Clone.Provider = name
-		if err := cfg.validateAgentNative(); err == nil ||
-			!strings.Contains(err.Error(), "rds_restore") {
-			t.Errorf("%s: err = %v, want a refusal naming rds_restore as available", name, err)
-		}
-	}
-}
