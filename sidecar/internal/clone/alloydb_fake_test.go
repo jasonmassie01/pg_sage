@@ -43,6 +43,7 @@ type alloyDBFake struct {
 	forbid          map[string]bool // "get", "list", "restore", "instance", "delete", "op"
 	cloneIP         string          // the new instance's private IP ("": a fresh one)
 	dropLabels      bool            // the restore ignores the requested labels
+	restoreOpName   string          // the restore reply names this operation
 }
 
 type fakeADBCluster struct {
@@ -227,7 +228,11 @@ func (f *alloyDBFake) restore(w http.ResponseWriter, body map[string]any) {
 		writeSQLError(w, f.restoreThenCode, "backend error")
 		return
 	}
-	writeSQLJSON(w, op.json(false))
+	reply := op.json(false)
+	if f.restoreOpName != "" {
+		reply["name"] = f.restoreOpName
+	}
+	writeSQLJSON(w, reply)
 }
 
 func (f *alloyDBFake) getCluster(w http.ResponseWriter, name string) {

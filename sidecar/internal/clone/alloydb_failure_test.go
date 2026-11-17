@@ -343,3 +343,27 @@ func TestAlloyDB_ConflictOnDeleteIsAnOperationInProgress(t *testing.T) {
 		t.Fatalf("err = %v, want a 409 operation-in-progress status error", err)
 	}
 }
+
+// Invalid input: a restore reply naming an operation outside the
+// project and region (or a path out of it) is never polled; the cluster
+// the restore made is deleted.
+func TestAlloyDB_ForeignOperationNameIsNeverPolled(t *testing.T) {
+	for _, name := range []string{
+		"projects/other-proj/locations/us-central1/operations/operation-1",
+		adbParent + "/operations/../../../other-proj/operations/operation-1",
+		adbParent + "/operations/",
+	} {
+		f, base := newAlloyDBFake(t)
+		f.restoreOpName = name
+		_, err := createADB(t, base, nil)
+		if err == nil || !strings.Contains(err.Error(), "is not one of "+adbParent) ||
+			f.exists(adbName) {
+			t.Fatalf("operation %q: err = %v, clone exists %v", name, err, f.exists(adbName))
+		}
+		for id, op := range f.ops {
+			if op.polls != 0 {
+				t.Fatalf("operation %q: %s was polled %d times", name, id, op.polls)
+			}
+		}
+	}
+}
