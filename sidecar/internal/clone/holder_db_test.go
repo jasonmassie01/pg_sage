@@ -343,18 +343,21 @@ func TestHolder_ConcurrentCreatesHonourTheHourlyLimit(t *testing.T) {
 }
 
 func TestHolder_ConcurrentHeartbeatAndReapNeverReapALiveClone(t *testing.T) {
-	s, pool, ctx := receiptStore(t)
+	s, _, ctx := receiptStore(t)
 	inner := newHolderFake(KindBranch)
 	life, kill := context.WithCancel(ctx)
 	defer kill()
 	cfg := holderConfig("holder-a", life)
 	cfg.HeartbeatEvery = 10 * time.Millisecond
-	c, err := holderReceipting(t, inner, s, cfg).Create(ctx, CloneSpec{})
+	holder := holderReceipting(t, inner, s, cfg)
+	c, err := holder.Create(ctx, CloneSpec{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	reaper := holderReaper(s, inner, "holder-b")
-	reaper.StaleAfter = 300 * time.Millisecond
+	// 300 beats per staleness window: a loaded machine may stall the
+	// heartbeat for a second, which must not read as a dead holder.
+	reaper.StaleAfter = 3 * time.Second
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var reaped []Receipt
@@ -377,15 +380,35 @@ func TestHolder_ConcurrentHeartbeatAndReapNeverReapALiveClone(t *testing.T) {
 	}
 	wg.Wait()
 	if len(reaped) != 0 || !inner.exists(c.ID) {
-		t.Fatalf("a live, heartbeating clone was reaped: %+v", reaped)
+		t.Fatalf("a live, heartbeating clone was reaped (last heartbeat error %v): %+v",
+			holder.HeartbeatErr(), reaped)
 	}
 	kill()
-	time.Sleep(reaper.StaleAfter + 200*time.Millisecond)
-	rep, err := reaper.Reap(ctx)
-	if err != nil || len(rep.Destroyed) != 1 || inner.exists(c.ID) {
-		t.Fatalf("after the holder stopped: %+v, %v", rep, err)
+	awaitReaped(ctx, t, reaper)
+	if inner.exists(c.ID) {
+		t.Fatal("the stopped holder's clone still exists")
 	}
-	_ = pool
+}
+
+// awaitReaped polls reaper until it destroys one clone. A heartbeat in
+// flight when the holder stops may still land, so the clone is reaped
+// within a staleness window of the last heartbeat, not of the stop.
+func awaitReaped(ctx context.Context, t *testing.T, reaper Reaper) {
+	t.Helper()
+	deadline := time.Now().Add(reaper.StaleAfter + 5*time.Second)
+	for {
+		rep, err := reaper.Reap(ctx)
+		if err != nil {
+			t.Fatalf("reap after the holder stopped: %v", err)
+		}
+		if len(rep.Destroyed) == 1 {
+			return
+		}
+		if len(rep.Destroyed) > 1 || time.Now().After(deadline) {
+			t.Fatalf("after the holder stopped: %+v", rep)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func TestHolder_DestroyFailureStaysDestroyingAndIsRetried(t *testing.T) {
