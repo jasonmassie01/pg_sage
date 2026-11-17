@@ -225,9 +225,12 @@ func (r *adbRestore) labels(base map[string]string) map[string]string {
 }
 
 // clusterBody is the new cluster: the source's network and encryption,
-// labelled.
+// labelled, with automated backups off. AlloyDB's default policy backs a
+// new cluster up daily and keeps each backup 14 days, so a clone could
+// leave a copy of production that outlives it and that no receipt names.
 func (r *adbRestore) clusterBody() map[string]any {
-	body := map[string]any{"labels": r.labels(r.src.cluster.Labels)}
+	body := map[string]any{"labels": r.labels(r.src.cluster.Labels),
+		"automatedBackupPolicy": map[string]bool{"enabled": false}}
 	if rawEmpty(r.src.cluster.NetworkConfig) {
 		body["network"] = r.src.cluster.Network
 	} else {

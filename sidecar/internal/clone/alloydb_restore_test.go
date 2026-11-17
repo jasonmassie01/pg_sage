@@ -78,6 +78,11 @@ func TestAlloyDB_RestoreRequestIsThePointInTimeOfTheSource(t *testing.T) {
 		enc["kmsKeyName"] != adbKMS {
 		t.Fatalf("restored cluster network %v encryption %v, want the source's", nc, enc)
 	}
+	// No automated backup of the clone may outlive it.
+	if abp, _ := cl["automatedBackupPolicy"].(map[string]any); len(abp) != 1 ||
+		abp["enabled"] != false {
+		t.Fatalf("restored cluster automatedBackupPolicy %v, want enabled false", abp)
+	}
 	labels := f.cluster(adbName).Labels
 	expiry := fmt.Sprint(adbNow.Add(3*time.Hour + 15*time.Minute).Unix())
 	if labels[clone.AlloyDBReceiptLabel] != adbName ||

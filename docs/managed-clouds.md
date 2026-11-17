@@ -862,7 +862,8 @@ What pg_sage does for each clone:
   source's network (`networkConfig`, or `network`) under the source's encryption key
   (`encryptionConfig`, so a CMEK cluster stays CMEK), labelled `pg-sage-receipt=<its name>`
   and `pg-sage-expires-at=<Unix seconds>` as it is created, with the source's other labels
-  kept. When the restore is done, pg_sage adds a zonal primary instance (no
+  kept, and with automated backups off (`automatedBackupPolicy.enabled: false`), so no
+  backup of the clone, a copy of production, outlives it. When the restore is done, pg_sage adds a zonal primary instance (no
   high-availability standby is billed) with the source primary's `machineConfig` and
   `networkConfig` (public IP and authorized networks). All of this happens within
   `clone.restore_deadline_minutes`.
@@ -873,7 +874,9 @@ What pg_sage does for each clone:
   `sage-*` cluster labelled with its own name is deleted. The restore labels the cluster as
   it creates it, so an unlabelled cluster is never pg_sage's and is never deleted: if
   AlloyDB ever restores one without the labels, pg_sage reports it left behind and names the
-  `gcloud alloydb clusters delete` command to run by hand.
+  `gcloud alloydb clusters delete` command to run by hand. The reaper never closes the
+  receipt of such a cluster as gone: its lookup reports the cluster left behind, so the
+  receipt stays `create_uncertain` until the cluster is deleted.
 - A restore Google refused (4xx, including an id that already exists) made nothing. A
   failed restore operation, an instance create that fails after the cluster exists, a failed
   instance operation or a primary that is not `READY` deletes the cluster before the error
@@ -910,8 +913,8 @@ the project; `roles/alloydb.admin` also covers them):
 
 An IAM condition on `resource.name` starting with
 `projects/<project>/locations/<region>/clusters/sage-` can narrow `instances.create` and
-`clusters.delete` to pg_sage's clones. The live check confirms the permission names and
-that the restore applies the requested labels.
+`clusters.delete` to pg_sage's clones. The live check confirms the permission names, that
+the restore applies the requested labels and accepts the automated backup policy.
 
 Cost: each receipt carries the instance-hours of one primary instance for the receipt's
 lifetime (`restore_deadline_minutes` plus 75 minutes), priced only by a `cost.rates` entry
