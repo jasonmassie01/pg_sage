@@ -251,7 +251,17 @@ func TestMigrationStatements_AreTheStepsInOrder(t *testing.T) {
 		}
 	}
 	if steps[0].name != "ddlActionLogApprovalCols" ||
-		steps[len(steps)-1].name != "ddlBriefingsDigestHash" {
+		steps[len(steps)-1].name != "ddlOnboardingSetupSteps" {
 		t.Fatalf("order changed: first %s, last %s", steps[0].name, steps[len(steps)-1].name)
 	}
+}
+
+// indexOfStep is the position of the step named name in steps, or -1.
+func indexOfStep(steps []namedStep, name string) int {
+	for i, step := range steps {
+		if step[0] == name {
+			return i
+		}
+	}
+	return -1
 }

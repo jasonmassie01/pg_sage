@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/metricsreg"
+	"github.com/pg-sage/sidecar/internal/onboarding"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfcost"
@@ -33,8 +34,8 @@ var registryModes = []string{metricsreg.ModeStandalone, metricsreg.ModeFleet,
 
 // fullScrape is a scrape of mode plus the families that render only with
 // state the contract fixture has no global for: API TLS, leases, the
-// metrics listener, SSO, self cost and budget, the tuning agent, SLOs and
-// the Sage SRE backlog.
+// metrics listener, SSO, self cost and budget, the tuning agent, SLOs, the
+// Sage SRE backlog and the setup wizard's within-the-hour ratio.
 func fullScrape(t *testing.T, mode string) string {
 	t.Helper()
 	installContractFleet(t, mode, "zeta", "alpha")
@@ -80,6 +81,7 @@ func renderFullScrape(t *testing.T) string {
 	writeSLOStatusMetrics(&b, map[string][]slo.Status{"alpha": {registrySLO()}})
 	writeSREInvestigationMetrics(&b, []metricsView{backlogView("alpha", &sreBacklog{
 		byState: map[string]int64{"open": 1}, oldestOpen: clk.t})})
+	writeSetupMetrics(&b, onboarding.SetupRatio{Installs: 2, Model: 0.5, Channel: 1})
 	return b.String()
 }
 

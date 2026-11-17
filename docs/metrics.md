@@ -63,6 +63,7 @@ One series per monitored database, from the fleet manager's in-memory status: re
 | `pg_sage_first_look_findings` | gauge | `database` | - | all | v2.7.0 | Findings in the catalog-only first look: warning or critical catalog items, without setup or posture notes |
 | `pg_sage_first_look_items` | gauge | `database` | - | all | v2.1.0 | Items in the catalog-only first look (findings, setup and posture notes) |
 | `pg_sage_time_to_first_finding_seconds` | gauge | `database` | seconds | all | v2.1.0 | Seconds from start to the first finding (first look or analyzer) |
+| `pg_sage_setup_within_hour_ratio` | gauge | `part` | - | all | v2.8.0 | Share of new installs this process monitors whose model (part=model) or notification channel (part=channel) was set within one hour of install |
 | `pg_sage_trust_level` | gauge | `database`, `level` | - | all | v2.6.0 | Effective trust level of the database (one-hot) |
 | `pg_sage_schema_deferred_indexes` | gauge | `database`, `state` | - | all | v2.7.0 | Large sage indexes the background builder has still to build, by state (missing, building, invalid); 0 once all are built |
 

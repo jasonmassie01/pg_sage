@@ -117,6 +117,7 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/notifications/channels"},
 	{"POST", "/api/v1/notifications/channels/7/test"},
 	{"POST", "/api/v1/notifications/rules"},
+	{"POST", "/api/v1/onboarding/setup"},
 	{"POST", "/api/v1/policy/proposals"},
 	{"POST", "/api/v1/policy/proposals/7/ratify"},
 	{"POST", "/api/v1/restart"},

@@ -33,7 +33,7 @@ func fleetReader(t *testing.T, insts ...*fleet.DatabaseInstance) onboardingReade
 	for _, inst := range insts {
 		mgr.RegisterInstance(inst)
 	}
-	return newFleetOnboardingReader(mgr, cfg, nil)
+	return newFleetOnboardingReader(mgr, cfg, nil, nil)
 }
 
 // TestFleetOnboardingLiveAndDownDatabase: in a two-database fleet whose

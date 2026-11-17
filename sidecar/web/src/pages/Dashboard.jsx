@@ -13,7 +13,6 @@ import { HealthHero } from '../components/HealthHero'
 import { TopCasesPanel } from '../components/TopCasesPanel'
 import { TabList, TabPanel } from '../components/Tabs'
 import { topCasesURL } from '../lib/topCases'
-import { Clock, ListChecks } from 'lucide-react'
 
 // recharts is only needed by this chart, so it loads in its own chunk and the
 // first paint does not download it (dashboard-09).
@@ -83,77 +82,15 @@ function StatCard({
   )
 }
 
-function OnboardingWelcome() {
+// NoDatabases: the Snapshot page with nothing connected points to the
+// setup wizard on the home page (ux-04b).
+function NoDatabases() {
   return (
-    <div data-testid="onboarding-welcome"
-      className="rounded p-8 text-center"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-      }}>
-      <h1 className="text-2xl font-bold mb-2"
-        style={{ color: 'var(--text-primary)' }}>
-        Welcome to pg_sage
-      </h1>
-      <p className="mb-6"
-        style={{ color: 'var(--text-secondary)' }}>
-        Your agentic Postgres DBA.
-        {' '}Let&apos;s get started.
-      </p>
-      <div className="space-y-4 text-left max-w-md mx-auto mb-8">
-        <div className="flex items-start gap-3">
-          <span className="flex-shrink-0 w-7 h-7 rounded-full
-            flex items-center justify-center text-sm font-bold"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-            }}>1</span>
-          <div className="pt-0.5">
-            <a href="#/manage-databases"
-              className="font-medium underline"
-              style={{ color: 'var(--blue, #3b82f6)' }}>
-              Add your first database
-            </a>
-          </div>
-        </div>
-        <div className="flex items-start gap-3">
-          <span className="flex-shrink-0 w-7 h-7 rounded-full
-            flex items-center justify-center text-sm font-bold"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-            }}>2</span>
-          <div className="flex items-center gap-2 pt-0.5">
-            <Clock size={16}
-              style={{ color: 'var(--text-secondary)' }} />
-            <span style={{ color: 'var(--text-secondary)' }}>
-              pg_sage will automatically start monitoring
-            </span>
-          </div>
-        </div>
-        <div className="flex items-start gap-3">
-          <span className="flex-shrink-0 w-7 h-7 rounded-full
-            flex items-center justify-center text-sm font-bold"
-            style={{
-              background: 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-            }}>3</span>
-          <div className="flex items-center gap-2 pt-0.5">
-            <ListChecks size={16}
-              style={{ color: 'var(--text-secondary)' }} />
-            <span style={{ color: 'var(--text-secondary)' }}>
-              Review recommendations as they come in
-            </span>
-          </div>
-        </div>
-      </div>
-      <a href="#/manage-databases"
-        className="inline-block px-6 py-2 rounded font-medium"
-        style={{
-          background: 'var(--blue, #3b82f6)',
-          color: '#fff',
-        }}>
-        Add Database
+    <div data-testid="snapshot-no-databases" className="rounded p-6 text-sm"
+      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <p style={{ color: 'var(--text-secondary)' }}>No database is connected yet.</p>
+      <a href="#/" className="font-medium underline" style={{ color: 'var(--accent)' }}>
+        Set up pg_sage
       </a>
     </div>
   )
@@ -239,7 +176,7 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
   const databases = data?.databases
 
   if (!loading && (!summary || summary.total_databases === 0)) {
-    return <OnboardingWelcome />
+    return <NoDatabases />
   }
 
   return (

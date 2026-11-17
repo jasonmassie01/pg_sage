@@ -91,6 +91,10 @@ var runtimeFamilies = []Family{
 	{Name: "pg_sage_time_to_first_finding_seconds", Type: Gauge, Area: AreaHealth,
 		Help:   "Seconds from start to the first finding (first look or analyzer)",
 		Labels: []string{"database"}, Modes: AllModes, Unit: "seconds", Since: "v2.1.0"},
+	{Name: "pg_sage_setup_within_hour_ratio", Type: Gauge, Area: AreaHealth,
+		Help: "Share of new installs this process monitors whose model (part=model) or " +
+			"notification channel (part=channel) was set within one hour of install",
+		Labels: []string{"part"}, Modes: AllModes, Since: "v2.8.0"},
 	{Name: "pg_sage_trust_level", Type: Gauge, Area: AreaHealth,
 		Help:   "Effective trust level of the database (one-hot)",
 		Labels: []string{"database", "level"}, Modes: AllModes, Since: "v2.6.0"},
