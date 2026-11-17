@@ -22,12 +22,18 @@ func (c CloneProviderConfig) validate() error {
 	case "snapshot":
 		return fmt.Errorf("clone.provider snapshot has no adapter in this build: it was "+
 			"replaced by the full-copy providers %s; use dle, lakebase_branch, neon_branch, "+
-			"aurora_clone, rds_restore or none", strings.Join(CloneFullCopyProviders, ", "))
-	case CloneCloudSQLClone, CloneAlloyDBRestore, CloneAzureRestore:
+			"aurora_clone, rds_restore, cloudsql_clone or none",
+			strings.Join(CloneFullCopyProviders, ", "))
+	case CloneAlloyDBRestore, CloneAzureRestore:
 		return fmt.Errorf("clone.provider %s is not in this build yet: use dle, "+
-			"lakebase_branch, neon_branch, aurora_clone, rds_restore or none", c.Provider)
+			"lakebase_branch, neon_branch, aurora_clone, rds_restore, cloudsql_clone or none",
+			c.Provider)
 	case CloneRDSRestore:
 		if err := c.validateRDS(); err != nil {
+			return err
+		}
+	case CloneCloudSQLClone:
+		if err := c.validateCloudSQL(); err != nil {
 			return err
 		}
 	case "none":
@@ -49,8 +55,8 @@ func (c CloneProviderConfig) validate() error {
 		}
 	default:
 		return fmt.Errorf("clone.provider must be none or dle (Database Lab), " +
-			"lakebase_branch (Lakebase), neon_branch (Neon), aurora_clone (Aurora) or " +
-			"rds_restore (RDS)")
+			"lakebase_branch (Lakebase), neon_branch (Neon), aurora_clone (Aurora), " +
+			"rds_restore (RDS) or cloudsql_clone (Cloud SQL)")
 	}
 	if c.MaxCloneAgeMinutes <= 0 {
 		return fmt.Errorf("clone.max_clone_age_minutes must be positive")
@@ -60,7 +66,8 @@ func (c CloneProviderConfig) validate() error {
 
 // The full-copy clone providers (lab-05a): each restores a whole instance,
 // so each needs clone.allow_full_copy. They replace clone.provider
-// snapshot; lab-05d built rds_restore, lab-05e to lab-05g add the rest.
+// snapshot; lab-05d built rds_restore and lab-05e cloudsql_clone; lab-05f
+// and lab-05g add the rest.
 const (
 	CloneRDSRestore     = "rds_restore"
 	CloneCloudSQLClone  = "cloudsql_clone"

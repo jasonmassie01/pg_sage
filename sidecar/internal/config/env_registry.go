@@ -170,7 +170,7 @@ var runtimeEnvVars = []EnvVar{
 		Doc: "Minimum verification samples (`verify.min_samples`)"},
 	{Name: "SAGE_CLONE_PROVIDER", Default: envCode(DefaultCloneProvider),
 		Doc: "Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch`, " +
-			"`neon_branch`, `aurora_clone` or `rds_restore`"},
+			"`neon_branch`, `aurora_clone`, `rds_restore` or `cloudsql_clone`"},
 	{Name: "SAGE_CLONE_DLE_ENDPOINT", Default: envNone,
 		Doc: "Database Lab Engine API endpoint (`clone.dle_endpoint`)"},
 	{Name: "SAGE_CLONE_DLE_TOKEN", Default: envNone, File: true,

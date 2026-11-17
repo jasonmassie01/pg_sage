@@ -1182,6 +1182,20 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "clone.cloudsql.instance": {
+    "type": "string",
+    "default": "",
+    "doc": "Name of the monitored Cloud SQL for PostgreSQL instance (its instance id, not the connection name); pg_sage must connect to one of its IPs.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.cloudsql.project": {
+    "type": "string",
+    "default": "",
+    "doc": "Google Cloud project of the monitored Cloud SQL for PostgreSQL instance; clones are made there and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "clone.dle_endpoint": {
     "type": "string",
     "default": "",
@@ -1280,7 +1294,7 @@
   "clone.provider": {
     "type": "string",
     "default": "none",
-    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch per rehearsal), aurora_clone (an Aurora clone) or rds_restore (an RDS restore: a full copy, needs allow_full_copy).",
+    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch per rehearsal), aurora_clone (an Aurora clone), or the full copies rds_restore and cloudsql_clone (allow_full_copy).",
     "class": "safety_critical",
     "lifecycle": "restart",
     "enum": [
@@ -1289,7 +1303,8 @@
       "lakebase_branch",
       "neon_branch",
       "aurora_clone",
-      "rds_restore"
+      "rds_restore",
+      "cloudsql_clone"
     ]
   },
   "clone.rds.instance_class": {
@@ -1323,7 +1338,7 @@
   "clone.restore_deadline_minutes": {
     "type": "int",
     "default": 120,
-    "doc": "Longest a full-copy restore (rds_restore) may take to become available, in minutes, 30 to 720; one still not ready is left to the reaper. Default: 120.",
+    "doc": "Longest a full-copy restore or clone (rds_restore, cloudsql_clone) may take to become available, in minutes, 30 to 720; one still not ready is left to the reaper. Default: 120.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },

@@ -170,8 +170,8 @@ func TestCloneProviderSnapshotNamesItsReplacements(t *testing.T) {
 
 func TestCloneFullCopyProvidersHaveNoAdapterYet(t *testing.T) {
 	for _, name := range CloneFullCopyProviders {
-		if name == CloneRDSRestore {
-			continue // lab-05d built it (clone_rds_test.go)
+		if name == CloneRDSRestore || name == CloneCloudSQLClone {
+			continue // lab-05d and lab-05e built them (clone_rds_test.go, clone_cloudsql_test.go)
 		}
 		cfg := DefaultConfig()
 		cfg.Clone.Provider = name

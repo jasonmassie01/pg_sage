@@ -192,6 +192,8 @@ operator_preference clone.aurora.ttl_minutes
 safety_critical clone.rds.region
 operator_preference clone.rds.instance_class
 operator_preference clone.restore_deadline_minutes
+safety_critical clone.cloudsql.project
+safety_critical clone.cloudsql.instance
 safety_critical clone.provider
 operator_preference value.toil_model_version
 

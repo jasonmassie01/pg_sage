@@ -289,7 +289,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_VERIFY_REGRESS_PCT` | `15` | Regression percentage that triggers a revert (`verify.regress_pct`) |
 | `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum rise of the table's WAL bytes per written tuple (`verify.write_impact_pct`) |
 | `SAGE_VERIFY_MIN_SAMPLES` | `30` | Minimum verification samples (`verify.min_samples`) |
-| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone` or `rds_restore` |
+| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`, `rds_restore` or `cloudsql_clone` |
 | `SAGE_CLONE_DLE_ENDPOINT` | (none) | Database Lab Engine API endpoint (`clone.dle_endpoint`) |
 | `SAGE_CLONE_DLE_TOKEN` / `_FILE` | (none) | Database Lab bearer token (`clone.dle_token`) |
 | `SAGE_CLONE_NEON_API_KEY` / `_FILE` | (none) | Neon API key for `neon_branch` rehearsal branches (`clone.neon.api_key`) |
@@ -520,7 +520,7 @@ Ranges that changed in tranche T4 (config-02b), where the file and the API used 
   `clone.lakebase` project binding is file-only and restart-bound. `neon_branch` is
   refused the same way: its `clone.neon` project and API key are file or env only, as are
   `aurora_clone` and `rds_restore`: their `clone.aurora` and `clone.rds` regions are
-  file-only.
+  file-only, and `cloudsql_clone`: its `clone.cloudsql` project and instance are file-only.
 
 A stored override that a moved range now refuses is skipped at replay with a warning naming the
 key and its `updated_at`, and the default applies until a valid value is saved.
@@ -1870,7 +1870,7 @@ still refused in this build (no adapter yet).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `clone.provider` | `none` | `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone` or `rds_restore` |
+| `clone.provider` | `none` | `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`, `rds_restore` or `cloudsql_clone` |
 | `clone.lakebase.project` | (none) | Lakebase project id the rehearsal branches are created in. Required for `lakebase_branch` |
 | `clone.lakebase.source_branch` | the monitored endpoint's branch | Branch id, or `projects/<project>/branches/<id>` of the same project, a rehearsal branches from |
 | `clone.lakebase.ttl_minutes` | `60` | Server-side expiry of every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
@@ -1885,7 +1885,9 @@ still refused in this build (no adapter yet).
 | `clone.aurora.ttl_minutes` | `60` | Longest an Aurora clone lives, 30 to 1440; tagged on the clone, and a rehearsal (clone creation included) ends by then. Aurora has no server-side expiry: the reaper destroys a leaked clone |
 | `clone.rds.region` | (none) | AWS region of the monitored RDS for PostgreSQL instance; restores are made, and leaked ones looked for, there. Required for `rds_restore` |
 | `clone.rds.instance_class` | the source instance's class | Class of the restored instance, such as `db.m6g.large` |
-| `clone.restore_deadline_minutes` | `120` | Longest a full-copy restore may take to become available, 30 to 720; one still not ready is left to the reaper, which finds it by tag. A full-copy rehearsal is bounded by this plus one hour, and its receipt lives 15 minutes longer |
+| `clone.cloudsql.project` | (none) | Google Cloud project of the monitored Cloud SQL for PostgreSQL instance; clones are made, and leaked ones looked for, there. Required for `cloudsql_clone` |
+| `clone.cloudsql.instance` | (none) | Instance id of the monitored Cloud SQL for PostgreSQL instance; pg_sage must connect to one of its IPs. Required for `cloudsql_clone` |
+| `clone.restore_deadline_minutes` | `120` | Longest a full-copy restore or clone (`rds_restore`, `cloudsql_clone`) may take to become available, 30 to 720; one still not ready is left to the reaper, which finds it by tag or name. A full-copy rehearsal is bounded by this plus one hour, and its receipt lives 15 minutes longer |
 | `clone.rehearsals_per_hour` | `2` | Most index rehearsals on a clone one database starts in any hour (tuning agent and index floor together), 1 to 60 |
 | `clone.allow_full_copy` | `false` | Allow full-copy clones (a whole-instance restore: hours and a full instance bill). Without it a full-copy provider, or one that does not say what its clones are, creates nothing. `true` with a provider that makes no full copies logs a startup warning |
 | `clone.max_creates_per_hour` | `4` | Most clones this deployment creates in any hour, every purpose together, 1 to 60; the next create is refused naming the limit |
@@ -1903,6 +1905,9 @@ The `clone.aurora.*` keys are read at startup and checked only when
 The `clone.rds.*` keys and `clone.restore_deadline_minutes` are read at startup and
 checked only when `clone.provider` is `rds_restore`. See
 [Managed clouds: RDS restore rehearsal](managed-clouds.md#rds-restore-rehearsal).
+The `clone.cloudsql.*` keys are read at startup and checked only when
+`clone.provider` is `cloudsql_clone` (which also checks `clone.restore_deadline_minutes`).
+See [Managed clouds: Cloud SQL clone rehearsal](managed-clouds.md#cloud-sql-clone-rehearsal).
 
 A rehearsal clone holds production data, so pg_sage keeps a receipt for it
 (`sage.clone_instances`, purpose `rehearsal`) in the agent governance control

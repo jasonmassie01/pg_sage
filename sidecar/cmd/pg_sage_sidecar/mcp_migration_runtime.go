@@ -65,16 +65,18 @@ func cloneProviderFor(cloneConfig config.CloneProviderConfig,
 		return auroraCloneProvider(cloneConfig, monitored)
 	case clonepkg.RDSRestoreAdapter:
 		return rdsRestoreCloneProvider(cloneConfig, monitored)
+	case clonepkg.CloudSQLCloneAdapter:
+		return cloudSQLCloneProvider(cloneConfig, monitored)
 	default:
 		return nil, errors.New("unsupported clone provider " + cloneConfig.Provider +
-			" (this build has none, dle, lakebase_branch, neon_branch, aurora_clone or " +
-			"rds_restore)")
+			" (this build has none, dle, lakebase_branch, neon_branch, aurora_clone, " +
+			"rds_restore or cloudsql_clone)")
 	}
 }
 
 // cloneReceiptScope is the provider scope receipts are written under: the
-// Lakebase or Neon project, the Aurora or RDS region, or the adapter's endpoint
-// without credentials or a trailing slash.
+// Lakebase or Neon project, the Aurora or RDS region, the Cloud SQL project,
+// or the adapter's endpoint without credentials or a trailing slash.
 func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
 	switch cloneConfig.Provider {
 	case clonepkg.LakebaseAdapter:
@@ -85,6 +87,8 @@ func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
 		return "aws/" + cloneConfig.Aurora.Region
 	case clonepkg.RDSRestoreAdapter:
 		return "aws/" + cloneConfig.RDS.Region
+	case clonepkg.CloudSQLCloneAdapter:
+		return "gcp/" + cloneConfig.CloudSQL.Project
 	}
 	parsed, err := url.Parse(cloneConfig.DLEEndpoint)
 	if err != nil || parsed.Host == "" {
@@ -216,14 +220,14 @@ func migrationPlanner(loaded *config.Config) *planpkg.Planner {
 // after its create starts, so the rehearsal ends by then (market-03,
 // lab-05b), as it does by an aurora_clone clone's ttl_minutes (lab-05c):
 // never later than the clone, and never zero (the orchestrator's
-// default), at least a minute. An rds_restore rehearsal waits up to
-// clone.restore_deadline_minutes for its full copy, then has the default
-// bound (lab-05d).
+// default), at least a minute. An rds_restore or cloudsql_clone rehearsal
+// waits up to clone.restore_deadline_minutes for its full copy, then has
+// the default bound (lab-05d, lab-05e).
 func rehearsalMaxDuration(cloneConfig config.CloneProviderConfig) time.Duration {
 	bound := rehearsalpkg.DefaultMaxDuration
 	var minutes int
 	switch cloneConfig.Provider {
-	case clonepkg.RDSRestoreAdapter:
+	case clonepkg.RDSRestoreAdapter, clonepkg.CloudSQLCloneAdapter:
 		return restoreDeadline(cloneConfig) + bound
 	case clonepkg.LakebaseAdapter:
 		minutes = cloneConfig.Lakebase.TTLMinutes

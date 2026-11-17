@@ -49,6 +49,9 @@ var excludedPrefixes = []string{
 	// lab-05d: the RDS region and class and the full-copy restore deadline:
 	// YAML only, restart-bound, the region safety-critical
 	"clone.rds.", "clone.restore_deadline_minutes",
+	// lab-05e: the Cloud SQL project and instance: YAML only, restart-bound,
+	// safety-critical
+	"clone.cloudsql.",
 	"sre.read_policy.", // trusted observation boundary; never a model-derived grant
 	"self_config.",     // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound

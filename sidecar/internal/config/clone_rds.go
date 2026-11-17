@@ -39,13 +39,7 @@ func (c CloneProviderConfig) validateRDS() error {
 		return fmt.Errorf("clone.rds.instance_class %q must be an RDS instance class such as "+
 			"db.m6g.large", r.InstanceClass)
 	}
-	if c.RestoreDeadlineMinutes < CloneRestoreDeadlineMinMinutes ||
-		c.RestoreDeadlineMinutes > CloneRestoreDeadlineMaxMinutes {
-		return fmt.Errorf("clone.restore_deadline_minutes must be within %d-%d, got %d",
-			CloneRestoreDeadlineMinMinutes, CloneRestoreDeadlineMaxMinutes,
-			c.RestoreDeadlineMinutes)
-	}
-	return nil
+	return c.validateRestoreDeadline()
 }
 
 // fullCopyCostWarning is logged before the first full-copy restore.

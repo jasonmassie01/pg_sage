@@ -135,7 +135,7 @@ func TestCloneRDSBlockIgnoredForOtherProviders(t *testing.T) {
 
 // The other full-copy providers are still not in this build.
 func TestCloneRDSIsTheOnlyFullCopyProviderBuilt(t *testing.T) {
-	for _, name := range []string{CloneCloudSQLClone, CloneAlloyDBRestore, CloneAzureRestore} {
+	for _, name := range []string{CloneAlloyDBRestore, CloneAzureRestore} {
 		cfg := rdsRestoreConfig()
 		cfg.Clone.Provider = name
 		if err := cfg.validateAgentNative(); err == nil ||

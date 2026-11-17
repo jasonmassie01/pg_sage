@@ -562,6 +562,10 @@
     "RDS": {
       "Region": "",
       "InstanceClass": ""
+    },
+    "CloudSQL": {
+      "Project": "",
+      "Instance": ""
     }
   },
   "Custodian": {

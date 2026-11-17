@@ -731,6 +731,95 @@ receipt's lifetime (`restore_deadline_minutes` plus 75 minutes), priced only by 
 priced). The number that says it works: restores that reach ready within their estimate,
 their instance-hours, and instances left after 24 hours (0).
 
+## Cloud SQL clone rehearsal
+
+> **Cost warning: read this before the first run.** Cloud SQL has no copy-on-write clone.
+> Every `cloudsql_clone` rehearsal clones production into a **whole new instance** of its
+> tier and disk, billed at the **full instance price** (vCPUs, memory and the full disk) from
+> the clone until teardown: up to `clone.restore_deadline_minutes` of cloning plus up to an
+> hour of rehearsal. A clone takes minutes to hours, growing with the disk. pg_sage creates
+> nothing unless you set `clone.allow_full_copy: true`, logs this cost at every startup, and
+> writes each clone's instance-hours on its receipt before Cloud SQL is asked for it.
+
+`clone.provider: cloudsql_clone` rehearses a migration or an index on a clone
+(`instances.clone`) of the monitored Cloud SQL for PostgreSQL instance, in the same project.
+
+```yaml
+clone:
+  provider: cloudsql_clone
+  allow_full_copy: true          # required: without it startup fails
+  restore_deadline_minutes: 120  # 30-720: the longest a clone may take to be ready
+  cloudsql:
+    project: acme-prod-1234      # the monitored instance's project (required)
+    instance: shop               # its instance id (required)
+```
+
+What pg_sage does for each clone:
+
+- The source is `clone.cloudsql.instance`. It must be a `RUNNABLE` PostgreSQL primary (not
+  a read replica), and pg_sage must connect to one of its IPs, private or public. A DSN
+  through the Cloud SQL Auth Proxy, a Unix socket or a DNS name is refused with "not the
+  configured Cloud SQL for PostgreSQL instance", because pg_sage could not tell that it
+  monitors that instance, nor reach the clone the same way.
+- It asks for clone `sage-<purpose>-<8 hex>` (lowercase, at most 63 characters, the label
+  limit) and polls the operation. When it is done, pg_sage labels the clone
+  `pg-sage-receipt=<its name>` and `pg-sage-expires-at=<Unix seconds>`, keeps the source's
+  other labels, lifts the deletion protection the clone copied from production and makes it
+  zonal (no high-availability standby is billed). All of this happens within
+  `clone.restore_deadline_minutes`.
+- The clone's DSN is the monitored DSN on the clone's IP of the same kind (private for
+  private, public for public): the same users and passwords, `sslmode` at least `require`.
+  `verify-ca` and `verify-full` are kept, so they need the clone's server CA. A clone that
+  answers on one of production's IPs is refused and deleted.
+- Teardown deletes the instance. Only a `sage-*` instance labelled with its own name, or not
+  labelled at all, is deleted. An unlabelled one is a clone whose labelling never finished:
+  its name is the receipt's random one, so its copied deletion protection is lifted first.
+  An instance labelled for another receipt, or protected again after pg_sage labelled it, is
+  never deleted.
+- A clone Google refused (4xx, including a name that already exists) made nothing. A failed
+  clone operation or a failed labelling deletes the clone before the error returns. A lost
+  reply or a 5xx is looked up by name and deleted. A clone not done by the deadline leaves
+  its receipt `create_uncertain`, and the reaper finds the instance by name and destroys it.
+  Cloud SQL has no server-side expiry, so the reaper is the backstop: check
+  `gcloud sql instances list --filter='name:sage-*'` if a sidecar was down for long.
+- The receipt and the rehearsal bound cover the clone: a rehearsal on it may run
+  `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer.
+- A caller that ends before `restore_deadline_minutes` is refused before the clone is asked
+  for (reason `clone_unavailable`), so `apply_migration` over stdio MCP is
+  recommendation-only with `cloudsql_clone`, as with `rds_restore`.
+- Cloud SQL does not let you reuse an instance name for up to a week after deletion. Every
+  receipt has a fresh random name, so this never blocks a rehearsal.
+
+Credentials come from Google Application Default Credentials, the same chain as Cloud SQL
+telemetry (`GOOGLE_APPLICATION_CREDENTIALS`, the gcloud ADC file, then the metadata server).
+Without them, or without the monitored pool, nothing is created and rehearsals are
+recommendation-only with reason `clone_unavailable`. A refused call names the permission it
+needs. The API cannot switch `clone.provider` to `cloudsql_clone`; set it in YAML and
+restart.
+
+The permissions the sidecar's identity needs, on top of the telemetry reads (a custom role on
+the project; `roles/cloudsql.admin` also covers them):
+
+| Permission | Used for |
+| --- | --- |
+| `cloudsql.instances.get` | Read the source and the clone, and poll operations |
+| `cloudsql.instances.clone` | Clone the source |
+| `cloudsql.instances.update` | Label the clone, and lift its copied deletion protection and HA |
+| `cloudsql.instances.delete` | Delete the clone |
+
+An IAM condition on `resource.name` starting with
+`projects/<project>/instances/sage-` can narrow `update` and `delete` to pg_sage's clones.
+
+Cost: each receipt carries the instance-hours of one instance for the receipt's lifetime
+(`restore_deadline_minutes` plus 75 minutes), priced only by a `cost.rates` entry you supply
+for the source (pg_sage ships no prices; the disk is not priced). The number that says it
+works: clones that are ready within their estimate, their instance-hours, and instances left
+after 24 hours (0).
+
+The live check (`SAGE_CLOUDSQL_LIVE=1` with `SAGE_CLOUDSQL_LIVE_DATABASE_URL`,
+`SAGE_CLOUDSQL_PROJECT`, `SAGE_CLOUDSQL_INSTANCE` and `SAGE_TEST_DATABASE_URL`) runs the
+clone contract on a real, funded instance; it is owner-run and never in CI.
+
 ## Live check (owner-run, never in CI)
 
 CI uses httptest fakes only. To check against a real, disposable instance (read-only calls):

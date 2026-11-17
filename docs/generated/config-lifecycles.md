@@ -138,6 +138,8 @@
 | `clone.aurora.instance_class` | `restart` | `-` | `operator_preference` |
 | `clone.aurora.region` | `restart` | `-` | `safety_critical` |
 | `clone.aurora.ttl_minutes` | `restart` | `-` | `operator_preference` |
+| `clone.cloudsql.instance` | `restart` | `-` | `safety_critical` |
+| `clone.cloudsql.project` | `restart` | `-` | `safety_critical` |
 | `clone.dle_endpoint` | `restart` | `-` | `safety_critical` |
 | `clone.dle_token` | `restart` | `-` | `safety_critical` |
 | `clone.lakebase.endpoint_max_cu` | `restart` | `-` | `operator_preference` |
