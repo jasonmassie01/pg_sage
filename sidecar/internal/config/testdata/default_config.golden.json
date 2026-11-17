@@ -196,7 +196,9 @@
       "stdout"
     ],
     "SlackWebhookURL": "",
-    "FleetMode": "rollup"
+    "FleetMode": "rollup",
+    "OnlyWhenChanged": true,
+    "DBAHourRateUSD": 0
   },
   "Alerting": {
     "Enabled": false,

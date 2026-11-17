@@ -9,21 +9,23 @@ import (
 // concurrent access test: the step is a constant string (the bootstrap
 // lock serializes it; the DB test boots twice).
 
-// The T5 chains merged steps after ddlPlanApprovalModes, so the pin is
-// "last T5 step, after ddlPlanApprovalModes", not "right after it".
-func TestPlanCardStep_IsTheLastT5StepAfterPlanApprovalModes(t *testing.T) {
+// The T5 chains merged steps after ddlPlanApprovalModes, and ux-02b's
+// ddlBriefingsDigestHash follows this one, so the pin is "a T5 step after
+// ddlPlanApprovalModes", not "right after it" or "last".
+func TestPlanCardStep_IsAT5StepAfterPlanApprovalModes(t *testing.T) {
 	steps := trancheFiveMigrations()
-	last := steps[len(steps)-1]
-	modes := -1
+	card, modes := -1, -1
 	for i, step := range steps {
-		if step[0] == "ddlPlanApprovalModes" {
+		switch step[0] {
+		case "ddlPlanApprovalModes":
 			modes = i
+		case "ddlPlanCardDeliveries":
+			card = i
 		}
 	}
-	if last[0] != "ddlPlanCardDeliveries" || last[1] != ddlPlanCardDeliveries ||
-		modes < 0 || modes >= len(steps)-1 {
-		t.Fatalf("tranche five ends %v, want ddlPlanApprovalModes before "+
-			"ddlPlanCardDeliveries, the last step", steps)
+	if card < 0 || steps[card][1] != ddlPlanCardDeliveries || modes < 0 || modes >= card {
+		t.Fatalf("tranche five is %v, want ddlPlanApprovalModes before "+
+			"ddlPlanCardDeliveries", steps)
 	}
 }
 

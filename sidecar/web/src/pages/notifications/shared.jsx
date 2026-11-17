@@ -51,6 +51,7 @@ export const EVENT_SEVERITY = {
   custodian_escalation: 'critical',
   fact_expired: 'warning',
   canary_interrupted: 'warning',
+  digest_ready: 'info',
 }
 
 export const EVENT_TYPES = Object.keys(EVENT_SEVERITY)

@@ -10,8 +10,8 @@ import (
 // of the install. No concurrent access tests here: two creators are
 // covered by workpack.TestPseudonymKeyDB_ConcurrentCallersAgree.
 
-// lab-03a, lab-05a, lab-03b, plan-03b and ux-01b appended T5 steps after this one,
-// so the pin is its place (right after ddlPlanApprovalModes), not "last".
+// lab-03a, lab-05a, lab-03b, plan-03b, ux-01b and ux-02b appended T5 steps
+// after this one, so the pin is its place (right after ddlPlanApprovalModes), not "last".
 func TestWorkloadPseudonymKeyStep_IsPlacedBoundedAndIdempotent(t *testing.T) {
 	steps := trancheFiveMigrations()
 	idx := -1
