@@ -923,6 +923,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "backup.external_source": {
+    "type": "string",
+    "default": "",
+    "doc": "A backup outside the provider's delete path that pg_sage cannot read (another account's vault, an external dump). Set, it resolves backup_shares_delete_path. One line, max 200 chars. Default: empty.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "backup.max_age_hours": {
     "type": "int",
     "default": 26,
@@ -934,6 +941,13 @@
     "type": "int",
     "default": 15,
     "doc": "Minutes completed WAL may wait since the last successful archive before wal_archive_stale opens; critical at four times the gap. 1-10080. Default: 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "backup.min_pitr_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours of point-in-time window the provider must offer; less opens pitr_window_below_policy. 0 turns the check off. 0-8760. Default: 24.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },

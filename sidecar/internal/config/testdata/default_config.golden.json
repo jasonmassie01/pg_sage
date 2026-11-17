@@ -686,7 +686,9 @@
   "Backup": {
     "MaxAgeHours": 26,
     "MaxArchiveGapMinutes": 15,
-    "MinRetentionDays": 7
+    "MinRetentionDays": 7,
+    "MinPITRHours": 24,
+    "ExternalSource": ""
   },
   "Drill": {
     "MaxConcurrentPerFleet": 2

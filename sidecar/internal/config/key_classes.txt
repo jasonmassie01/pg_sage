@@ -628,6 +628,8 @@ operator_preference ha.check_interval_seconds
 operator_preference backup.max_age_hours
 operator_preference backup.max_archive_gap_minutes
 operator_preference backup.min_retention_days
+operator_preference backup.min_pitr_hours
+operator_preference backup.external_source
 
 # Restore drills (drill-01a): the fleet-wide cap on drills running at once.
 # Each drill's clone is still bounded by clone.max_creates_per_hour.

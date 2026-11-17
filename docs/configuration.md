@@ -823,6 +823,8 @@ A build withheld because its index name exists is parked until that name is gone
 | `backup.max_age_hours` | `26` | Hours the provider's last good backup may age before `backup_stale` opens (critical at twice the age), `1`-`8760`. RDS and Aurora: the latest restorable time; Cloud SQL: the last successful backup run. Restart to apply |
 | `backup.max_archive_gap_minutes` | `15` | Minutes completed WAL may wait since the last successful archive before `wal_archive_stale` opens (critical at four times the gap), `1`-`10080`. Restart to apply |
 | `backup.min_retention_days` | `7` | Backup retention the provider must keep; less opens `backup_retention_below_policy`. `0` turns the check off; a negative value is refused at startup. `0`-`35`. Restart to apply |
+| `backup.min_pitr_hours` | `24` | Hours of point-in-time recovery window the provider must offer; less opens `pitr_window_below_policy` (24 h passes a 24 h policy). `0` turns the check off. `0`-`8760`. Restart to apply |
+| `backup.external_source` | empty | A backup kept outside the provider's delete path that pg_sage cannot read (an AWS Backup vault in another account, a dump in other storage). Set, it resolves `backup_shares_delete_path`: it is your statement, not evidence pg_sage checked. One line, at most 200 characters. Restart to apply |
 
 These keys only open and close findings (see
 [Backups and WAL archiving](findings.md#backups-and-wal-archiving)); they never change what
