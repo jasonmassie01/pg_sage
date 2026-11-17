@@ -280,7 +280,48 @@ func TestPolicySetDB_RatifiedDatabaseProposalBecomesAnException(t *testing.T) {
 	if len(list[0].Diff) == 0 {
 		t.Fatal("the exception differs from prod but lists no diff")
 	}
+	assertAdoptedException(t, pool, id, proposal.ID)
 	assertStaleRatifyConflicts(t, store, id, ratified.Version, base.Version)
+}
+
+// assertAdoptedException: ratifying a database proposal records the
+// exception's metadata and its exception_set audit row (review fix: the
+// listing alone passes on the ratified_by fallback without either).
+func assertAdoptedException(t *testing.T, pool *pgxpool.Pool, id, proposalID int64) {
+	t.Helper()
+	ctx := context.Background()
+	var set, by, reason string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT set_name, set_by, reason
+		FROM sage.policy_exceptions WHERE database_id = $1`, id).Scan(&set, &by, &reason))
+	require.Equal(t, "prod", set)
+	require.Equal(t, "admin", by)
+	require.Equal(t, fmt.Sprintf("ratified per-database policy proposal %d", proposalID), reason)
+	var events int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM sage.policy_set_events
+		WHERE event = 'exception_set' AND database_id = $1 AND set_name = 'prod'
+		AND (detail->>'proposal_id')::bigint = $2`, id, proposalID).Scan(&events))
+	require.Equal(t, 1, events)
+}
+
+// Bootstrap on a set's scope writes the set's row (set_name included), so
+// the set reads it back and the global scope never does (review fix).
+func TestPolicySetDB_BootstrapOnASetScopeWritesTheSetsRow(t *testing.T) {
+	store, _ := newSetsStore(t)
+	ctx := context.Background()
+	got, err := store.Bootstrap(ctx, Scope{SetName: "prod"}, "unattended", "bootstrap")
+	require.NoError(t, err)
+	require.Equal(t, "prod", got.Set)
+	require.Equal(t, int64(1), got.Version)
+	again, err := store.Current(ctx, Scope{SetName: "prod"})
+	require.NoError(t, err)
+	require.Equal(t, got.ID, again.ID)
+	global, err := store.Current(ctx, Scope{})
+	if err == nil && global.ID == got.ID {
+		t.Fatalf("the global scope read set prod's row %d", got.ID)
+	}
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		t.Fatalf("global read: %v", err)
+	}
 }
 
 // assertStaleRatifyConflicts: a proposal ratified against the set's old

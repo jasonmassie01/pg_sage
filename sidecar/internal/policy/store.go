@@ -69,12 +69,12 @@ func (s *Store) BootstrapIn(
 	_, err = s.pool.Exec(ctx, `
 INSERT INTO sage.policy (
     database_id, version, scope, profile, doc, status,
-    proposed_by, ratified_by, ratified_at, activated_at
-) SELECT $1, 1, $2, $3, $4, 'active', $5, $5, now(), now()
+    proposed_by, ratified_by, ratified_at, activated_at, set_name
+) SELECT $1, 1, $2, $3, $4, 'active', $5, $5, now(), now(), $6
 WHERE NOT EXISTS (
     SELECT 1 FROM sage.policy
     WHERE database_id IS NOT DISTINCT FROM $1 AND scope = $2 AND status = 'active'
-)`, scope.DatabaseID, scopeName(scope), profile, document, actor)
+)`, scope.DatabaseID, scopeName(scope), profile, document, actor, setNameArg(scope))
 	if err != nil {
 		return Policy{}, fmt.Errorf("bootstrap policy: %w", err)
 	}
