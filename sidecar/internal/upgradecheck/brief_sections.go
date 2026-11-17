@@ -223,8 +223,12 @@ func reindexSection(rep Report, f briefFacts) ReindexSection {
 	out.Skipped = u5.Skipped
 	out.Items = append(out.Items, f.reindex...)
 	out.Total = f.reindexTotal
+	listed := map[string]bool{}
+	for _, r := range f.reindex {
+		listed[r.Index] = true
+	}
 	for _, r := range u5.Rows {
-		if r["kind"] != "index" {
+		if r["kind"] != "index" || listed[r["name"]] { // one rebuild covers both reasons
 			continue
 		}
 		out.Total++

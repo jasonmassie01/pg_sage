@@ -328,3 +328,24 @@ func TestStoreBrief_NilPool(t *testing.T) {
 		t.Fatalf("nil pool = %v, want ErrNoPool", err)
 	}
 }
+
+// An index both on a changed collation and in U5's PG18 case-folding rows
+// is one rebuild, listed and counted once.
+func TestNewBrief_IndexOnBothReindexListsIsListedOnce(t *testing.T) {
+	rep := pg14Report("self-managed")
+	rep.Target.Major = 18
+	rep.Checks[4].Rows = append(rep.Checks[4].Rows,
+		Row{"kind": "index", "name": "public.docs_title", "access_method": "gin"},
+		Row{"kind": "index", "name": "public.docs_fts", "access_method": "gin"})
+	f := pg14Facts()
+	f.reindex[0].Reason = "the collation's recorded version differs"
+	re := newBrief(rep, f, BriefOptions{}).CollationReindex
+	if re.Total != 2 || len(re.Items) != 2 || re.Items[0].Index != "public.docs_title" ||
+		re.Items[1].Index != "public.docs_fts" {
+		t.Fatalf("reindex = %+v, want docs_title once then docs_fts (2 in all)", re)
+	}
+	if !strings.Contains(re.Items[0].Reason, "collation") ||
+		!strings.Contains(re.Items[1].Reason, "folds case") {
+		t.Fatalf("reasons = %q / %q", re.Items[0].Reason, re.Items[1].Reason)
+	}
+}
