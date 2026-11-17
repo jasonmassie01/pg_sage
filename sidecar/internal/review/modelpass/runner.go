@@ -57,8 +57,13 @@ type recorder struct {
 	lastErr error
 }
 
+// ChatWithTools forwards one call of the loop, labelled review, and
+// records it. The loop's and the pass's prompts fence the data.
+//
+//llm:transport internal/agentloop.systemPrompt internal/review/modelpass.pass.systemPrompt
 func (r *recorder) ChatWithTools(ctx context.Context, msgs []llm.Message,
 	tools []llm.ToolSpec, opts llm.ToolOptions) (llm.ToolResult, error) {
+	ctx = llm.WithPurpose(ctx, llm.PurposeReview) // llm-04: usage ledger label
 	res, err := r.inner.ChatWithTools(ctx, msgs, tools, opts)
 	r.mu.Lock()
 	defer r.mu.Unlock()

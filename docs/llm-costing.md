@@ -97,6 +97,7 @@ Ask Sage is also held to its own `ask.*` budgets.
 | Facts | `internal/facts` | at most once a day per database, to propose facts from catalog evidence | 2,048 |
 | First look | `internal/firstlook` | a database's first-look summary, when its items changed since the last first look (start or re-check) | 400 |
 | Agent column classifier | `internal/agentguard/classify` | the daily column classification pass of agent governance | 2,048 |
+| Sage Review model pass | `internal/review/modelpass`, `internal/agentloop` | each review with candidates (`review.model_pass`, default `auto`): `review.model_runs` (default 3) tool loops, or 2 with `review.consensus: refute`; the `review` client (`llm.review_llm`, else the optimizer, else the general client) | 6,000 per call, at most 150,000 tokens per run |
 
 The scheduled consumers make a handful of calls a day per database: one briefing, up to
 four advisor calls, one facts pass, the classifier's daily pass, and the first look once.
