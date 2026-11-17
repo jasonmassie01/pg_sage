@@ -264,36 +264,41 @@ type rdsAPIError interface {
 
 type rdsStatusError interface{ HTTPStatusCode() int }
 
-// auroraError maps an SDK error: a missing cluster or instance to
-// ErrAuroraNotFound, an existing one to ErrAuroraAlreadyExists (also a
-// ProviderStatusError), missing credentials to ErrCloneUnavailable, any other
-// fault to a ProviderStatusError (throttling as 429, a denied permission
-// as 403) with RDS's code and message. A transport error keeps its cause,
-// so a timeout reads as an uncertain create.
+// auroraError maps an SDK error of the Aurora adapter (rdsSDKError).
 func auroraError(ctx context.Context, op string, err error) error {
+	return rdsSDKError(ctx, "aurora", op, err, ErrAuroraNotFound, ErrAuroraAlreadyExists)
+}
+
+// rdsSDKError maps an RDS SDK error of adapter svc: a missing cluster or
+// instance to notFound, an existing one to exists (also a
+// ProviderStatusError), missing credentials to ErrCloneUnavailable, any
+// other fault to a ProviderStatusError (throttling as 429, a denied
+// permission as 403) with RDS's code and message. A transport error keeps
+// its cause, so a timeout reads as an uncertain create.
+func rdsSDKError(ctx context.Context, svc, op string, err, notFound, exists error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return fmt.Errorf("aurora %s: %w", op, ctxErr)
+		return fmt.Errorf("%s %s: %w", svc, op, ctxErr)
 	}
 	if strings.Contains(err.Error(), "failed to retrieve credentials") {
-		return fmt.Errorf("%w: aurora %s: no AWS credentials in the default chain",
-			ErrCloneUnavailable, op)
+		return fmt.Errorf("%w: %s %s: no AWS credentials in the default chain",
+			ErrCloneUnavailable, svc, op)
 	}
 	var api rdsAPIError
 	if !errors.As(err, &api) {
-		return fmt.Errorf("aurora %s request failed; check network access to RDS: %w", op, err)
+		return fmt.Errorf("%s %s request failed; check network access to RDS: %w", svc, op,
+			err)
 	}
 	code := api.ErrorCode()
+	status := &ProviderStatusError{Op: svc + " " + op, StatusCode: rdsStatus(err, code)}
 	switch code {
 	case "DBClusterNotFoundFault", "DBInstanceNotFound", "DBInstanceNotFoundFault":
-		return fmt.Errorf("%w: aurora %s: %s", ErrAuroraNotFound, op, api.ErrorMessage())
+		return fmt.Errorf("%w: %s %s: %s", notFound, svc, op, api.ErrorMessage())
 	case "DBClusterAlreadyExistsFault", "DBInstanceAlreadyExists",
 		"DBInstanceAlreadyExistsFault":
-		return fmt.Errorf("%w: aurora %s: %s: %s: %w", ErrAuroraAlreadyExists, op, code,
-			api.ErrorMessage(), &ProviderStatusError{Op: "aurora " + op,
-				StatusCode: rdsStatus(err, code)})
+		return fmt.Errorf("%w: %s %s: %s: %s: %w", exists, svc, op, code,
+			api.ErrorMessage(), status)
 	}
-	return fmt.Errorf("aurora %s: %s: %s: %w", op, code, api.ErrorMessage(),
-		&ProviderStatusError{Op: "aurora " + op, StatusCode: rdsStatus(err, code)})
+	return fmt.Errorf("%s %s: %s: %s: %w", svc, op, code, api.ErrorMessage(), status)
 }
 
 func rdsStatus(err error, code string) int {
