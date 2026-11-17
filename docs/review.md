@@ -196,6 +196,11 @@ tier is decision D3 (OWNER ACTION); see
 **Which model.** `llm.review_llm` when enabled, else the optimizer model
 (`llm.optimizer_llm`), else the general client: `ForPurpose("review")`. Usage and cost are
 labelled with the purpose `review`. Any OpenAI-compatible provider works, a local one too.
+When the review model is disabled, its daily budget is spent or its breaker is open, the pass
+runs on the general client if `llm.review_llm.fallback_to_general` is true (the default), and
+otherwise is skipped (a spent budget or an open breaker skips it even with `model_pass: on`).
+`llm.review_llm.max_output_tokens` caps each call's completion below the pass's own cap of
+6,000 tokens.
 
 **Variance control.** One shot is not a review: `review.model_runs` (default 3, odd, 1-5)
 independent runs are combined in code.

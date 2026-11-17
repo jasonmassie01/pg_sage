@@ -34,7 +34,7 @@ func newPass(s Settings, d Deps, in Input) (*pass, error) {
 		return nil, fmt.Errorf("build the model's evidence: %w", err)
 	}
 	if d.Budget.MaxSteps == 0 {
-		d.Budget = DefaultBudget
+		d.Budget = BudgetFor(0)
 	}
 	if d.Protocol == "" {
 		d.Protocol = agentloop.ProtocolAuto
