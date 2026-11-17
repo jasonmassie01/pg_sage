@@ -174,6 +174,7 @@ func TestPostUpgradeDB_AnalyzeWithResetCountersIsKeptAndThePlanMovesOn(t *testin
 	d := postUpgradeFixture(t)
 	waitModified(t, d, "public.notes", 500)          // the inserts reached the statistics
 	d.exec(t, "ANALYZE public.notes, public.orders") // the counters as after pg_upgrade
+	waitModifiedAtMost(t, d, "public.notes", 0)      // PG14's collector reports it late
 	u := newUpgradeEngine(t, d)
 	ev := fakeEvents{events: []changefeed.Event{versionEventOf(upgradeEventID)}}
 	res, err := newProducer(t, d, ev, nil, nil).Tick(d.ctx)
@@ -201,6 +202,18 @@ func TestPostUpgradeDB_AnalyzeWithResetCountersIsKeptAndThePlanMovesOn(t *testin
 // last ANALYZE reach want: a backend reports its counts when it idles.
 func waitModified(t *testing.T, d liveDB, table string, want int64) {
 	t.Helper()
+	waitMods(t, d, table, want, func(n int64) bool { return n >= want })
+}
+
+// waitModifiedAtMost waits until the count is at most want: before
+// PostgreSQL 15 the statistics collector reports an ANALYZE's reset late.
+func waitModifiedAtMost(t *testing.T, d liveDB, table string, want int64) {
+	t.Helper()
+	waitMods(t, d, table, want, func(n int64) bool { return n <= want })
+}
+
+func waitMods(t *testing.T, d liveDB, table string, want int64, done func(int64) bool) {
+	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		var n int64
@@ -208,7 +221,7 @@ func waitModified(t *testing.T, d liveDB, table string, want int64) {
 			WHERE relid = to_regclass($1)`, table).Scan(&n); err != nil {
 			t.Fatalf("read %s: %v", table, err)
 		}
-		if n >= want {
+		if done(n) {
 			return
 		}
 		if time.Now().After(deadline) {
