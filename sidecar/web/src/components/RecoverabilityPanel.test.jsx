@@ -1,8 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  FleetRecoverabilityLine, RecoverabilityPanel, formatDuration,
-} from './RecoverabilityPanel'
+import { FleetRecoverabilityLine, RecoverabilityPanel } from './RecoverabilityPanel'
+import { formatDuration } from '../lib/recoverability'
 
 // drill-01d: the database page's Recoverability panel and the fleet
 // overview's one-line count. Payload shapes follow the Go route's golden

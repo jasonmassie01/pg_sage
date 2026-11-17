@@ -64,7 +64,7 @@ test('an API 500 shows the error, not an empty panel', async ({ page }) => {
 test('the fleet overview reads the 35-day restore drill count', async ({ page }) => {
   await page.route('**/api/v1/fleet/recoverability**', route =>
     route.fulfill({ json: fleetRecoverability() }))
-  await page.goto('/#/')
+  await page.goto('/#/advanced')
   await expect(page.getByTestId('fleet-recoverability'))
     .toContainText('2 of 6 databases passed a restore drill in the last 35 days')
 })
