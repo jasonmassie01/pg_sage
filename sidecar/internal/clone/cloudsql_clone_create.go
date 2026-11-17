@@ -27,14 +27,20 @@ func (a *CloudSQLCloneAPI) requireProduction() error {
 // restore deadline (a bounded MCP call): the wait would be cut short and
 // leave a billable full copy to the reaper every time. Nothing is made.
 func (a *CloudSQLCloneAPI) callerOutlastsDeadline(ctx context.Context) error {
+	return callerOutlasts(ctx, a.cfg.Deadline)
+}
+
+// callerOutlasts refuses a full copy whose caller ends before deadline;
+// cloudsql_clone and alloydb_restore share it.
+func callerOutlasts(ctx context.Context, deadline time.Duration) error {
 	end, ok := ctx.Deadline()
 	if !ok {
 		return nil
 	}
-	if left := time.Until(end); left < a.cfg.Deadline {
+	if left := time.Until(end); left < deadline {
 		return fmt.Errorf("%w: the caller ends in %s, before the restore deadline %s "+
 			"(clone.restore_deadline_minutes), so the full copy could not be used; nothing "+
-			"created", ErrCloneUnavailable, left.Round(time.Second), a.cfg.Deadline)
+			"created", ErrCloneUnavailable, left.Round(time.Second), deadline)
 	}
 	return nil
 }

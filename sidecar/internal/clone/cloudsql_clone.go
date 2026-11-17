@@ -166,27 +166,9 @@ func NewCloudSQLCloneProvider(cfg CloudSQLCloneConfig) (*SnapshotProvider, error
 // ErrCloneUnavailable without Google credentials: no clone can be made or
 // deleted, so rehearsals are recommend-only.
 func (a *CloudSQLCloneAPI) client(ctx context.Context) (*cloudSQLHTTP, error) {
-	const hint = "; rehearsals are recommend-only until then (set " +
-		"GOOGLE_APPLICATION_CREDENTIALS, run gcloud auth application-default login, or " +
-		"run with a service account)"
-	if a.cfg.Token == nil {
-		return nil, fmt.Errorf("%w: cloudsql_clone has no Google credentials%s",
-			ErrCloneUnavailable, hint)
-	}
-	src, err := a.cfg.Token(ctx)
-	if err == nil && src == nil {
-		err = errors.New("the credential chain returned no token source")
-	}
-	if err == nil {
-		var tok string
-		tok, err = src.Token(ctx)
-		if err == nil && blank(tok) {
-			err = errors.New("the credential chain returned an empty access token")
-		}
-	}
+	src, err := gcpToken(ctx, a.cfg.Token, CloudSQLCloneAdapter)
 	if err != nil {
-		return nil, fmt.Errorf("%w: cloudsql_clone has no usable Google credentials: %w%s",
-			ErrCloneUnavailable, err, hint)
+		return nil, err
 	}
 	return &cloudSQLHTTP{base: a.cfg.BaseURL, project: a.cfg.Project, token: src,
 		client: a.cfg.HTTPClient, poll: a.cfg.PollEvery}, nil
