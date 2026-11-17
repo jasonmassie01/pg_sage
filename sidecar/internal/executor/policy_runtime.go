@@ -29,8 +29,10 @@ func changeClassForActionType(actionType string) string {
 	case "create_index_concurrently", "drop_unused_index", "reindex_concurrently",
 		"revert_created_index", ActionTypeRestoreDroppedIndex, ActionTypeReplaceIndex:
 		return string(policy.ChangeIndex)
-	case "analyze_table", "create_statistics", "revert_created_statistics":
-		// Planner statistics: ANALYZE and pg_sage's extended statistics.
+	case "analyze_table", "create_statistics", "revert_created_statistics",
+		ActionTypeSetColumnStatistics:
+		// Planner statistics: ANALYZE, pg_sage's extended statistics and a
+		// column's statistics target.
 		return string(policy.ChangeAnalyze)
 	case "vacuum_table":
 		return string(policy.ChangeVacuum)

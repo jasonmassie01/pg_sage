@@ -22,6 +22,7 @@ var safeAlterTableCmds = map[pg_query.AlterTableType]bool{
 	pg_query.AlterTableType_AT_ValidateConstraint: true,
 	pg_query.AlterTableType_AT_SetNotNull:         true,
 	pg_query.AlterTableType_AT_DropConstraint:     true,
+	pg_query.AlterTableType_AT_SetStatistics:      true,
 }
 
 func checkAlterTable(alter *pg_query.AlterTableStmt, rules Rules) error {
@@ -39,10 +40,35 @@ func checkAlterTable(alter *pg_query.AlterTableStmt, rules Rules) error {
 	if cmd.GetSubtype() == pg_query.AlterTableType_AT_AddConstraint {
 		return checkAddedConstraint(cmd.GetDef().GetConstraint())
 	}
+	if cmd.GetSubtype() == pg_query.AlterTableType_AT_SetStatistics {
+		return checkStatisticsTarget(cmd)
+	}
 	if cmd.GetSubtype() == pg_query.AlterTableType_AT_SetRelOptions ||
 		cmd.GetSubtype() == pg_query.AlterTableType_AT_ResetRelOptions {
 		reset := cmd.GetSubtype() == pg_query.AlterTableType_AT_ResetRelOptions
 		return checkReloptions(cmd.GetDef().GetList().GetItems(), reset, rules)
+	}
+	return nil
+}
+
+// maxStatisticsTarget is the largest column statistics target the
+// executor sets (review-02c set_column_statistics).
+const maxStatisticsTarget = 10000
+
+// checkStatisticsTarget allows ALTER COLUMN name SET STATISTICS n with n
+// -1 (the default) or 1..10000: never DEFAULT spelled out, 0 (statistics
+// off) or a column given by number.
+func checkStatisticsTarget(cmd *pg_query.AlterTableCmd) error {
+	if cmd.GetName() == "" || cmd.GetNum() != 0 {
+		return reject("ALTER COLUMN ... SET STATISTICS must name its column")
+	}
+	n := cmd.GetDef().GetInteger()
+	if n == nil {
+		return reject("SET STATISTICS needs an integer target")
+	}
+	if v := n.GetIval(); v != -1 && (v < 1 || v > maxStatisticsTarget) {
+		return reject("SET STATISTICS %d: the target must be 1..%d or -1", v,
+			maxStatisticsTarget)
 	}
 	return nil
 }
