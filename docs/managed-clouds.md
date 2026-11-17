@@ -106,8 +106,12 @@ still goes through the policy gate and the trust ledger.
     an AWS Backup recovery point or a cross-region backup replication (both in the instance
     description) outlives the instance. Automated backups alone do not: `DeleteDBInstance`
     deletes them unless the caller asks to retain them.
-  - Aurora: one `DescribeDBClusterSnapshots` (manual) per 6 hours; the window is the
-    cluster's latest minus earliest restorable time, both in the cluster description.
+    When more than 20 manual snapshots exist and none of the first 20 is recent enough,
+    isolation is unknown (the newest may be on a later page), not false.
+  - Aurora, and an RDS Multi-AZ DB cluster member: one `DescribeDBClusterSnapshots`
+    (manual) per 6 hours; the window is the cluster's latest minus earliest restorable
+    time, and on Aurora deletion protection is the cluster's, all in the cluster
+    description.
   - Cloud SQL: `settings.retainBackupsOnDelete` in the instance description; the window is
     the transaction log retention while point-in-time recovery is on.
   - AWS Backup vaults, exports and copies in other accounts are not read; name one in

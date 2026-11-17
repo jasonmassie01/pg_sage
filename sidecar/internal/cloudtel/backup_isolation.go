@@ -11,9 +11,11 @@ import (
 // automated backups are deleted with the instance unless the deleting
 // call retains them (the DeleteDBInstance API deletes them by default);
 // manual snapshots, AWS Backup recovery points and cross-region
-// replications outlive it. The snapshot and automated-backup reads are
-// cached 6 h (a failed read 15 min); a snapshot's age is judged on every
-// collection against IsolationMaxAge.
+// replications outlive it. An instance in a cluster (Aurora, or an RDS
+// Multi-AZ DB cluster) keeps its snapshots and restore window on the
+// cluster. The snapshot and automated-backup reads are cached 6 h (a
+// failed read 15 min); a snapshot's age is judged on every collection
+// against IsolationMaxAge.
 
 const (
 	isolationRefresh       = 6 * time.Hour
@@ -26,6 +28,7 @@ type rdsRecordsRead struct {
 	key       string
 	at        time.Time
 	snapshots []time.Time
+	truncated bool           // more snapshots than one page lists
 	window    *time.Duration // RDS: the active automated backup's restore window
 	reason    string
 }
@@ -45,7 +48,7 @@ func (r *rdsRecordsRead) fresh(key string, now time.Time) bool {
 // the cached read has expired. A read cut short by the caller's context is
 // returned but not cached.
 func (s *AWSSource) backupRecords(ctx context.Context, inst rdsInstance, cluster string,
-	aurora bool, now time.Time) rdsRecordsRead {
+	now time.Time) rdsRecordsRead {
 	key := inst.ID + "|" + cluster
 	s.mu.Lock()
 	cached := s.records
@@ -54,12 +57,9 @@ func (s *AWSSource) backupRecords(ctx context.Context, inst rdsInstance, cluster
 		return *cached
 	}
 	res := rdsRecordsRead{key: key, at: now}
-	if !aurora {
-		cluster = ""
-	}
 	var err error
-	if res.snapshots, err = s.rds.manualSnapshots(ctx, inst.ID, cluster); err == nil &&
-		!aurora && inst.ResourceID != "" {
+	res.snapshots, res.truncated, err = s.rds.manualSnapshots(ctx, inst.ID, cluster)
+	if err == nil && cluster == "" && inst.ResourceID != "" {
 		res.window, err = s.rds.restoreWindow(ctx, inst.ResourceID)
 	}
 	if ctx.Err() != nil {
@@ -78,11 +78,12 @@ func (s *AWSSource) backupRecords(ctx context.Context, inst rdsInstance, cluster
 // point-in-time window on b. The instance description's own evidence
 // (AWS Backup, replication) needs no record read.
 func (s *AWSSource) applyIsolation(ctx context.Context, b *BackupPosture, inst rdsInstance,
-	cluster string, aurora bool, now time.Time) {
-	read := s.backupRecords(ctx, inst, cluster, aurora, now)
+	cluster string, now time.Time) {
+	read := s.backupRecords(ctx, inst, cluster, now)
+	clustered := cluster != ""
 	if b.PITREnabled != nil && *b.PITREnabled {
-		if aurora {
-			b.PITRWindow = auroraWindow(inst)
+		if clustered {
+			b.PITRWindow = clusterWindow(inst)
 		} else if read.reason == "" {
 			b.PITRWindow = clonePtr(read.window)
 		}
@@ -99,11 +100,18 @@ func (s *AWSSource) applyIsolation(ctx context.Context, b *BackupPosture, inst r
 	if maxAge <= 0 {
 		maxAge = defaultIsolationMaxAge
 	}
-	v, why := snapshotIsolation(read.snapshots, aurora, now, maxAge)
+	v, why := snapshotIsolation(read.snapshots, clustered, now, maxAge)
+	if !v && read.truncated {
+		b.IsolationUnavailable = fmt.Sprintf("more than %d manual snapshots are listed and "+
+			"none of the first %d is within %.0f h; a newer one may be on a later page",
+			maxBackupRecords, maxBackupRecords, maxAge.Hours())
+		return
+	}
 	b.SurvivesDelete, b.IsolationEvidence = &v, why
 }
 
-func auroraWindow(inst rdsInstance) *time.Duration {
+// clusterWindow is the cluster's latest minus earliest restorable time.
+func clusterWindow(inst rdsInstance) *time.Duration {
 	if inst.LatestRestorable == nil || inst.EarliestRestorable == nil ||
 		inst.LatestRestorable.Before(*inst.EarliestRestorable) {
 		return nil
@@ -130,10 +138,10 @@ func describedIsolation(inst rdsInstance) (bool, string, bool) {
 
 // snapshotIsolation: a manual snapshot at most maxAge old survives a
 // delete; a future one (beyond the clock-skew allowance) proves nothing.
-func snapshotIsolation(snapshots []time.Time, aurora bool, now time.Time,
+func snapshotIsolation(snapshots []time.Time, clustered bool, now time.Time,
 	maxAge time.Duration) (bool, string) {
 	kind := "manual snapshot"
-	if aurora {
+	if clustered {
 		kind = "manual cluster snapshot"
 	}
 	var newest *time.Time

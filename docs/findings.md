@@ -1238,7 +1238,9 @@ Retention 0 is AP-11's "backups off" case and is left to it.
 one delete call would remove the database and its backups together. RDS: no manual
 snapshot within `backup.max_age_hours`, no AWS Backup recovery point and no cross-region
 backup replication (automated backups are deleted with the instance unless the delete
-retains them). Aurora: no manual cluster snapshot within that age. Cloud SQL:
+retains them). Aurora and RDS Multi-AZ DB clusters: no manual cluster snapshot within that
+age. More than 20 manual snapshots with none of the first 20 recent enough is unknown, not
+a finding. Cloud SQL:
 `settings.retainBackupsOnDelete` is false. Snapshots and automated backups are read once
 per 6 hours (15 minutes after a failed read); a snapshot without a create time or not yet
 `available` does not count, and one exactly `backup.max_age_hours` old does. A denied

@@ -357,3 +357,84 @@ func TestIsolationCloudSQLWithoutPITRHasNoWindow(t *testing.T) {
 		t.Fatalf("PITR off, yet PITRWindow = %v", *b.PITRWindow)
 	}
 }
+
+// Aurora's deletion protection is the cluster's: the cluster flag is
+// recorded and the instance's is ignored (drill-01b review).
+func TestIsolationAuroraDeletionProtectionFromTheCluster(t *testing.T) {
+	for _, tc := range []struct{ cluster, instance string }{
+		{"false", "true"}, {"true", "false"},
+	} {
+		f := newFakeAWS(t, awsNow)
+		f.instances["shop-1"] = withBackupXML(instanceXML("shop-1", "db.r7g.xlarge",
+			"aurora-postgresql", "shop-pg16", "in-sync", 1, 0, false, "shop"),
+			"<BackupRetentionPeriod>1</BackupRetentionPeriod><DeletionProtection>"+
+				tc.instance+"</DeletionProtection>")
+		f.clusters["shop"] = strings.Replace(clusterXML("shop", "shop-1"), "</DBCluster>",
+			"<DeletionProtection>"+tc.cluster+"</DeletionProtection></DBCluster>", 1)
+		f.metric("shop-1", "CPUUtilization", time.Minute, 12)
+		f.metric("shop-1", "FreeableMemory", time.Minute, 20*gib)
+		b := mustCollect(t, f.source(t, AWSOptions{ClusterID: "shop"})).Backup
+		want := tc.cluster == "true"
+		if b == nil || b.DeletionProtection == nil || *b.DeletionProtection != want {
+			t.Fatalf("cluster %s, instance %s: DeletionProtection = %+v, want %v",
+				tc.cluster, tc.instance, b, want)
+		}
+	}
+}
+
+// An RDS Multi-AZ DB cluster member reached by its instance endpoint
+// keeps its snapshots on the cluster: a fresh manual cluster snapshot
+// survives a delete, and no instance snapshot or automated-backup read is
+// made (drill-01b review).
+func TestIsolationMultiAZClusterMemberReadsTheCluster(t *testing.T) {
+	latest := awsNow.Add(-5 * time.Minute)
+	f := newFakeAWS(t, awsNow)
+	f.instances["mz-1"] = withBackupXML(instanceXML("mz-1", "db.m6gd.large", "postgres",
+		"mz-pg16", "in-sync", 100, 0, false, "mz"),
+		"<BackupRetentionPeriod>7</BackupRetentionPeriod>")
+	f.clusters["mz"] = strings.Replace(clusterXML("mz", "mz-1"), "</DBCluster>",
+		restorableXML(latest)+"<EarliestRestorableTime>"+
+			latest.Add(-48*time.Hour).UTC().Format(time.RFC3339)+
+			"</EarliestRestorableTime></DBCluster>", 1)
+	f.metric("mz-1", "CPUUtilization", time.Minute, 12)
+	f.metric("mz-1", "FreeableMemory", time.Minute, 20*gib)
+	f.snapshots["cluster:mz"] = []fakeSnapshot{snapshotAt(awsNow.Add(-3 * time.Hour))}
+	b := mustCollect(t, f.source(t, AWSOptions{InstanceID: "mz-1",
+		IsolationMaxAge: isoMaxAge})).Backup
+	wantSurvives(t, b, true, "manual cluster snapshot")
+	if b.PITRWindow == nil || *b.PITRWindow != 48*time.Hour {
+		t.Fatalf("Multi-AZ cluster PITRWindow = %v, want 48h", b.PITRWindow)
+	}
+	for _, action := range []string{"rds:DescribeDBSnapshots",
+		"rds:DescribeDBInstanceAutomatedBackups"} {
+		if n := f.called(action); n != 0 {
+			t.Fatalf("a cluster member made %d %s calls", n, action)
+		}
+	}
+}
+
+// Boundary of the bounded read: with more snapshots than one page holds,
+// a fresh one on the first page still counts, but a first page of only
+// old ones is unknown (the newest may be on a later page), never false.
+func TestIsolationTruncatedSnapshotPage(t *testing.T) {
+	old := make([]fakeSnapshot, 0, 25)
+	for i := 0; i < 25; i++ {
+		old = append(old, snapshotAt(awsNow.Add(-time.Duration(100+i)*time.Hour)))
+	}
+	f := isolationFixture(t)
+	f.snapshots["instance:orders"] = append(append([]fakeSnapshot{}, old[:maxBackupRecords]...),
+		snapshotAt(awsNow.Add(-time.Hour)))
+	b := mustCollect(t, isolationSource(t, f)).Backup
+	if b.SurvivesDelete != nil || !strings.Contains(b.IsolationUnavailable, "later page") {
+		t.Fatalf("old first page: SurvivesDelete %v, unavailable %q; want unknown with "+
+			"the reason", b.SurvivesDelete, b.IsolationUnavailable)
+	}
+	f = isolationFixture(t)
+	f.snapshots["instance:orders"] = append([]fakeSnapshot{
+		snapshotAt(awsNow.Add(-time.Hour))}, old...)
+	wantSurvives(t, mustCollect(t, isolationSource(t, f)).Backup, true, "manual snapshot")
+	f = isolationFixture(t)
+	f.snapshots["instance:orders"] = old[:maxBackupRecords]
+	wantSurvives(t, mustCollect(t, isolationSource(t, f)).Backup, false,
+		"only automated backups")
+}

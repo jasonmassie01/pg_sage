@@ -17,34 +17,35 @@ import (
 const maxBackupRecords = 20
 
 // manualSnapshots returns the create times of the available manual
-// snapshots of the instance, or of the cluster when cluster is set. A
-// snapshot without a create time, or not yet available, is left out.
+// snapshots of the instance, or of the cluster when cluster is set, and
+// whether the page left more unlisted. A snapshot without a create time,
+// or not yet available, is left out.
 func (a *rdsAPI) manualSnapshots(ctx context.Context, instance,
-	cluster string) ([]time.Time, error) {
+	cluster string) ([]time.Time, bool, error) {
 	if cluster != "" {
 		out, err := a.client.DescribeDBClusterSnapshots(ctx,
 			&rds.DescribeDBClusterSnapshotsInput{DBClusterIdentifier: aws.String(cluster),
 				SnapshotType: aws.String("manual"), MaxRecords: aws.Int32(maxBackupRecords)})
 		if err != nil {
-			return nil, sdkError(ctx, "RDS DescribeDBClusterSnapshots", err)
+			return nil, false, sdkError(ctx, "RDS DescribeDBClusterSnapshots", err)
 		}
 		var times []time.Time
 		for _, s := range out.DBClusterSnapshots {
 			times = appendAvailable(times, s.Status, s.SnapshotCreateTime)
 		}
-		return times, nil
+		return times, aws.ToString(out.Marker) != "", nil
 	}
 	out, err := a.client.DescribeDBSnapshots(ctx, &rds.DescribeDBSnapshotsInput{
 		DBInstanceIdentifier: aws.String(instance), SnapshotType: aws.String("manual"),
 		MaxRecords: aws.Int32(maxBackupRecords)})
 	if err != nil {
-		return nil, sdkError(ctx, "RDS DescribeDBSnapshots", err)
+		return nil, false, sdkError(ctx, "RDS DescribeDBSnapshots", err)
 	}
 	var times []time.Time
 	for _, s := range out.DBSnapshots {
 		times = appendAvailable(times, s.Status, s.SnapshotCreateTime)
 	}
-	return times, nil
+	return times, aws.ToString(out.Marker) != "", nil
 }
 
 func appendAvailable(times []time.Time, status *string, created *time.Time) []time.Time {

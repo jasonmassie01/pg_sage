@@ -79,10 +79,10 @@ func clonePtr[T any](p *T) *T {
 
 // rdsBackup reads RDS's automated-backup retention: 0 turns automated
 // backups, and with them point-in-time recovery, off. Aurora keeps
-// deletion protection on the cluster, so the instance's flag is not
-// evidence there. restorable is the latest restorable time (the
-// cluster's on Aurora).
-func rdsBackup(retention *int32, deletionProtection *bool, aurora bool,
+// deletion protection on the cluster, so the caller passes the cluster's
+// flag there (the instance's is not evidence). restorable is the latest
+// restorable time (the cluster's on Aurora).
+func rdsBackup(retention *int32, deletionProtection *bool,
 	restorable *time.Time) *BackupPosture {
 	b := &BackupPosture{LatestRestorableTime: clonePtr(restorable)}
 	if retention != nil {
@@ -90,7 +90,7 @@ func rdsBackup(retention *int32, deletionProtection *bool, aurora bool,
 		on := days > 0
 		b.RetentionDays, b.BackupsEnabled, b.PITREnabled = &days, &on, &on
 	}
-	if deletionProtection != nil && !aurora {
+	if deletionProtection != nil {
 		v := *deletionProtection
 		b.DeletionProtection = &v
 	}

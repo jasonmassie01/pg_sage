@@ -172,6 +172,7 @@ func (s *AWSSource) resolve(ctx context.Context) (rdsInstance, awsIdentity, erro
 	if cluster.Writer != "" {
 		inst.EarliestRestorable = cluster.EarliestRestorable
 		inst.AWSBackupARN = cluster.AWSBackupARN
+		inst.ClusterDeletionProtection = cluster.DeletionProtection
 	}
 	s.mu.Lock()
 	s.resolved = ident
@@ -238,9 +239,12 @@ func (s *AWSSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 		return Sample{}, err
 	}
 	s.applyStorage(&sample, inst, aurora, now)
-	sample.Backup = rdsBackup(inst.BackupRetention, inst.DeletionProtection, aurora,
-		inst.LatestRestorable)
-	s.applyIsolation(ctx, sample.Backup, inst, ident.cluster, aurora, now)
+	deletionProtection := inst.DeletionProtection
+	if aurora {
+		deletionProtection = inst.ClusterDeletionProtection
+	}
+	sample.Backup = rdsBackup(inst.BackupRetention, deletionProtection, inst.LatestRestorable)
+	s.applyIsolation(ctx, sample.Backup, inst, ident.cluster, now)
 	if err := s.applyPI(ctx, &sample, inst, now); err != nil {
 		return Sample{}, err
 	}

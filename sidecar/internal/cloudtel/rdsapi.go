@@ -33,6 +33,9 @@ type rdsInstance struct {
 	// recovery point; Replications counts cross-region backup replications.
 	AWSBackupARN string
 	Replications int
+	// ClusterDeletionProtection is the Aurora cluster's deletion
+	// protection, the flag that guards an Aurora database.
+	ClusterDeletionProtection *bool
 }
 
 // rdsCluster is what collection reads from an Aurora cluster.
@@ -40,6 +43,7 @@ type rdsCluster struct {
 	Writer                               string
 	LatestRestorable, EarliestRestorable *time.Time
 	AWSBackupARN                         string
+	DeletionProtection                   *bool
 }
 
 type rdsAPI struct{ client *rds.Client }
@@ -94,7 +98,8 @@ func (a *rdsAPI) clusterWriter(ctx context.Context, cluster string) (rdsCluster,
 				return rdsCluster{Writer: aws.ToString(m.DBInstanceIdentifier),
 					LatestRestorable:   c.LatestRestorableTime,
 					EarliestRestorable: c.EarliestRestorableTime,
-					AWSBackupARN:       aws.ToString(c.AwsBackupRecoveryPointArn)}, nil
+					AWSBackupARN:       aws.ToString(c.AwsBackupRecoveryPointArn),
+					DeletionProtection: c.DeletionProtection}, nil
 			}
 		}
 	}
