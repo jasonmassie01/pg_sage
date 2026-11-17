@@ -36,6 +36,9 @@ type Spec struct {
 	Connections *workpack.Connections
 	PGVersion   string
 	Platform    string
+	// review-02c: the stats (pg_stats) and plans sections.
+	Stats *workpack.Stats
+	Plans *workpack.Plans
 }
 
 // Window is the days-long window ending at 2026-11-01 00:00 UTC.
@@ -63,7 +66,8 @@ func Build(s Spec) (*workpack.Pack, error) {
 		files["schema.json"] = *s.Schema
 	}
 	optional := map[string]any{"settings.json": s.Settings, "autovacuum.json": s.Autovacuum,
-		"provider.json": s.Provider, "connections.json": s.Connections}
+		"provider.json": s.Provider, "connections.json": s.Connections,
+		"stats.json": s.Stats, "plans.json": s.Plans}
 	for name, sec := range optional {
 		if !reflect.ValueOf(sec).IsNil() {
 			files[name] = sec

@@ -222,3 +222,39 @@ coverage. A table under 100,000 rows is left alone without a note. When no trigg
 target, because the growth outruns it, the table's own threshold (left alone, see step 5) or the
 0.001 floor keeps the predicted peak over it, or the table is already tuned tighter, the candidate
 is advice that autovacuum is falling behind.
+
+## Plan-stability generator
+
+The `planstability` generator looks for the statistical cliffs a plan can fall off before it
+does: a column the planner's sample describes badly that a top query filters on. It reads the
+pack's top 20 queries by total time, their statement texts (filters are read from the
+normalized text: `col = $1`, `$1 = col`, `col IS NOT NULL`, `col < $1`; a text that does not lex
+is skipped with the reason) and, from the monitored database through the bounded read-only
+reader, `pg_stats` (null fraction, distinct values, correlation and the leading
+`most_common_freqs` value: a frequency, never a value), `pg_attribute.attstattarget`,
+`pg_class.reltuples` and `n_mod_since_analyze`. No user data is read.
+
+| Cliff | Flagged when | Proposal |
+|---|---|---|
+| Tiny non-null share | `null_frac` >= 0.999 on a column filtered with `=` or `IS NOT NULL` | `set_column_statistics`, then `analyze_table` |
+| Skew beyond the sample | leading `most_common_freqs` > 0.5 with more than 1000 distinct values | `set_column_statistics`, then `analyze_table` |
+| Time-ordered inserts past the histogram | `correlation` > 0.95, more than 10% of `reltuples` changed since the last ANALYZE, and more distinct values than the column's target (fewer means every value is in the most-common list and there is no histogram) | `set_column_statistics`, then `analyze_table` |
+| Correlated predicates | two or more equality columns of one table whose stored plan's scan estimate is off from its actual rows by more than 10x | `create_statistics` (`dependencies`, `mcv`), pg_sage's form |
+
+The new target is 10 times the column's current one (the `default_statistics_target` when it has
+none), at most 10000; the rollback sets the prior target back (`-1` for the default, which reads
+`NULL` on PostgreSQL 17+). A column already at 10000, or with statistics switched off (target 0)
+by its owner, gets advice instead. `set_column_statistics` is a moderate, reversible action
+that follows the planner-statistics class's trust level, like `create_statistics`; it takes
+SHARE UPDATE EXCLUSIVE under `lock_timeout`, and its read-back is `pg_attribute.attstattarget`.
+Without table ownership (which `SET STATISTICS` needs), or for a name the executor's validator
+refuses (a `;` in an identifier), the step is an operator step with the exact SQL.
+
+Without an executed plan (no `auto_explain`, as on Neon and Lakebase) the correlated-predicate
+rule compares the stored estimate with the rows each call returned (estimate drift only) and
+says so; without a captured plan it is not checked, and the coverage says which query.
+
+A table whose statistics pg_sage cannot read is `unknown`, never "no risk": the coverage is
+partial with `pg_stats:<table>` missing and a note with the reason, which is the exact
+`GRANT SELECT ON TABLE ... TO <role>` when the role cannot read it, "never analyzed" when the
+table has no statistics yet, or "not found".
