@@ -258,9 +258,10 @@ func trancheFiveMigrations() []namedStep {
 // trancheSixMigrations are the T6 steps, after trancheFiveMigrations.
 func trancheSixMigrations() []namedStep {
 	return []namedStep{
-		{"ddlRestoreDrills", ddlRestoreDrills},               // drill-01a
-		{"ddlExposureRemediations", ddlExposureRemediations}, // fleetpol-02b
-		{"ddlReviewRuns", ddlReviewRuns},                     // review-01a
-		{"ddlReviewCandidates", ddlReviewCandidates},         // review-02a
+		{"ddlRestoreDrills", ddlRestoreDrills},                     // drill-01a
+		{"ddlExposureRemediations", ddlExposureRemediations},       // fleetpol-02b
+		{"ddlReviewRuns", ddlReviewRuns},                           // review-01a
+		{"ddlReviewCandidates", ddlReviewCandidates},               // review-02a
+		{"ddlReviewCandidateOperator", ddlReviewCandidateOperator}, // review-02b
 	}
 }

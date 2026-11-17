@@ -49,7 +49,7 @@ type Prediction struct {
 }
 
 // Candidate is one generator proposal. ID is NewID of its generator,
-// kind, target and forward SQL, so it is stable across runs. ActionType is
+// kind, target and IDBody, so it is stable across runs. ActionType is
 // a registered executor contract, ActionAdvice or ActionOperator.
 // Approval is ApprovalAutomatic or ApprovalRequired; Validate forces
 // ApprovalRequired on a step spec section 3 says is never automatic and
@@ -69,6 +69,36 @@ type Candidate struct {
 	Reason         string     `json:"reason"`
 	Approval       string     `json:"approval"`
 	ApprovalReason string     `json:"approval_reason,omitempty"`
+	// Operator is what an ActionOperator candidate asks an operator to run
+	// (review-02b); nil on every other candidate.
+	Operator *Operator `json:"operator,omitempty"`
+}
+
+// Operator is a step pg_sage never runs (plan-02d "you run this"): the
+// command an operator runs (a managedparam proposal's CLI, or ALTER
+// SYSTEM and a restart), the command that undoes it, and the landing the
+// plan engine watches for: Setting reading Value as SHOW prints it.
+// Provider and Mechanism name the managed service and how it changes
+// settings ("" when self-managed); RebootRequired says the change needs a
+// restart.
+type Operator struct {
+	Command        string `json:"command"`
+	Revert         string `json:"revert,omitempty"`
+	Setting        string `json:"setting"`
+	Value          string `json:"value"`
+	Provider       string `json:"provider,omitempty"`
+	Mechanism      string `json:"mechanism,omitempty"`
+	RebootRequired bool   `json:"reboot_required"`
+}
+
+// IDBody is the last part of the candidate's id: its forward SQL, or an
+// operator candidate's command (it has no SQL), so two values of one
+// setting never share an id.
+func (c *Candidate) IDBody() string {
+	if c.ActionType == ActionOperator && c.Operator != nil {
+		return c.Operator.Command
+	}
+	return c.ForwardSQL
 }
 
 // NewID is the hex SHA-256 of the parts, each ended by a NUL so no two

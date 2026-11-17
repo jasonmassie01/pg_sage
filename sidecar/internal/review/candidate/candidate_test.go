@@ -95,7 +95,12 @@ func TestValidate_AdviceAndOperatorNeedNoSQL(t *testing.T) {
 	for _, at := range []string{ActionAdvice, ActionOperator} {
 		c := dropCandidate()
 		c.ActionType, c.ForwardSQL, c.RollbackSQL = at, "", ""
-		c.ID = NewID(c.Generator, c.Kind, c.Target, c.ForwardSQL)
+		if at == ActionOperator {
+			// review-02b: an operator candidate says what the operator runs
+			// and how it lands (plan-02d refuses an operator step without).
+			c.Operator = &Operator{Command: "run it", Setting: "work_mem", Value: "8MB"}
+		}
+		c.ID = NewID(c.Generator, c.Kind, c.Target, c.IDBody())
 		if err := c.Validate(testPack(t)); err != nil {
 			t.Errorf("%s without SQL refused: %v", at, err)
 		}

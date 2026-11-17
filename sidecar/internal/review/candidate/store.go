@@ -29,8 +29,8 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 const insertSQL = `/* pg_sage review v1 */
 INSERT INTO sage.review_candidate (run_id, candidate_id, generator, dimension, kind,
     target, action_type, forward_sql, rollback_sql, evidence_ids, prediction, reversible,
-    reason, approval, approval_reason)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    reason, approval, approval_reason, operator)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (run_id, candidate_id) DO NOTHING`
 
 // Save stores the run's candidates as proposed, in one transaction, and
@@ -40,7 +40,7 @@ ON CONFLICT (run_id, candidate_id) DO NOTHING`
 func (s *Store) Save(ctx context.Context, runID int64, cands []Candidate) (int, error) {
 	for i := range cands {
 		c := &cands[i]
-		if c.ID != NewID(c.Generator, c.Kind, c.Target, c.ForwardSQL) {
+		if c.ID != NewID(c.Generator, c.Kind, c.Target, c.IDBody()) {
 			return 0, c.invalid("the id is not the hash of its parts; not stored")
 		}
 	}
@@ -56,9 +56,13 @@ func (s *Store) Save(ctx context.Context, runID int64, cands []Candidate) (int, 
 		if err != nil {
 			return 0, fmt.Errorf("encode the prediction of %s: %w", c.name(), err)
 		}
+		op, err := operatorJSON(c.Operator)
+		if err != nil {
+			return 0, fmt.Errorf("encode the operator fields of %s: %w", c.name(), err)
+		}
 		tag, err := tx.Exec(ctx, insertSQL, runID, c.ID, c.Generator, c.Dimension, c.Kind,
 			c.Target, c.ActionType, c.ForwardSQL, c.RollbackSQL, c.EvidenceIDs, pred,
-			c.Reversible, c.Reason, c.Approval, c.ApprovalReason)
+			c.Reversible, c.Reason, c.Approval, c.ApprovalReason, op)
 		if err != nil {
 			return 0, fmt.Errorf("insert review candidate %s of run %d: %w", c.name(), runID,
 				err)
@@ -99,4 +103,12 @@ func (s *Store) SetStatus(ctx context.Context, runID int64, id string, to Status
 		return fmt.Errorf("read review candidate %s of run %d: %w", id, runID, err)
 	}
 	return Transition(Status(cur), to)
+}
+
+// operatorJSON is the operator column: NULL for a candidate without one.
+func operatorJSON(op *Operator) ([]byte, error) {
+	if op == nil {
+		return nil, nil
+	}
+	return json.Marshal(op)
 }

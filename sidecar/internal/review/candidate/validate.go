@@ -53,7 +53,7 @@ func (c *Candidate) invalid(format string, args ...any) error {
 
 // checkShape checks the id, the evidence list and the approval word.
 func (c *Candidate) checkShape() error {
-	if c.ID != NewID(c.Generator, c.Kind, c.Target, c.ForwardSQL) {
+	if c.ID != NewID(c.Generator, c.Kind, c.Target, c.IDBody()) {
 		return c.invalid("the id is not the hash of its generator, kind, target and SQL")
 	}
 	if len(c.EvidenceIDs) == 0 {
@@ -70,8 +70,16 @@ func (c *Candidate) checkShape() error {
 // checkAction checks the action type and that its SQL agrees with it.
 func (c *Candidate) checkAction() error {
 	switch c.ActionType {
-	case ActionAdvice, ActionOperator:
+	case ActionOperator:
+		return c.checkOperator()
+	case ActionAdvice:
+		if c.Operator != nil {
+			return c.invalid("only an operator candidate carries operator fields")
+		}
 		return nil
+	}
+	if c.Operator != nil {
+		return c.invalid("only an operator candidate carries operator fields")
 	}
 	if _, ok := executor.ContractForActionType(c.ActionType); !ok {
 		return c.invalid("action type %q is not a registered executor contract, %s or %s",
@@ -83,6 +91,23 @@ func (c *Candidate) checkAction() error {
 	if got, _ := executor.ClassifySQL(c.ForwardSQL); got != "" && got != c.ActionType {
 		return c.invalid("the forward SQL classifies as %s, not as its action type %s", got,
 			c.ActionType)
+	}
+	return nil
+}
+
+// checkOperator: an operator candidate says what the operator runs and
+// how its landing is seen, and carries no SQL, since pg_sage runs nothing
+// for it (plan-02d refuses SQL on an operator step).
+func (c *Candidate) checkOperator() error {
+	op := c.Operator
+	switch {
+	case op == nil || strings.TrimSpace(op.Command) == "":
+		return c.invalid("no operator command: an operator candidate says what to run")
+	case strings.TrimSpace(op.Setting) == "" || strings.TrimSpace(op.Value) == "":
+		return c.invalid("an operator candidate needs a landing: the setting and its value")
+	case c.ForwardSQL != "" || c.RollbackSQL != "":
+		return c.invalid("pg_sage runs nothing for an operator candidate, so it carries " +
+			"no SQL; the operator's command is in its operator fields")
 	}
 	return nil
 }
