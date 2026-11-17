@@ -3590,6 +3590,17 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.max_seconds_per_question` | `60` | Wall clock of one question (15-300; each model call at most 15 s). `POST /api/v1/databases/{db}/ask` gets this plus 5 s, every other API route 30 s; an MCP call keeps its own deadline. A run cut off by its caller after it acted is stored `incomplete` with stop `cancelled`; answers are counted in `pg_sage_ask_answers_total{database,status,stop}`. Restart to change |
 | `ask.max_concurrent_runs` | `4` | Asynchronous runs (the dashboard's questions, `POST /api/v1/databases/{db}/ask/runs`) at once per database on one sidecar (1-16). One more is refused with HTTP 429 and `Retry-After`; a second run on one conversation is 409. Each run is bounded by `ask.max_seconds_per_question` and the daily budgets; see [Ask Sage](ask-sage.md#asynchronous-runs). Restart to change |
 
+### Sage Review
+
+Sage Review grades each database against the versioned rubric `pg_sage-rubric/1`,
+deterministic and read-only; it writes only `sage.review_run` and `sage.review_grade`. See
+[Sage Review](review.md).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `review.enabled` | `true` | Grade each database once after its first look, then every `review.grade_interval_hours`. Restart to change |
+| `review.grade_interval_hours` | `24` | Hours between two grades of one database (1-720). Restart to change |
+
 ### Forecaster
 
 The forecaster (`forecaster.*`, see `sidecar/config.example.yaml`) fits daily trends
