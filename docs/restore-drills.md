@@ -66,6 +66,7 @@ production's: the monitoring role's `.pgpass` entry or password works.
 | The restore exits non-zero | failed; the error quotes the last 16 KiB of stderr, redacted (connection URIs, credentials, tokens) | `failed`: your wrapper cleans up after itself |
 | It runs past `max_duration_minutes` | failed; the program is killed | `create_uncertain`: a copy may be running; check `data_dir/restore-drills` |
 | It exits 0 with unusable output | failed | `create_uncertain`, for the same reason |
+| It exits 0 but a process it started keeps stdout or stderr open for 5 seconds | failed; start servers with `pg_ctl -l` | `create_uncertain`: the server it started may be running |
 | The destroy program fails | the result stands | `destroying`, retried by the clone reaper |
 
 The keys are YAML only and apply at restart. The configuration API can never set them,
@@ -90,12 +91,15 @@ case "$SAGE_CLONE_ID" in
   "$PWD"/sage-drill-*) ;;
   *) echo "refusing to remove $SAGE_CLONE_ID" >&2; exit 1 ;;
 esac
+rm -f -- "$SAGE_CLONE_ID.log"
 [ -d "$SAGE_CLONE_ID" ] || exit 0
 pg_ctl -D "$SAGE_CLONE_ID" -m immediate stop >&2 || true
 rm -rf -- "$SAGE_CLONE_ID"
 ```
 
-The restore programs end with the same lines, which print the result:
+The restore programs share the same lines. They print the result, and a restore that fails
+removes what it made: pg_sage marks a non-zero exit `failed` and never runs the destroy
+program for it.
 
 ```sh
 # print_result PORT DATABASE
@@ -112,10 +116,21 @@ start() {
   pg_ctl -D "$dir" -w -t 3600 -l "$dir.log" \
     -o "-p $port -c listen_addresses=localhost -c archive_mode=off" start >&2
 }
+cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    pg_ctl -D "$dir" -m immediate stop >&2 || true
+    rm -rf -- "$dir" "$dir.log"
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
 ```
 
 `pg_last_xact_replay_timestamp()` is the last transaction the restore replayed. When nothing
 was replayed it falls back to `now()`, which overstates the RPO. That errs on the safe side.
+The `EXIT` trap does not run when pg_sage kills a restore at `max_duration_minutes`; that
+receipt stays `create_uncertain` for you to resolve.
 
 ### pgBackRest
 
@@ -127,7 +142,7 @@ fixed target, add `--type=time --target=... --target-action=promote`.
 #!/bin/sh
 # /opt/sage/drill-restore STANZA
 set -eu
-# ... print_result, dir, port and start from above ...
+# ... print_result, dir, port, start and the cleanup trap from above ...
 pgbackrest --stanza="$1" --pg1-path="$dir" --archive-mode=off restore >&2
 start
 print_result "$port" app
@@ -145,7 +160,7 @@ on the Barman host, or use `--remote-ssh-command` to restore onto another host.
 #!/bin/sh
 # /opt/sage/drill-restore SERVER
 set -eu
-# ... print_result, dir, port and start from above ...
+# ... print_result, dir, port, start and the cleanup trap from above ...
 barman recover --get-wal "$1" latest "$dir" >&2
 start
 print_result "$port" app
@@ -157,7 +172,7 @@ print_result "$port" app
 #!/bin/sh
 # /opt/sage/drill-restore
 set -eu
-# ... print_result, dir, port and start from above ...
+# ... print_result, dir, port, start and the cleanup trap from above ...
 wal-g backup-fetch "$dir" LATEST >&2
 cat >> "$dir/postgresql.auto.conf" <<EOF
 restore_command = 'wal-g wal-fetch %f %p'
