@@ -56,6 +56,10 @@ type CanaryOptions struct {
 	// PollEvery is how often a measurement re-reads a target's verdict
 	// while the target still monitors the change. Default: 15 s.
 	PollEvery time.Duration
+	// StageWait (lab-03b) is the pause after a database's verdict before
+	// the next database is changed. Zero: no pause. The sidecar passes
+	// sre.autonomy.canary.stage_wait_hours (default 24 h).
+	StageWait time.Duration
 	Now       func() time.Time
 	Log       func(format string, args ...any)
 }
@@ -243,7 +247,8 @@ func (s *CanaryService) verifiedSource(ctx context.Context, req StartRequest) (S
 func (s *CanaryService) execute(ctx context.Context, p preparedCanary) (RunRecord, error) {
 	defer p.lock.release()
 	backend := &canaryBackend{svc: s, source: p.source, approvedBy: p.approvedB,
-		findings: map[string]int{}, actions: map[string]int64{}}
+		findings: map[string]int{}, actions: map[string]int64{},
+		targets: append([]string(nil), p.record.Targets...)}
 	progress := &progressBackend{canaryBackend: backend, runID: p.record.EvidenceID}
 	result, runErr := NewEngine(progress, progress).Rollout(ctx, p.request)
 	record := p.record
@@ -326,11 +331,20 @@ type canaryBackend struct {
 	findings   map[string]int
 	actions    map[string]int64
 	order      []string
+	// targets are the run's databases in order; those with no action
+	// yet are untreated, the fleet control of a measurement (lab-03b).
+	targets []string
+	// pauseDue: a database's verdict was recorded, so the next database
+	// waits StageWait before it is re-verified and changed.
+	pauseDue bool
 }
 
 // Reverify requires the target's own analyzer to recommend the same SQL.
 func (b *canaryBackend) Reverify(ctx context.Context, instance Instance,
 	_ Prior) (Reverification, error) {
+	if err := b.stagePause(ctx); err != nil {
+		return Reverification{}, fmt.Errorf("pause before %s: %w", instance.ID, err)
+	}
 	b.note(instance.ID)
 	target, err := b.svc.resolve(instance.ID)
 	if err != nil {
@@ -403,7 +417,9 @@ func (b *canaryBackend) records(result Result, at time.Time) []InstanceRecord {
 		}
 		out = append(out, InstanceRecord{InstanceID: id, Ordinal: i + 1, Status: res.Status,
 			EvidenceID: res.EvidenceID, ActionLogID: b.actions[id],
-			RegressionPct: res.RegressionPct, Detail: res.Detail, UpdatedAt: at})
+			RegressionPct: res.RegressionPct, Detail: res.Detail, UpdatedAt: at,
+			EffectPct: res.EffectPct, ControlPct: res.ControlPct,
+			EffectMethod: res.EffectMethod})
 	}
 	return out
 }

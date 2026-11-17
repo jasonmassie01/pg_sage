@@ -3171,7 +3171,8 @@ literals always removed.
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
 | `sre.autonomy.game_days.customer_programs` | unset | Run the customer programs, which exercise the monitored database's own hottest table on the clone (see below). Unset: on when the clone provider copies the database (`dle`, `lakebase_branch`); `local_dsn` never runs them |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
-| `sre.autonomy.canary.regression_limit_pct` | `10` | Regression that halts and rolls back a rollout, `0`-`100` |
+| `sre.autonomy.canary.regression_limit_pct` | `10` | Measured regression (a database's effect net of the untreated members' change) that halts and rolls back a rollout, `0`-`100` |
+| `sre.autonomy.canary.stage_wait_hours` | `24` | Hours a fleet rollout waits after a database's verdict before it changes the next one, `0`-`720` (`0`: no pause) |
 | `sre.autonomy.canary.settle_seconds` | removed | Removed in executor-04: a canary now waits for each database's own verification verdict instead of a fixed settle time. A config that still sets it loads and prints one startup warning that the key is ignored; remove the key, which a later release rejects |
 
 Game days run only the deterministic causal-graph arm, so they spend no LLM tokens. A
@@ -3352,6 +3353,29 @@ execution plus its class's monitor cap: `verify.window_max_minutes`, or
 rollout as `verification_pending`, with that database's record `verification_pending`: nothing
 is judged or rolled back, and the database's own monitor keeps the change and gives its
 verdict. A long monitor cap holds the single canary slot for that long.
+
+How a database's regression is measured (lab-03b). Once a database's verdict is final, the
+canary reads that action's verification v2 record from the database's own
+`sage.action_outcome` (the acted verdict's `evidence`, or `other_evidence` when v2 runs in
+shadow): its effect on the target queries' blocks per call, with its interval. While the
+database is measured, the run's databases not changed yet supply a fleet control: each one's
+change of the same queries over the same hours (the verdict's window against the as-long
+period before it), matched by normalized statement text because queryids differ across
+databases, read in parallel. With at least two of them measured, the database's effect is its
+own change of the target queries minus the control's median, so a shift the whole fleet sees
+the same day does not halt a good change. A database that cannot be read, or ran none of the
+queries, is left out of the control by name in the detail and never counts as flat. With
+fewer than two, the database's own v2 effect is the number. That number is the instance's
+`regression_pct`, compared with `regression_limit_pct`: at the limit the rollout proceeds,
+above it it halts and rolls back newest first. With no v2 number (no v2 record, an unmeasured
+one, or one that is not an object, which logs a warning), the verdict flag alone decides and
+the detail says "flag only". A failed, reverted or unverifiable verdict always halts,
+whatever the number. Each instance record keeps `effect_pct`, `control_pct` and
+`effect_method` (`v2_fleet_control`, `v2` or `flag_only`), and the database's queue item, when
+its action has one, gains a tier-4 (`fleet`) ladder record with the effect. After each
+database's verdict the rollout waits `stage_wait_hours` (default 24; 0 for no pause) before it
+changes the next database; R6 suggests a full weekly cycle (168), a policy choice. The wait
+holds the single canary slot, and a request that ends during it rolls back what was changed.
 
 The source action must have a verification of `success`; an action with no verification is
 refused. When the rollout itself fails (a database cannot be read, re-verified or changed, or
