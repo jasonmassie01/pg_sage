@@ -152,6 +152,29 @@ describe('approval list keys: approve', () => {
     expect(mock).not.toHaveBeenCalled()
   })
 
+  it('a on a HIGH-risk card still needs the typed phrase', async () => {
+    const mock = stubFetch()
+    const onDecided = vi.fn()
+    render(<PendingCardsView cards={[card(44, { risk: { tier: 'high', guardrails: [],
+      post_checks: [] } })]} errors={[]} onShowTable={vi.fn()} onDecided={onDecided} />)
+    const user = userEvent.setup()
+    await user.keyboard('a')
+    const dialog = await screen.findByRole('dialog')
+    const confirm = within(dialog).getByTestId('approval-key-confirm-confirm')
+    expect(within(dialog).getByTestId('approval-key-confirm-risk')).toHaveTextContent('High')
+    expect(confirm).toBeDisabled()
+    await act(async () => { fireEvent.click(confirm) })
+    expect(posts(mock)).toHaveLength(0)
+    // The phrase holds r and s: typing it must not reach the card's keys.
+    await user.type(within(dialog).getByTestId('approval-key-confirm-phrase'), 'orders')
+    expect(confirm).toBeEnabled()
+    expect(screen.queryByTestId('approval-reject-reason')).toBeNull()
+    await act(async () => { fireEvent.click(confirm) })
+    await waitFor(() => expect(onDecided).toHaveBeenCalledTimes(1))
+    expect(posts(mock)).toHaveLength(1)
+    expect(posts(mock)[0][0]).toBe('/api/v1/approvals/44/approve?database=orders')
+  })
+
   it('ignores a with Ctrl held', async () => {
     const mock = stubFetch()
     renderCards()
