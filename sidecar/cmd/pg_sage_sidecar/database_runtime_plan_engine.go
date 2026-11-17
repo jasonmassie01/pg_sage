@@ -25,7 +25,8 @@ const planRunnerName = "plans"
 // steps are judged with the executor's verification v2 readers after its
 // verification window (plan-02d). Its step claims are the fleet leader's
 // holder id with the elector's lease (plan-02e): a new leader resumes a
-// step only once the old leader's claim expired.
+// step only once the old leader's claim expired. The post-upgrade producer
+// runs before each tick (drill-02c, withPostUpgrade).
 func (rt *databaseRuntime) buildPlanEngine() planTicker {
 	var dispatch changeplan.Dispatcher
 	if rt.dispatcher != nil {
@@ -50,7 +51,7 @@ func (rt *databaseRuntime) buildPlanEngine() planTicker {
 		return nil
 	}
 	rt.note("plans")
-	return engine
+	return rt.withPostUpgrade(engine)
 }
 
 // planCaps reads the plan caps from the plans block of the standing policy

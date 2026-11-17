@@ -56,7 +56,7 @@ func (rt *databaseRuntime) startExecution() {
 		WithDatabaseName(rt.spec.Name)
 	briefingWorkers.track(rt.ctx, rt.brief) // live briefing.* changes (llm-06)
 	deps := fleetCycleDeps{
-		name: rt.spec.Name, ha: rt.ha, exec: rt.executor, plans: rt.withPostUpgrade(rt.buildPlanEngine()),
+		name: rt.spec.Name, ha: rt.ha, exec: rt.executor, plans: rt.buildPlanEngine(),
 		brief: cycleBriefing(cfg, rt.brief),
 		cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper).
 			WithControlPool(rt.spec.ControlPool),
