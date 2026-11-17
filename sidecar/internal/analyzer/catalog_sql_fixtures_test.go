@@ -98,6 +98,9 @@ func sessionCatalogFindings() map[string][]Finding {
 		"rules_replication.go":       ruleInactiveSlots(slots, nil, nil, nil),
 		"rules_system.go":            ruleConnectionLeaks([]LeakedConn{{PID: 42}}),
 		"rules_workmem_promotion.go": {buildWorkMemPromotionFinding("app_worker", 5, 256, 5)},
+		"rules_plan_flip.go": {buildPlanFlipFinding(Finding{Severity: "warning"},
+			planPair{QueryID: 42}, flipCauseT{Schema: "public", Name: "orders", At: since},
+			blocksPerCall{}, nil, time.Now())},
 	}
 }
 

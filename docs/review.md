@@ -234,6 +234,12 @@ reader, `pg_stats` (null fraction, distinct values, correlation and the leading
 `most_common_freqs` value: a frequency, never a value), `pg_attribute.attstattarget`,
 `pg_class.reltuples` and `n_mod_since_analyze`. No user data is read.
 
+A [`plan_flip_after_analyze`](findings.md#plan_flip_after_analyze) finding whose one
+re-ANALYZE did not restore the earlier plan is reopened with `reanalyze_verdict: no_change` and
+`handed_to: plan_stability` and no SQL: pg_sage never runs a second automatic ANALYZE of that
+relation within 24 hours. The per-column statistics target this generator proposes for the
+query's filtered columns is the next step for it.
+
 | Cliff | Flagged when | Proposal |
 |---|---|---|
 | Tiny non-null share | `null_frac` >= 0.999 on a column filtered with `=` or `IS NOT NULL` | `set_column_statistics`, then `analyze_table` |

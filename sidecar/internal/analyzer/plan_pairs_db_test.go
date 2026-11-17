@@ -175,7 +175,9 @@ func TestPlanPairsProviderCannotEnterUnboundRegression(t *testing.T) {
 		var result []planPair
 		for rows.Next() {
 			var p planPair
-			if e = rows.Scan(&p.QueryID, &p.QueryText, &p.CurrentPlan, &p.CurrentCost, &p.CurrentTime, &p.PreviousPlan, &p.PreviousCost, &p.PreviousTime); e != nil {
+			if e = rows.Scan(&p.QueryID, &p.QueryText, &p.CurrentPlan, &p.CurrentCost,
+				&p.CurrentTime, &p.PreviousPlan, &p.PreviousCost, &p.PreviousTime,
+				&p.CurrentAt, &p.PreviousAt); e != nil {
 				t.Fatal(e)
 			}
 			if p.QueryID == qid {
