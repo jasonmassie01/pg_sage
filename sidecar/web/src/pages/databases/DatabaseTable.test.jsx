@@ -98,6 +98,7 @@ describe('DatabaseTable filter', () => {
     fireEvent.change(filter(), { target: { value: 'db-04' } })
     expect(names()).toHaveLength(100)
     expect(names()[0]).toBe('db-0400')
+    expect(screen.queryByTestId('db-filter-count')).toBeNull()
   }, RENDER_TIMEOUT)
 
   it('shows every row at exactly the limit without the notice', () => {
