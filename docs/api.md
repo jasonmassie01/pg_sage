@@ -185,6 +185,43 @@ not read (the error goes to stderr and nothing to stdout).
 changes with a measured effect at the last complete ledger read of that window
 ([Metrics](metrics.md)).
 
+## Backfill pressure
+
+### `GET /api/v1/databases/{db}/pressure`
+
+Viewer, or a read-scope API token sent as `Authorization: Bearer` (operator or agent
+token, as for [migration lint](migration-ci.md)); read scope on `{db}`, and a
+token limited to other databases gets 404. Query parameters: `table` (the target table,
+schema-qualified when it is not on the search path; resolved with `to_regclass`, never
+interpolated), `job` (echoed back) and `batch` (the current batch size). A backfill calls
+it between batches: `verdict` is `proceed`, `slow` or `stop`. `batch_factor` halves for
+each input in its slow band and is 0 to stop; `suggested_batch` is `batch` times it;
+`sleep_seconds` is the time for replica lag to fall under its slow limit at the measured
+catch-up rate (at least the 2 s cache period). Each input carries its value, unit, limits,
+band, freshness and, when it is unknown or not applicable, the reason. The limits are the
+policy's [`pressure` block](policy-gate.md#backfill-pressure). Answers are cached for 2 s
+per table, so a tight loop cannot load the server, and the check never acts. The MCP tool
+`check_pressure` is the same check.
+
+Errors: an unknown table (or a name that is not a valid one) is 404 `table_not_found`; a
+bad `batch`, a control character or an over-long `table` or `job` is 400
+`invalid_request`; a database that is not connected is 503 `pressure_unavailable`; inputs
+that could not be read at all are 503 `pressure_unreadable` with `Retry-After: 2`. Treat
+no answer as `stop`.
+
+```json
+{"database": "orders", "table": "public.events", "job": "backfill-42",
+ "verdict": "slow", "batch_factor": 0.5, "suggested_batch": 500, "sleep_seconds": 3.1,
+ "reasons": ["replica_lag_seconds 9.2 s is at or past its slow limit 7.5"],
+ "inputs": [{"name": "replica_lag_seconds", "state": "known", "value": 9.2, "unit": "s",
+   "slow_limit": 7.5, "stop_limit": 15, "band": "slow", "required": true,
+   "observed_at": "2026-11-17T12:00:00Z", "age_seconds": 0.1},
+  {"name": "free_storage_pct", "state": "unknown", "value": null, "unit": "%",
+   "slow_limit": 30, "stop_limit": 20, "required": false,
+   "reason": "no cloud storage adapter for this database (free storage is read from the provider's API)"}],
+ "checked_at": "2026-11-17T12:00:00Z", "cached_until": "2026-11-17T12:00:02Z"}
+```
+
 ## Sage Review grade
 
 ### `GET /api/v1/databases/{db}/review/grade`

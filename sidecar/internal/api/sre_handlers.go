@@ -38,6 +38,10 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager, cfg *conf
 	registerFleetRecoverabilityRoute(mux, mgr, drills)
 	perDB := perDatabaseSREMux(mgr, autonomyRegistry(rt.Autonomy), cfg,
 		workloadPackKeys(rt, pool), drills)
+	// check_pressure (guard-01a) takes a read-scope API token from pool's
+	// store outside a Databricks App, as migration lint does.
+	registerPressureRoutes(perDB, mgr, lintTokenStore(mcpTokenStore(pool)),
+		rt.DatabricksAppAuth)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode
 	// "managed/{id}" routes overlap with neither more specific, which

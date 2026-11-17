@@ -371,6 +371,7 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		FirstLookRecheck: rt.firstLookRecheck(),
 		PlanCaps:         rt.planCaps(),
 		DiskCapacity:     rt.forecastCapacity(),
+		Pressure:         rt.pressureChecker(), // guard-01a
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			Platform:     rt.provider,

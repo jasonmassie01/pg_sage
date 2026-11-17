@@ -102,7 +102,7 @@ func skipsSessionAuth(r *http.Request) bool {
 		return false
 	}
 	return shouldSkipAuth(r.URL.Path) || isMCPTokenRequest(r) || isSpecialistRequest(r) ||
-		isLintTokenRequest(r) || isPlanTokenRequest(r)
+		isLintTokenRequest(r) || isPlanTokenRequest(r) || isPressureTokenRequest(r)
 }
 
 // isCanonicalPath reports a rooted path with no ".", ".." or empty

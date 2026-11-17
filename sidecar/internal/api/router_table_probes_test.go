@@ -197,6 +197,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/databases/7/restore-drills"}, // drill-01d
 	{"GET", "/api/v1/fleet/recoverability"},       // drill-01d
 	{"GET", "/api/v1/databases/7/review/grade"},   // review-01a
+	{"GET", "/api/v1/databases/7/pressure"},       // guard-01a
 	{"GET", "/api/v1/databases/7/workload-packs/7"},
 	{"GET", "/api/v1/databases/7/workload-packs/7/evidence/7"},
 	{"GET", "/api/v1/databases/7/workload-packs/7/export"},

@@ -93,6 +93,8 @@ type ProductionDependencies struct {
 	RestoreDrills RestoreDrillsBackend
 	// ReviewGrade serves review_grade (review-01a); optional.
 	ReviewGrade ReviewGradeBackend
+	// Pressure serves check_pressure (guard-01a); optional.
+	Pressure PressureBackend
 }
 
 type ProductionBackend struct {

@@ -110,7 +110,7 @@ func authenticateReadToken(w http.ResponseWriter, r *http.Request,
 		jsonError(w, "token validation unavailable", http.StatusServiceUnavailable)
 		return mcp.Principal{}, false
 	case !slices.Contains(grant.Scopes, mcptoken.ScopeRead):
-		sreErrorCode(w, "the token lacks the read scope migration lint needs",
+		sreErrorCode(w, "the token lacks the read scope this route needs",
 			"scope_missing", http.StatusForbidden)
 		return mcp.Principal{}, false
 	}

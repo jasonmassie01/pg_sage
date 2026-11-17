@@ -567,6 +567,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`get_outcomes`](#get_outcomes) | `read` | always |
 | [`restore_drills`](#restore_drills) | `read` | always |
 | [`review_grade`](#review_grade) | `read` | always |
+| [`check_pressure`](#check_pressure) | `read` | always |
 
 ### `get_policy`
 
@@ -1338,5 +1339,18 @@ Scope: `read`
 | Argument | Type | Required | Notes |
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+
+### `check_pressure`
+
+Ask whether a backfill or bulk write should proceed, slow down or stop. Call it between batches: the answer is proceed, slow (halve the batch for each input in its slow band, with a suggested batch size and a sleep in seconds) or stop, with each input's value, limits and freshness: replica replay lag, transaction and multixact ID age against the freeze maximum, a vacuum on the target table, WAL bytes per second, the lock queue on the target table and free storage. Limits are the policy's pressure block, by default half of each alert threshold, so the signal comes before the alert. Answers are cached for 2 s per table. Read-only: it never acts on the database or the job.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `batch` | integer | no | the current batch size, for the suggested size; value >= 0 |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `job` | string | no | the job's name, echoed in the answer; length <= 128 |
+| `table` | string | no | the table the job writes, schema-qualified (resolved with to_regclass); length <= 260 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->
