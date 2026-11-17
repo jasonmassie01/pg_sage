@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"math"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -52,7 +53,7 @@ func TestOperatorCandidate_IsAYouRunThisStep(t *testing.T) {
 		ExpectedDirection: changeplan.DirectionNone, ExpectedSource: changeplan.SourceNone,
 		DeadlineMinutes: 60}
 	plan := changeplan.Plan{Goal: "size shared_buffers to memory", Origin: "generator",
-		Scope:  changeplan.Scope{Objects: []string{"shared_buffers"}},
+		Scope:    changeplan.Scope{Objects: []string{"shared_buffers"}},
 		PackHash: strings.Repeat("a", 64), Status: changeplan.StatusProposed,
 		CreatedBy: "review", Steps: []changeplan.Step{step}}
 	problems, err := changeplan.Validate(context.Background(), plan, okResolver{})
@@ -85,7 +86,7 @@ func (okResolver) EvidenceExists(context.Context, string, string) (bool, error) 
 func (okResolver) TargetCalls(context.Context, []int64, time.Duration) (int64, error) {
 	return 1000, nil
 }
-func (okResolver) SettingExists(context.Context, string) (bool, error)     { return true, nil }
+func (okResolver) SettingExists(context.Context, string) (bool, error)      { return true, nil }
 func (okResolver) ManagedChangeExists(context.Context, int64) (bool, error) { return true, nil }
 
 // CHECK-15: for every GUC pgconf.AdvisorGUC accepts, Clamp renders any
@@ -154,4 +155,22 @@ func emittedValue(t *testing.T, c candidate.Candidate) (string, string) {
 		return st.Name, st.Value
 	}
 	return "", ""
+}
+
+// The rule table is documented: docs/review.md names every judged setting
+// and what contradicts it.
+func TestRuleTable_IsDocumented(t *testing.T) {
+	raw, err := os.ReadFile("../../../../../docs/review.md")
+	if err != nil {
+		t.Fatalf("read docs/review.md: %v", err)
+	}
+	doc := string(raw)
+	if len(RuleTable()) != 6 {
+		t.Fatalf("%d rules, want the plan's six", len(RuleTable()))
+	}
+	for _, r := range RuleTable() {
+		if !strings.Contains(doc, "| "+r.Setting+" | "+r.Against+" |") {
+			t.Errorf("docs/review.md lacks the rule row %q against %q", r.Setting, r.Against)
+		}
+	}
 }
