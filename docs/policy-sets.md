@@ -98,6 +98,26 @@ the database matches now, field by field.
 `default` with their content unchanged. The gate keeps evaluating exactly the same documents
 (same hashes) after the upgrade.
 
+## In the dashboard
+
+**Settings > Policy sets** (advanced mode) lists every set: its priority, the version of its
+document, its selectors, how many databases follow it and how many of those have an
+exception, its requirements, and its YAML (the export route, read-only). Requirements show
+"not measured yet" because nothing enforces or measures them yet. **Propose change** opens
+the set's current document, files it with `POST /api/v1/policy/proposals` (`set_name`) and,
+for an admin, offers **Ratify**; the server still decides who may ratify, and its refusal is
+shown as it is.
+
+The **Exceptions** list shows each database's field-by-field difference from its set, who
+set it, why and when it expires. An exception without an expiry is flagged and counted, and
+one that expires today is marked. Each exception is also a `policy_exception` item in the
+Inbox, linked to `#/settings?tab=policy-sets`.
+
+A database's page and its **Trust & Safety** tab say what governs it, for example
+`Governed by: prod`, or
+`Governed by: prod (exception: lock_duration_ceiling_ms changed by alice@example.com,
+expires 2026-12-01)`.
+
 ## API
 
 | Route | Role | Does |
