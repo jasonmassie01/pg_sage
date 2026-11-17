@@ -118,6 +118,16 @@ describe('TabList and TabPanel', () => {
     expect(screen.getByRole('tabpanel', { name: 'Log' })).toHaveTextContent('Panel for log')
   })
 
+  it('keeps the first tab as the Tab stop when the active key matches no tab', () => {
+    const onSelect = vi.fn()
+    render(<TabList id="x" label="Stale" tabs={TABS} active="gone" onSelect={onSelect} />)
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.map(t => t.tabIndex)).toEqual([0, -1, -1])
+    expect(tabs.map(t => t.getAttribute('aria-selected'))).toEqual(['false', 'false', 'false'])
+    fireEvent.keyDown(tabs[0], { key: 'ArrowRight' })
+    expect(onSelect).toHaveBeenCalledWith('pending')
+  })
+
   it('renders no empty tablist when there are no tabs', () => {
     render(<TabList id="none" label="Nothing" tabs={[]} active={null} onSelect={() => {}} />)
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()

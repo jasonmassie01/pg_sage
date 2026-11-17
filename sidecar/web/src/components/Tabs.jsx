@@ -26,6 +26,9 @@ export function TabList({
   tabClassName = 'px-3 py-1.5 rounded text-sm', tabStyle, ...rest
 }) {
   if (!tabs?.length) return null
+  // stop is the one Tab stop: the selected tab, or the first when the active
+  // key matches no tab, so the bar never drops out of the Tab order.
+  const stop = tabs.some(t => t.key === active) ? active : tabs[0].key
   const onKeyDown = event => {
     if (!KEYS.includes(event.key)) return
     event.preventDefault()
@@ -33,7 +36,7 @@ export function TabList({
     const from = Math.max(0, tabs.findIndex(t => t.key === active))
     const to = nextIndex(event.key, from, tabs.length)
     buttons[to]?.focus()
-    if (to !== from) onSelect(tabs[to].key)
+    if (tabs[to].key !== active) onSelect(tabs[to].key)
   }
   return (
     <div role="tablist" aria-label={label} className={className}
@@ -44,7 +47,7 @@ export function TabList({
         return (
           <button key={t.key} type="button" role="tab" id={ids.tab}
             aria-selected={selected} aria-controls={selected ? ids.panel : undefined}
-            tabIndex={selected ? 0 : -1} data-testid={t.testId}
+            tabIndex={t.key === stop ? 0 : -1} data-testid={t.testId}
             onClick={() => onSelect(t.key)} className={tabClassName}
             style={tabStyle?.(selected)}>
             {t.label}
