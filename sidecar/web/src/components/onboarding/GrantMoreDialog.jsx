@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
+import { Dialog } from '../Dialog'
 import { LoadError } from './LoadError'
 
 // GrantMoreDialog is the guided "grant more" step: for each trust level it
@@ -119,18 +120,17 @@ function GrantAction({ guide, choice, onGranted }) {
   )
 }
 
+// GrantMoreDialog renders in the shared modal Dialog (ux-05d), so focus
+// stays inside it, Escape closes it and focus returns to its opener.
 export function GrantMoreDialog({ database, onClose, onGranted }) {
   const { data: guide, error, refetch } = useAPI(trustURL(database), 0)
   const [picked, setPicked] = useState(null)
   const choice = picked || guide?.current
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="grant-more-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.5)' }}>
-      <div className="max-h-full w-full max-w-3xl space-y-3 overflow-y-auto rounded p-4"
-        style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
-        <div className="flex items-center justify-between">
-          <h2 id="grant-more-title" className="text-lg font-semibold">Grant more</h2>
+    <Dialog open title="Grant more" onClose={onClose} width={768}
+      testId="grant-more-dialog">
+      <div className="max-h-[70vh] space-y-3 overflow-y-auto">
+        <div className="flex justify-end">
           <button type="button" onClick={onClose} className="text-sm">Close</button>
         </div>
         {!guide && error && <LoadError what="Trust levels" error={error} onRetry={refetch} />}
@@ -149,6 +149,6 @@ export function GrantMoreDialog({ database, onClose, onGranted }) {
           </>
         )}
       </div>
-    </div>
+    </Dialog>
   )
 }

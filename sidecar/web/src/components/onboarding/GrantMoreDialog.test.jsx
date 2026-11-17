@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GrantMoreDialog } from './GrantMoreDialog'
 
@@ -130,5 +131,73 @@ describe('GrantMoreDialog', () => {
     render(<GrantMoreDialog database="app" onClose={vi.fn()} />)
     expect(screen.getByRole('status')).toHaveTextContent('Loading trust levels')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+// ux-05d (win 16): Grant more is the shared modal Dialog, so it contains
+// focus, closes on Escape and returns focus to the control that opened it.
+function Opener() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen(true)}>Grant more for app</button>
+      {open && <GrantMoreDialog database="app" onClose={() => setOpen(false)} />}
+    </div>
+  )
+}
+
+describe('GrantMoreDialog in the shared Dialog', () => {
+  beforeEach(() => {
+    api.useAPI.mockReset()
+    globalThis.fetch = vi.fn()
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('is a native modal dialog named by its title', () => {
+    respond(guide)
+    const { container } = render(<GrantMoreDialog database="app" onClose={vi.fn()} />)
+    const dialog = screen.getByRole('dialog', { name: 'Grant more' })
+    expect(dialog.tagName).toBe('DIALOG')
+    expect(dialog.open).toBe(true)
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(container.querySelector('div[role="dialog"]')).toBeNull()
+    expect(dialog).toContainElement(document.activeElement)
+  })
+
+  it('closes on Escape and returns focus to its opener', () => {
+    respond(guide)
+    render(<Opener />)
+    const opener = screen.getByRole('button', { name: 'Grant more for app' })
+    opener.focus()
+    fireEvent.click(opener)
+    const dialog = screen.getByRole('dialog', { name: 'Grant more' })
+    expect(dialog).toContainElement(document.activeElement)
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(opener).toHaveFocus()
+  })
+
+  it('keeps Tab inside the dialog', () => {
+    respond(guide)
+    render(<GrantMoreDialog database="app" onClose={vi.fn()} />)
+    const dialog = screen.getByRole('dialog', { name: 'Grant more' })
+    const close = within(dialog).getByRole('button', { name: 'Close' })
+    const radios = within(dialog).getAllByRole('radio')
+    const last = radios[radios.length - 1]
+    last.focus()
+    fireEvent.keyDown(dialog, { key: 'Tab' })
+    expect(close).toHaveFocus()
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
+    expect(last).toHaveFocus()
+  })
+
+  it('closes from the Close button while loading', () => {
+    respond(null)
+    const onClose = vi.fn()
+    render(<GrantMoreDialog database="app" onClose={onClose} />)
+    const dialog = screen.getByRole('dialog', { name: 'Grant more' })
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Loading trust levels')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
