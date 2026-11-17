@@ -173,17 +173,33 @@ func (s *PlanCardStore) Consume(ctx context.Context, token string, userID int, c
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return PlanCardDelivery{}, fmt.Errorf("chatops: use plan card: %w", err)
 	}
-	cur, lookupErr := s.Lookup(ctx, token)
+	return PlanCardDelivery{}, s.whyNotConsumed(ctx, token, c)
+}
+
+// whyNotConsumed names why Consume's UPDATE matched no row. Expiry is
+// judged by the database clock, the one the UPDATE used: the sidecar's
+// clock may differ from the server's.
+func (s *PlanCardStore) whyNotConsumed(ctx context.Context, token string, c PlanChoice) error {
+	var used, expired, offered bool
+	err := s.pool.QueryRow(ctx, `/* pg_sage */ SELECT used_at IS NOT NULL,
+		expires_at <= now(), $2 = ANY (offered_modes)
+		FROM sage.plan_card_deliveries WHERE token_sha256 = $1`, tokenHash(token),
+		string(c)).Scan(&used, &expired, &offered)
 	switch {
-	case lookupErr != nil:
-		return PlanCardDelivery{}, lookupErr
-	case cur.UsedAt != nil:
-		return PlanCardDelivery{}, ErrCardUsed
-	case cur.Expired(time.Now()):
-		return PlanCardDelivery{}, ErrCardExpired
-	default:
-		return PlanCardDelivery{}, ErrChoiceNotOffered
+	case errors.Is(err, pgx.ErrNoRows):
+		return ErrCardUnknown
+	case err != nil:
+		return fmt.Errorf("chatops: read plan card: %w", err)
+	case used:
+		return ErrCardUsed
+	case expired:
+		return ErrCardExpired
+	case !offered:
+		return ErrChoiceNotOffered
 	}
+	// The card became usable between the UPDATE and this read (a release):
+	// the decision was not recorded, so the person tries again.
+	return ErrCardUsed
 }
 
 // Release makes a card userID consumed usable again, when the plan store
