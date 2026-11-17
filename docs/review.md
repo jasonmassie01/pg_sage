@@ -164,3 +164,79 @@ Each drop states the index bytes it reclaims and, when the table's writes are kn
 write blocks it saves a day: the table's inserted and updated rows a day, one leaf block per
 row per index. That is an upper bound, since a HOT update writes no index. The review's numbers
 are the sum over its steps.
+
+## Model pass
+
+After the generators, a model **ranks** the candidates, **attacks** each one (what could make
+it wrong), **links** related ones (`conflicts`, `depends_on`, `supersedes`, `related`),
+proposes **hypotheses** the generators missed, and writes one short **report** text per
+dimension (`internal/review/modelpass`). It is on by default whenever a model is usable
+(`review.model_pass: auto`). The model reviews and ranks. It never writes SQL that runs and
+never applies anything: its answer schema has no SQL field, any SQL-looking text it writes is
+shown to a person as prose, and a candidate's own SQL is never shown to it. Every step still
+comes from a generator template and runs through the executor's contract for its action type.
+
+**What leaves the network.** Only the pack's model tier, each candidate's numbers and the
+grade. The model reads:
+
+| Evidence | Example of what the model sees |
+|---|---|
+| A pack fact, cited as `E5` | `index/idx/public.orders_created_at {"size_bytes":8192,"scans":0,...}` |
+| A candidate, cited as `E1` | `{"candidate_id":"3f9a...","kind":"unused","target":"public.orders_created_at","prediction":{"metric":"index_bytes","tier":"none"},...}` |
+| The grade | `dimension indexes: grade C, score 60, coverage 100` |
+| A pack section, on request | the model tier's `workload.json` (normalized statement texts, literals redacted, wrapped as untrusted data) |
+
+The model tier holds no most-common values, histogram bounds, plan filter values or literals
+([security.md](security.md#workload-evidence-pack-tiers)). With `review.hash_identifiers: true`
+every schema, table, index and column name is a keyed pseudonym (`t_<10 hex>`) in what the
+model reads, and the report maps them back to names. Which providers may receive the model
+tier is decision D3 (OWNER ACTION); see
+[security.md](security.md#sage-review-model-pass-and-provider-retention).
+
+**Which model.** `llm.review_llm` when enabled, else the optimizer model
+(`llm.optimizer_llm`), else the general client: `ForPurpose("review")`. Usage and cost are
+labelled with the purpose `review`. Any OpenAI-compatible provider works, a local one too.
+
+**Variance control.** One shot is not a review: `review.model_runs` (default 3, odd, 1-5)
+independent runs are combined in code.
+
+- `majority` (default): a candidate is kept when most runs keep it, at its median rank (ties:
+  more votes, then the deterministic score). A hypothesis survives when most runs propose the
+  same `(kind, target)`, case and spaces aside; a link when most runs give the same pair and
+  relation. Report text comes from the first run that wrote a cited one.
+- `refute`: run 1 ranks; run 2 sees run 1's kept items and must refute each with cited
+  evidence. A refutation whose claims survive the filter drops the item. Only these two runs
+  are made.
+- `model_runs: 1` applies no consensus; the report says `single run`.
+
+When fewer than a majority of the runs finish, the model's output is not used.
+
+**Claims.** Every ranking, link, hypothesis and report text carries claims that cite the
+aliases of the run's evidence. A claim citing an alias the run does not hold (`E999`) is
+dropped, and so is a claim with a number its cited evidence does not hold; an attack,
+rationale or text with an ungrounded number is dropped too. A ranking of an unknown candidate,
+a duplicate, an invalid decision or rank, a link or hypothesis without a surviving claim, and
+an uncited report text are rejected and listed in the report with the reason. The tool-calling
+transport does not retry a 429: a rate-limited run stops with error class `rate`.
+
+**Without a model** (no model configured, `llm.enabled: false`, `review.model_pass: off`, the
+token budget exhausted, the breaker open, every run failed, or a run that could not be
+recorded) the review is still graded and still has candidates. They are ranked by a
+deterministic score, the predicted effect (the size in percent, 1 when unknown) times the
+ladder tier's confidence (fleet 1, canary 0.9, clone 0.75, plan_only 0.5, none 0.25) divided
+by the risk weight (1, plus 1 when the step needs approval, plus 1 when an executed step
+cannot be rolled back), and each dimension's text comes from a template
+(`internal/review/report/templates`). The report's `model_pass` is `skipped` or `failed` with
+the reason (`no model is configured`, `review.model_pass is off`, `token budget`, `only 0 of 3
+model runs finished: ...`). `model_pass` moves from `pending` to `running` to `done`, `failed`
+or `skipped`. Turning `review.model_pass` off mid-review lets the run in flight finish and
+skips the rest. A review without candidates is not sent to a model.
+
+**Stored runs.** Every model run is one row of `sage.review_model_run`, written once with its
+final status (`done`, `failed`, `skipped`): `attempt`, `role` (`rank` or `refute`), `model`,
+`prompt_version`, `pack_hash`, the raw output (capped at 256 KiB, `raw_truncated` set when
+cut), `output_sha256` of the whole output, `kept_claims`, `dropped_claims`, `tokens_in`,
+`tokens_out`, `cost_usd` (NULL when `llm.pricing` does not price the model), `error_class`
+(`rate`, `timeout`, ...) and `reason`. The table is append-only: a trigger refuses every
+UPDATE. A plan's audit record cites `output_sha256`, so a plan can be replayed against a later
+model. Rows go with their review run.
