@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"time"
 
@@ -27,6 +28,14 @@ type Spec struct {
 	Texts    *workpack.Texts
 	Indexes  *workpack.Indexes
 	Schema   *workpack.Schema
+	// review-02b: the settings, autovacuum, provider and connections
+	// sections, and the header's server version and platform.
+	Settings    *workpack.Settings
+	Autovacuum  *workpack.Autovacuum
+	Provider    *workpack.Provider
+	Connections *workpack.Connections
+	PGVersion   string
+	Platform    string
 }
 
 // Window is the days-long window ending at 2026-11-01 00:00 UTC.
@@ -39,7 +48,7 @@ func Window(days int) workpack.Window {
 func Build(s Spec) (*workpack.Pack, error) {
 	files := map[string]any{
 		"header.json": workpack.Header{Format: workpack.Format, Database: s.Database,
-			Window: s.Window},
+			Window: s.Window, PGVersion: s.PGVersion, Platform: s.Platform},
 		"coverage.json": workpack.Coverage{ID: "coverage/window/all", Status: "ok"},
 		"workload.json": s.Workload,
 		"growth.json":   workpack.Growth{DBSize: workpack.Series{ID: "growth/db/size"}},
@@ -52,6 +61,13 @@ func Build(s Spec) (*workpack.Pack, error) {
 	}
 	if s.Schema != nil {
 		files["schema.json"] = *s.Schema
+	}
+	optional := map[string]any{"settings.json": s.Settings, "autovacuum.json": s.Autovacuum,
+		"provider.json": s.Provider, "connections.json": s.Connections}
+	for name, sec := range optional {
+		if !reflect.ValueOf(sec).IsNil() {
+			files[name] = sec
+		}
 	}
 	return seal(s, files)
 }

@@ -11,8 +11,8 @@
 // is a prepare_sequence_capacity_migration proposal (its script is the
 // sequence playbook's; the contract is forward-fix only, so it always
 // needs approval); a type change is an online column swap drafted by the
-// migration planner, offered as an operator step a person approves; the
-// rest is advice.
+// migration planner, offered as advice carrying the script a person runs;
+// the rest is advice.
 package schemadebt
 
 import (

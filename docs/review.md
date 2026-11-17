@@ -177,10 +177,10 @@ the catalog facts of the debt columns (bounded, read-only), and the sequences' s
 |---|---|---|
 | `int4_key` | A single-column `smallint` or `integer` primary key fed by a sequence (serial or identity). | Under 365 days of measured runway: `prepare_sequence_capacity_migration` with the sequence playbook's forward-fix script. Otherwise `advice`. |
 | `fk_type_mismatch` | An integer foreign key column narrower than the key it references. | `advice`: the referenced key's sequence rate against the column's own limit. |
-| `timestamp_without_time_zone` | A `timestamp without time zone` column of a table the window's top query families read. | The online swap to `timestamptz` as an `operator` step, or `advice` when it cannot be planned. |
+| `timestamp_without_time_zone` | A `timestamp without time zone` column of a table the window's top query families read. | `advice` carrying the online swap to `timestamptz`, or `advice` saying why it cannot be planned. |
 | `large_unpartitioned_table` | An unpartitioned table of at least `review.large_table_bytes` (default 10 GiB) whose primary key or an index leads with a date or timestamp column. | `advice`: range partitioning on that column. |
 | `queue_table`, `soft_delete_table` | At least 100000 rows updated or deleted over the window, at least half of all its writes, and a `status`/`state` or `deleted_at`/`is_deleted`/`deleted` column. | `advice`. |
-| `column_swap` | Beside an int4 key or a foreign key mismatch, when the migration planner drafts the online widening. | An `operator` step: the planner's expand, backfill and contract script. |
+| `column_swap` | Beside an int4 key or a foreign key mismatch, when the migration planner drafts the online widening. | `advice` carrying the planner's expand, backfill and contract script for a person to run. An `operator` step needs a setting landing pg_sage can watch, and a column type is not one. |
 
 **The runway arithmetic.** The rate is a least-squares fit of the sequence's samples against
 time, in values a day. The remaining values run from the newest sample to the binding limit:
@@ -200,3 +200,61 @@ item's reason and the runway is kept.
 
 The review's numbers are the debt items with a measured runway, and the share of int4 keys
 whose runway is measured rather than `rate not measured yet`.
+
+## Configuration generator
+
+The `config` generator judges the server's settings as a set. Every setting of the pack whose
+source is not the built-in default is listed as a fact. Then a fixed rule table checks each
+judged setting, default or not, against the workload and hardware facts that contradict it:
+
+| Setting | Judged against | Rule |
+|---|---|---|
+| shared_buffers | the server's memory | Under 15% or over 40% of memory (from the provider's memory fact) proposes 25%. |
+| work_mem | the temp files written per hour | 256MiB or more of temp files an hour doubles work_mem, capped at 25% of memory shared by `max_connections`. |
+| max_wal_size | requested against timed checkpoints and the WAL rate | More requested than timed checkpoints sizes max_wal_size to one `checkpoint_timeout` of WAL times (1 + `checkpoint_completion_target`), rounded up to a whole GB. |
+| random_page_cost | the storage class | 2 or more on a managed service (SSD storage) proposes 1.1. A self-managed server's storage is not known, so it is not judged. |
+| effective_io_concurrency, io_method | PostgreSQL 18's asynchronous I/O | On 18, an `effective_io_concurrency` of 1 or less set outside the defaults becomes 18's default 16; `io_method = sync` is advice. |
+| idle_in_transaction_session_timeout | sessions idle in a transaction | Off while sessions sit idle in a transaction is advice for 30min, set per database with approval. |
+
+Values are computed in code and clamped to the `pgconf` safe range; a value outside it is never
+emitted. How a contradiction becomes a candidate:
+
+- A reloadable setting on a self-managed server is an `alter_system_guc` step that needs
+  approval. Its rollback restores the value the pack saw; the executor captures the live prior
+  again when the step runs.
+- A restart-bound setting (`pgconf.RequiresRestart`) on a self-managed server is an
+  **operator** step: the operator runs `ALTER SYSTEM` and restarts, and pg_sage watches the
+  setting land. At most one restart-bound step is proposed per review; another goes to the next
+  review.
+- On a managed service every setting is an operator step carrying managedparam's proposal (the
+  provider command and its revert). pg_sage never applies or reverts it.
+- Where managedparam cannot describe the change (Neon, Supabase, Lakebase, an unknown platform),
+  the candidate is advice, with the reason.
+
+Every configuration prediction says it has no control group: a global setting is verified as an
+interrupted time series against the seasonal baseline. The review's number is the count of
+settings the workload contradicts. The LLM configuration advisor keeps running as before.
+
+## Autovacuum generator
+
+The `autovacuum` generator sizes each table's own autovacuum settings from its vacuum history in
+the pack: its live rows, its dead tuples on each day of the window, and the server's autovacuum
+settings (PostgreSQL's defaults when the pack has none).
+
+1. The target is a dead-tuple peak of at most 5% of the live rows. A table whose peak is at or
+   under the target gets nothing.
+2. Growth is the median day-over-day rise of the dead tuples, per hour. A drop is a vacuum and is
+   left out.
+3. The trigger budget is the target less the growth over `autovacuum_naptime` plus one hour.
+4. The threshold keeps its value unless it is over a tenth of the budget. The scale factor takes
+   the rest of the budget (at least 0.001), and the analyze scale factor half of it.
+5. The step is `ALTER TABLE ... SET (...)` (`set_table_autovacuum`). Its rollback is `RESET` of
+   the keys the table had no value for, or `SET` of their prior values. One statement must roll
+   back exactly, so a key whose prior state differs from the scale factor's is left out.
+
+A table with fewer than two days of dead tuples, unknown live rows, autovacuum switched off by
+its owner, or storage parameters that do not parse is left alone, with the reason in the
+coverage. A table under 100,000 rows is left alone without a note. When no trigger can hold the
+target, because the growth outruns it, the table's own threshold (left alone, see step 5) or the
+0.001 floor keeps the predicted peak over it, or the table is already tuned tighter, the candidate
+is advice that autovacuum is falling behind.

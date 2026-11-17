@@ -138,10 +138,12 @@ func (b *builder) emit(c candidate.Candidate) {
 	b.out = append(b.out, c)
 }
 
-// swapCandidate is the approval-only operator step running the script.
+// swapCandidate is the planner's script as advice for a person to run: an
+// operator candidate needs a setting landing the plan engine can watch
+// (review-02b), and a column's type is not one.
 func (b *builder) swapCandidate(c ColumnRef, script, why string, evidence []string) {
 	b.emit(candidate.Candidate{Kind: KindColumnSwap, Target: c.String(),
-		ActionType: candidate.ActionOperator, ForwardSQL: script, EvidenceIDs: evidence,
+		ActionType: candidate.ActionAdvice, ForwardSQL: script, EvidenceIDs: evidence,
 		Reason: why + " The swap is an online migration plan (expand, backfill, " +
 			"contract) for a person to run; pg_sage never runs it.",
 		Prediction: candidate.Prediction{Metric: "column_type", Direction: "widen",

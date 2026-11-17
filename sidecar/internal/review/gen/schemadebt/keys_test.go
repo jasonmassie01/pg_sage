@@ -37,9 +37,9 @@ func TestBuild_Int4KeyUnder365DaysIsACapacityProposalCitingTheSamples(t *testing
 	mustContain(t, "forward SQL", c.ForwardSQL, `"public"."orders_id_seq"`,
 		"pg_sage never runs this script", "Measured rate")
 	swap := only(t, cands, KindColumnSwap)
-	if swap.ActionType != candidate.ActionOperator ||
+	if swap.ActionType != candidate.ActionAdvice ||
 		swap.Approval != candidate.ApprovalRequired {
-		t.Fatalf("swap %s / %s, want an operator step needing approval", swap.ActionType,
+		t.Fatalf("swap %s / %s, want advice needing approval", swap.ActionType,
 			swap.Approval)
 	}
 	mustContain(t, "swap SQL", swap.ForwardSQL,

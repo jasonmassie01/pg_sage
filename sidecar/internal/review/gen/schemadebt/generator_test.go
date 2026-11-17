@@ -157,7 +157,7 @@ func everyKind(t *testing.T) ([]candidate.Candidate, []string) {
 }
 
 // CHECK-21: no schema-debt candidate has an action type outside advice,
-// prepare_sequence_capacity_migration and an approval-only operator plan.
+// prepare_sequence_capacity_migration and approval-only advice.
 func TestBuild_EveryDebtKindStaysInsideTheAllowedActions(t *testing.T) {
 	cands, kinds := everyKind(t)
 	allowed := map[string]bool{candidate.ActionAdvice: true, capacityAction: true,

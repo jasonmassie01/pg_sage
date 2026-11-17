@@ -22,8 +22,8 @@ var (
 )
 
 // timestamp is a timestamp without time zone column's item: the online
-// swap to timestamptz as an operator step when the planner drafts it,
-// advice saying why not otherwise.
+// swap to timestamptz as advice carrying the planner's script when it
+// drafts one, advice saying why not otherwise.
 func (b *builder) timestamp(t tsDebt) error {
 	col, missing := b.column(t.ref)
 	script, refusal, err := b.swap(t.ref, col, "timestamp with time zone")
@@ -41,7 +41,7 @@ func (b *builder) timestamp(t tsDebt) error {
 		Prediction: candidate.Prediction{Metric: "column_type", Direction: "widen",
 			Source: "schema section and workload families"}}
 	if script != "" {
-		c.ActionType, c.ForwardSQL = candidate.ActionOperator, script
+		c.ForwardSQL = script
 		reason += " The swap is an online migration plan (expand, backfill, contract) " +
 			"for a person to run; pg_sage never runs it."
 	}
