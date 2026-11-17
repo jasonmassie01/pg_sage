@@ -41,7 +41,8 @@ func newBuilder(pf portfolio, env candidate.Env, cov *candidate.Coverage) *build
 		cov.Note("the pack lists only the first %d indexes", len(pf.facts))
 	}
 	return &builder{pf: pf, env: env, cov: cov, days: cov.WindowDays,
-		taken: map[string]bool{}, kept: map[string]bool{}, perTable: map[string]int{}, capped: map[string]bool{}}
+		taken: map[string]bool{}, kept: map[string]bool{}, perTable: map[string]int{},
+		capped: map[string]bool{}}
 }
 
 // room reports whether the table may take another candidate besides the
