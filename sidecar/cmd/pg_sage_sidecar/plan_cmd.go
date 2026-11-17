@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // `pg_sage_sidecar plan list|show|approve|reject|resume|cancel` (plan-03a)
@@ -98,7 +100,9 @@ func newPlanClient(getenv func(string) string, client *http.Client, stdout,
 		return nil, planExitAuth
 	}
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		// The egress floor refuses metadata and link-local destinations
+		// on every dial and redirect.
+		client = egress.HTTPClient(30 * time.Second)
 	}
 	return &planClient{base: base, token: token, http: client, stdout: stdout,
 		stderr: stderr}, planExitOK

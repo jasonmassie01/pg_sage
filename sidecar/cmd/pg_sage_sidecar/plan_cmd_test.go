@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // plan-03a: the plan CLI against a fake sidecar: arguments, requests,
@@ -222,5 +225,27 @@ func TestPlanCLI_UsageAndEnvironment(t *testing.T) {
 	}
 	if _, err := planAPIURL("https://sage.example.com/base/"); err != nil {
 		t.Errorf("https refused: %v", err)
+	}
+}
+
+// The CLI's default client dials through the egress floor: a metadata or
+// link-local API address is refused before a connection is made.
+func TestPlanCLI_DefaultClientRefusesMetadataAddresses(t *testing.T) {
+	env := map[string]string{"SAGE_API_URL": "https://169.254.169.254",
+		"SAGE_API_TOKEN": "tok"}
+	pc, code := newPlanClient(func(k string) string { return env[k] }, nil,
+		io.Discard, io.Discard)
+	if code != planExitOK || pc == nil || pc.http == nil {
+		t.Fatalf("newPlanClient = %v, %d, want a client", pc, code)
+	}
+	for _, target := range []string{"https://169.254.169.254/latest/meta-data/",
+		"https://metadata.google.internal/"} {
+		resp, err := pc.http.Get(target)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if !errors.Is(err, egress.ErrBlocked) {
+			t.Errorf("GET %s: err = %v, want egress.ErrBlocked", target, err)
+		}
 	}
 }
