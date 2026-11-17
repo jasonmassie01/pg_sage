@@ -1,3 +1,5 @@
+import { reasonLabel } from './gateLabels'
+
 // Keep database identity with every relation: finding and queue IDs are local
 // to a database. A missing relation remains unknown instead of matching text.
 export function caseID(row) {
@@ -28,6 +30,7 @@ export function caseHref(row, database) {
 }
 
 export { riskLabel } from '../../lib/riskTier'
+export { hasReasonLabel, reasonText, verdictLabel } from './gateLabels'
 
 export function actionLabel(value) {
   const labels = {
@@ -42,17 +45,9 @@ export function actionLabel(value) {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
+// blockerText words a held-back reason with its next step (gateLabels.js).
 export function blockerText(value) {
-  const labels = {
-    observation_mode: 'Database changes are disabled in Observation mode.',
-    observation: 'Database changes are disabled in Observation mode.',
-    provider_unsupported: 'pg_sage cannot run this action for this connection.',
-    insufficient_privilege: 'This connection lacks permission for the proposed change.',
-    permission_denied: 'This connection lacks permission for the proposed change.',
-    learning_baseline: 'Waiting for sufficient disk-load history.',
-    maintenance_window: 'Waiting for an allowed maintenance window.',
-  }
-  return labels[value] || (value ? value.replaceAll('_', ' ') : '')
+  return reasonLabel(value)
 }
 
 export function inProgress(row) {

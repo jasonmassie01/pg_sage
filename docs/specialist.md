@@ -36,6 +36,11 @@ anything. Send the token as `Authorization: Bearer pgs_mcp_...`; a dashboard
 session cookie never authenticates the contract. The audit trail names the
 agent (`agent:<token-name>:<token-id>`) on the investigation's event chain and
 in **External agent requests** on the MCP tokens page.
+Each row there links its investigation to Cases and, when a cancel
+remediation was queued for approval, the approval itself to **Needs your
+review** (`queue_id` on `GET /api/v1/specialist-requests`, read from the
+remediation's proposal). A custodian remediation's queued approval is not
+linked yet; find it on Actions.
 
 Limits (configurable under `specialist.*`): 30 opens/remediation requests and
 240 reads per token per minute (`429` with `Retry-After`), at most 3 live

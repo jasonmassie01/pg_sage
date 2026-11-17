@@ -245,3 +245,48 @@ describe('approvalOutcomeMessage', () => {
     expect(approvalOutcomeMessage(500, {}).text).toContain('Approve failed')
   })
 })
+
+// ux-05a wins 2, 4 and 25: the scheduled toast names a place that exists,
+// the filled decision buttons use the AA solid tokens, and the action row
+// carries the class index.css makes sticky below 768 px.
+describe('ApprovalCard quick wins', () => {
+  it('names where a scheduled approval is cancelled', () => {
+    const msg = approvalOutcomeMessage(200, { status: 'scheduled',
+      run_after_label: 'Tue 07:00 UTC' })
+    expect(msg).toEqual({ ok: true, text: 'Approved. Scheduled for the window opening '
+      + 'Tue 07:00 UTC; pg_sage checks the policy again then. Cancel it under '
+      + 'Needs your review > Approved, waiting for the maintenance window.' })
+    expect(msg.text).not.toContain('under Pending')
+  })
+
+  it('names the next window when the server gives no label', () => {
+    expect(approvalOutcomeMessage(201, { status: 'scheduled' }).text)
+      .toContain('opening of the next maintenance window;')
+  })
+
+  it('fills Approve and Reject with the solid tokens under white text', () => {
+    render(<ApprovalCard card={card()} onDecided={vi.fn()} />)
+    const approve = screen.getByTestId('approval-approve')
+    const reject = screen.getByTestId('approval-reject')
+    expect(approve.style.background).toBe('var(--green-solid)')
+    expect(reject.style.background).toBe('var(--red-solid)')
+    expect(approve.style.color).toBe('rgb(255, 255, 255)')
+    fireEvent.click(reject)
+    expect(screen.getByTestId('approval-reject-confirm').style.background)
+      .toBe('var(--red-solid)')
+  })
+
+  it('puts the decision row in the sticky action bar', () => {
+    render(<ApprovalCard card={card()} onDecided={vi.fn()} />)
+    const bar = screen.getByTestId('approval-actions')
+    expect(bar).toHaveClass('approval-action-bar')
+    expect(within(bar).getByTestId('approval-approve')).toBeInTheDocument()
+    expect(within(bar).getByTestId('approval-snooze')).toBeInTheDocument()
+  })
+
+  it('focuses the reason field when Reject opens it', () => {
+    render(<ApprovalCard card={card()} onDecided={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('approval-reject'))
+    expect(screen.getByTestId('approval-reject-reason')).toHaveFocus()
+  })
+})

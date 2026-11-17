@@ -2,6 +2,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Actions } from './Actions'
 
+// ux-01b: a rollback now requires the operator's reason; these tests type one
+// before Confirm, and the posted body carries it.
+const giveReason = () => fireEvent.change(screen.getByTestId('confirm-dialog-reason'),
+  { target: { value: 'operator rollback reason' } })
+
 // executor-07: a withheld or failed rollback is retried from the Actions
 // page, which shows why it did not run.
 
@@ -47,6 +52,7 @@ describe('Retry rollback', () => {
     const button = screen.getByTestId('rollback-action-button')
     expect(button).toHaveTextContent('Retry rollback')
     fireEvent.click(button)
+    giveReason()
     expect(fetch).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId('confirm-dialog-confirm'))
     await waitFor(() => expect(fetch).toHaveBeenCalled())

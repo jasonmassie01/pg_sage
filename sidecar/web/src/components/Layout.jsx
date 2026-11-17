@@ -8,13 +8,15 @@ import { useLiveRefetch } from '../hooks/useLiveEvents'
 import { useLiveStatus } from '../hooks/liveEventsContext'
 import { FreshnessIndicator } from './FreshnessIndicator'
 import { TimeRangePicker } from './TimeRangePicker'
+import { TimeZoneToggle } from './TimeZoneToggle'
 import { HeaderTrustBadge } from './HeaderTrustBadge'
-import { PostgresMeme } from './PostgresMeme'
+import { PageIntro } from './PageIntro'
 import { pageGuide } from './pageGuide'
 import { MonitoringContext } from './MonitoringContext'
 import { PageErrorBoundary } from './PageErrorBoundary'
 import { SecretsPostureBanner } from './SecretsPostureBanner'
 import { findRoute, navGroups, routeHref, routeLabel } from '../routes'
+import { inboxBadge } from '../lib/inbox'
 
 const PendingActionsContext = createContext({ refetch: () => {} })
 
@@ -37,22 +39,10 @@ function NavHeading({ children }) {
   )
 }
 
-// pendingBadge turns the count response into the nav badge. A count that
-// skipped a database (errors non-empty) is a lower bound, shown as "N+".
-function pendingBadge(data) {
-  const count = Number.isInteger(data?.count) ? data.count : 0
-  const errors = Array.isArray(data?.errors) ? data.errors : []
-  if (errors.length === 0) {
-    return count > 0 ? { text: String(count), title: undefined } : null
-  }
-  const missed = errors
-    .map(e => `${e?.database || 'unknown'} (${e?.error || 'not counted'})`)
-    .join(', ')
-  return { text: `${count}+`, title: `At least ${count}; not counted: ${missed}` }
-}
-
-function pendingCountURL(selectedDB) {
-  const base = '/api/v1/actions/pending/count'
+// inboxCountURL is the inbox count of the selected database, or of the
+// fleet in the all-databases view (ux-01b: the one nav badge).
+function inboxCountURL(selectedDB) {
+  const base = '/api/v1/inbox/count'
   return selectedDB && selectedDB !== 'all'
     ? `${base}?database=${encodeURIComponent(selectedDB)}` : base
 }
@@ -73,12 +63,12 @@ function NavLink({ route, active, pending }) {
       }}>
       <Icon size={16} />
       {routeLabel(route)}
-      {route.id === 'actions' && pending && (
-        <span
+      {route.id === 'inbox' && pending && (
+        <span data-testid="nav-badge"
           title={pending.title}
           className="ml-auto px-1.5 py-0.5 rounded-full text-xs"
           style={{
-            background: 'var(--red, #e53e3e)',
+            background: 'var(--red-solid)',
             color: '#fff',
             fontSize: '0.65rem',
             lineHeight: 1,
@@ -154,13 +144,14 @@ export function Layout({
   const canReviewActions =
     user?.role === 'admin' || user?.role === 'operator'
   const { data: countData, refetch: refetchPending } = useAPI(
-    canReviewActions ? pendingCountURL(selectedDB) : null, 30000,
+    canReviewActions ? inboxCountURL(selectedDB) : null, 30000,
   )
-  // The badge counts the approvals of the selected database, or of the fleet
-  // in the all-databases view, like the Actions list. It refetches on any
-  // database's action events; a hidden tab refreshes it when shown.
+  // The Inbox badge counts every decision waiting on a person in the
+  // selected database, or in the fleet (ux-01b); Actions keeps no badge.
+  // It refetches on any database's action events and when a page decides
+  // something; a hidden tab refreshes it when shown.
   useLiveRefetch(['actions'], refetchPending)
-  const pending = pendingBadge(countData)
+  const pending = inboxBadge(countData)
   const liveStatus = useLiveStatus()
   const emergencyStopped =
     fleetData?.summary?.emergency_stopped === true
@@ -327,6 +318,7 @@ export function Layout({
             {activeRoute?.usesTimeRange && (
               <TimeRangePicker label={activeRoute.timeRangeLabel} />
             )}
+            <TimeZoneToggle />
             {databases && databases.length > 0 && (
               <DatabasePicker
                 data-testid="database-picker"
@@ -343,7 +335,7 @@ export function Layout({
             <SecretsPostureBanner isAdmin={isAdmin} />
             <MonitoringContext database={selectedDB} fleetData={fleetData}
               error={fleetError} user={user} />
-            <PostgresMeme route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
+            <PageIntro route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
             <PendingActionsContext.Provider
               value={{ refetch: refetchPending }}>
               {children}

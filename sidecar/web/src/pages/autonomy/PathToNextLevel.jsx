@@ -10,6 +10,7 @@
 import { checkText } from './checkText'
 import { BenchEvidence, RunBenchLocally } from './BenchEvidence'
 import { holdsText } from './holdsText'
+import { formatTime } from '../../lib/time'
 
 const card = { background: 'var(--bg-card)', borderColor: 'var(--border)' }
 const muted = { color: 'var(--text-secondary)' }
@@ -93,7 +94,7 @@ function PairPath({ family, row, bench }) {
               {checkText(c)}
               {c.eta && (
                 <span data-testid={`eta-${c.name}`} className="ml-1" style={strong}>
-                  (ETA {new Date(c.eta).toLocaleString()})
+                  (ETA {formatTime(c.eta)})
                 </span>
               )}
             </li>

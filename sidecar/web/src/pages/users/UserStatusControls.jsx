@@ -1,3 +1,4 @@
+import { formatTime } from '../../lib/time'
 // apiauth-01: deactivation is the default offboarding step. A deactivated
 // user cannot sign in, their sessions end and their operator MCP tokens are
 // revoked; their history stays attributable. Delete stays available.
@@ -7,7 +8,7 @@ export function DisabledBadge({ user }) {
   return (
     <span data-testid="user-disabled-badge"
       title={user.disabled_at
-        ? `Deactivated ${new Date(user.disabled_at).toLocaleString()}`
+        ? `Deactivated ${formatTime(user.disabled_at)}`
         : 'Deactivated'}
       className="ml-2 px-1.5 py-0.5 rounded text-xs"
       style={{ background: 'var(--bg-main)', color: 'var(--text-secondary)',

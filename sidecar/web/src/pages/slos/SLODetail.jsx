@@ -3,6 +3,7 @@ import { useAPI } from '../../hooks/useAPI'
 import { TimeAgo } from '../../components/TimeAgo'
 import { InvestigationPanel } from '../cases/InvestigationPanel'
 import { humanize } from './sloText'
+import { formatTime } from '../../lib/time'
 
 // The expansion of one SLO row (playbooks-09): the SLO's state
 // transitions, the recovery verdict since its burn started, and the
@@ -59,7 +60,7 @@ function History({ result }) {
       <ul className="space-y-0.5">
         {transitions.map((t, i) => (
           <li key={`${t.at}-${i}`} data-testid="slo-transition" style={strong}
-            title={new Date(t.at).toLocaleString()}>
+            title={formatTime(t.at)}>
             {t.from || 'first evaluation'} → {t.to} · <TimeAgo timestamp={t.at} />
           </li>
         ))}

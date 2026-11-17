@@ -1,5 +1,6 @@
 import { useAPI } from '../../hooks/useAPI'
 import { QueryState } from '../../components/QueryState'
+import { formatTime } from '../../lib/time'
 
 // The standing policy the gate decides under (policy-07), read-only: the
 // current document and its ratified versions. Changes go through a
@@ -21,7 +22,7 @@ function scoped(path, databaseId, extra) {
 
 function when(value) {
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'unknown' : date.toLocaleString()
+  return Number.isNaN(date.getTime()) ? 'unknown' : formatTime(date)
 }
 
 export function StandingPolicy({ databaseId }) {

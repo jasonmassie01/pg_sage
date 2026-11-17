@@ -49,16 +49,35 @@ function ActionMessage({ msg }) {
   if (!msg) return null
   return (
     <div className="p-2 rounded text-sm" style={{
-      background: msg.type === 'success' ? 'var(--green)' : 'var(--red)',
-      color: '#fff', opacity: 0.9 }}>
+      background: msg.type === 'success' ? 'var(--green-solid)' : 'var(--red-solid)',
+      color: '#fff' }}>
       {msg.text}
     </div>
   )
 }
 
+// QueueFocusMissing says a linked approval request (queue=<id>) is not
+// among the waiting ones: it was decided or expired after the link was
+// made (ux-05b), so the list is not silently shown as if it were focused.
+// When a database could not be read (errors), the request may still wait
+// there, so the notice does not claim it was decided.
+function QueueFocusMissing({ id, actions, errors }) {
+  if (!id || actions.some(action => String(action.id) === id)) return null
+  const partial = Array.isArray(errors) && errors.length > 0
+  return <p role="status" data-testid="approval-queue-missing" className="text-sm"
+    style={{ color: 'var(--yellow)' }}>
+    {partial
+      ? `Approval request #${id} is not in this list: it was decided or expired, or its `
+        + 'database could not be read.'
+      : `Approval request #${id} is no longer waiting for review: it was decided or expired.`}
+    {' '}History lists what was run.
+  </p>
+}
+
 // PendingList leads with the approval cards when every queued action has one
 // and otherwise shows the table, where each row is approved or rejected.
-export function PendingList({ data, refetch, cards, cases, database, modeForDatabase }) {
+export function PendingList({ data, refetch, cards, cases, database, modeForDatabase,
+  queueFocus = '' }) {
   const [view, setView] = useState('cards')
   const refetchPendingCount = usePendingActionsRefetch()
   const decision = usePendingActions(refetch)
@@ -69,13 +88,20 @@ export function PendingList({ data, refetch, cards, cases, database, modeForData
     cards?.refetch?.()
     refetchPendingCount()
   }
+  const missing = <QueueFocusMissing id={queueFocus} actions={actions}
+    errors={data?.errors} />
   if (complete && view === 'cards') {
-    return <PendingCardsView cards={cardList} errors={cards.data.errors}
-      onShowTable={() => setView('table')} onDecided={refreshAll}
-      pending={actions} cases={cases} database={database} modeForDatabase={modeForDatabase} />
+    return <>
+      {missing}
+      <PendingCardsView cards={cardList} errors={cards.data.errors}
+        onShowTable={() => setView('table')} onDecided={refreshAll}
+        pending={actions} cases={cases} database={database} modeForDatabase={modeForDatabase}
+        queueFocus={queueFocus} />
+    </>
   }
   return (
     <div className="space-y-3">
+      {missing}
       {hasCards && (
         <button data-testid="pending-view-cards" onClick={() => setView('cards')}
           className="px-2 py-1 rounded text-xs"
