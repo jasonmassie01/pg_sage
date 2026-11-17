@@ -58,8 +58,10 @@ describe('PageErrorBoundary inside Layout: error propagation', () => {
     const fallback = screen.getByTestId('page-error')
     expect(fallback).toHaveTextContent('This page failed to render')
     expect(fallback).toHaveTextContent("Cannot read properties of null (reading 'map')")
-    expect(screen.getByRole('link', { name: /go to dashboard/i }))
+    // ux-05c: the way back names the Inbox, the page at #/.
+    expect(screen.getByRole('link', { name: 'Go to Inbox' }))
       .toHaveAttribute('href', '#/')
+    expect(fallback).not.toHaveTextContent(/dashboard/i)
   })
 
   it('leaves the emergency stop usable after a page throws', () => {

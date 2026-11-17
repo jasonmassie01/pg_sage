@@ -63,7 +63,7 @@ function NotFound() {
       </p>
       <a href="#/" className="inline-block mt-4 text-sm underline"
         style={{ color: 'var(--accent)' }}>
-        Go to Dashboard
+        Go to Inbox
       </a>
     </div>
   )
@@ -84,7 +84,7 @@ function PlatformProtocolUnavailable({ agents = false }) {
       </p>
       <a href="#/" className="inline-block mt-4 text-sm underline"
         style={{ color: 'var(--accent)' }}>
-        Go to Dashboard
+        Go to Inbox
       </a>
     </div>
   )
