@@ -11,8 +11,11 @@ import (
 )
 
 // safeAlterTableCmds are the single ALTER TABLE subcommands the executor
-// runs: storage parameters and the rehearsed online-migration steps.
+// runs: storage parameters, the rehearsed online-migration steps and the
+// exposure RLS enable with its rollback (fleetpol-02b).
 var safeAlterTableCmds = map[pg_query.AlterTableType]bool{
+	pg_query.AlterTableType_AT_EnableRowSecurity:  true,
+	pg_query.AlterTableType_AT_DisableRowSecurity: true,
 	pg_query.AlterTableType_AT_SetRelOptions:      true,
 	pg_query.AlterTableType_AT_ResetRelOptions:    true,
 	pg_query.AlterTableType_AT_AddConstraint:      true,

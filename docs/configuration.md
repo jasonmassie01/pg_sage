@@ -2048,7 +2048,7 @@ Managed providers may hide slot detail. A holder whose age is unknown pins nothi
 so it is never read as proof that no holder exists. There is no configuration
 for this logic.
 
-The standing policy document also carries three safety fields, all enforced:
+The standing policy document also carries these safety fields, all enforced:
 
 - `refusal_set`: actions pg_sage never runs on its own. A refused action is
   queued for approval with reason `refused_by_policy` (the token is in the
@@ -2074,6 +2074,12 @@ The standing policy document also carries three safety fields, all enforced:
   window is `trust.maintenance_window` (when set) intersected with the
   policy's `maintenance_windows`. A document without the field keeps its
   meaning. Lowering or removing the margin widens the policy.
+- `exposure.mode` (optional, `shadow` or `enforce`, default `shadow`): whether
+  the exposure findings AP-03 and AP-15 become typed remediations
+  (`enable_row_level_security`, `revoke_public_grant`). `shadow` records the
+  would-be action on the finding only. A document without the key is `shadow`
+  and keeps its bytes. Setting `enforce` widens the policy. See [Exposure
+  remediation](policy-gate.md#exposure-remediation).
 - `serialize_mode`: what happens when another writer holds the DDL lease on
   the same object. `park` (both profiles): a self-initiated action is parked
   with reason `ddl_conflict` and retried next cycle. A park is not a failure:

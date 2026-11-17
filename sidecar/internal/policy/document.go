@@ -97,6 +97,9 @@ type Document struct {
 	Plans PlanCaps
 	// Drill is the restore drill block (drill-01a); zero is the defaults.
 	Drill DrillPolicy
+	// ExposureMode is shadow ("" or "shadow", the default) or enforce
+	// (fleetpol-02b): whether exposure findings become proposals.
+	ExposureMode string
 	// Version and SHA256 name the stored policy row the document was read
 	// from: its version and the SHA-256 of its stored jsonb text
 	// (DocumentFromPolicy). Both are zero for a document read from nowhere.
@@ -119,6 +122,7 @@ type documentWire struct {
 	WindowStartMargin       int64           `json:"window_start_margin_minutes,omitempty"`
 	Plans                   *plansWire      `json:"plans,omitempty"`
 	Drill                   *drillWire      `json:"drill,omitempty"`
+	Exposure                *exposureWire   `json:"exposure,omitempty"`
 }
 
 type budgetWire struct {
@@ -177,6 +181,9 @@ func MarshalDocument(doc Document) ([]byte, error) {
 	}
 	if !doc.Drill.isDefault() {
 		wire["drill"] = drillJSON(doc.Drill)
+	}
+	if doc.ExposureMode != "" {
+		wire["exposure"] = exposureWire{Mode: doc.ExposureMode} // only when set
 	}
 	return json.Marshal(wire)
 }
@@ -269,6 +276,7 @@ func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
 		WindowStartMarginMinutes: wire.WindowStartMargin,
 		Plans:                    plans,
 		Drill:                    drill,
+		ExposureMode:             exposureFromWire(wire.Exposure),
 	}, nil
 }
 
@@ -293,6 +301,9 @@ func ValidateDocument(doc Document) error {
 		return err
 	}
 	if err := ValidateDrillPolicy(doc.Drill); err != nil {
+		return err
+	}
+	if err := validateExposureMode(doc.ExposureMode); err != nil {
 		return err
 	}
 	if err := validateRefusalSet(doc.RefusalSet); err != nil {
@@ -418,7 +429,7 @@ func allChangeClasses() []ChangeClass {
 		ChangeAutovacuumTuning, ChangeConfigGUC, ChangeRetention,
 		ChangeFKIndex, ChangeOnlineMigration, ChangeBackendSignal, ChangeQueryHint,
 		ChangeSchemaChange, ChangeAgentAccess, ChangeAgentDataWrite, ChangeAgentSchemaChange,
-		ChangeAgentMaintenance, ChangeAgentSandbox, ChangeAgentEstate,
+		ChangeAgentMaintenance, ChangeAgentSandbox, ChangeAgentEstate, ChangeExposure,
 	}
 }
 

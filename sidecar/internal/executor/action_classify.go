@@ -12,6 +12,8 @@ func ActionTypeForSQL(sql string) string {
 	switch {
 	case IsIndexReplaceSQL(sql):
 		return ActionTypeReplaceIndex
+	case exposureActionType(sql) != "":
+		return exposureActionType(sql)
 	case strings.HasPrefix(upper, "ANALYZE "):
 		return "analyze_table"
 	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY ") ||

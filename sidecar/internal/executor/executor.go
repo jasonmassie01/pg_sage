@@ -127,6 +127,12 @@ type Executor struct {
 	remnantHooks remnantHooks
 	// vacuumHooks: the watched VACUUM's test seams (vacuum-05).
 	vacuumHooks vacuumHooks
+	// exposureMode reads the standing document's exposure mode (nil:
+	// shadow); exposureHistory and revokeWindow are the reader
+	// verification's statement history and window (fleetpol-02b).
+	exposureMode    func(context.Context) (string, error)
+	exposureHistory queryObserver
+	revokeWindow    time.Duration
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal

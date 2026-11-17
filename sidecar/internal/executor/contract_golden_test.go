@@ -42,7 +42,8 @@ var pinnedContractActionTypes = []string{
 	"restore_dropped_index", "replace_index", "revert_created_statistics",
 	"guard_role_ensure", "guard_role_retire", "guard_freeze",
 	"guard_kill", "guard_unfreeze", "guard_grant",
-	"guard_revoke", "create_index_concurrently", "drop_unused_index",
+	"guard_revoke", "revoke_public_grant", "enable_row_level_security",
+	"create_index_concurrently", "drop_unused_index",
 	"alter_table", "ddl_preflight",
 }
 
