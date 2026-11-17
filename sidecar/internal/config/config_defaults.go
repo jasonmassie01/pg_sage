@@ -439,6 +439,8 @@ func defaultCloneConfig() CloneProviderConfig {
 		RehearsalStatementTimeoutSeconds: DefaultCloneRehearsalStatementTimeoutSeconds,
 		Lakebase: CloneLakebaseConfig{TTLMinutes: DefaultCloneLakebaseTTLMinutes,
 			EndpointMaxCU: DefaultCloneLakebaseEndpointMaxCU},
+		Neon: CloneNeonConfig{TTLMinutes: DefaultCloneNeonTTLMinutes,
+			EndpointMaxCU: DefaultCloneNeonEndpointMaxCU},
 	}
 }
 

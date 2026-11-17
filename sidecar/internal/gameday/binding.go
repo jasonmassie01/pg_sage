@@ -72,11 +72,11 @@ type TableSnapshots interface {
 }
 
 // HoldsCustomerObjects reports whether provider's clones are copies of the
-// monitored database (a DLE clone, a Lakebase branch). The local provider,
-// and any provider not known to copy it, holds none.
+// monitored database (a DLE clone, a Lakebase or Neon branch). The local
+// provider, and any provider not known to copy it, holds none.
 func HoldsCustomerObjects(provider string) bool {
 	switch provider {
-	case "dle", "lakebase_branch":
+	case "dle", "lakebase_branch", "neon_branch":
 		return true
 	}
 	return false

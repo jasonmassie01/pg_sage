@@ -241,11 +241,16 @@ const (
 	DefaultCloneLakebaseTTLMinutes = 60
 	// DefaultCloneLakebaseEndpointMaxCU is clone.lakebase.endpoint_max_cu.
 	DefaultCloneLakebaseEndpointMaxCU = 1.0
-	DefaultFreezeRedBufferPct         = 25.0
-	DefaultWALAbandonAfterMinutes     = 1440
-	DefaultWALRetainedDiskPctCeiling  = 10.0
-	DefaultMCPEnabled                 = true
-	DefaultMCPTransport               = "http"
+	// DefaultCloneNeonTTLMinutes is clone.neon.ttl_minutes: the rehearsal
+	// bound (1 h), so a leaked branch lives no longer than one.
+	DefaultCloneNeonTTLMinutes = 60
+	// DefaultCloneNeonEndpointMaxCU is clone.neon.endpoint_max_cu.
+	DefaultCloneNeonEndpointMaxCU    = 1.0
+	DefaultFreezeRedBufferPct        = 25.0
+	DefaultWALAbandonAfterMinutes    = 1440
+	DefaultWALRetainedDiskPctCeiling = 10.0
+	DefaultMCPEnabled                = true
+	DefaultMCPTransport              = "http"
 	// mcp.call_timeout_seconds: default and accepted range.
 	DefaultMCPCallTimeoutSeconds = 90
 	MinMCPCallTimeoutSeconds     = 5

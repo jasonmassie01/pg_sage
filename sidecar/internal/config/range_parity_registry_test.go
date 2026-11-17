@@ -29,8 +29,10 @@ var companions = map[string]map[string]string{
 }
 
 // apiRefused are enum members YAML accepts and the API deliberately does
-// not: lakebase_branch needs the YAML-only clone.lakebase project binding.
-var apiRefused = map[string]bool{"clone.provider=lakebase_branch": true}
+// not: lakebase_branch needs the YAML-only clone.lakebase project binding,
+// neon_branch the YAML-only clone.neon project and API key (lab-05b).
+var apiRefused = map[string]bool{"clone.provider=lakebase_branch": true,
+	"clone.provider=neon_branch": true}
 
 func TestEveryRegistryRangeHasYAMLAndAPIParity(t *testing.T) {
 	ranged := 0

@@ -181,6 +181,11 @@ safety_critical clone.lakebase.project
 safety_critical clone.lakebase.source_branch
 operator_preference clone.lakebase.ttl_minutes
 operator_preference clone.lakebase.endpoint_max_cu
+safety_critical clone.neon.project_id
+safety_critical clone.neon.parent_branch
+safety_critical clone.neon.api_key
+operator_preference clone.neon.endpoint_max_cu
+operator_preference clone.neon.ttl_minutes
 safety_critical clone.provider
 operator_preference value.toil_model_version
 

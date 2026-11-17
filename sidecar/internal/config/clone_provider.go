@@ -14,18 +14,18 @@ const CloneLakebaseMaxTTLMinutes = 1440
 
 var cloneLakebaseID = regexp.MustCompile(`^` + lakebaseid.Pattern + `$`)
 
-// validate checks the clone block. The lakebase block is checked only when
-// lakebase_branch is the provider, so a leftover block never stops another
-// adapter.
+// validate checks the clone block. The lakebase and neon blocks are
+// checked only when their provider is chosen, so a leftover block never
+// stops another adapter.
 func (c CloneProviderConfig) validate() error {
 	switch c.Provider {
 	case "snapshot":
 		return fmt.Errorf("clone.provider snapshot has no adapter in this build: it was "+
-			"replaced by the full-copy providers %s; use dle, lakebase_branch or none",
-			strings.Join(CloneFullCopyProviders, ", "))
+			"replaced by the full-copy providers %s; use dle, lakebase_branch, neon_branch "+
+			"or none", strings.Join(CloneFullCopyProviders, ", "))
 	case CloneRDSRestore, CloneCloudSQLClone, CloneAlloyDBRestore, CloneAzureRestore:
 		return fmt.Errorf("clone.provider %s is not in this build yet: use dle, "+
-			"lakebase_branch or none", c.Provider)
+			"lakebase_branch, neon_branch or none", c.Provider)
 	case "none":
 	case "dle":
 		if c.DLEEndpoint == "" {
@@ -35,9 +35,13 @@ func (c CloneProviderConfig) validate() error {
 		if err := c.Lakebase.validate(); err != nil {
 			return err
 		}
+	case CloneNeonBranch:
+		if err := c.Neon.validate(); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("clone.provider must be none or dle (Database Lab) or " +
-			"lakebase_branch (Lakebase)")
+		return fmt.Errorf("clone.provider must be none or dle (Database Lab), " +
+			"lakebase_branch (Lakebase) or neon_branch (Neon)")
 	}
 	if c.MaxCloneAgeMinutes <= 0 {
 		return fmt.Errorf("clone.max_clone_age_minutes must be positive")
@@ -63,8 +67,13 @@ var CloneFullCopyProviders = []string{CloneRDSRestore, CloneCloudSQLClone,
 const CloneMaxCreatesPerHour = 60
 
 // Warnings are the clone settings that are valid but do nothing:
-// allow_full_copy without a full-copy provider.
+// neon_branch without an API key, or allow_full_copy without a full-copy
+// provider.
 func (c CloneProviderConfig) Warnings() []string {
+	if c.Provider == CloneNeonBranch && strings.TrimSpace(c.Neon.APIKey) == "" {
+		return []string{"clone.provider neon_branch has no clone.neon.api_key (or " +
+			"SAGE_CLONE_NEON_API_KEY): no branch can be made, rehearsals are recommend-only"}
+	}
 	if !c.AllowFullCopy {
 		return nil
 	}

@@ -143,6 +143,11 @@
 | `clone.lakebase.ttl_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.max_clone_age_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.max_creates_per_hour` | `restart` | `-` | `operator_preference` |
+| `clone.neon.api_key` | `restart` | `-` | `safety_critical` |
+| `clone.neon.endpoint_max_cu` | `restart` | `-` | `operator_preference` |
+| `clone.neon.parent_branch` | `restart` | `-` | `safety_critical` |
+| `clone.neon.project_id` | `restart` | `-` | `safety_critical` |
+| `clone.neon.ttl_minutes` | `restart` | `-` | `operator_preference` |
 | `clone.provider` | `restart` | `-` | `safety_critical` |
 | `clone.rehearsal_statement_timeout_seconds` | `restart` | `-` | `operator_preference` |
 | `clone.rehearsals_per_hour` | `restart` | `-` | `operator_preference` |

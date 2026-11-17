@@ -51,18 +51,23 @@ func cloneProviderFor(cloneConfig config.CloneProviderConfig,
 		})
 	case clonepkg.LakebaseAdapter:
 		return lakebaseCloneProvider(cloneConfig, monitored)
+	case clonepkg.NeonAdapter:
+		return neonCloneProvider(cloneConfig, monitored)
 	default:
 		return nil, errors.New("unsupported clone provider " + cloneConfig.Provider +
-			" (this build has none, dle or lakebase_branch)")
+			" (this build has none, dle, lakebase_branch or neon_branch)")
 	}
 }
 
 // cloneReceiptScope is the provider scope receipts are written under: the
-// Lakebase project, or the adapter's endpoint without credentials or a
-// trailing slash.
+// Lakebase or Neon project, or the adapter's endpoint without credentials
+// or a trailing slash.
 func cloneReceiptScope(cloneConfig config.CloneProviderConfig) string {
-	if cloneConfig.Provider == clonepkg.LakebaseAdapter {
+	switch cloneConfig.Provider {
+	case clonepkg.LakebaseAdapter:
 		return "projects/" + cloneConfig.Lakebase.Project
+	case clonepkg.NeonAdapter:
+		return "projects/" + cloneConfig.Neon.ProjectID
 	}
 	parsed, err := url.Parse(cloneConfig.DLEEndpoint)
 	if err != nil || parsed.Host == "" {

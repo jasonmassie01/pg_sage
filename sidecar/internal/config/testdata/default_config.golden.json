@@ -545,6 +545,13 @@
       "SourceBranch": "",
       "TTLMinutes": 60,
       "EndpointMaxCU": 1
+    },
+    "Neon": {
+      "ProjectID": "",
+      "ParentBranch": "",
+      "APIKey": "",
+      "EndpointMaxCU": 1,
+      "TTLMinutes": 60
     }
   },
   "Custodian": {

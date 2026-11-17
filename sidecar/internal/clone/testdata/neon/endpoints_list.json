@@ -1,0 +1,26 @@
+{
+  "endpoints": [
+    {
+      "host": "ep-cool-darkness-123456.us-east-2.aws.neon.tech",
+      "id": "ep-cool-darkness-123456",
+      "project_id": "shiny-wind-028834",
+      "branch_id": "br-aged-salad-637688",
+      "autoscaling_limit_min_cu": 0.25,
+      "autoscaling_limit_max_cu": 2,
+      "region_id": "aws-us-east-2",
+      "type": "read_write",
+      "current_state": "active",
+      "settings": {},
+      "pooler_enabled": false,
+      "pooler_mode": "transaction",
+      "disabled": false,
+      "passwordless_access": true,
+      "creation_source": "console",
+      "created_at": "2026-01-10T09:00:00Z",
+      "updated_at": "2026-11-16T09:00:00Z",
+      "proxy_host": "us-east-2.aws.neon.tech",
+      "suspend_timeout_seconds": 0,
+      "provisioner": "k8s-neonvm"
+    }
+  ]
+}

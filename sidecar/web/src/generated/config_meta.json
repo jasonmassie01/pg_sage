@@ -1220,16 +1220,53 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "clone.neon.api_key": {
+    "type": "string",
+    "default": null,
+    "doc": "Neon API key that creates and deletes the rehearsal branches; a project-scoped key where possible. Without it rehearsals are recommend-only. Also SAGE_CLONE_NEON_API_KEY.",
+    "secret": true,
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.neon.endpoint_max_cu": {
+    "type": "float64",
+    "default": 1,
+    "doc": "Autoscaling maximum, in compute units, of the read-write endpoint on a rehearsal branch, 0.25 to 8. Default: 1.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.neon.parent_branch": {
+    "type": "string",
+    "default": "",
+    "doc": "Branch id (br-...) or name a rehearsal branches from. Default: the branch of the monitored endpoint, found by its host.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.neon.project_id": {
+    "type": "string",
+    "default": "",
+    "doc": "Neon project id rehearsal branches are created in (the monitored database's project).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.neon.ttl_minutes": {
+    "type": "int",
+    "default": 60,
+    "doc": "Expiry Neon sets on every rehearsal branch, in minutes, 1 to 1440: the backstop if pg_sage cannot delete it. Default: 60.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "clone.provider": {
     "type": "string",
     "default": "none",
-    "doc": "Clone provider: none, dle (Database Lab) or lakebase_branch (a Lakebase branch per rehearsal).",
+    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch (a Lakebase branch per rehearsal) or neon_branch (a Neon branch per rehearsal).",
     "class": "safety_critical",
     "lifecycle": "restart",
     "enum": [
       "none",
       "dle",
-      "lakebase_branch"
+      "lakebase_branch",
+      "neon_branch"
     ]
   },
   "clone.rehearsal_statement_timeout_seconds": {
@@ -3824,7 +3861,7 @@
   "sre.autonomy.game_days.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Run game days. Needs clone.provider dle or lakebase_branch, or local_dsn. Default: false.",
+    "doc": "Run game days. Needs clone.provider dle, lakebase_branch or neon_branch, or local_dsn. Default: false.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

@@ -66,13 +66,18 @@ func validateSpec(spec config.KeySpec, value string) error {
 	return nil
 }
 
-// validateAPICloneProvider refuses lakebase_branch on save: that provider
-// needs the clone.lakebase project binding, which is YAML only and
-// restart-bound, so the API cannot switch to it.
+// validateAPICloneProvider refuses lakebase_branch and neon_branch on
+// save: they need the clone.lakebase or clone.neon project binding (and
+// Neon's API key), which are YAML or env only and restart-bound, so the
+// API cannot switch to them.
 func validateAPICloneProvider(value string) error {
-	if value == "lakebase_branch" {
+	switch value {
+	case "lakebase_branch":
 		return fmt.Errorf("validate: clone.provider lakebase_branch is set in YAML " +
 			"with its clone.lakebase project, not through the API")
+	case config.CloneNeonBranch:
+		return fmt.Errorf("validate: clone.provider neon_branch is set in YAML with its " +
+			"clone.neon project and API key, not through the API")
 	}
 	return nil
 }
