@@ -59,11 +59,38 @@ func (snap setSnapshot) setPolicy(name string) *Policy {
 // Exceptions lists every database whose own document is in force, with
 // its diff against the set it matches now, by database id.
 func (s *Store) Exceptions(ctx context.Context) ([]Exception, error) {
+	return s.exceptions(ctx, nil)
+}
+
+// ExceptionOf is databaseID's exception in force with its diff, or nil
+// when the database follows its set (fleetpol-01c: one inbox read per
+// database reads only that database's rows).
+func (s *Store) ExceptionOf(ctx context.Context, databaseID int64) (*Exception, error) {
+	if s == nil || s.pool == nil {
+		return nil, ErrUnavailable
+	}
+	if databaseID <= 0 {
+		return nil, fmt.Errorf("%w: database_id must be positive, got %d", ErrInvalidSet,
+			databaseID)
+	}
+	got, err := s.exceptions(ctx, &databaseID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range got {
+		if got[i].DatabaseID == databaseID {
+			return &got[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *Store) exceptions(ctx context.Context, only *int64) ([]Exception, error) {
 	if s == nil || s.pool == nil {
 		return nil, ErrUnavailable
 	}
 	out := make([]Exception, 0)
-	err := s.readSnapshot(ctx, nil, func(snap setSnapshot) error {
+	err := s.readSnapshot(ctx, only, func(snap setSnapshot) error {
 		for id := range snap.own {
 			res, err := snap.resolve(id, s.clock())
 			if err != nil {
