@@ -145,11 +145,18 @@ var (
 // emittedCategories scans the non-test Go files under internal/ and cmd/
 // for Category: literals, *Category* and *Finding constants, rule cats(...)
 // lists and categories written as SQL literals into sage.findings.
+// internal/testsupport is skipped: its fixtures build test data (such as
+// backtestfx's snapshot rows, whose Category is a snapshot category) and
+// never produce a finding.
 func emittedCategories(t *testing.T) map[string]string {
 	t.Helper()
 	found := map[string]string{}
+	support := filepath.Join("..", "testsupport")
 	for _, root := range []string{"..", filepath.Join("..", "..", "cmd")} {
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err == nil && d.IsDir() && path == support {
+				return filepath.SkipDir
+			}
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
 				strings.HasSuffix(path, "_test.go") {
 				return err
