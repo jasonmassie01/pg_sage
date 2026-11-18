@@ -148,6 +148,12 @@ func exposureOnly(reg *Registry) *Registry {
 	return reg.filter(func(id string) bool { return slices.Contains(ExposureDetectors, id) })
 }
 
+// ExposureRegistry holds only the exposure detectors of the default
+// registry: what fleetpol-01d's observe-only sweep runs on each member.
+func ExposureRegistry() *Registry {
+	return Default().filter(func(id string) bool { return slices.Contains(ExposureDetectors, id) })
+}
+
 func withoutExposure(reg *Registry) *Registry {
 	return reg.filter(func(id string) bool { return !slices.Contains(ExposureDetectors, id) })
 }

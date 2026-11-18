@@ -27,6 +27,9 @@ type DatabaseManager struct {
 	instances   map[string]*DatabaseInstance
 	cfg         *config.Config
 	primaryName string // first registered instance name
+	// observeOnly are the observe-only member names (fleetpol-01d), guarded
+	// by mu: their actions are refused (ActionTarget).
+	observeOnly map[string]bool
 	mu          sync.RWMutex
 	lifecycle   chan struct{}
 	// persistStop writes the durable emergency_stop flag as an actor. nil
