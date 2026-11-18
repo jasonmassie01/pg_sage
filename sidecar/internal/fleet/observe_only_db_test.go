@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -155,18 +156,22 @@ func assertObserveSweeps(t *testing.T, ds *store.DatabaseStore, ids []int, gone 
 	}
 	// The observe-only subset covers too little of the rubric for an
 	// overall letter (the rubric needs coverage for one), so a member is
-	// graded when its checks ran and a dimension they cover has a letter.
+	// graded when its checks ran and security_access, which the exposure
+	// detectors cover, has a letter.
 	for _, id := range ids {
 		sw := byID[id]
 		var g ObserveGradeDetail
 		if sw.Status != store.ObserveOK || sw.RoundID != round ||
 			json.Unmarshal(sw.Grade, &g) != nil || g.Overall != sw.Letter ||
 			g.RubricVersion != "pg_sage-rubric/1" || len(g.Checks) < 30 ||
-			g.Dimensions["lifecycle"] == "" || g.CoveragePct <= 0 {
+			g.Dimensions["security_access"] == "" || g.CoveragePct <= 0 {
 			t.Fatalf("member %d sweep %+v, want ok with a graded rubric", id, sw)
 		}
-		if !observeCheckPassed(g, "security_access.rls_exposure") ||
-			!observeCheckPassed(g, "lifecycle.server_eol") {
+		// server_eol fails on a server past its end of life (PG14 since
+		// 2026-11-12): what matters is that the settings probe graded it.
+		if observeCheckStatus(g, "security_access.rls_exposure") != "pass" ||
+			!slices.Contains([]string{"pass", "fail"},
+				observeCheckStatus(g, "lifecycle.server_eol")) {
 			t.Fatalf("member %d: the exposure and settings checks did not run: %s", id,
 				sw.Grade)
 		}
@@ -176,13 +181,13 @@ func assertObserveSweeps(t *testing.T, ds *store.DatabaseStore, ids []int, gone 
 	}
 }
 
-func observeCheckPassed(g ObserveGradeDetail, check string) bool {
+func observeCheckStatus(g ObserveGradeDetail, check string) string {
 	for _, c := range g.Checks {
 		if c.Check == check {
-			return c.Status == "pass"
+			return string(c.Status)
 		}
 	}
-	return false
+	return ""
 }
 
 // assertNothingWritten: a swept member has no sage schema and no table.
