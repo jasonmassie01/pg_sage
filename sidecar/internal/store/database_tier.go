@@ -142,25 +142,25 @@ func (s *DatabaseStore) insertRow(ctx context.Context, input DatabaseInput, crea
 	if tier == "" {
 		tier = TierFull
 	}
-	var id int
-	err := pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+	// The id comes first so the sealed password can be bound to its row.
+	// It is taken before the transaction, which holds the create's only
+	// meta connection: a refused insert burns an id, which is harmless.
+	id, enc, err := s.allocateSealed(ctx, input.Password)
+	if err != nil {
+		return 0, err
+	}
+	_, actUser, actEnc, err := s.actionWriteArgs(id, input.Action)
+	if err != nil {
+		return 0, err
+	}
+	err = pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := lockCaps(ctx, tx); err != nil {
 			return err
 		}
 		if err := tierRoom(ctx, tx, tier); err != nil {
 			return err
 		}
-		// The id comes first so the sealed password can be bound to its row.
-		var enc []byte
-		var err error
-		if id, enc, err = s.allocateSealed(ctx, input.Password); err != nil {
-			return err
-		}
-		_, actUser, actEnc, err := s.actionWriteArgs(id, input.Action)
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(ctx, insertDatabaseSQL, id, input.Name, input.Host, input.Port,
+		_, err := tx.Exec(ctx, insertDatabaseSQL, id, input.Name, input.Host, input.Port,
 			input.DatabaseName, input.Username, enc, input.SSLMode, input.MaxConnections,
 			tagsJSON, input.TrustLevel, input.ExecutionMode, createdBy,
 			disc.source, disc.owner, disc.expiresAt, actUser, actEnc, tier)
