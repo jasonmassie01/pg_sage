@@ -97,8 +97,9 @@ func databaseSize(ctx context.Context, pool *pgxpool.Pool) (*int64, error) {
 
 // censusFromDays applies review-02f's idle rule to a member's days: the
 // quiet run is capacity.QuietDays, the observation is the unbroken run of
-// observed days ending at the newest one, and the last activity is the
-// newest observed day with workload calls (day resolution).
+// observed days ending at the newest one (through that day's end), and the
+// last activity is the newest observed day with workload calls (day
+// resolution).
 func censusFromDays(days []capacity.DayCalls) CensusMeasure {
 	sorted := slices.Clone(days)
 	slices.SortFunc(sorted, func(a, b capacity.DayCalls) int { return a.Day.Compare(b.Day) })
@@ -117,7 +118,8 @@ func censusFromDays(days []capacity.DayCalls) CensusMeasure {
 	for from > 0 && sorted[from-1].Observed {
 		from--
 	}
-	m := CensusMeasure{ObservedFrom: &sorted[from].Day, Basis: basisRollups,
+	to := sorted[newest].Day.Add(24 * time.Hour)
+	m := CensusMeasure{ObservedFrom: &sorted[from].Day, ObservedTo: &to, Basis: basisRollups,
 		QuietFor: time.Duration(capacity.QuietDays(sorted)) * 24 * time.Hour}
 	for i := newest; i >= 0; i-- {
 		if sorted[i].Observed && sorted[i].WorkloadCalls > 0 {
@@ -161,8 +163,8 @@ func censusFromReading(a CensusActivity) CensusMeasure {
 	if a.LastActivityAt != nil && a.LastActivityAt.After(quietFrom) {
 		quietFrom = *a.LastActivityAt
 	}
-	base := a.BaselineAt
+	base, read := a.BaselineAt, a.ReadAt
 	return CensusMeasure{LastActivityAt: a.LastActivityAt, ObservedFrom: &base,
-		QuietFor: max(a.ReadAt.Sub(quietFrom), 0), SizeBytes: a.SizeBytes,
-		Basis: basisStatements}
+		ObservedTo: &read, QuietFor: max(a.ReadAt.Sub(quietFrom), 0),
+		SizeBytes: a.SizeBytes, Basis: basisStatements}
 }

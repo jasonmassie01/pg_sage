@@ -67,6 +67,7 @@ type CensusSubject struct {
 type CensusMeasure struct {
 	LastActivityAt *time.Time    // newest real activity seen; nil: none seen
 	ObservedFrom   *time.Time    // start of the unbroken observation
+	ObservedTo     *time.Time    // its end (the newest reading); nil: unknown
 	QuietFor       time.Duration // observed without real activity, up to now
 	SizeBytes      *int64        // as the source reported it (negative is invalid)
 	Basis          string        // what activity was read from
@@ -155,7 +156,8 @@ func activityNote(m CensusMeasure) string {
 // reused is the reuse rule: an agent-created database at least
 // CensusReuseAfter old reused when real activity was seen at or after
 // creation plus CensusReuseAfter; not reused when none was seen and the
-// observation covers that moment; otherwise unknown.
+// unbroken observation covers that moment (it began at or before it and
+// ran to it or later); otherwise unknown.
 func reused(s CensusSubject, m CensusMeasure, now time.Time) *bool {
 	if !strings.HasPrefix(s.Creator, censusAgentPrefix) || s.CreatedAt == nil {
 		return nil
@@ -168,7 +170,8 @@ func reused(s CensusSubject, m CensusMeasure, now time.Time) *bool {
 	switch {
 	case m.LastActivityAt != nil && !m.LastActivityAt.Before(mark):
 		return &yes
-	case m.ObservedFrom != nil && !m.ObservedFrom.After(mark):
+	case m.ObservedFrom != nil && !m.ObservedFrom.After(mark) &&
+		m.ObservedTo != nil && !m.ObservedTo.Before(mark):
 		return &no
 	}
 	return nil

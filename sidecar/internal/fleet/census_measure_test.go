@@ -31,6 +31,7 @@ func TestCensusFromDays_UsesTheIdleRule(t *testing.T) {
 	if m.Unmeasured != "" || m.LastActivityAt == nil ||
 		!m.LastActivityAt.Equal(d0.AddDate(0, 0, 3)) || m.QuietFor != 3*day ||
 		m.ObservedFrom == nil || !m.ObservedFrom.Equal(d0.AddDate(0, 0, 2)) ||
+		m.ObservedTo == nil || !m.ObservedTo.Equal(d0.AddDate(0, 0, 7)) ||
 		!strings.Contains(m.Basis, "pg_sage's own statements excluded") {
 		t.Fatalf("measure %+v", m)
 	}
@@ -49,7 +50,8 @@ func TestCensusFromDays_UsesTheIdleRule(t *testing.T) {
 	}
 	// The newest day unobserved: the idle rule counts no quiet days.
 	if got := censusFromDays(days(d0, 0, 0, -1)); got.QuietFor != 0 ||
-		got.ObservedFrom == nil || !got.ObservedFrom.Equal(d0) {
+		got.ObservedFrom == nil || !got.ObservedFrom.Equal(d0) ||
+		got.ObservedTo == nil || !got.ObservedTo.Equal(d0.AddDate(0, 0, 2)) {
 		t.Fatalf("lagging newest day %+v", got)
 	}
 }
@@ -61,7 +63,8 @@ func TestCensusFromReading(t *testing.T) {
 		BaselineAt: base, ReadAt: read}
 	m := censusFromReading(r)
 	if m.Unmeasured != "" || m.LastActivityAt != nil || m.QuietFor != 50*day ||
-		!m.ObservedFrom.Equal(base) || *m.SizeBytes != 8192 {
+		!m.ObservedFrom.Equal(base) || m.ObservedTo == nil || !m.ObservedTo.Equal(read) ||
+		*m.SizeBytes != 8192 {
 		t.Fatalf("quiet reading %+v", m)
 	}
 	r.LastActivityAt = tp(base.Add(45 * day))

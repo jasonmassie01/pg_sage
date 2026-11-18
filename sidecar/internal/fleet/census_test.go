@@ -136,7 +136,8 @@ func happyMeasures() map[string]CensusMeasure {
 			ObservedFrom: tp(censusNow.Add(-40 * day)), QuietFor: 2 * day,
 			SizeBytes: ip(2 << 30), Basis: "fixture"},
 		"agent-idle": {LastActivityAt: tp(censusNow.Add(-59 * day)),
-			ObservedFrom: tp(censusNow.Add(-60 * day)), QuietFor: 59 * day,
+			ObservedFrom: tp(censusNow.Add(-60 * day)), ObservedTo: tp(censusNow),
+			QuietFor:  59 * day,
 			SizeBytes: ip(1 << 30), Basis: "fixture"},
 		"person-db": {ObservedFrom: tp(censusNow.Add(-60 * day)), QuietFor: 50 * day,
 			SizeBytes: ip(5 << 30), Basis: "fixture"},
@@ -311,8 +312,8 @@ func TestCensusRowFor_ReuseBoundaryIsSevenDays(t *testing.T) {
 		{tp(created.Add(7*day - time.Second)), false},
 		{nil, false},
 	} {
-		row := CensusRowFor(s, CensusMeasure{LastActivityAt: tc.last, ObservedFrom: &created},
-			nil, nil, censusNow)
+		row := CensusRowFor(s, CensusMeasure{LastActivityAt: tc.last, ObservedFrom: &created,
+			ObservedTo: tp(censusNow)}, nil, nil, censusNow)
 		if row.Reused == nil || *row.Reused != tc.want {
 			t.Errorf("last activity %v: reused %v, want %v", tc.last, row.Reused, tc.want)
 		}
@@ -326,13 +327,49 @@ func TestCensusRowFor_ReuseBoundaryIsSevenDays(t *testing.T) {
 	// Created exactly seven days ago is old enough to judge.
 	edge := censusNow.Add(-7 * day)
 	s.CreatedAt = &edge
-	r := CensusRowFor(s, CensusMeasure{ObservedFrom: &edge}, nil, nil, censusNow)
+	r := CensusRowFor(s, CensusMeasure{ObservedFrom: &edge, ObservedTo: tp(censusNow)}, nil,
+		nil, censusNow)
 	if r.Reused == nil {
 		t.Fatal("a database created exactly 7 days ago was not judged")
 	}
 	if r := CensusRowFor(CensusSubject{Key: "p", Creator: "person:a", CreatedAt: &created},
 		CensusMeasure{LastActivityAt: &censusNow}, nil, nil, censusNow); r.Reused != nil {
 		t.Fatal("a person's database counted in the agent reuse share")
+	}
+}
+
+// TestCensusRowFor_ObservationMustReachDaySeven: an observation that began
+// before day 7 but ended before it (the readings stopped) cannot say the
+// database was not reused; it is left out of the share as unknown.
+func TestCensusRowFor_ObservationMustReachDaySeven(t *testing.T) {
+	created := censusNow.Add(-30 * day)
+	mark := created.Add(7 * day)
+	s := CensusSubject{Key: "b", Kind: CensusObserveOnly, Creator: "agent:x", CreatedAt: &created}
+	for _, tc := range []struct {
+		name string
+		to   *time.Time
+		want *bool
+	}{
+		{"ended on day 3", tp(created.Add(3 * day)), nil},
+		{"ended a second before day 7", tp(mark.Add(-time.Second)), nil},
+		{"end unknown", nil, nil},
+		{"reached day 7 exactly", tp(mark), new(bool)},
+		{"ran to now", tp(censusNow), new(bool)},
+	} {
+		row := CensusRowFor(s, CensusMeasure{ObservedFrom: &created, ObservedTo: tc.to},
+			nil, nil, censusNow)
+		switch {
+		case tc.want == nil && row.Reused != nil:
+			t.Errorf("%s: reused %v, want unknown", tc.name, *row.Reused)
+		case tc.want != nil && (row.Reused == nil || *row.Reused != *tc.want):
+			t.Errorf("%s: reused %v, want %v", tc.name, row.Reused, *tc.want)
+		}
+	}
+	run := SummarizeCensus(CensusRun{}, []CensusRow{CensusRowFor(s,
+		CensusMeasure{ObservedFrom: &created, ObservedTo: tp(created.Add(3 * day))}, nil, nil,
+		censusNow)})
+	if run.ReuseEligible != 0 || run.ReuseShare != nil || run.AgentCreated != 1 {
+		t.Fatalf("an observation that stopped before day 7 entered the share: %+v", run)
 	}
 }
 
