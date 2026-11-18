@@ -282,5 +282,6 @@ func trancheSixMigrations() []namedStep {
 		{"ddlChangeFeedProviderEvents", ddlChangeFeedProviderEvents}, // guard-02b
 		{"ddlPressureJobs", ddlPressureJobs},                         // guard-01b
 		{"ddlMultixactMembers", ddlMultixactMembers},                 // guard-02a
+		{"ddlReviewForeignKeyIndexes", ddlReviewForeignKeyIndexes},   // review-03b, review-04a
 	}
 }

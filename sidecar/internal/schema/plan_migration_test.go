@@ -32,9 +32,11 @@ func TestPlansStep_FollowsTheBacktestStep(t *testing.T) {
 	// ddlPlanOperatorSteps adds the operator step columns; plan-03a's
 	// ddlPlanApprovalModes adds resumed_at and sage.plan_step_approval.
 	// review-03b's ddlReviewPlans adds sage.plan_step_origin, which
-	// references sage.plan_step and alters nothing of it.
+	// references sage.plan_step and alters nothing of it. The T6 round-1
+	// ddlReviewForeignKeyIndexes indexes sage.plan_step_origin (run_id) and
+	// alters nothing of sage.plan_step.
 	want := "ddlPlans,ddlPlanStepRun,ddlPlanStepApproval,ddlPlanOperatorSteps," +
-		"ddlPlanApprovalModes,ddlReviewPlans"
+		"ddlPlanApprovalModes,ddlReviewPlans,ddlReviewForeignKeyIndexes"
 	if strings.Join(naming, ",") != want {
 		t.Fatalf("steps naming sage.plan_step = %v, want %s", naming, want)
 	}
