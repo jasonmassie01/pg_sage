@@ -413,3 +413,24 @@ func TestApproveAndAllow_TwoCardsAtOnceApproveOnePromotion(t *testing.T) {
 			af.promotionsToL3(t), af.level(t))
 	}
 }
+
+// The button is offered only to a caller who could press it.
+func TestApproveAndAllow_OnlyAnAdminPersonIsOffered(t *testing.T) {
+	af := newAllowFixture(t, 9)
+	agent := &mcp.Principal{Actor: "token:9", Role: "admin", Kind: mcp.KindAgent}
+	for name, h := range map[string]http.Handler{
+		"operator": af.routerAs(operatorUser(), nil),
+		"agent":    af.routerAs(testAdminUser(), agent),
+	} {
+		tr := cardTrust(t, h, af.queueID)
+		why, _ := tr["allow_always_why"].(string)
+		if tr == nil || tr["allow_always"] != false || tr["allow_always_label"] != nil ||
+			!strings.Contains(why, "only an admin") {
+			t.Fatalf("%s: trust = %v, want no allow_always", name, tr)
+		}
+	}
+	if tr := cardTrust(t, af.routerAs(testAdminUser(), nil), af.queueID); tr == nil ||
+		tr["allow_always"] != true {
+		t.Fatalf("admin: trust = %v, want allow_always", tr)
+	}
+}

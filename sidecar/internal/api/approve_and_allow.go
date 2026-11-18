@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/approvalcard"
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
@@ -36,6 +37,25 @@ type allowAlwaysRequest struct {
 	Family   string `json:"family"`
 	Class    string `json:"class"`
 	Note     string `json:"note"`
+}
+
+// offerAllowAlways withdraws the allow-always button from a caller who
+// could not press it: only an admin raises autonomy, never a token.
+func offerAllowAlways(r *http.Request, cards []approvalcard.Card) []approvalcard.Card {
+	u := UserFromContext(r.Context())
+	_, token := mcp.PrincipalFromContext(r.Context())
+	if u != nil && u.Role == auth.RoleAdmin && !token {
+		return cards
+	}
+	for i := range cards {
+		if t := cards[i].Trust; t != nil && t.AllowAlways {
+			cp := *t
+			cp.AllowAlways, cp.AllowAlwaysLabel = false, ""
+			cp.AllowAlwaysWhy = "only an admin signed in as a person can stop the asking"
+			cards[i].Trust = &cp
+		}
+	}
+	return cards
 }
 
 // allowerFor is the database's ledger for allow-always.

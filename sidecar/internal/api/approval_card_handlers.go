@@ -102,7 +102,7 @@ func (h *approvalCardHandlers) list(w http.ResponseWriter, r *http.Request) {
 			failures = append(failures, fleetReadFailure(inst.Name, "list approval cards", err))
 			continue
 		}
-		cards = append(cards, got...)
+		cards = append(cards, offerAllowAlways(r, got)...)
 	}
 	jsonResponse(w, map[string]any{"cards": cards, "total": len(cards), "errors": failures})
 }
@@ -159,6 +159,7 @@ func (h *approvalCardHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	c = offerAllowAlways(r, []approvalcard.Card{c})[0]
 	body := map[string]any{"card": c, "eligible": false}
 	if a, err := store.NewActionStore(inst.Pool).GetByID(r.Context(), id); err == nil &&
 		a.Status == "pending" {
