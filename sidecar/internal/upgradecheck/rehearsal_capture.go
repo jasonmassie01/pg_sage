@@ -106,7 +106,9 @@ func (r *rehearsalRun) capture(ctx context.Context, cl clone.Clone, wantMajor in
 }
 
 // measureInto fills q's capture; a statement the analyze guard refuses is
-// skipped from then on and keeps no capture.
+// skipped from then on and keeps no capture. A capture error reaches the
+// report and the model, so server text that can quote values is withheld
+// (explain.SafeError, security-10) even if the measurer did not withhold it.
 func measureInto(ctx context.Context, m tuning.CloneMeasurer, q *RehearsedQuery,
 	slot captureSlot) {
 	got, err := m.Measure(ctx, q.Text)
@@ -117,7 +119,7 @@ func measureInto(ctx context.Context, m tuning.CloneMeasurer, q *RehearsedQuery,
 	}
 	c := &PlanCapture{Cost: got.Cost, BlocksPerCall: got.Blocks, NotExecuted: got.NotExecuted}
 	if err != nil {
-		c.Error = err.Error()
+		c.Error = explain.SafeError(err).Error()
 	} else if hash, herr := planhash.Compute(got.Plan); herr != nil {
 		c.Error = "fingerprint the plan: " + herr.Error()
 	} else {
