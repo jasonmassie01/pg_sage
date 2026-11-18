@@ -628,6 +628,8 @@
     "ModelPass": "auto",
     "ModelRuns": 3,
     "Consensus": "majority",
+    "CalendarDays": 30,
+    "MinIntervalHours": 24,
     "HashIdentifiers": false
   },
   "Facts": {

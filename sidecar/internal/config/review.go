@@ -22,6 +22,21 @@ const (
 	maxReviewLargeTableBytes int64 = 1 << 50
 )
 
+// The review triggers (review-04a).
+const (
+	// DefaultReviewCalendarDays is how long after the last full review
+	// the calendar trigger fires.
+	DefaultReviewCalendarDays = 30
+	// DefaultReviewMinIntervalHours is the window inside which triggers
+	// join one review run.
+	DefaultReviewMinIntervalHours = 24
+
+	minReviewCalendarDays     = 1
+	maxReviewCalendarDays     = 365
+	minReviewMinIntervalHours = 1
+	maxReviewMinIntervalHours = 168
+)
+
 // The model review pass (review-03a).
 const (
 	// ReviewModelPassAuto runs the pass when any model is usable;
@@ -48,6 +63,8 @@ type ReviewConfig struct {
 	ModelPass          string `yaml:"model_pass" doc:"Model pass that ranks, attacks and links the review's candidates: auto (when a model is usable), on (no model is a failed pass) or off (deterministic ranking only). Default: auto."`
 	ModelRuns          int    `yaml:"model_runs" doc:"Independent model runs per review whose results are combined by review.consensus. An odd number in 1-5; 1 applies no consensus. Default: 3."`
 	Consensus          string `yaml:"consensus" doc:"How model runs combine: majority (keep what most runs keep, at the median rank) or refute (a second run must refute each kept item). Default: majority."`
+	CalendarDays       int    `yaml:"calendar_days" doc:"Days after the last full review at which the calendar trigger starts the next one; event triggers start one sooner. Range 1-365. Default: 30."`
+	MinIntervalHours   int    `yaml:"min_interval_hours" doc:"Hours inside which review triggers join one review run, counted from the first trigger; pre_upgrade starts a run at once. Range 1-168. Default: 24."`
 	HashIdentifiers    bool   `yaml:"hash_identifiers" doc:"Replace schema, table, index and column names with keyed pseudonyms in what the review model reads (needs encryption_key). Default: false."`
 }
 
@@ -55,7 +72,8 @@ func defaultReviewConfig() ReviewConfig {
 	return ReviewConfig{Enabled: true, GradeIntervalHours: DefaultReviewGradeIntervalHours,
 		WindowDays: DefaultReviewWindowDays, LargeTableBytes: DefaultReviewLargeTableBytes,
 		ModelPass: ReviewModelPassAuto, ModelRuns: DefaultReviewModelRuns,
-		Consensus: ReviewConsensusMajority}
+		Consensus: ReviewConsensusMajority, CalendarDays: DefaultReviewCalendarDays,
+		MinIntervalHours: DefaultReviewMinIntervalHours}
 }
 
 // validate checks the interval's, the window's and the table size's
@@ -75,7 +93,23 @@ func (r ReviewConfig) validate() error {
 		return fmt.Errorf("review.large_table_bytes must be %d-%d, got %d",
 			minReviewLargeTableBytes, maxReviewLargeTableBytes, r.LargeTableBytes)
 	}
+	if err := r.validateTriggers(); err != nil {
+		return err
+	}
 	return r.validateModelPass()
+}
+
+func (r ReviewConfig) validateTriggers() error {
+	if r.CalendarDays < minReviewCalendarDays || r.CalendarDays > maxReviewCalendarDays {
+		return fmt.Errorf("review.calendar_days must be %d-%d, got %d", minReviewCalendarDays,
+			maxReviewCalendarDays, r.CalendarDays)
+	}
+	if r.MinIntervalHours < minReviewMinIntervalHours ||
+		r.MinIntervalHours > maxReviewMinIntervalHours {
+		return fmt.Errorf("review.min_interval_hours must be %d-%d, got %d",
+			minReviewMinIntervalHours, maxReviewMinIntervalHours, r.MinIntervalHours)
+	}
+	return nil
 }
 
 func (r ReviewConfig) validateModelPass() error {

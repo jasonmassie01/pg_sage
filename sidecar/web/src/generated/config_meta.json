@@ -3562,6 +3562,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "review.calendar_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days after the last full review at which the calendar trigger starts the next one; event triggers start one sooner. Range 1-365. Default: 30.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "review.consensus": {
     "type": "string",
     "default": "majority",
@@ -3594,6 +3601,13 @@
     "type": "int64",
     "default": 10737418240,
     "doc": "Bytes from which Sage Review advises partitioning an unpartitioned table with a time-ordered key. Range 1073741824-1125899906842624 (1 GiB-1 PiB). Default: 10737418240 (10 GiB).",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.min_interval_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours inside which review triggers join one review run, counted from the first trigger; pre_upgrade starts a run at once. Range 1-168. Default: 24.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },

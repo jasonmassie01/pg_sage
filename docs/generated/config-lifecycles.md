@@ -407,11 +407,13 @@
 | `retention.snapshots_days` | `restart` | `-` | `derivable` |
 | `retention.snapshots_max_pct` | `restart` | `-` | `derivable` |
 | `retention.workload_packs_days` | `restart` | `-` | `derivable` |
+| `review.calendar_days` | `restart` | `-` | `operator_preference` |
 | `review.consensus` | `restart` | `-` | `operator_preference` |
 | `review.enabled` | `restart` | `-` | `operator_preference` |
 | `review.grade_interval_hours` | `restart` | `-` | `operator_preference` |
 | `review.hash_identifiers` | `restart` | `-` | `safety_critical` |
 | `review.large_table_bytes` | `restart` | `-` | `operator_preference` |
+| `review.min_interval_hours` | `restart` | `-` | `operator_preference` |
 | `review.model_pass` | `restart` | `-` | `operator_preference` |
 | `review.model_runs` | `restart` | `-` | `operator_preference` |
 | `review.window_days` | `restart` | `-` | `operator_preference` |

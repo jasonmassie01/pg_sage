@@ -570,6 +570,8 @@ operator_preference review.enabled
 operator_preference review.grade_interval_hours
 operator_preference review.window_days
 operator_preference review.large_table_bytes
+operator_preference review.calendar_days
+operator_preference review.min_interval_hours
 operator_preference review.model_pass
 operator_preference review.model_runs
 operator_preference review.consensus
