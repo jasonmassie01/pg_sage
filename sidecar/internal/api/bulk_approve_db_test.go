@@ -291,3 +291,30 @@ func TestBulkApprove_ExecutionFailureIsReportedAndTheRestRun(t *testing.T) {
 		t.Fatalf("item after the failure: %v", body)
 	}
 }
+
+// The card's risk tier is the policy decision's when there is one, so a
+// queue item filed as safe whose decision says moderate is refused.
+func TestBulkApprove_DecisionRiskTierOverridesTheQueueRisk(t *testing.T) {
+	fx := newCardFixture(t)
+	if _, err := fx.pool.Exec(context.Background(), `INSERT INTO sage.decision (feature,
+		intent, verdict, risk_tier, reason, evidence_id, queue_id) VALUES ('analyze',
+		'analyze', 'queue_approval', 'moderate', 'test: moderate on its decision', $1, $2)`,
+		fmt.Sprintf("bulk-tier-%d", time.Now().UnixNano()), fx.queueID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = fx.pool.Exec(context.Background(),
+			`DELETE FROM sage.decision WHERE queue_id = $1`, fx.queueID)
+	})
+	code, body := bulkCall(t, fx.router(t, operatorUser()),
+		fx.bulkBody(t, bulkItem{fx.queueID, fx.sql}))
+	r := bulkResults(t, body)[0]
+	if code != http.StatusOK || r["code"] != "not_safe_tier" ||
+		!strings.Contains(fmt.Sprint(r["reason"]), "moderate") {
+		t.Fatalf("bulk: %d %v", code, body)
+	}
+	if fx.runsOf(t, fx.sql) != 0 || fx.statusOf(t, fx.queueID) != "pending" {
+		t.Fatal("a safe queue item with a moderate decision ran or left pending")
+	}
+}
+
