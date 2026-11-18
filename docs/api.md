@@ -152,7 +152,10 @@ with `run_after`), `failed` (approved, but its SQL failed; `reason` has the
 error) or `refused` (not approved). A refusal's `code` is `not_found`,
 `not_pending` (decided meanwhile, for example by another person),
 `content_changed` (the card changed after it was shown), `not_safe_tier`,
-`not_eligible` (the gate's reason), `plan_step` or `cancelled`. The route can
+`not_eligible` (the gate's reason), `plan_step`, `cancelled` or `time_budget`.
+Items run one after another; once 40 seconds have passed, the items not yet
+started are refused with `time_budget` and still wait, so the answer arrives
+before the server's 60 second write timeout. Approve those again. The route can
 name several databases, so with `api.database_grants` on it needs an operator
 with no database grants (or an admin); a database-scoped operator approves each
 card on its own database.

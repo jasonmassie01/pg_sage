@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -187,5 +188,31 @@ func TestBulkApprove_IsAFleetWideWrite(t *testing.T) {
 	}
 	if strings.TrimSpace(fleetWideRoutes[pattern]) == "" {
 		t.Fatalf("%s is not listed in fleetWideRoutes with its reason", pattern)
+	}
+}
+
+// Within the budget every item is decided; past it, only the first is.
+func TestBulkApprove_TimeBudgetBoundary(t *testing.T) {
+	h := actionRouter(t, poolless("orders"), operatorUser())
+	old := bulkApproveBudget
+	t.Cleanup(func() { bulkApproveBudget = old })
+	bulkApproveBudget = time.Hour
+	_, body := bulkCall(t, h, bulkItems(3, "orders"))
+	for i, r := range bulkResults(t, body) {
+		if r["code"] != "not_found" {
+			t.Fatalf("within budget, result %d = %v", i, r)
+		}
+	}
+	bulkApproveBudget = 0
+	_, body = bulkCall(t, h, bulkItems(3, "orders"))
+	results := bulkResults(t, body)
+	if len(results) != 3 || results[0]["code"] != "not_found" {
+		t.Fatalf("past budget: %v", results)
+	}
+	for _, r := range results[1:] {
+		if r["status"] != "refused" || r["code"] != "time_budget" || r["executed"] != false ||
+			!strings.Contains(fmt.Sprint(r["reason"]), "approve it again") {
+			t.Fatalf("past budget, later result = %v", r)
+		}
 	}
 }

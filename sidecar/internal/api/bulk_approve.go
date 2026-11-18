@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/approvalcard"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -30,6 +31,12 @@ const (
 	// safeTier is the approval card risk tier bulk approve may take.
 	safeTier = "safe"
 )
+
+// bulkApproveBudget bounds how long one request keeps starting items. The
+// items run in turn and the API server stops writing after 60 seconds, so
+// past the budget the remaining items are refused (still pending, to be
+// approved again) and the answer still names every item.
+var bulkApproveBudget = 40 * time.Second
 
 // bulkApproveItem is one card the caller selected.
 type bulkApproveItem struct {
@@ -70,8 +77,13 @@ func (h *approvalCardHandlers) bulkApprove(w http.ResponseWriter, r *http.Reques
 	user := UserFromContext(r.Context())
 	results := make([]bulkApproveResult, 0, len(req.Items))
 	counts := map[string]int{"approved": 0, "scheduled": 0, "refused": 0, "failed": 0}
-	for _, item := range req.Items {
-		res := h.approveOne(r, item, user.ID)
+	start := time.Now()
+	for i, item := range req.Items {
+		res := refuse(item, "time_budget", "bulk approve stopped before this item so it "+
+			"could answer in time; it still waits: approve it again")
+		if i == 0 || time.Since(start) < bulkApproveBudget {
+			res = h.approveOne(r, item, user.ID)
+		}
 		counts[res.Status]++
 		results = append(results, res)
 	}

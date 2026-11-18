@@ -318,3 +318,26 @@ func TestBulkApprove_DecisionRiskTierOverridesTheQueueRisk(t *testing.T) {
 	}
 }
 
+// Past the time budget the items not started are refused and still wait;
+// the item that started first always runs.
+func TestBulkApprove_TimeBudgetRefusesTheItemsNotStarted(t *testing.T) {
+	fx := newCardFixture(t)
+	first, second := bulkItem{fx.queueID, fx.sql}, fx.addItem(t, "safe")
+	items := fx.bulkBody(t, first, second)
+	old := bulkApproveBudget
+	bulkApproveBudget = 0
+	t.Cleanup(func() { bulkApproveBudget = old })
+	code, body := bulkCall(t, fx.router(t, operatorUser()), items)
+	r := bulkResults(t, body)
+	if code != http.StatusOK || r[0]["status"] != "approved" || r[1]["status"] != "refused" ||
+		r[1]["code"] != "time_budget" || body["approved"] != float64(1) ||
+		body["refused"] != float64(1) {
+		t.Fatalf("bulk: %d %v", code, body)
+	}
+	if fx.runsOf(t, second.sql) != 0 || fx.statusOf(t, second.id) != "pending" {
+		t.Fatal("an item past the budget ran or left pending")
+	}
+	if fx.runsOf(t, first.sql) != 1 {
+		t.Fatal("the first item did not run once")
+	}
+}
