@@ -51,15 +51,25 @@ func (s *Store) exec(ctx context.Context, what string, want int64, sql string,
 	return nil
 }
 
-// StartPass opens a pass of the scope in period.
+// abandonedPass is the error a pass left running gets when the next one
+// starts (the leader runs one pass at a time, so a running one was cut
+// off).
+const abandonedPass = "abandoned: the pass never finished and a newer pass started"
+
+// StartPass opens a pass of the scope in period, first closing as failed
+// any pass of the scope left running, so retention can purge it.
 func (s *Store) StartPass(ctx context.Context, period string, members int) (int64, error) {
 	if err := s.usable(); err != nil {
 		return 0, err
 	}
 	var id int64
 	err := s.pool.QueryRow(ctx, `/* pg_sage review fleet */
+		WITH stale AS (
+		    UPDATE sage.review_fleet_pass SET status = 'failed', error = $4,
+		           finished_at = now()
+		     WHERE fleet_scope = $1 AND status = 'running')
 		INSERT INTO sage.review_fleet_pass (fleet_scope, period, members)
-		VALUES ($1, $2, $3) RETURNING id`, s.scope, period, members).Scan(&id)
+		VALUES ($1, $2, $3) RETURNING id`, s.scope, period, members, abandonedPass).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("insert sage.review_fleet_pass for %s: %w", period, err)
 	}

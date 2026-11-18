@@ -21,7 +21,9 @@ func TestMain(m *testing.M) {
 func livePool(t *testing.T, label string) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	testdb.SkipUnlessLive(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
+	// 480s: the five-member pass bootstraps six databases twice, which took
+	// over 240s on a shared, loaded machine.
+	ctx, cancel := context.WithTimeout(context.Background(), 480*time.Second)
 	t.Cleanup(cancel)
 	dsn := testdb.CreateDatabase(t, "fleetrev_"+label)
 	pool, err := pgxpool.New(ctx, dsn)

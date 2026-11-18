@@ -31,7 +31,10 @@ func (s *Store) ScheduledIn(ctx context.Context, period string) ([]string, error
 }
 
 // Carried is every member whose newest row waits: triaged and deferred to
-// period or before.
+// period or before. A failed pass's row (a pass left running is failed
+// when the next starts) counts only once the member was scheduled in it;
+// otherwise it would hide the earlier pass's wait, and the member would
+// lose its place.
 func (s *Store) Carried(ctx context.Context, period string) ([]Outlier, error) {
 	if err := s.usable(); err != nil {
 		return nil, err
@@ -43,6 +46,7 @@ func (s *Store) Carried(ctx context.Context, period string) ([]Outlier, error) {
 		          FROM sage.review_fleet_member m
 		          JOIN sage.review_fleet_pass p ON p.id = m.pass_id
 		         WHERE p.fleet_scope = $1
+		           AND (p.status <> 'failed' OR m.state IN ('deep_scheduled', 'reviewed'))
 		         ORDER BY m.database_name, m.pass_id DESC) newest
 		 WHERE state = 'triaged' AND deferred_to IS NOT NULL AND deferred_to <= $2
 		 ORDER BY database_name`, s.scope, period)

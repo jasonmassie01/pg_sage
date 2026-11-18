@@ -111,12 +111,16 @@ func (r *Runner) Run(ctx context.Context, members []string) (Result, error) {
 	if err := r.usable(); err != nil {
 		return res, err
 	}
-	carried, err := r.Ledger.Carried(ctx, period)
-	if err != nil {
-		return res, fmt.Errorf("review fleet: read the members waiting for %s: %w", period, err)
-	}
+	// The pass starts first: starting closes a pass left running, whose
+	// rows must not hide the members waiting from an earlier one.
+	var err error
 	if res.PassID, err = r.Ledger.StartPass(ctx, period, len(members)); err != nil {
 		return res, fmt.Errorf("review fleet: start the %s pass: %w", period, err)
+	}
+	carried, err := r.Ledger.Carried(ctx, period)
+	if err != nil {
+		err = fmt.Errorf("read the members waiting for %s: %w", period, err)
+		return res, r.finish(ctx, &res, err)
 	}
 	err = r.tiers(ctx, &res, members, carried)
 	return res, r.finish(ctx, &res, err)
