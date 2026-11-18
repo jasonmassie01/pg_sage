@@ -39,6 +39,9 @@ type DatabaseRecord struct {
 	// ActionUsername is the action identity's role (security-09b); "" when
 	// the member runs as one identity. Its password is never read here.
 	ActionUsername string
+	// Tier is full or observe_only (fleetpol-01d); only an enabled full
+	// member gets a runtime (RunsRuntime).
+	Tier string
 }
 
 // DatabaseInput holds user-provided fields for create/update.
@@ -151,52 +154,27 @@ func (s *DatabaseStore) Create(
 type discoveryColumns struct {
 	source, owner *string
 	expiresAt     *time.Time
+	tier          string // "" is full (fleetpol-01d)
 }
 
 func (s *DatabaseStore) insert(
 	ctx context.Context, input DatabaseInput, createdBy int, disc discoveryColumns,
 ) (int, error) {
-	if err := s.checkCreate(ctx, input); err != nil {
+	if err := s.checkCreate(input); err != nil {
 		return 0, err
 	}
-	tagsJSON, err := json.Marshal(input.Tags)
+	tagsJSON, err := marshalTags(input.Tags)
 	if err != nil {
-		return 0, fmt.Errorf("marshalling tags: %w", err)
+		return 0, err
 	}
-
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-
-	// The id comes first so the sealed password can be bound to its row.
-	id, enc, err := s.allocateSealed(qctx, input.Password)
-	if err != nil {
-		return 0, err
-	}
-	_, actUser, actEnc, err := s.actionWriteArgs(id, input.Action)
-	if err != nil {
-		return 0, err
-	}
-	_, err = s.pool.Exec(qctx,
-		`/* pg_sage */ INSERT INTO sage.databases
-		    (id, name, host, port, database_name, username, password_enc,
-		     sslmode, max_connections, tags, trust_level,
-		     execution_mode, created_by, discovered_source, owner, expires_at,
-		     action_username, action_password_enc)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-		id, input.Name, input.Host, input.Port, input.DatabaseName,
-		input.Username, enc, input.SSLMode, input.MaxConnections,
-		tagsJSON, input.TrustLevel, input.ExecutionMode, createdBy,
-		disc.source, disc.owner, disc.expiresAt, actUser, actEnc,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("inserting database: %w", actionConstraintError(err))
-	}
-	return id, nil
+	return s.insertRow(qctx, input, createdBy, disc, tagsJSON)
 }
 
-// checkCreate refuses an invalid input, a store with no key and a full
-// fleet before a create allocates an id.
-func (s *DatabaseStore) checkCreate(ctx context.Context, input DatabaseInput) error {
+// checkCreate refuses an invalid input and a store with no key before a
+// create allocates an id; insertRow checks the tier's cap under its lock.
+func (s *DatabaseStore) checkCreate(input DatabaseInput) error {
 	if err := validateInput(input, true); err != nil {
 		return err
 	}
@@ -205,13 +183,6 @@ func (s *DatabaseStore) checkCreate(ctx context.Context, input DatabaseInput) er
 	}
 	if s.keyring == nil {
 		return errNoPasswordKey
-	}
-	count, err := s.Count(ctx)
-	if err != nil {
-		return fmt.Errorf("checking database count: %w", err)
-	}
-	if count >= 50 {
-		return fmt.Errorf("%w: maximum of 50 databases reached", ErrValidation)
 	}
 	return nil
 }
@@ -256,7 +227,7 @@ func (s *DatabaseStore) Get(ctx context.Context, id int) (*DatabaseRecord, error
 const databaseColumns = `id, name, host, port, database_name, username,
 	sslmode, max_connections, enabled, tags, trust_level, execution_mode,
 	created_at, created_by, updated_at, COALESCE(discovered_source, ''),
-	COALESCE(owner, ''), expires_at, adopted_at, COALESCE(action_username, '')`
+	COALESCE(owner, ''), expires_at, adopted_at, COALESCE(action_username, ''), tier`
 
 // scanDatabaseRecord scans one row of databaseColumns.
 func scanDatabaseRecord(row pgx.Row) (DatabaseRecord, error) {
@@ -269,6 +240,7 @@ func scanDatabaseRecord(row pgx.Row) (DatabaseRecord, error) {
 		&tagsJSON, &r.TrustLevel, &r.ExecutionMode,
 		&r.CreatedAt, &createdBy, &r.UpdatedAt,
 		&r.DiscoveredSource, &r.Owner, &r.ExpiresAt, &r.AdoptedAt, &r.ActionUsername,
+		&r.Tier,
 	)
 	if err != nil {
 		return r, fmt.Errorf("scanning database row: %w", err)
@@ -429,15 +401,10 @@ func databaseConnectionString(
 	return u.String()
 }
 
-// Count returns the number of databases.
+// Count returns the number of full members, the ones the 50-member cap
+// counts (observe-only members have their own, CountTier).
 func (s *DatabaseStore) Count(ctx context.Context) (int, error) {
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	var n int
-	err := s.pool.QueryRow(qctx,
-		"SELECT COUNT(*) FROM sage.databases",
-	).Scan(&n)
+	n, err := s.CountTier(ctx, TierFull)
 	if err != nil {
 		return 0, fmt.Errorf("counting databases: %w", err)
 	}

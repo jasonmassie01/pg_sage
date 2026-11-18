@@ -46,6 +46,9 @@ type DiscoveredMember struct {
 	// policy set the member follows sees what enrollment matched on.
 	// discovered_from is always the credential member's name.
 	Tags map[string]string
+	// Tier is the member's tier (fleetpol-01d): "" or full, or
+	// observe_only for a set whose enrollment.tier says so.
+	Tier string
 }
 
 func (m DiscoveredMember) validate() error {
@@ -56,6 +59,9 @@ func (m DiscoveredMember) validate() error {
 		return fmt.Errorf("%w: a discovered member needs an owner", ErrValidation)
 	case m.ExpiresAt.IsZero():
 		return fmt.Errorf("%w: a discovered member needs expires_at", ErrValidation)
+	case m.Tier != "" && !ValidTier(m.Tier):
+		return fmt.Errorf("%w: a discovered member's tier %q must be %s or %s",
+			ErrValidation, m.Tier, TierFull, TierObserveOnly)
 	}
 	return nil
 }
@@ -89,7 +95,7 @@ func (s *DatabaseStore) CreateDiscovered(
 		Tags: tags, TrustLevel: "observation", ExecutionMode: "approval"}
 	expires := m.ExpiresAt
 	id, err := s.insert(ctx, input, 0, discoveryColumns{
-		source: &m.Source, owner: &m.Owner, expiresAt: &expires})
+		source: &m.Source, owner: &m.Owner, expiresAt: &expires, tier: m.Tier})
 	return id, DiscoveredTrustError(err)
 }
 
