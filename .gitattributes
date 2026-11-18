@@ -5,3 +5,6 @@
 docs/generated/config-lifecycles.md text eol=lf
 docs/mcp.md text eol=lf
 *.golden text eol=lf
+
+# pub-01: docs/rubric.md is compared with its generator.
+docs/rubric.md text eol=lf
