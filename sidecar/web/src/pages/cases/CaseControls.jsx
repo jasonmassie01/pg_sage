@@ -85,7 +85,7 @@ export function CaseControls({ caseRow, user, onDone }) {
       <button type="button" data-testid="case-resolve" disabled={busy}
         className="mt-3 rounded px-2 py-1 text-xs" style={buttonStyle}
         onClick={() => run(`/api/v1/incidents/${id}/resolve${db}`,
-          { reason: 'resolved from Cases' }, 'Incident resolved')}>
+          { reason: 'resolved from Issues' }, 'Incident resolved')}>
         Resolve incident
       </button>
       </details>
@@ -123,7 +123,7 @@ export function SuppressedFindings({ database, user, onDone }) {
               style={buttonStyle}
               onClick={() => run(`/api/v1/findings/${encodeURIComponent(
                 f.id)}/unsuppress${dbQuery(f.database_name)}`, {},
-              'Finding restored')}>
+              'Issue restored')}>
               Unsuppress
             </button>
           )}

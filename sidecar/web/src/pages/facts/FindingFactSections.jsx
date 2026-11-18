@@ -89,7 +89,7 @@ const REPORT_POLL_MS = 5 * 60 * 1000
 
 const STAGES = {
   pr_opened: 'Pull request opened',
-  deployed: 'Deployed, verdict pending',
+  deployed: 'Deployed, decision pending',
   verified: 'Verified',
 }
 

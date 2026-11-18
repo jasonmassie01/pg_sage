@@ -259,7 +259,7 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
         <StatCard label="Degraded" value={summary?.degraded}
           color={summary?.degraded > 0
             ? 'var(--red)' : 'var(--green)'} />
-        <StatCard label="Critical Findings"
+        <StatCard label="Critical Issues"
           value={summary?.total_critical}
           color={summary?.total_critical > 0
             ? 'var(--red)' : 'var(--text-primary)'} />

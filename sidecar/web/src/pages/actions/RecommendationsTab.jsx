@@ -30,9 +30,9 @@ function RecommendationList({ database, items, onReview, modeForDatabase, view }
   if (!items.length) return (
     <div className="space-y-2">
       <EmptyState message={view === 'proposed'
-        ? 'No proposed changes are available in this view. A case may still need investigation before a supported change can be proposed.'
-        : view === 'progress' ? 'No recommendation is currently being applied or verified.'
-          : 'No recommendation outcomes are recorded in this view.'} />
+        ? 'No proposed changes are available in this view. An issue may still need investigation before a supported change can be proposed.'
+        : view === 'progress' ? 'No change is currently being applied or verified.'
+          : 'No change outcomes are recorded in this view.'} />
       <a href={caseHref(null, database)} className="text-sm underline"
         style={{ color: 'var(--accent)' }}>Review issues</a>
     </div>
@@ -62,7 +62,7 @@ function RecommendationCard({ row, database, mode, onReview }) {
   const state = ({ proposed: 'Proposed', approved: 'Approved; waiting to run',
     applying: 'Applying change', applied: 'Applied; awaiting verification', verifying: 'Verifying result',
     verified: 'Verification completed', reverted: 'Reverted', inconclusive: 'Outcome inconclusive',
-    superseded: 'Replaced by a newer proposal', failed: 'Failed', abandoned: 'Stopped after failed attempts' })[row.state] || row.state
+    superseded: 'Replaced by a newer change', failed: 'Failed', abandoned: 'Stopped after failed attempts' })[row.state] || row.state
   return (
     <article className="rounded border p-3 space-y-2" data-testid="proposed-change"
       style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>

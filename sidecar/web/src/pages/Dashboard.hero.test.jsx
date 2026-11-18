@@ -156,7 +156,7 @@ describe('HealthHero', () => {
 
   it('keeps the stat cards on findings and databases', () => {
     renderHero({ total_critical: 2, incidents_critical: 5 })
-    expect(screen.getByText('Critical Findings').parentElement)
+    expect(screen.getByText('Critical Issues').parentElement)
       .toHaveTextContent('2')
     expect(screen.getByTestId('stat-databases')).toHaveTextContent('2')
   })

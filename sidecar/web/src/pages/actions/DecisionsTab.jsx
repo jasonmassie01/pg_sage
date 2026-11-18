@@ -17,7 +17,7 @@ import { formatTime } from '../../lib/time'
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
 // The filter's verdicts, in the ledger's spelling, named as the rows name them.
-const VERDICTS = [['', 'Every verdict'], ...['queue_approval', 'parked', 'blocked',
+const VERDICTS = [['', 'Every decision'], ...['queue_approval', 'parked', 'blocked',
   'observe_only'].map(value => [value, verdictLabel(value)])]
 
 function decisionsURL(database, verdict) {

@@ -23,8 +23,8 @@ import { landingTab, pendingCountState } from './actions/landingTab'
 
 const CASE_LOAD_FAILED = 'The linked issue could not be loaded. '
   + 'Its related changes cannot be confirmed.'
-const FLEET_NOTE = ' Stored recommendations require a single database; '
-  + 'case proposals are shown across the fleet.'
+const FLEET_NOTE = ' Stored changes require a single database; '
+  + 'changes proposed for issues are shown across the fleet.'
 const VIEWER_NOTE = ' Your role can inspect changes; '
   + 'approval requests are available to operators and admins.'
 
@@ -201,7 +201,7 @@ function LedgerTab({ tab, ctx }) {
   const progress = tab === 'progress'
   const recs = progress ? d.ledger.progressRecs : d.ledger.historyRecs
   return <>
-    {recommendations.error && <ErrorBanner message={`Recommendation ${progress
+    {recommendations.error && <ErrorBanner message={`Change ${progress
       ? 'progress' : 'outcomes'} could not be loaded: ${recommendations.error}`}
     onRetry={recommendations.refetch} />}
     {progress && <ManagedChanges database={database} canDecide={false}

@@ -4,7 +4,7 @@
 const ERROR_CLASS_TEXT = {
   timeout: 'did not answer in time',
   connection: 'could not be reached',
-  query: 'returned an error while reading its cases',
+  query: 'returned an error while reading its issues',
 }
 
 const SOURCE_TEXT = {

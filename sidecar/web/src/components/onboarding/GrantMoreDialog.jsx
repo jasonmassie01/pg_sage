@@ -135,7 +135,7 @@ export function GrantMoreDialog({ database, onClose, onGranted }) {
           <button type="button" onClick={onClose} disabled={busy}
             className="text-sm">Close</button>
         </div>
-        {!guide && error && <LoadError what="Trust levels" error={error} onRetry={refetch} />}
+        {!guide && error && <LoadError what="Autonomy levels" error={error} onRetry={refetch} />}
         {!guide && !error && <p role="status">Loading autonomy…</p>}
         {guide && (
           <>

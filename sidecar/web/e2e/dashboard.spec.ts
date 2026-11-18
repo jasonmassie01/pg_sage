@@ -94,7 +94,7 @@ test.describe('Dashboard page', () => {
     await expect(advisoryBadge).toBeVisible()
     await expect(advisoryBadge).toHaveAttribute(
       'title',
-      'SAFE actions may auto-execute only when execution_mode=auto, tier3_safe is on and the 8-day trust ramp has passed; otherwise they queue for approval',
+      'SAFE changes may auto-execute only when execution_mode=auto, Tier 3 Safe is on and the 8-day ramp has passed; otherwise they wait on you',
     )
     await expect(page.locator('[data-testid="trust-badge-observation"]'))
       .toBeVisible()

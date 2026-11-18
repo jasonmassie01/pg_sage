@@ -14,14 +14,14 @@ import { POLICY_GATE_DOC } from './StandingPolicy'
 
 const TRUST_LEVEL_EXPLAIN = {
   observation:
-    'Observation: pg_sage only monitors and surfaces findings.'
+    'Observation: pg_sage only monitors and surfaces issues.'
     + ' No automated actions will run.',
   // A summary of the standing policy gate; the dialog links the full
   // rules (docs/policy-gate.md). Nothing runs automatically unless
   // execution_mode is auto for the database.
   advisory:
     'Advisory: when execution_mode is auto, Tier 3 Safe is on and the'
-    + ' 8-day trust ramp has passed, pg_sage may execute SAFE actions'
+    + ' 8-day ramp has passed, pg_sage may execute SAFE actions'
     + ' (ANALYZE, non-destructive index hints). Everything else, and'
     + ' everything under approval/manual mode, queues for approval.',
   autonomous:

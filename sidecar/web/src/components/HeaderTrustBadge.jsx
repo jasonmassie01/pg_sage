@@ -4,7 +4,7 @@ import {
   fleetAutonomy, fleetAutonomyHint, fleetBadge, rowAutoFamilies,
 } from '../lib/autonomy'
 
-const MIXED_STATIC_HINT = 'Trust levels differ by database. Select a database'
+const MIXED_STATIC_HINT = 'Autonomy differs by database. Select a database'
   + ' to see what it may run without approval'
 
 // HeaderTrustBadge says what pg_sage may do right now: the selected

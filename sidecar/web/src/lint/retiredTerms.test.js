@@ -9,8 +9,9 @@ import { ROUTES, routeLabel } from '../routes'
 // ux-06a: one vocabulary. docs/glossary.md lists the words to avoid in text a
 // person reads; this walks the shipped .jsx source (and the route registry)
 // and fails with file and line on any of them. It reads JSX text, string
-// children, title and aria-label attributes, and label and title properties
-// of object literals. Text inside <code>, <pre> and <kbd> is a quoted API
+// children, the text attributes in TEXT_ATTRS, label and title properties of
+// object literals, the phrases of capitalised module constants and toast
+// messages. Text inside <code>, <pre> and <kbd> is a quoted API
 // value and is not read. Comments, identifiers and test ids are never read.
 // No concurrent access tests: a read-only walk of files on disk.
 // No state-transition tests: the scan has no states.
@@ -20,7 +21,16 @@ const espree = createRequire(import.meta.url)('espree')
 const PARSE = { ecmaVersion: 'latest', sourceType: 'module', ecmaFeatures: { jsx: true },
   loc: true }
 const CODE_TAGS = new Set(['code', 'pre', 'kbd'])
-const TEXT_ATTRS = new Set(['title', 'aria-label'])
+// TEXT_ATTRS: the JSX attributes whose strings a person reads: the HTML ones
+// and the text props of the dashboard's own components (StatCard label,
+// EmptyState message, field help...). className, test ids and the like are not.
+const TEXT_ATTRS = new Set(['title', 'aria-label', 'alt', 'placeholder', 'label', 'help',
+  'message', 'consequence', 'text', 'what', 'confirmLabel', 'empty', 'reasonLabel',
+  'description', 'hint'])
+// TEXT_CONST: a module-level constant named in capitals (FLEET_NOTE,
+// PROPOSAL_TEXT) holds text the page shows; its phrases are read.
+const TEXT_CONST = /^[A-Z][A-Z0-9_]*$/
+const PHRASE = /\S\s+\S/
 const TEXT_PROPS = new Set(['label', 'title'])
 // Route fields that are not read by a person: ids, hash paths, test ids.
 const ROUTE_KEYS = new Set(['id', 'path', 'aliases', 'testId', 'navGroup', 'roles'])
@@ -30,7 +40,11 @@ const WALK_TIMEOUT = 30000
 
 // ALLOWLIST: proper nouns and quoted API values the scan cannot tell apart
 // from text. Each entry names the file, the word and why it stays.
-const ALLOWLIST = []
+const CONFIG_FIELD = 'names the trust.level / execution_mode config key a person sets; '
+  + 'ux-06b replaces the two selects with one Autonomy scale'
+const ALLOWLIST = ['pages/databases/DatabaseForm.jsx', 'pages/settings/tabs/TrustSafetyTab.jsx',
+  'pages/settings/tabs/SimpleMonitoringTab.jsx'].flatMap(file => ['trust level',
+  'execution mode'].map(word => ({ file, word, reason: CONFIG_FIELD })))
 
 function shippedSources(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -67,11 +81,40 @@ function stringsOf(expr) {
 
 const tagName = el => el.openingElement?.name?.name
 
+// phrasesIn lists [text, line] for every literal phrase (two or more words)
+// under node, property keys aside: the values of a text constant.
+function phrasesIn(node, out = []) {
+  if (node.type === 'Literal' && typeof node.value === 'string' && PHRASE.test(node.value)) {
+    out.push([node.value, node.loc.start.line])
+  }
+  if (node.type === 'TemplateElement' && PHRASE.test(node.value.cooked)) {
+    out.push([node.value.cooked, node.loc.start.line])
+  }
+  const kids = node.type === 'Property' && !node.computed ? [node.value] : children(node)
+  kids.forEach(c => phrasesIn(c, out))
+  return out
+}
+
+// constTexts lists the phrases of a module-level capitalised constant.
+function constTexts(node) {
+  const decl = node.type === 'ExportNamedDeclaration' ? node.declaration : node
+  if (decl?.type !== 'VariableDeclaration' || decl.kind !== 'const') return []
+  return decl.declarations.filter(d => TEXT_CONST.test(d.id?.name || '') && d.init
+    && !/Function/.test(d.init.type)).flatMap(d => phrasesIn(d.init))
+}
+
+const isToast = node => node.type === 'CallExpression'
+  && (node.callee.object?.name === 'toast' || node.callee.name === 'toast')
+
 // jsxTexts lists [text, line] for every string a person reads in a .jsx file.
 export function jsxTexts(code) {
   const out = []
   const visit = (node, inCode) => {
     const here = inCode || (node.type === 'JSXElement' && CODE_TAGS.has(tagName(node)))
+    if (node.type === 'Program') node.body.forEach(s => out.push(...constTexts(s)))
+    if (isToast(node)) {
+      node.arguments.forEach(a => stringsOf(a).forEach(s => out.push([s, a.loc.start.line])))
+    }
     if (node.type === 'JSXText' && !here) out.push([node.value, node.loc.start.line])
     if (node.type === 'JSXExpressionContainer' && !here && node.expression) {
       stringsOf(node.expression).forEach(s => out.push([s, node.loc.start.line]))
@@ -234,6 +277,25 @@ describe('retired-term scanner', () => {
       '  <span key="finding">ok</span></p>',
     ].join('\n')
     expect(retiredHits('a.jsx', jsxTexts(code), avoid, [])).toEqual([])
+  })
+
+  it('flags component text props, text constants and toasts', () => {
+    const code = [
+      "const NOTE = 'Stored findings need one database.'",
+      "export const TEXT = { queued: 'Finding queued', key: 'finding' }",
+      "const apiPath = 'one finding here'",
+      'const A = () => <StatCard label="Critical Findings" className="finding" />',
+      'const B = () => <EmptyState message={`No finding yet`} />',
+      "const C = () => toast.success('Finding restored')",
+      "const D = () => run('/x', 'The trust level')",
+    ].join('\n')
+    expect(retiredHits('a.jsx', jsxTexts(code), avoid, [])).toEqual([
+      'a.jsx:1: "findings" (use Issue): Stored findings need one database.',
+      'a.jsx:2: "finding" (use Issue): Finding queued',
+      'a.jsx:4: "findings" (use Issue): Critical Findings',
+      'a.jsx:5: "finding" (use Issue): No finding yet',
+      'a.jsx:6: "finding" (use Issue): Finding restored',
+    ])
   })
 
   it('honours an allowlist entry for its file only', () => {

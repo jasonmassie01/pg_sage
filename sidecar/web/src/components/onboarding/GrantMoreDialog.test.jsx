@@ -120,7 +120,7 @@ describe('GrantMoreDialog', () => {
       data: null, loading: false, error: 'HTTP 500', refetch,
     }))
     render(<GrantMoreDialog database="app" onClose={vi.fn()} />)
-    expect(screen.getByRole('alert')).toHaveTextContent(/Trust levels unavailable: HTTP 500/)
+    expect(screen.getByRole('alert')).toHaveTextContent(/Autonomy levels unavailable: HTTP 500/)
     expect(screen.queryByText(/Loading trust levels/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(refetch).toHaveBeenCalledTimes(1)

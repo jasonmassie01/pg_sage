@@ -52,7 +52,7 @@ describe('Dashboard without the visit badge', () => {
       get() { throw new DOMException('blocked', 'SecurityError') },
     })
     renderDashboard()
-    expect(screen.getByText('Critical Findings')).toBeInTheDocument()
+    expect(screen.getByText('Critical Issues')).toBeInTheDocument()
     expect(screen.queryByTestId('new-since-visit-badge')).toBeNull()
     expect(screen.queryByText(/new$/)).toBeNull()
   })
@@ -61,7 +61,7 @@ describe('Dashboard without the visit badge', () => {
     localStorage.setItem('pg_sage_' + 'findings_visit',
       String(Date.parse('2026-11-01T00:00:00Z')))
     renderDashboard()
-    expect(screen.getByText('Critical Findings')).toBeInTheDocument()
+    expect(screen.getByText('Critical Issues')).toBeInTheDocument()
     expect(screen.queryByTestId('new-since-visit-badge')).toBeNull()
     expect(screen.queryByText(/\+\d+ new/)).toBeNull()
   })
