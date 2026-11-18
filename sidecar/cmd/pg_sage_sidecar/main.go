@@ -151,7 +151,7 @@ func main() {
 }
 
 // runSubcommandAndExit handles the vector-lab, bench, history, evidence,
-// verifier-backtest, lint-migration, plan and healthcheck subcommands and
+// verifier-backtest, lint-migration, plan, pressure and healthcheck subcommands and
 // --version, which exit without starting the sidecar.
 func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
@@ -182,19 +182,28 @@ func runSubcommandAndExit() {
 		os.Exit(runVerifierBacktestCommand(context.Background(), os.Args[2:], os.Stdout,
 			os.Stderr))
 	}
-	if len(os.Args) > 1 && os.Args[1] == planSubcommand {
-		getenv, err := secretGetenv("SAGE_API_TOKEN")
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "plan: %v\n", err)
-			os.Exit(planExitUsage)
-		}
-		os.Exit(runPlanCommand(context.Background(), os.Args[2:], getenv, nil, os.Stdout,
-			os.Stderr))
+	if len(os.Args) > 1 && (os.Args[1] == planSubcommand || os.Args[1] == pressureSubcommand) {
+		os.Exit(runAPITokenSubcommand(os.Args[1], os.Args[2:]))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Println(versionLine())
 		os.Exit(0)
 	}
+}
+
+// runAPITokenSubcommand runs plan or pressure, which talk to a running
+// sidecar's API with the token in SAGE_API_TOKEN (or SAGE_API_TOKEN_FILE).
+func runAPITokenSubcommand(name string, args []string) int {
+	getenv, err := secretGetenv("SAGE_API_TOKEN")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+		return planExitUsage // 2 for both commands
+	}
+	if name == pressureSubcommand {
+		return runPressureCommand(context.Background(), args, getenv, nil, os.Stdout,
+			os.Stderr)
+	}
+	return runPlanCommand(context.Background(), args, getenv, nil, os.Stdout, os.Stderr)
 }
 
 // runTelemetryDSNSubcommand runs history or ledger, which read the

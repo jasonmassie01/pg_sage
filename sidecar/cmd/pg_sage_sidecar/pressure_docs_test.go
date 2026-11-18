@@ -39,8 +39,9 @@ func fencedBlocks(doc string) map[string][]string {
 }
 
 // pressureInvocations are the argument lists of every CLI call in text:
-// shell variables read as "1" (a valid database, table, job or batch), and
-// the call ends at a shell or psql separator.
+// shell and psql variables ($x, :x, :'x') read as "1" (a valid database,
+// table, job or batch); the call ends at a shell separator or at the
+// closing backquote of a psql backquoted command.
 func pressureInvocations(text string) [][]string {
 	var calls [][]string
 	const cmd = "pg_sage_sidecar pressure"
@@ -49,25 +50,42 @@ func pressureInvocations(text string) [][]string {
 		if !ok {
 			continue
 		}
-		var args []string
-		for _, tok := range strings.Fields(rest) {
-			if strings.ContainsAny(tok, ";|)`&>") || tok == "\\" {
-				break
-			}
-			tok = strings.Trim(tok, `"'`)
-			if strings.HasPrefix(tok, "$") {
-				tok = "1"
-			}
-			args = append(args, tok)
-		}
-		calls = append(calls, args)
+		calls = append(calls, invocationArgs(rest))
 	}
 	return calls
 }
 
+func invocationArgs(rest string) []string {
+	var args []string
+	for _, tok := range strings.Fields(rest) {
+		if tok == "\\" {
+			break
+		}
+		closing := false
+		if i := strings.IndexAny(tok, ";|)&>`"); i >= 0 {
+			tok, closing = tok[:i], true
+		}
+		tok = strings.Trim(tok, `"'`)
+		if strings.HasPrefix(tok, "$") || strings.HasPrefix(tok, ":") {
+			tok = "1"
+		}
+		if tok != "" {
+			args = append(args, tok)
+		}
+		if closing {
+			break
+		}
+	}
+	return args
+}
+
 func TestPressureCmdDocs_EveryCommandParses(t *testing.T) {
 	doc := readPressureDoc(t)
-	calls := pressureInvocations(doc)
+	var code []string // prose names the command too; only code blocks run it
+	for _, blocks := range fencedBlocks(doc) {
+		code = append(code, blocks...)
+	}
+	calls := pressureInvocations(strings.Join(code, "\n"))
 	if len(calls) < 3 {
 		t.Fatalf("the doc has %d pressure commands, want the shell, psql and CI examples",
 			len(calls))
