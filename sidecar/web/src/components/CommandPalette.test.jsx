@@ -10,7 +10,8 @@ import { ROUTES, canSee, findRoute } from '../routes'
 
 const admin = { email: 'a@x.test', role: 'admin' }
 const viewer = { email: 'v@x.test', role: 'viewer' }
-const ADMIN_COMMANDS = ['command-nav-users', 'command-nav-notifications', 'command-nav-alerts']
+// ux-11: the Alert log is no nav entry any more; Settings is admin only.
+const ADMIN_COMMANDS = ['command-nav-users', 'command-nav-notifications', 'command-nav-settings']
 
 function renderPalette(props = {}) {
   return render(<CommandPalette databases={[{ name: 'orders' }]} selectedDB="all"
@@ -33,7 +34,7 @@ afterEach(() => {
 })
 
 describe('CommandPalette routes', () => {
-  it('offers admins Users, Notifications and Alert log', () => {
+  it('offers admins Users, Notifications and Settings', () => {
     renderPalette()
     openPalette()
     for (const testId of ADMIN_COMMANDS) expect(screen.getByTestId(testId)).toBeInTheDocument()
@@ -44,7 +45,7 @@ describe('CommandPalette routes', () => {
     renderPalette()
     openPalette()
     const expected = visibleNavIds(admin, false)
-    expect(expected.length).toBeGreaterThan(15)
+    expect(expected).toHaveLength(14)
     expect(navCommandIds().sort()).toEqual([...expected].sort())
   })
 

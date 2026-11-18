@@ -9,10 +9,15 @@ import { LeaderBadge } from './databases/LeaderBadge'
 import { joinRuntime } from './databases/runtimeStatus'
 import { ReadOnlyFleet, ReadOnlyFleetTable } from './databases/ReadOnlyFleet'
 import { TabList, TabPanel } from '../components/Tabs'
+import { FleetOverview } from './fleet/FleetOverview'
 
 // scopeTag is the header tag scope (ux-10b): the fleet tables open filtered
 // by it, and a new tag scope starts them over.
-export function DatabasesPage({ onSelectDatabase, scopeTag = '' }) {
+// fleet, database and initialTab feed the Health & readiness tab (ux-11):
+// App's fleet query, the scoped database and the route's ?tab=.
+export function DatabasesPage({
+  onSelectDatabase, scopeTag = '', fleet, database = 'all', initialTab = '',
+}) {
   const initialTags = scopeTag ? [scopeTag] : []
   const [databases, setDatabases] = useState([])
   const [error, setError] = useState(null)
@@ -28,7 +33,8 @@ export function DatabasesPage({ onSelectDatabase, scopeTag = '' }) {
   const [runtimeAvailable, setRuntimeAvailable] = useState(false)
   const [readOnlySource, setReadOnlySource] = useState(null)
   const [inventoryComplete, setInventoryComplete] = useState(false)
-  const [tab, setTab] = useState('databases')
+  const [chosenTab, setTab] = useState(initialTab)
+  const tab = fleetTabKeys(readOnly).includes(chosenTab) ? chosenTab : 'databases'
 
   const fetchDatabases = useCallback(async () => {
     setLoading(true)
@@ -229,9 +235,15 @@ export function DatabasesPage({ onSelectDatabase, scopeTag = '' }) {
         </div>
       )}
 
-      {!loading && !readOnly && <FleetTabs tab={tab} onChange={setTab} />}
+      {!loading && <FleetTabs tab={tab} onChange={setTab} readOnly={readOnly} />}
 
-      {!loading && !readOnly && (
+      {!loading && tab === 'readiness' && (
+        <TabPanel id="fleet" active={tab}>
+          <FleetOverview database={database} fleet={fleet} onSelectDB={onSelectDatabase} />
+        </TabPanel>
+      )}
+
+      {!loading && !readOnly && tab !== 'readiness' && (
         <TabPanel id="fleet" active={tab}>
           {tab === 'discovered' ? <DiscoveredDatabases /> : databases.length > 0 ? (
             <DatabaseTable key={scopeTag} databases={databases} initialTags={initialTags}
@@ -244,7 +256,7 @@ export function DatabasesPage({ onSelectDatabase, scopeTag = '' }) {
         </TabPanel>
       )}
 
-      {!loading && readOnly && (
+      {!loading && readOnly && tab === 'databases' && (
         <ReadOnlyFleetTable key={scopeTag} databases={databases} initialTags={initialTags}
           onSelectDatabase={onSelectDatabase} />
       )}
@@ -283,10 +295,18 @@ async function fetchInventory(url, label) {
   return data.databases
 }
 
-// FleetTabs switches between registered databases and the Discovered tab
-// (market-06, fleet auto-discovery).
-function FleetTabs({ tab, onChange }) {
-  const tabs = [['databases', 'Databases'], ['discovered', 'Discovered']]
+// FLEET_TABS: registered databases, the Discovered tab (market-06, fleet
+// auto-discovery; an editable fleet only) and Health & readiness (ux-11).
+const FLEET_TABS = [['databases', 'Databases'], ['discovered', 'Discovered'],
+  ['readiness', 'Health & readiness']]
+
+function fleetTabKeys(readOnly) {
+  return FLEET_TABS.map(([key]) => key).filter(key => !readOnly || key !== 'discovered')
+}
+
+function FleetTabs({ tab, onChange, readOnly }) {
+  const keys = fleetTabKeys(readOnly)
+  const tabs = FLEET_TABS.filter(([key]) => keys.includes(key))
     .map(([key, label]) => ({ key, label, testId: `fleet-tab-${key}` }))
   return (
     <TabList id="fleet" label="Fleet sections" tabs={tabs} active={tab} onSelect={onChange}

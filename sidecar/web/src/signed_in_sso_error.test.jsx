@@ -17,8 +17,8 @@ vi.mock('./components/Toast', () => ({
   ToastProvider: ({ children }) => children,
 }))
 
-vi.mock('./pages/Dashboard', () => ({
-  Dashboard: () => <div data-testid="legacy-overview">Legacy overview</div>,
+vi.mock('./pages/fleet/FleetOverview', () => ({
+  FleetOverview: () => <div data-testid="legacy-overview">Legacy overview</div>,
 }))
 
 const fleet = {

@@ -7,10 +7,10 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mockAllAPIs, mockAuthMe } from './fixtures'
 
-const OPERATE = ['Inbox', 'Issues', 'Actions', 'Ledger', 'Workload', 'SLOs', 'Autonomy', 'Facts',
-  'Ask Sage']
-const ADMIN = ['Fleet', 'Users', 'Notifications', 'Alert log', 'Settings', 'MCP tokens',
-  'Agents']
+// ux-11: 14 entries in Operate, Admin and the collapsible Evidence group.
+const OPERATE = ['Inbox', 'Changes', 'Issues', 'Ask Sage']
+const ADMIN = ['Fleet', 'Autonomy', 'Notifications', 'Agents', 'Users', 'Settings']
+const EVIDENCE = ['Workload', 'SLOs', 'Facts', 'Runbooks']
 const SHORTCUTS = [
   ['Ctrl+K', 'Open or close the command palette'],
   ['?', 'Show these keyboard shortcuts'],
@@ -39,29 +39,41 @@ test('dashboard-06: an admin sees the Admin group, in registry order', async ({ 
   await page.goto('/#/')
   await expect(group(page, 'Operate')).toHaveText(OPERATE)
   await expect(group(page, 'Admin')).toHaveText(ADMIN)
-  // Advanced is collapsed until opened, then lists its pages.
-  const advanced = page.getByTestId('sidebar-desktop').getByRole('button', { name: 'Advanced' })
-  await expect(advanced).toHaveAttribute('aria-expanded', 'false')
+  // Evidence is collapsed until opened, then lists its pages.
+  const evidence = page.getByTestId('sidebar-desktop').getByRole('button', { name: 'Evidence' })
+  await expect(evidence).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByTestId('nav-runbooks')).toHaveCount(0)
-  await advanced.click()
-  await expect(page.locator('#advanced-navigation a')).toHaveText(
-    ['Runbooks', 'Snapshot & metrics'])
+  await evidence.click()
+  await expect(page.getByTestId('sidebar-desktop').locator('#evidence-navigation a'))
+    .toHaveText(EVIDENCE)
+})
+
+test('ux-11: the opened Evidence group stays open after a reload', async ({ page }) => {
+  await signInAs(page, 'admin')
+  await page.goto('/#/')
+  const evidence = page.getByTestId('sidebar-desktop').getByRole('button', { name: 'Evidence' })
+  await evidence.click()
+  await expect(evidence).toHaveAttribute('aria-expanded', 'true')
+  await page.reload()
+  await expect(page.getByTestId('sidebar-desktop').getByRole('button', { name: 'Evidence' }))
+    .toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByTestId('sidebar-desktop').getByTestId('nav-slos')).toBeVisible()
 })
 
 test('an operator sees only the Admin pages a reviewer may open', async ({ page }) => {
   await signInAs(page, 'operator')
   await page.goto('/#/')
   // alerting-06c opened Notifications (its Log tab) to operators.
-  await expect(group(page, 'Admin')).toHaveText(['Notifications', 'Alert log', 'Agents'])
+  await expect(group(page, 'Admin')).toHaveText(['Autonomy', 'Notifications', 'Agents'])
   await expect(page.getByTestId('nav-settings')).toHaveCount(0)
 })
 
-test('a viewer has no Admin group at all', async ({ page }) => {
+test('a viewer sees only Autonomy under Admin', async ({ page }) => {
   await signInAs(page, 'viewer')
   await page.goto('/#/')
   await expect(group(page, 'Operate')).toHaveText(OPERATE)
-  await expect(page.getByTestId('sidebar-desktop').getByText('Admin', { exact: true }))
-    .toHaveCount(0)
+  await expect(group(page, 'Admin')).toHaveText(['Autonomy'])
+  await expect(page.getByTestId('nav-settings')).toHaveCount(0)
 })
 
 test('clicking an Admin link opens its page and marks it current', async ({ page }) => {

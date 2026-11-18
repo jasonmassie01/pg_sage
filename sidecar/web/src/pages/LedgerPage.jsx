@@ -4,12 +4,17 @@ import { QueryState } from '../components/QueryState'
 import { LiveTimeAgo } from '../components/TimeAgo'
 import { ROLLBACK_LABELS as ROLLBACK, VERDICT_LABELS as VERDICTS } from '../lib/outcomes'
 import { ledgerTierLabel } from './actions/LadderSection'
+import { ValuePage } from './ValuePage'
+import { ExternalAgentRequests } from './mcptokens/ExternalAgentRequests'
+import { routeParam } from '../routes'
 
 // LedgerPage (ux-02a): what pg_sage changed in a window, one row per
 // change from GET /api/v1/outcomes. The API computes every number (effect
 // percent, the measured share); this page only words and formats them.
 // #/ledger?evidence=<id> shows the changes that evidence id cites, over
-// the whole retention.
+// the whole retention. ux-11: Value is the ledger's summary (#/value
+// redirects to section=value) and every external agent request is kept here
+// (section=agents); each section mounts, and reads, only once open.
 
 const pollMs = 60000
 const RETENTION = '9600h'
@@ -20,10 +25,6 @@ const ORIGINS = {
   autonomous: 'Autonomous under policy',
 }
 
-function evidenceFromHash(hash = window.location.hash) {
-  const query = String(hash || '').split('?')[1] || ''
-  return new URLSearchParams(query).get('evidence') || ''
-}
 
 function ledgerURL(since, database, evidence) {
   const params = new URLSearchParams({ since: evidence ? RETENTION : since })
@@ -142,9 +143,26 @@ function LedgerTable({ rows }) {
   )
 }
 
-export function LedgerPage({ database }) {
+// Section is a collapsed part of the page that mounts its content only once
+// open.
+function Section({ testId, title, initiallyOpen, children }) {
+  const [open, setOpen] = useState(initiallyOpen)
+  return (
+    <details data-testid={testId} open={open} className="rounded border p-3"
+      style={{ borderColor: 'var(--border)' }}
+      onToggle={e => setOpen(e.currentTarget.open)}>
+      <summary className="cursor-pointer text-sm font-semibold">{title}</summary>
+      {open && <div className="mt-3">{children}</div>}
+    </details>
+  )
+}
+
+export function LedgerPage({ database, user, route }) {
   const [since, setSince] = useState('24h')
-  const evidence = evidenceFromHash()
+  const hash = route ?? window.location.hash
+  const evidence = routeParam(hash, 'evidence')
+  const section = routeParam(hash, 'section')
+  const canReview = user?.role === 'admin' || user?.role === 'operator'
   const ledger = useAPI(ledgerURL(since, database, evidence), pollMs)
   return (
     <div className="space-y-4" data-testid="ledger-page">
@@ -171,15 +189,26 @@ export function LedgerPage({ database }) {
           </label>
         )}
       </div>
+      <Section testId="ledger-value" title="Value: verified work and DBA hours saved"
+        initiallyOpen={section === 'value'}>
+        <ValuePage database={database} embedded />
+      </Section>
       <QueryState query={ledger}>
-        {data => (
+        {/* An answer with no body is no ledger yet, never a crash. */}
+        {data => (data ? (
           <>
             <Summary summary={data.summary} />
             <ReadErrors errors={data.errors} />
             <LedgerTable rows={data.rows} />
           </>
-        )}
+        ) : null)}
       </QueryState>
+      {canReview && (
+        <Section testId="ledger-agent-requests" title="External agent requests"
+          initiallyOpen={section === 'agents'}>
+          <ExternalAgentRequests />
+        </Section>
+      )}
     </div>
   )
 }

@@ -201,6 +201,10 @@ function LedgerTab({ tab, ctx }) {
   const progress = tab === 'progress'
   const recs = progress ? d.ledger.progressRecs : d.ledger.historyRecs
   return <>
+    {!progress && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+      What each change measured, and the value delivered, is in the{' '}
+      <a href="#/ledger" data-testid="actions-ledger-link" className="underline"
+        style={{ color: 'var(--accent)' }}>outcome ledger</a>.</p>}
     {recommendations.error && <ErrorBanner message={`Change ${progress
       ? 'progress' : 'outcomes'} could not be loaded: ${recommendations.error}`}
     onRetry={recommendations.refetch} />}

@@ -1,22 +1,22 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { Dashboard } from './Dashboard'
+import { FleetOverview } from './FleetOverview'
 
 // cases-11: the Overview hero claims health only when no critical or
 // warning work is open and collection evidence is fresh. Every count it
 // cannot read blocks the claim.
 // The "+N new" badge this item once covered was removed by dashboard-12
-// (Dashboard.visit.test.jsx pins its absence), so no badge test here.
+// (FleetOverview.visit.test.jsx pins its absence), so no badge test here.
 // No concurrent access tests: one render at a time, single-threaded.
 
-vi.mock('../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
-vi.mock('../components/FleetHealthChart', () => ({
+vi.mock('../../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
+vi.mock('../../components/FleetHealthChart', () => ({
   FleetHealthChart: () => <div data-testid="fleet-health-chart" />,
 }))
-vi.mock('../components/TokenBudgetBanner', () => ({
+vi.mock('../../components/TokenBudgetBanner', () => ({
   TokenBudgetBanner: () => null,
 }))
-vi.mock('../hooks/useAPI', () => ({
+vi.mock('../../hooks/useAPI', () => ({
   useAPI: () => ({
     data: { findings: [] }, loading: false, error: null, refetch: vi.fn(),
   }),
@@ -49,7 +49,7 @@ function fleetWith(summary) {
 }
 
 function renderHero(overrides) {
-  return render(<Dashboard database="all" onSelectDB={vi.fn()}
+  return render(<FleetOverview database="all" onSelectDB={vi.fn()}
     fleet={fleetWith({ ...CLEAR, ...overrides })} />)
 }
 
@@ -82,7 +82,7 @@ describe('HealthHero', () => {
     const { rerender } = renderHero({})
     expect(screen.getByTestId('health-hero'))
       .toHaveTextContent('No open critical or warning issues')
-    rerender(<Dashboard database="all" onSelectDB={vi.fn()}
+    rerender(<FleetOverview database="all" onSelectDB={vi.fn()}
       fleet={fleetWith({ ...CLEAR, incidents_critical: 1 })} />)
     expectNotHealthy(screen.getByTestId('health-hero'))
     expect(screen.getByTestId('health-hero-cases-link')).toBeInTheDocument()

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { QueryState } from '../components/QueryState'
@@ -7,6 +7,13 @@ import { EmptyState } from '../components/EmptyState'
 import { DatabaseSummary } from './databases/DatabaseSummary'
 import { EvidencePacks } from './database/EvidencePacks'
 import { RecoverabilityPanel } from '../components/RecoverabilityPanel'
+import { Skeleton } from '../components/Skeleton'
+
+// recharts is only needed by the health chart, so it loads in its own chunk
+// and the first paint does not download it (dashboard-09). The chart moved
+// here from Snapshot & metrics (ux-11).
+const FleetHealthChart = lazy(() => import('../components/FleetHealthChart')
+  .then(m => ({ default: m.FleetHealthChart })))
 
 const MAX_INLINE_CHARS = 500000
 
@@ -95,6 +102,9 @@ export function DatabasePage({ database, user }) {
   return (
     <div className="space-y-6">
       <DatabaseSummary database={db} />
+      <Suspense fallback={<Skeleton height={192} data-testid="fleet-health-chart-loading" />}>
+        <FleetHealthChart database={db} />
+      </Suspense>
       <RecoverabilityPanel database={db} />
       <EvidencePacks database={db} user={user} />
       {queryBlocked(snapshot) ? (

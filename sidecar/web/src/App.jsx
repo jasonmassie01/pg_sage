@@ -14,11 +14,19 @@ import { LiveEventsProvider } from './hooks/useLiveEvents'
 import { ToastProvider } from './components/Toast'
 import { PostgresMeme } from './components/PostgresMeme'
 import { renderRoute } from './routeRender'
+import { canonicalRoute } from './routes'
 import { ForcedPasswordChange } from './pages/users/ForcedPasswordChange'
 
+// getRoute returns the current hash route. An old path (an alias) is
+// replaced in place by its new home, keeping the query, so Back skips it
+// (ux-11).
 function getRoute() {
-  const hash = window.location.hash || '#/'
-  return hash.replace('#', '') || '/'
+  const route = (window.location.hash || '#/').replace('#', '') || '/'
+  const canonical = canonicalRoute(route)
+  if (canonical !== route) {
+    window.history.replaceState(window.history.state, '', `#${canonical}`)
+  }
+  return canonical
 }
 
 function PlatformSignInError({ mode, onReload }) {

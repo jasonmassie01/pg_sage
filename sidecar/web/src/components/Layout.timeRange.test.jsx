@@ -6,7 +6,7 @@ import { Layout } from './Layout'
 import { ROUTES } from '../routes'
 
 // dashboard-07: the header time picker shows only on the pages it drives
-// (the Actions ledger and the #/advanced health chart), labelled with what
+// (the Changes ledger and the Database health chart, ux-11), labelled with what
 // it scopes. The real picker and provider run; only polling is stubbed.
 // No concurrent access tests: one render tree, single-threaded.
 
@@ -65,8 +65,8 @@ describe('header time picker scope', () => {
     expect(picker()).toHaveTextContent('Ledger window')
   })
 
-  it('renders on #/advanced with the chart scope label', () => {
-    renderAt('#/advanced')
+  it('renders on #/database with the chart scope label', () => {
+    renderAt('#/database')
     expect(picker()).toHaveTextContent('Health chart window')
   })
 
@@ -83,9 +83,9 @@ describe('header time picker scope', () => {
     expect(picker()).toBeNull()
   })
 
-  it('is declared on the registry for exactly Actions and Snapshot', () => {
+  it('is declared on the registry for exactly Changes and Database', () => {
     const scoped = ROUTES.filter(r => r.usesTimeRange)
-    expect(scoped.map(r => r.id)).toEqual(['actions', 'snapshot'])
+    expect(scoped.map(r => r.id)).toEqual(['actions', 'database'])
     for (const route of scoped) expect(route.timeRangeLabel).toMatch(/window$/)
   })
 })

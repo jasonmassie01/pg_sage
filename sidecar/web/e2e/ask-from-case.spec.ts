@@ -64,7 +64,7 @@ test('mcp-05 CHECK-03: citation [1] focuses the cited case', async ({ page }) =>
   await askAbout(page, 'Which findings are critical?')
   await page.getByTestId('ask-statement').getByRole('link', { name: '[1]' }).click()
 
-  await expect(page).toHaveURL(/#\/cases\?finding=12&database=orders$/)
+  await expect(page).toHaveURL(/#\/issues\?finding=12&database=orders$/)
   const cards = page.getByRole('article')
   await expect(cards).toHaveCount(1)
   await expect(cards.getByRole('heading', { name: STATS_TITLE })).toBeVisible()
@@ -80,7 +80,7 @@ test('a citation to a non-numeric finding id opens no case and shows the notice'
     await askAbout(page, 'Which findings are critical?')
     await page.getByTestId('ask-statement').getByRole('link', { name: '[1]' }).click()
 
-    await expect(page).toHaveURL(/#\/cases\?finding=12abc&database=orders$/)
+    await expect(page).toHaveURL(/#\/issues\?finding=12abc&database=orders$/)
     const notice = page.getByTestId('cases-focus-missing')
     await expect(notice).toContainText('No open issue holds record 12abc')
     // "12abc" never matches finding 12 by prefix.

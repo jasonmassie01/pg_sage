@@ -33,10 +33,14 @@ describe('DatabasesPage Discovered tab (market-06)', () => {
     expect(screen.getByTestId('fleet-tab-discovered')).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('shows no tabs in a read-only fleet', async () => {
-    mockFleet(true)
+  // ux-11: every fleet now has the Health & readiness tab; a read-only
+  // fleet still gets no Discovered tab.
+  it('shows no Discovered tab in a read-only fleet', async () => {
+    const urls = mockFleet(true)
     render(<DatabasesPage />)
     await waitFor(() => expect(screen.getByTestId('fleet-read-only')).toBeInTheDocument())
-    expect(screen.queryByTestId('fleet-tabs')).toBeNull()
+    expect(screen.queryByTestId('fleet-tab-discovered')).toBeNull()
+    expect(screen.getByTestId('fleet-tab-readiness')).toBeInTheDocument()
+    expect(urls).not.toContain('/api/v1/databases/discovered')
   })
 })

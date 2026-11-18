@@ -17,6 +17,7 @@ import { PageErrorBoundary } from './PageErrorBoundary'
 import { SecretsPostureBanner } from './SecretsPostureBanner'
 import { findRoute, navGroups, routeHref, routeLabel } from '../routes'
 import { inboxBadge } from '../lib/inbox'
+import { readPref, writePref } from '../lib/storage'
 
 const PendingActionsContext = createContext({ refetch: () => {} })
 
@@ -80,35 +81,26 @@ function NavLink({ route, active, pending }) {
   )
 }
 
-// AdvancedNav is the collapsed group of secondary pages. Layout keeps the
-// open state so the desktop sidebar and the mobile drawer share it.
-function AdvancedNav({ routes, activeId, open, onToggle }) {
+// CollapsibleNav is a nav group the viewer can fold (ux-11: Evidence).
+// Layout keeps the open state so the desktop sidebar and the mobile drawer
+// share it.
+function CollapsibleNav({ group, activeId, pending, open, onToggle }) {
+  const listId = `${group.id}-navigation`
   return (
     <div>
-      <button type="button" aria-expanded={open}
-        aria-controls="advanced-navigation"
+      <button type="button" aria-expanded={open} aria-controls={listId}
         onClick={onToggle}
         className="mt-3 flex w-full items-center gap-2 rounded px-3 py-2 text-sm"
         style={{ color: 'var(--text-secondary)' }}>
         <ChevronDown size={16} aria-hidden="true"
           style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
-        Advanced
+        {group.heading}
       </button>
       {open && (
-        <div id="advanced-navigation" className="ml-3 border-l pl-2"
-          style={{ borderColor: 'var(--border)' }}>
-          {routes.map(route => (
-            <a key={route.id} href={routeHref(route)} data-testid={route.testId}
-              aria-current={route.id === activeId ? 'page' : undefined}
-              className="block rounded px-3 py-2 text-sm"
-              style={{
-                color: route.id === activeId
-                  ? 'var(--accent)' : 'var(--text-secondary)',
-                background: route.id === activeId
-                  ? 'var(--bg-hover)' : 'transparent',
-              }}>
-              {routeLabel(route)}
-            </a>
+        <div id={listId} className="ml-3 border-l pl-2" style={{ borderColor: 'var(--border)' }}>
+          {group.routes.map(route => (
+            <NavLink key={route.id} route={route} active={route.id === activeId}
+              pending={pending} />
           ))}
         </div>
       )}
@@ -118,9 +110,10 @@ function AdvancedNav({ routes, activeId, open, onToggle }) {
 
 // SidebarNav renders the nav groups this user can see, from the route
 // registry (dashboard-06).
-function SidebarNav({ user, platformManaged, activeId, pending, advanced }) {
+function SidebarNav({ user, platformManaged, activeId, pending, collapsed }) {
   return navGroups(user, platformManaged).map(group => (group.collapsible
-    ? <AdvancedNav key={group.id} routes={group.routes} activeId={activeId} {...advanced} />
+    ? <CollapsibleNav key={group.id} group={group} activeId={activeId} pending={pending}
+      open={collapsed.isOpen(group)} onToggle={() => collapsed.toggle(group)} />
     : (
       <div key={group.id}>
         <NavHeading>{group.heading}</NavHeading>
@@ -130,6 +123,33 @@ function SidebarNav({ user, platformManaged, activeId, pending, advanced }) {
         ))}
       </div>
     )))
+}
+
+const navPrefKey = group => `pg_sage_nav_${group.id}`
+
+// storedOpen is the viewer's last choice for a collapsible group: true,
+// false, or null when they made none (or storage is unavailable).
+function storedOpen(group) {
+  const value = readPref(navPrefKey(group), '')
+  if (value === 'open') return true
+  if (value === 'closed') return false
+  return null
+}
+
+// useCollapsedGroups: a collapsible group is open when the viewer last
+// opened it, or, before any choice, when the current page is in it. The
+// choice persists per browser (lib/storage.js); blocked storage keeps it
+// for this page view only.
+function useCollapsedGroups(activeRoute) {
+  const [choices, setChoices] = useState({})
+  const choice = group => (group.id in choices ? choices[group.id] : storedOpen(group))
+  const isOpen = group => choice(group) ?? activeRoute?.navGroup === group.id
+  const toggle = group => {
+    const next = !isOpen(group)
+    writePref(navPrefKey(group), next ? 'open' : 'closed')
+    setChoices(prev => ({ ...prev, [group.id]: next }))
+  }
+  return { isOpen, toggle }
 }
 
 // ScopeEmpty stands in for the scope picker before any database exists;
@@ -180,8 +200,7 @@ export function Layout({
     document.title = headerTitle === 'pg_sage' ? 'pg_sage' : `${headerTitle} · pg_sage`
   }, [headerTitle])
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const advanced = { open: advancedOpen, onToggle: () => setAdvancedOpen(open => !open) }
+  const collapsed = useCollapsedGroups(activeRoute)
 
   // Close the drawer on navigation. Listen for hashchange so that
   // clicking a link inside the drawer (which is a plain anchor)
@@ -221,7 +240,7 @@ export function Layout({
       <div className="sage-sidebar-label"><span className="sage-terminal-prompt" aria-hidden="true">❯</span> database control room</div>
 
       <SidebarNav user={user} platformManaged={platformManaged}
-        activeId={activeRoute?.id} pending={pending} advanced={advanced} />
+        activeId={activeRoute?.id} pending={pending} collapsed={collapsed} />
 
       <div
         className="sage-account mt-auto pt-4"

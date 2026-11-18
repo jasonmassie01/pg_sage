@@ -1,30 +1,27 @@
 /* eslint-disable react-refresh/only-export-components */
-import { Dashboard } from './pages/Dashboard'
 import { CasesPage } from './pages/CasesPage'
 import { Actions } from './pages/Actions'
 import { DatabasePage } from './pages/DatabasePage'
 import { SettingsPage } from './pages/SettingsPage'
-import { AlertsRedirect } from './pages/AlertsRedirect'
 import { UsersPage } from './pages/UsersPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
-import { ValuePage } from './pages/ValuePage'
 import { InboxPage } from './pages/InboxPage'
 import { LedgerPage } from './pages/LedgerPage'
 import { HomeSetup } from './components/setup/HomeSetup'
 import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
 import { DigestCard } from './components/DigestCard'
+import { TokenBudgetBanner } from './components/TokenBudgetBanner'
 import { SLOsPage } from './pages/SLOsPage'
 import { RunbooksPage } from './pages/RunbooksPage'
 import { AutonomyHub } from './pages/autonomy/AutonomyHub'
 import { FactsPage } from './pages/FactsPage'
 import { AskPage } from './pages/AskPage'
-import { MCPTokensPage } from './pages/MCPTokensPage'
-import { AgentsPage } from './pages/AgentsPage'
+import { AgentsHub } from './pages/agents/AgentsHub'
 import { QueriesPage } from './pages/QueriesPage'
 import { QueryDetailPage } from './pages/QueryDetailPage'
-import { allowsRole, findRoute } from './routes'
+import { allowsRole, findRoute, routeParam } from './routes'
 import { NeedsOneDatabase } from './components/NeedsOneDatabase'
 
 // TAG_SCOPED_ROUTES read a header tag scope (?tag=, ux-10b); every other
@@ -96,10 +93,15 @@ function PlatformProtocolUnavailable({ agents = false }) {
   )
 }
 
-const cases = (ctx, initialSource) => (
-  <CasesPage key={ctx.route} database={ctx.database} user={ctx.user}
-    initialSource={initialSource} />
-)
+// CASE_SOURCES are the issue sources a link may open Issues on; the old
+// Forecasts, Query hints, Schema health and Incidents views link here.
+const CASE_SOURCES = new Set(['forecast', 'query_hint', 'schema_health', 'incident'])
+
+const cases = ctx => {
+  const source = routeParam(ctx.route, 'source')
+  return <CasesPage key={ctx.route} database={ctx.database} user={ctx.user}
+    initialSource={CASE_SOURCES.has(source) ? source : undefined} />
+}
 const actions = ctx => (
   <Actions database={ctx.database} user={ctx.user} fleetData={ctx.fleetData} />
 )
@@ -117,13 +119,15 @@ export const RENDERERS = Object.freeze({
       <FirstLookPanel database={ctx.database} user={ctx.user}
         onSelectDatabase={ctx.selectDatabase} />
       <DigestCard database={ctx.database} />
+      <TokenBudgetBanner canReset={ctx.user?.role === 'admin'} />
       <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
     </HomeSetup>
   ),
-  value: ctx => <ValuePage database={ctx.database} />,
   cases: ctx => cases(ctx),
   actions,
-  ledger: ctx => <LedgerPage key={ctx.route} database={ctx.database} />,
+  ledger: ctx => (
+    <LedgerPage key={ctx.route} database={ctx.database} user={ctx.user} route={ctx.route} />
+  ),
   queries: ctx => <QueriesPage database={ctx.database} />,
   query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
   slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,
@@ -135,7 +139,9 @@ export const RENDERERS = Object.freeze({
       onSelectDatabase={ctx.selectDatabase} />
   ),
   databases: ctx => (
-    <DatabasesPage onSelectDatabase={ctx.setSelectedDB} scopeTag={ctx.scopeTag} />
+    <DatabasesPage onSelectDatabase={ctx.setSelectedDB} scopeTag={ctx.scopeTag}
+      database={ctx.database} fleet={ctx.fleetQuery}
+      initialTab={routeParam(ctx.route, 'tab')} />
   ),
   users: ctx => <UsersPage currentUser={ctx.user} authMode={ctx.authMode} />,
   notifications: ctx => {
@@ -143,27 +149,20 @@ export const RENDERERS = Object.freeze({
     return <NotificationsPage key={tab} user={ctx.user} database={ctx.database}
       initialTab={tab} />
   },
-  alerts: ctx => <AlertsRedirect route={ctx.route} />,
   settings: ctx => (
     <SettingsPage database={ctx.database}
       databaseId={ctx.selectedDatabase?.id || ctx.selectedDatabase?.database_id} />
   ),
-  'mcp-tokens': () => <MCPTokensPage />,
-  agents: ctx => <AgentsPage user={ctx.user} databases={ctx.databases.map(d => d.name)} />,
+  agents: ctx => (
+    <AgentsHub key={ctx.route} user={ctx.user} databases={ctx.databases.map(d => d.name)}
+      initialTab={routeParam(ctx.route, 'tab')} />
+  ),
   runbooks: ctx => <RunbooksPage database={ctx.database} user={ctx.user} />,
   autonomy: ctx => (
     <AutonomyHub key={ctx.route} database={ctx.database} user={ctx.user} route={ctx.route}
       onSelectDatabase={ctx.selectDatabase} />
   ),
-  snapshot: ctx => (
-    <Dashboard database={ctx.database} onSelectDB={ctx.setSelectedDB} user={ctx.user}
-      fleet={ctx.fleetQuery} />
-  ),
   database: ctx => <DatabasePage database={ctx.database} user={ctx.user} />,
-  forecasts: ctx => cases(ctx, 'forecast'),
-  'query-hints': ctx => cases(ctx, 'query_hint'),
-  'schema-health': ctx => cases(ctx, 'schema_health'),
-  incidents: ctx => cases(ctx, 'incident'),
   profile,
   login: profile,
 })
@@ -177,7 +176,8 @@ export function renderRoute(path, ctx) {
   if (!route) return { title: 'Not found', node: <NotFound /> }
   if (route.standaloneOnly && ctx.authMode === 'databricks_app') {
     return { title: route.title,
-      node: <PlatformProtocolUnavailable agents={route.id === 'agents'} /> }
+      node: <PlatformProtocolUnavailable
+        agents={routeParam(ctx.route, 'tab') !== 'tokens'} /> }
   }
   if (!allowsRole(route, ctx.user)) return { title: 'Access denied', node: <AccessDenied /> }
   if (ctx.scopeTag && !TAG_SCOPED_ROUTES.has(route.id)) {

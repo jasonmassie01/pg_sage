@@ -26,7 +26,7 @@ test('opens the row in Actions', async ({ page }) => {
   await routeOutcomes(page)
   await page.goto('/#/ledger')
   await page.getByRole('link', { name: /open action 12/i }).click()
-  await expect(page).toHaveURL(/#\/actions\?action=12$/)
+  await expect(page).toHaveURL(/#\/changes\?action=12$/)
 })
 
 test("Value's evidence id is a link to the ledger", async ({ page }) => {

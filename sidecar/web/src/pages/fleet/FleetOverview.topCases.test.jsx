@@ -1,19 +1,19 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Dashboard } from './Dashboard'
-import { useLiveRefetch } from '../hooks/useLiveEvents'
+import { FleetOverview } from './FleetOverview'
+import { useLiveRefetch } from '../../hooks/useLiveEvents'
 
 // cases-11b: the Overview's "Top issues" tab shows the five highest-ranked
 // open issues, in the server's rank order, each linking to its case; it
 // replaces the "Recent Recommendations" list of newest findings.
 // No concurrent access tests: one render, single-threaded.
 
-vi.mock('../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
-vi.mock('../components/FleetHealthChart', () => ({ FleetHealthChart: () => <div /> }))
-vi.mock('../components/ProviderReadinessMatrix', () => ({
+vi.mock('../../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
+vi.mock('../../components/FleetHealthChart', () => ({ FleetHealthChart: () => <div /> }))
+vi.mock('../../components/ProviderReadinessMatrix', () => ({
   ProviderReadinessMatrix: () => <div />,
 }))
-vi.mock('../components/TokenBudgetBanner', () => ({ TokenBudgetBanner: () => <div /> }))
+vi.mock('../../components/TokenBudgetBanner', () => ({ TokenBudgetBanner: () => <div /> }))
 
 const row = (id, db, severity, title, basis) => ({
   id: `finding:${db}:${id}`, database_name: db, severity, title,
@@ -34,7 +34,7 @@ const RANKED = [
 
 let casesQuery
 let urls
-vi.mock('../hooks/useAPI', () => ({
+vi.mock('../../hooks/useAPI', () => ({
   useAPI: url => {
     urls.push(url)
     if (url && url.startsWith('/api/v1/cases')) return casesQuery
@@ -53,7 +53,7 @@ const fleet = {
 const okCases = (data) => ({ data, loading: false, error: null, refetch: vi.fn() })
 
 function openTopCases(database = 'all') {
-  render(<Dashboard database={database} onSelectDB={vi.fn()} fleet={fleet} />)
+  render(<FleetOverview database={database} onSelectDB={vi.fn()} fleet={fleet} />)
   fireEvent.click(screen.getByTestId('overview-tab-top-cases'))
   return screen.getByTestId('top-cases')
 }
@@ -66,7 +66,7 @@ beforeEach(() => {
   casesQuery = okCases({ cases: RANKED, total: 12, unavailable: [], truncated: {} })
 })
 
-describe('Dashboard top cases', () => {
+describe('FleetOverview top cases', () => {
   it('renders the five highest-ranked cases in rank order', () => {
     const panel = openTopCases()
     const rows = within(panel).getAllByTestId('top-case-row')
@@ -99,7 +99,7 @@ describe('Dashboard top cases', () => {
   })
 
   it('requests the ranked summary only once the tab is open', () => {
-    render(<Dashboard database="all" onSelectDB={vi.fn()} fleet={fleet} />)
+    render(<FleetOverview database="all" onSelectDB={vi.fn()} fleet={fleet} />)
     expect(casesURLs()).toEqual([])
     fireEvent.click(screen.getByTestId('overview-tab-top-cases'))
     const url = casesURLs().at(-1)

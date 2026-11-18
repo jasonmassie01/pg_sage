@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AutonomyPage } from './AutonomyPage'
-import { Dashboard } from './Dashboard'
+import { FleetOverview } from './fleet/FleetOverview'
 import { DatabasePage } from './DatabasePage'
 import { FactsPage } from './FactsPage'
 import { SettingsPage } from './SettingsPage'
@@ -32,16 +32,16 @@ vi.mock('../hooks/useAPI', () => ({
   },
 }))
 
-// App owns the fleet poll and hands Dashboard its query (dashboard-08).
-function DashboardWithFleet() {
-  return <Dashboard database="all" onSelectDB={() => {}} user={user}
+// App owns the fleet poll and hands the Fleet overview its query (dashboard-08).
+function FleetOverviewWithFleet() {
+  return <FleetOverview database="all" onSelectDB={() => {}}
     fleet={useAPI('/api/v1/databases')} />
 }
 
 const user = { role: 'admin' }
 const pages = [
   ['AutonomyPage', <AutonomyPage database="prod" user={user} />, null],
-  ['Dashboard', <DashboardWithFleet />, null],
+  ['FleetOverview', <FleetOverviewWithFleet />, null],
   ['DatabasePage', <DatabasePage database="prod" />, /Database: prod/],
   ['FactsPage', <FactsPage database="prod" user={user} />, null],
   ['SettingsPage', <SettingsPage database="all" />, null],

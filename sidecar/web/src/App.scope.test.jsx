@@ -122,6 +122,7 @@ describe('App scope transitions', () => {
     await waitFor(() => expect(window.location.hash).toBe('#/manage-databases?tag=tier%3Dprod'))
     expect(screen.getByTestId('fleet-page')).toHaveTextContent('fleet:tier=prod')
     expect(scope()).toHaveValue('tag:tier=prod')
+    // ux-11: #/value redirects to the ledger's Value section, tag kept.
     go('#/value?tag=tier%3Dprod')
     expect(screen.getByTestId('needs-one-database')).toHaveTextContent(
       'This page needs one database')
@@ -135,7 +136,7 @@ describe('App scope transitions', () => {
     fireEvent.keyDown(scope(), { key: 'Enter' })
     await waitFor(() => expect(screen.getByTestId('value-page')).toHaveTextContent(
       'value:payroll'))
-    expect(window.location.hash).toBe('#/value')
+    expect(window.location.hash).toBe('#/ledger?section=value')
     expect(screen.queryByTestId('needs-one-database')).toBeNull()
 
     // Back to all.
@@ -153,7 +154,7 @@ describe('App scope transitions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show all databases' }))
     await waitFor(() => expect(screen.getByTestId('value-page')).toHaveTextContent(
       'value:all'))
-    expect(window.location.hash).toBe('#/value')
+    expect(window.location.hash).toBe('#/ledger?section=value')
   })
 
   it('says no databases yet with the add-database link for an empty fleet', async () => {

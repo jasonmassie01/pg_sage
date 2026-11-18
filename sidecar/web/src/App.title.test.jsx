@@ -62,7 +62,7 @@ describe('App: document title follows the route', () => {
     await screen.findByTestId('app-loaded')
     expect(document.title).toBe('Issues · pg_sage')
     await navigate('#/actions')
-    expect(document.title).toBe('Actions · pg_sage')
+    expect(document.title).toBe('Changes · pg_sage')
     await navigate('#/advanced/autonomy')
     expect(document.title).toBe('Autonomy · pg_sage')
   })
@@ -71,7 +71,7 @@ describe('App: document title follows the route', () => {
     window.location.hash = '#/actions?database=orders'
     render(<App />)
     await screen.findByTestId('app-loaded')
-    expect(document.title).toBe('Actions · pg_sage')
+    expect(document.title).toBe('Changes · pg_sage')
   })
 
   it('titles an unknown route Not found', async () => {

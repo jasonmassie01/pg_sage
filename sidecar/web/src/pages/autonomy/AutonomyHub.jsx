@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { TrustPage } from '../TrustPage'
 import { AutonomyPage } from '../AutonomyPage'
 import { ShadowModePage } from '../ShadowModePage'
+import { routeParam } from '../../routes'
 
 // One Autonomy page (ux-06b, decision D6). Two pages used to approve the
 // same promotions; now one does, in order: each class's sentence on the
@@ -10,19 +11,26 @@ import { ShadowModePage } from '../ShadowModePage'
 // promotions with the one Approve; the ledger's history, downgrades,
 // bench and game days, collapsed; and the shadow ledger, moved here from
 // Settings General. #/trust and #/advanced/autonomy are aliases; the
-// latter opens the history section.
+// latter redirects to #/autonomy?section=history, which opens the history
+// section (ux-11).
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
 const card = { background: 'var(--bg-card)', borderColor: 'var(--border)' }
 
-function hashPath(route) {
-  const raw = route ?? (typeof window === 'undefined' ? '' : window.location.hash)
-  return String(raw || '').replace(/^#/, '').split('?')[0]
+function currentRoute(route) {
+  return route ?? (typeof window === 'undefined' ? '' : window.location.hash)
+}
+
+// opensHistory: the history section starts open for its old path or for
+// section=history.
+function opensHistory(route) {
+  const raw = currentRoute(route)
+  const path = String(raw || '').replace(/^#/, '').split('?')[0]
+  return path === '/advanced/autonomy' || routeParam(raw, 'section') === 'history'
 }
 
 export function AutonomyHub({ database, user, route, onSelectDatabase }) {
-  const path = hashPath(route)
   return (
     <section className="space-y-4" data-testid="autonomy-hub">
       <div>
@@ -35,7 +43,7 @@ export function AutonomyHub({ database, user, route, onSelectDatabase }) {
       </div>
       <TrustPage database={database} user={user} onSelectDatabase={onSelectDatabase} />
       <Section testId="autonomy-history" title="History, downgrades, bench and game days"
-        initiallyOpen={path === '/advanced/autonomy'}>
+        initiallyOpen={opensHistory(route)}>
         <AutonomyPage database={database} user={user} embedded />
       </Section>
       <Section testId="autonomy-shadow" title="Shadow ledger" initiallyOpen={false}>

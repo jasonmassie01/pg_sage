@@ -71,10 +71,11 @@ test('ux-05e: a request row links its investigation and approval', async ({ page
       remediation_id: 'cancel_backend.55555555-5555-4555-8555-555555555555',
       verdict: 'queued_for_approval', queue_id: 4242, outbound: 'none',
       created_at: '2026-11-16T09:00:00Z' }] } }))
-  await page.goto('/#/mcp-tokens')
+  // ux-11: every agent request is kept in the ledger.
+  await page.goto('/#/ledger?section=agents')
   const row = page.getByTestId('specialist-request-r1')
   await expect(row.getByTestId('specialist-request-investigation-r1')).toHaveAttribute(
     'href', `#/cases?investigation=${inv}&database=orders`)
   await row.getByTestId('specialist-request-approval-r1').click()
-  await expect(page).toHaveURL(/#\/actions\?tab=pending&queue=4242&database=orders$/)
+  await expect(page).toHaveURL(/#\/changes\?tab=pending&queue=4242&database=orders$/)
 })

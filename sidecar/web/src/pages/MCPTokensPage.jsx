@@ -1,11 +1,10 @@
 // MCP v2: admins list and revoke every MCP API token, and create operator
 // tokens: a person's own token for Claude Code or Cursor, acting for its
 // owner. A coding agent's token is minted per agent on the Agents page
-// (agentgov-01). Admin only: App.jsx gates the route and Layout hides the
-// nav link from other roles.
+// (agentgov-01). Admin only: it is the MCP tokens tab of Agents (ux-11),
+// which other roles never get. Agent requests moved to the Inbox and ledger.
 import { useCallback, useEffect, useState } from 'react'
 import { useConfirm } from '../hooks/useConfirm'
-import { ExternalAgentRequests } from './mcptokens/ExternalAgentRequests'
 import { SecretNotice } from './mcptokens/SecretNotice'
 import { TokenForm } from './mcptokens/TokenForm'
 import { TokenTable } from './mcptokens/TokenTable'
@@ -166,7 +165,6 @@ export function MCPTokensPage() {
       )}
       <TokenList list={list} owners={owners.owners} revokingIds={revokingIds}
         onRevoke={revoke} />
-      <ExternalAgentRequests />
       {dialog}
     </div>
   )

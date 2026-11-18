@@ -17,11 +17,14 @@ test.describe('Sidebar navigation', () => {
     await expect(page.locator('nav')).toBeVisible()
 
     // Layout now contracts around autonomous DBA operation.
-    for (const heading of ['Operate']) {
+    // ux-11: Operate and Admin headings; Evidence is a collapsible button.
+    for (const heading of ['Operate', 'Admin']) {
       await expect(
         page.locator('nav').getByText(heading, { exact: true }),
       ).toBeVisible()
     }
+    await expect(page.locator('nav').getByRole('button', { name: 'Evidence' }).first())
+      .toBeVisible()
   })
 
   test('all non-admin nav links are visible', async ({ page }) => {
@@ -31,7 +34,8 @@ test.describe('Sidebar navigation', () => {
     const navItems = [
       { testid: 'nav-inbox', label: 'Inbox' },
       { testid: 'nav-cases', label: 'Issues' },
-      { testid: 'nav-actions', label: 'Actions' },
+      { testid: 'nav-actions', label: 'Changes' },
+      { testid: 'nav-ask', label: 'Ask Sage' },
     ]
 
     for (const item of navItems) {
@@ -61,8 +65,8 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
 
     const routes = [
-      { testid: 'nav-cases', hash: '#/cases' },
-      { testid: 'nav-actions', hash: '#/actions' },
+      { testid: 'nav-cases', hash: '#/issues' },
+      { testid: 'nav-actions', hash: '#/changes' },
       { testid: 'nav-settings', hash: '#/settings' },
       { testid: 'nav-inbox', hash: '#/' },
     ]
@@ -151,8 +155,44 @@ test.describe('Page render error', () => {
 
     await page.getByTestId('nav-actions').click()
 
-    await expect(page).toHaveURL(/#\/actions$/)
+    await expect(page).toHaveURL(/#\/changes$/)
     await expect(page.getByTestId('page-error')).toHaveCount(0)
-    await expect(page.locator('header h1')).toContainText('Actions')
+    await expect(page.locator('header h1')).toContainText('Changes')
+  })
+})
+
+// ux-11: every old path still opens its page, at the new address, with
+// ?database= and ?case= kept.
+test.describe('Moved pages', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllAPIs(page)
+  })
+
+  const MOVED = [
+    ['/#/cases?database=orders&case=7', /#\/issues\?database=orders&case=7$/, 'Issues'],
+    ['/#/forecasts?database=orders', /#\/issues\?source=forecast&database=orders$/, 'Issues'],
+    ['/#/actions?database=orders', /#\/changes\?database=orders$/, 'Changes'],
+    ['/#/value', /#\/ledger\?section=value$/, 'Outcome ledger'],
+    ['/#/trust', /#\/autonomy$/, 'Autonomy'],
+    ['/#/advanced', /#\/manage-databases\?tab=readiness$/, 'Databases'],
+    ['/#/alerts?database=orders', /#\/notifications\?tab=log&database=orders$/,
+      'Notifications'],
+    ['/#/mcp-tokens', /#\/agents\?tab=tokens$/, 'Agents'],
+  ] as const
+
+  for (const [from, to, title] of MOVED) {
+    test(`${from} redirects to its new home`, async ({ page }) => {
+      await page.goto(from)
+      await expect(page).toHaveURL(to)
+      await expect(page.locator('header h1')).toContainText(title)
+      await expect(page.getByTestId('not-found')).toHaveCount(0)
+    })
+  }
+
+  test('an unknown hash renders Not found with a way to the Inbox', async ({ page }) => {
+    await page.goto('/#/no-such-page')
+    await expect(page.getByTestId('not-found')).toBeVisible()
+    await page.getByRole('link', { name: 'Go to Inbox' }).click()
+    await expect(page.locator('header h1')).toContainText('Inbox')
   })
 })

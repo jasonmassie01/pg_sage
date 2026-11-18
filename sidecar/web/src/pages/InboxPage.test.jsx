@@ -345,6 +345,6 @@ describe('InboxPage seen time and value', () => {
     await renderInbox()
     const line = screen.getByTestId('inbox-value')
     expect(line).toHaveTextContent('Verified DBA hours saved: 3.5 h this week, 40 h all time.')
-    expect(within(line).getByRole('link')).toHaveAttribute('href', '#/value')
+    expect(within(line).getByRole('link')).toHaveAttribute('href', '#/ledger?section=value')
   })
 })

@@ -1,9 +1,8 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LiveEventsProvider } from '../hooks/useLiveEvents'
 import { useAPI } from '../hooks/useAPI'
 import { Layout } from './Layout'
-import { findRoute } from '../routes'
 
 // dashboard-12: App owns the one /api/v1/databases poll. Layout renders the
 // fleet it is given and never polls the fleet itself, not even while App's
@@ -196,80 +195,4 @@ describe('Layout header autonomy', () => {
 // The nav badge tests moved to Layout.badge.test.jsx with the badge itself
 // (ux-01b: one badge, on Inbox, from /api/v1/inbox/count).
 
-// dashboard-06: the nav is derived from the route registry.
-describe('Layout navigation', () => {
-  const admin = { email: 'a@example.com', role: 'admin' }
-  const viewer = { email: 'v@example.com', role: 'viewer' }
-  const ADMIN_LINKS = { 'nav-users': '#/users', 'nav-notifications': '#/notifications',
-    'nav-alerts': '#/alerts' }
-  const sidebar = () => within(screen.getByTestId('sidebar-desktop'))
-  const openAdvanced = () =>
-    fireEvent.click(sidebar().getByRole('button', { name: /advanced/i }))
-
-  it('shows admins Users, Notifications and Alert log under Admin', () => {
-    renderLayout({ user: admin })
-    expect(sidebar().getByText('Admin', { exact: true })).toBeInTheDocument()
-    for (const [testId, href] of Object.entries(ADMIN_LINKS)) {
-      expect(screen.getByTestId(testId)).toHaveAttribute('href', href)
-    }
-    expect(screen.getByTestId('nav-alerts')).toHaveTextContent('Alert log')
-    expect(screen.getByTestId('nav-databases')).toHaveTextContent('Fleet')
-  })
-
-  it('shows a viewer no admin link and no Admin heading', () => {
-    renderLayout({ user: viewer })
-    for (const testId of [...Object.keys(ADMIN_LINKS), 'nav-databases', 'nav-settings',
-      'nav-mcp-tokens', 'nav-agents']) {
-      expect(screen.queryByTestId(testId), testId).toBeNull()
-    }
-    expect(sidebar().queryByText('Admin', { exact: true })).toBeNull()
-    expect(screen.getByTestId('nav-cases')).toBeInTheDocument()
-  })
-
-  it('shows an operator only Alert log and Agents under Admin', () => {
-    renderLayout()
-    expect(screen.getByTestId('nav-alerts')).toBeInTheDocument()
-    expect(screen.getByTestId('nav-agents')).toBeInTheDocument()
-    expect(screen.queryByTestId('nav-users')).toBeNull()
-    expect(screen.queryByTestId('nav-settings')).toBeNull()
-  })
-
-  it('hides MCP tokens and Agents when the platform manages sign-in', () => {
-    renderLayout({ user: admin, authMode: 'databricks_app' })
-    expect(screen.queryByTestId('nav-mcp-tokens')).toBeNull()
-    expect(screen.queryByTestId('nav-agents')).toBeNull()
-    expect(screen.getByTestId('nav-users')).toBeInTheDocument()
-  })
-
-  it('highlights Cases for the old findings explorer URL', () => {
-    window.location.hash = '#/advanced/findings'
-    renderLayout({ user: admin })
-    expect(screen.getByTestId('nav-cases')).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByTestId('nav-inbox')).not.toHaveAttribute('aria-current')
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Issues')
-  })
-
-  it('lists no duplicate Cases or Actions entry under Advanced', () => {
-    renderLayout({ user: admin })
-    openAdvanced()
-    expect(screen.queryByRole('link', { name: /findings explorer/i })).toBeNull()
-    expect(screen.queryByRole('link', { name: /action history/i })).toBeNull()
-    expect(screen.getByTestId('nav-runbooks')).toHaveAttribute('href', '#/advanced/runbooks')
-    expect(screen.getByTestId('nav-snapshot')).toHaveAttribute('href', '#/advanced')
-  })
-
-  it('links only to registered routes', () => {
-    renderLayout({ user: admin })
-    openAdvanced()
-    const hrefs = [...screen.getByTestId('sidebar-desktop').querySelectorAll('a[href^="#/"]')]
-      .map(link => link.getAttribute('href'))
-    expect(hrefs.length).toBeGreaterThan(15)
-    for (const href of hrefs) expect(findRoute(href), href).toBeDefined()
-  })
-
-  it('renders no nav links without a user', () => {
-    renderLayout({ user: null })
-    expect(screen.getByTestId('sidebar-desktop').querySelectorAll('[data-testid^="nav-"]'))
-      .toHaveLength(0)
-  })
-})
+// dashboard-06, ux-11: the nav tests are in Layout.nav.test.jsx.

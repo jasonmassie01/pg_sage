@@ -254,7 +254,10 @@ function isEmptyValue(data) {
   )
 }
 
-export function ValuePage({ database }) {
+// embedded: the page is the ledger's Value section (ux-11), so its title
+// is a section heading rather than the page's.
+export function ValuePage({ database, embedded = false }) {
+  const Heading = embedded ? 'h2' : 'h1'
   const value = useAPI(valueURL(database), valuePollIntervalMs)
   const { data } = value
 
@@ -266,7 +269,9 @@ export function ValuePage({ database }) {
   return (
     <QueryState query={value}><div className="space-y-6" data-testid="value-page">
       <div>
-        <h1 className="text-2xl font-semibold">Value delivered</h1>
+        <Heading className={embedded ? 'text-lg font-semibold' : 'text-2xl font-semibold'}>
+          Value delivered
+        </Heading>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
           Verified work completed and incidents prevented by pg_sage.
         </p>

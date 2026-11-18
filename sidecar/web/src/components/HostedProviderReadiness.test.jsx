@@ -5,7 +5,7 @@ import { DatabaseTile } from './DatabaseTile'
 
 const api = vi.hoisted(() => ({ result: {} }))
 vi.mock('../hooks/useAPI', () => ({ useAPI: () => api.result }))
-vi.mock('../pages/Dashboard', () => ({ formatTrustLevel: value => value }))
+vi.mock('../lib/trustLevel', () => ({ formatTrustLevel: value => value }))
 
 beforeEach(() => {
   api.result = { data: { databases: [] }, loading: false, error: null }

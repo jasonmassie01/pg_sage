@@ -54,7 +54,7 @@ test.describe('Decisions tab', () => {
     const tabText = await page.getByTestId('decisions-tab').innerText()
     expect(tabText).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/)
     await rows.nth(0).getByRole('link', { name: 'Request #41' }).click()
-    await expect(page).toHaveURL(/#\/actions\?tab=pending&queue=41&database=orders$/)
+    await expect(page).toHaveURL(/#\/changes\?tab=pending&queue=41&database=orders$/)
     await expect(page.getByTestId('actions-tab-pending')).toHaveAttribute('aria-selected', 'true')
     const focused = page.getByTestId('approval-card-focused')
     await expect(focused).toHaveCount(1)
