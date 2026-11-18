@@ -32,6 +32,10 @@
 | `agents.kill_verify_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
 | `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
+| `agents.pr_mode.enabled` | `restart` | `-` | `safety_critical` |
+| `agents.pr_mode.label` | `restart` | `-` | `operator_preference` |
+| `agents.pr_mode.migrations_path` | `restart` | `-` | `safety_critical` |
+| `agents.pr_mode.repo` | `restart` | `-` | `safety_critical` |
 | `agents.query.audit_retention_days` | `restart` | `-` | `operator_preference` |
 | `agents.query.max_bytes` | `restart` | `-` | `safety_critical` |
 | `agents.query.max_rows` | `restart` | `-` | `safety_critical` |

@@ -748,6 +748,12 @@
       "BaseURL": "",
       "Repo": "",
       "TimeoutSeconds": 15
+    },
+    "PRMode": {
+      "Enabled": false,
+      "Repo": "",
+      "MigrationsPath": "",
+      "Label": "pg_sage"
     }
   },
   "Audit": {

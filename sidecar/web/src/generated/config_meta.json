@@ -183,6 +183,34 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "agents.pr_mode.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Open one pull request per migration or exact-literal query rewrite pg_sage cannot apply, on agents.code_host. SAGE_CODE_HOST_TOKEN then needs write access. A person merges. Default: false.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.pr_mode.label": {
+    "type": "string",
+    "default": "pg_sage",
+    "doc": "Label on every pull request PR mode opens; the duplicate check lists open pull requests with it. Default: pg_sage.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "agents.pr_mode.migrations_path": {
+    "type": "string",
+    "default": "",
+    "doc": "Directory of the application's SQL migrations, relative to the repository root. A new migration is named after the newest file there. Required when enabled. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.pr_mode.repo": {
+    "type": "string",
+    "default": "",
+    "doc": "Repository the pull requests go to: owner/name (GitLab: group/sub/name). Empty means agents.code_host.repo. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "agents.query.audit_retention_days": {
     "type": "int",
     "default": 30,
@@ -3766,6 +3794,13 @@
     "type": "float64",
     "default": 10,
     "doc": "Regression that halts and rolls back the rollout, 0-100. Default: 10.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "sre.autonomy.canary.stage_wait_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between a database's verdict and the next change, 0-720. Default: 24.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },
