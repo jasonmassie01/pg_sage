@@ -259,3 +259,26 @@ func assertDirHolds(t *testing.T, dir string, names ...string) {
 		}
 	}
 }
+
+// pub-01 review: the same --dsn twice would count its changes twice in a
+// public number, so it is a usage error, and the error never prints the
+// DSN (which can hold a password).
+func TestPublishOutcomes_ARepeatedDSNExitsTwo(t *testing.T) {
+	dsn := "postgres://u:secretpw@h/app"
+	deps, _ := publishTestDeps(t, fakePublishSource{}, nil)
+	dir := t.TempDir()
+	code, _, stderr := runPublish(t, deps, "outcomes", "--out", filepath.Join(dir, "b"),
+		"--dsn", dsn, "--dsn", dsn)
+	if code != 2 || !strings.Contains(stderr, "repeated") {
+		t.Fatalf("exit %d, stderr %q; want 2 naming the repeated --dsn", code, stderr)
+	}
+	if strings.Contains(stderr, "secretpw") {
+		t.Fatalf("stderr prints the DSN: %q", stderr)
+	}
+	assertDirHolds(t, dir)
+	code, _, stderr = runPublish(t, deps, "outcomes", "--out", filepath.Join(dir, "b"),
+		"--dsn", dsn, "--dsn", "postgres://u@h/other")
+	if code != 0 {
+		t.Fatalf("two different databases: exit %d: %s", code, stderr)
+	}
+}

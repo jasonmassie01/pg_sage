@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -112,7 +113,15 @@ func parsePublishArgs(args []string, getenv func(string) string) (publishArgs, e
 	return a, a.resolveDSNs(getenv)
 }
 
+// resolveDSNs defaults the databases from the environment. A repeated
+// --dsn is refused (flag would print its value, a password included, so
+// it is checked here): its changes would count twice in a public number.
 func (a *publishArgs) resolveDSNs(getenv func(string) string) error {
+	for i, dsn := range a.dsns {
+		if slices.Contains(a.dsns[:i], dsn) {
+			return errors.New("a --dsn is repeated; each database is counted once")
+		}
+	}
 	if len(a.dsns) > 0 {
 		return nil
 	}

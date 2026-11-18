@@ -30,7 +30,7 @@ pg_sage publish outcomes --since 90d --out ./outcomes-2026q4 \
 
 Exit codes: `0` written; `1` a read or write failed, and nothing was written; `2` a usage error
 (an unparseable or zero `--since`, an `--out` that is a file or a directory that is not empty,
-no database, or no usable key).
+no database, a repeated `--dsn`, or no usable key).
 
 A public bundle is always signed. Use the key `audit.evidence.signing_key_env` names, so the
 bundle and the install's evidence packs share one public key
