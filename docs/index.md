@@ -3,10 +3,10 @@
 Agentic Postgres DBA — a Go sidecar that monitors, analyzes, and optimizes
 PostgreSQL 14+ databases with trust-ramped safety controls.
 
-**Verified and reversible.** Every change is verified against its prediction and keeps a
-rollback, and the record can be published: [Publishing outcomes](publish-outcomes.md) writes a
-signed bundle of changes verified improved, no change, inconclusive and reverted, with the
-verifier's false-positive rate ([sample bundle](outcomes-sample/index.html)). Databases are
+**Verified and reversible.** Every change is verified against its prediction, every change
+that can be undone keeps a rollback, and the record can be published:
+[Publishing outcomes](publish-outcomes.md) writes a signed bundle of changes verified
+improved, no change, inconclusive and reverted, with the verifier's false-positive rate ([sample bundle](outcomes-sample/index.html)). Databases are
 graded against the open, versioned [rubric](rubric.md).
 
 v1 centers the product around an autonomous DBA workflow instead of a

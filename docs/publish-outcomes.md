@@ -1,8 +1,9 @@
 # Publishing outcomes: verified and reversible
 
 pg_sage changes a database only through its executor, which verifies every change against a
-prediction and keeps a rollback. `pg_sage publish outcomes` turns that record into numbers you
-can put on a public page: how many changes were applied, how many were verified improved, how
+prediction and keeps a rollback for every change that can be undone (an `ANALYZE` or a
+`VACUUM` cannot be). `pg_sage publish outcomes` turns that record into numbers you can put on
+a public page: how many changes were applied, how many were verified improved, how
 many made no difference or could not be judged, how many were reverted and why, and how often
 the verifier calls an effect that did not happen. The numbers come from the
 [outcome ledger](api.md) and the [verifier back-test](verification.md); the bundle is signed so

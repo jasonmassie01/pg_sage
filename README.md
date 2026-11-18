@@ -7,7 +7,8 @@
 **Agentic Postgres DBA.** No extension required.
 
 **Verified and reversible.** Every change pg_sage makes is checked against what it predicted,
-and keeps a rollback. `pg_sage publish outcomes` turns that record into a signed public bundle:
+and every change that can be undone keeps a rollback. `pg_sage publish outcomes` turns that
+record into a signed public bundle:
 changes verified improved, no change, inconclusive and reverted, and the verifier's own
 false-positive rate ([publishing outcomes](docs/publish-outcomes.md),
 [sample bundle](docs/outcomes-sample/outcomes.json)). Databases are graded against an open,
