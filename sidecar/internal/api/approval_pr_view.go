@@ -52,7 +52,7 @@ func approvalPRStatus() *gitops.ApprovalPRStatus {
 
 // approvalPRNote is the inbox's PR line of a card, or nil.
 func approvalPRNote(ctx context.Context, database string, c approvalcard.Card,
-	a *store.QueuedAction) map[string]any {
+	a *store.QueuedAction) *approvalcard.PRNote {
 	prs, pool := currentApprovalPRs()
 	if prs == nil {
 		return nil
@@ -64,19 +64,33 @@ func approvalPRNote(ctx context.Context, database string, c approvalcard.Card,
 		return nil
 	}
 	if rec != nil {
-		return map[string]any{"state": rec.State, "pr_url": rec.PRURL,
-			"pr_number": rec.PRNumber, "repo": rec.Repo, "detail": rec.Detail}
+		return &approvalcard.PRNote{State: rec.State, Repo: rec.Repo, PRNumber: rec.PRNumber,
+			PRURL: rec.PRURL, Detail: rec.Detail}
 	}
 	if a == nil || a.Status != "pending" {
 		return nil
 	}
 	if ok, reason := approvalcard.RemoteApprovalAllowed(cappedTier(*a, c),
 		prs.Config.ChatCap); !ok {
-		return map[string]any{"state": "app_only",
-			"detail": "Not opened as a pull request: " + reason + "; approve it here."}
+		return &approvalcard.PRNote{State: "app_only",
+			Detail: "Not opened as a pull request: " + reason + "; approve it here."}
 	}
 	if st := prs.Status(); st.Disabled != "" {
-		return map[string]any{"state": "disabled", "detail": st.Disabled}
+		return &approvalcard.PRNote{State: "disabled", Detail: st.Disabled}
 	}
 	return nil
+}
+
+// withApprovalPRNotes sets each pending card's PR note; the tier comes
+// from the card's own risk, SQL and action type, as cappedTier reads them.
+func withApprovalPRNotes(ctx context.Context, cards []approvalcard.Card) {
+	if prs, _ := currentApprovalPRs(); prs == nil {
+		return
+	}
+	for i := range cards {
+		c := cards[i]
+		a := store.QueuedAction{ID: c.QueueID, Status: c.Status, ActionRisk: c.Risk.Tier,
+			ProposedSQL: c.SQL, ActionType: c.ActionType}
+		cards[i].ApprovalPR = approvalPRNote(ctx, c.Database, c, &a)
+	}
 }

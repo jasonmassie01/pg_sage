@@ -72,4 +72,23 @@ describe('GitopsBanner', () => {
     await settle()
     expect(screen.queryByTestId('gitops-banner')).toBeNull()
   })
+
+  // cli-02b: approval PR mode's state, with the reason when it turned off.
+  it('shows approval pull requests on and off', async () => {
+    stubFetch({ '/api/v1/gitops': { json: { ...report(),
+      approval_prs: { enabled: true, repo: 'acme/config' } } } })
+    const { unmount } = render(<GitopsBanner />)
+    await settle()
+    expect(screen.getByTestId('gitops-approval-prs'))
+      .toHaveTextContent('Approval requests open as pull requests on acme/config')
+    unmount()
+    vi.unstubAllGlobals()
+    stubFetch({ '/api/v1/gitops': { json: { ...report(), approval_prs: { enabled: false,
+      repo: 'acme/config', disabled_reason: 'the code host refused the token (HTTP 401)' } } } })
+    render(<GitopsBanner />)
+    await settle()
+    const off = screen.getByTestId('gitops-approval-prs')
+    expect(off).toHaveTextContent('Approval pull requests are off')
+    expect(off).toHaveTextContent('HTTP 401')
+  })
 })

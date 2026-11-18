@@ -126,3 +126,49 @@ func TestApprovalPRQueue_RejectsOnce(t *testing.T) {
 		t.Fatalf("approve a rejected item: err = %v, want ErrAlreadyDecided", err)
 	}
 }
+
+// The inbox's PR line: the PR row when there is one, app_only above the
+// cap, nothing for a change PR mode will still open.
+func TestApprovalPRNote_ShowsThePRRowOrAppOnly(t *testing.T) {
+	pool, ctx := phase2RequireDB(t)
+	clean := func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM sage.approval_prs
+			WHERE database = 'notes_db'`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.approval_prs (database, queue_id, repo,
+		path, card_hash, expires_at, state, pr_number, pr_url) VALUES ('notes_db', 5, 'o/r',
+		'approvals/notes_db/5.yaml', 'h', now() + interval '1 day', 'open', 3,
+		'https://example.invalid/o/r/pull/3')`); err != nil {
+		t.Fatal(err)
+	}
+	SetApprovalPRs(&gitops.ApprovalPRs{Config: gitops.ApprovalPRConfig{Repo: "o/r",
+		ChatCap: "safe"}}, pool)
+	t.Cleanup(func() { SetApprovalPRs(nil, nil) })
+	safe := &store.QueuedAction{ID: 5, Status: "pending", ActionRisk: "safe",
+		ProposedSQL: "ANALYZE public.t", ActionType: "analyze_table"}
+	n := approvalPRNote(ctx, "notes_db", approvalcard.Card{QueueID: 5}, safe)
+	if n == nil || n.State != "open" || n.PRNumber != 3 || n.Repo != "o/r" ||
+		n.PRURL != "https://example.invalid/o/r/pull/3" {
+		t.Fatalf("note = %+v, want the open PR o/r#3", n)
+	}
+	moderate := &store.QueuedAction{ID: 6, Status: "pending", ActionRisk: "moderate",
+		ProposedSQL: "ANALYZE public.t", ActionType: "analyze_table"}
+	n = approvalPRNote(ctx, "notes_db", approvalcard.Card{QueueID: 6}, moderate)
+	if n == nil || n.State != "app_only" || !strings.Contains(n.Detail, "chat approval cap") {
+		t.Fatalf("note above the cap = %+v, want app_only naming the cap", n)
+	}
+	safe.ID = 7
+	if n := approvalPRNote(ctx, "notes_db", approvalcard.Card{QueueID: 7}, safe); n != nil {
+		t.Fatalf("a change PR mode will open has note %+v", n)
+	}
+	cards := []approvalcard.Card{{QueueID: 5, Database: "notes_db", Status: "pending",
+		SQL: "ANALYZE public.t", Risk: approvalcard.Risk{Tier: "safe"}}}
+	withApprovalPRNotes(ctx, cards)
+	if cards[0].ApprovalPR == nil || cards[0].ApprovalPR.PRNumber != 3 {
+		t.Fatalf("list note = %+v, want PR 3", cards[0].ApprovalPR)
+	}
+}

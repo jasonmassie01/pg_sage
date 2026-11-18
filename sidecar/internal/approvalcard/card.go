@@ -74,6 +74,20 @@ type Card struct {
 	// change's object (one change per object); approving overrides it. Not
 	// part of the hash: it ends when that verdict lands.
 	VerificationWait *VerificationWait `json:"verification_wait,omitempty"`
+	// ApprovalPR is the change's approval pull request, or why it has none
+	// (cli-02b); set by the API, not part of the hash.
+	ApprovalPR *PRNote `json:"approval_pr,omitempty"`
+}
+
+// PRNote is a change's approval pull request as the inbox shows it: its
+// state (an approval PR state, app_only above the remote approval cap, or
+// disabled when PR mode turned itself off) and why.
+type PRNote struct {
+	State    string `json:"state"`
+	Repo     string `json:"repo,omitempty"`
+	PRNumber int    `json:"pr_number,omitempty"`
+	PRURL    string `json:"pr_url,omitempty"`
+	Detail   string `json:"detail,omitempty"`
 }
 
 // Origin is how a queued item was proposed and by whom.

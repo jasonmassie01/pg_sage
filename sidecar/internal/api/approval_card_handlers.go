@@ -94,6 +94,7 @@ func (h *approvalCardHandlers) list(w http.ResponseWriter, r *http.Request) {
 		}
 		cards = append(cards, got...)
 	}
+	withApprovalPRNotes(r.Context(), cards) // cli-02b
 	jsonResponse(w, map[string]any{"cards": cards, "total": len(cards), "errors": failures})
 }
 
@@ -164,9 +165,8 @@ func (h *approvalCardHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a = nil
 	}
-	if note := approvalPRNote(r.Context(), inst.Name, c, a); note != nil {
-		body["approval_pr"] = note // cli-02b
-	}
+	c.ApprovalPR = approvalPRNote(r.Context(), inst.Name, c, a) // cli-02b
+	body["card"] = c
 	jsonResponse(w, body)
 }
 

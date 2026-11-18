@@ -45,6 +45,21 @@ function Changes({ changes }) {
   )
 }
 
+// cli-02b: approval PR mode, and why it turned itself off.
+function ApprovalPRs({ prs }) {
+  if (!prs) return null
+  return (
+    <p data-testid="gitops-approval-prs"
+      style={prs.enabled ? undefined : { color: 'var(--red)' }}>
+      {prs.enabled
+        ? `Approval requests open as pull requests on ${prs.repo}; a merge by a mapped ` +
+          'operator approves the change.'
+        : `Approval pull requests are off: ${prs.disabled_reason}. Approve in pg_sage or ` +
+          'chat until it is fixed.'}
+    </p>
+  )
+}
+
 export function GitopsBanner() {
   const { data } = useAPI('/api/v1/gitops', 60000)
   if (!data?.configured || !data.report) return null
@@ -63,6 +78,7 @@ export function GitopsBanner() {
           <Problems problems={r.problems} />
         </div>
       ) : <Changes changes={r.changes} />}
+      <ApprovalPRs prs={data.approval_prs} />
     </section>
   )
 }
