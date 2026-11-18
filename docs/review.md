@@ -141,12 +141,13 @@ stale-run reaper's 30 minutes, plus margin). A claim whose sidecar died goes bac
 when its lease ends, keeping its run id: the next leader consumes it into that run if the run
 finished, waits while it runs, and starts a new run if it failed or has been running for
 longer than the lease (its sidecar died mid-run; the new run's reaper fails it). So a trigger
-gets one finished run. A grade that is already running makes the loop release the claim and retry at
-the next tick.
+gets one finished run. A grade that is already running makes the loop release the claim and
+retry at the next tick.
 
 **What a run does.** Today a trigger-started run is a `review` run graded against the rubric,
 read-only, carrying its triggers. Nothing runs on the monitored database: a review reads and
-proposes.
+proposes. The grade route's `why_now` lists the triggers the latest run consumed or coalesced,
+with their details.
 
 **Errors.** A failed trigger insert names the kind and the database and is returned to the
 source. The routes log it and answer as before; it is counted in
