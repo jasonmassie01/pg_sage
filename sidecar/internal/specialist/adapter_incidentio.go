@@ -95,6 +95,11 @@ type incidentIOIncident struct {
 			Option *struct {
 				Value string `json:"value"`
 			} `json:"value_option"`
+			// A catalog-backed field (such as a Service or Database
+			// catalog type) names its entry.
+			Catalog *struct {
+				Name string `json:"name"`
+			} `json:"value_catalog_entry"`
 			Text string `json:"value_text"`
 		} `json:"values"`
 	} `json:"custom_field_entries"`
@@ -135,6 +140,9 @@ func (a *IncidentIOAdapter) fieldValue(inc *incidentIOIncident) string {
 		for _, v := range entry.Values {
 			if v.Option != nil && strings.TrimSpace(v.Option.Value) != "" {
 				return strings.TrimSpace(v.Option.Value)
+			}
+			if v.Catalog != nil && strings.TrimSpace(v.Catalog.Name) != "" {
+				return strings.TrimSpace(v.Catalog.Name)
 			}
 			if t := strings.TrimSpace(v.Text); t != "" {
 				return t

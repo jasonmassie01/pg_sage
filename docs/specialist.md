@@ -276,7 +276,8 @@ audited with transport `http` and `external_ref.system: incident_io`.
 Unverified: the payload fields pg_sage reads (`event_type`, the incident
 under a key named like the event type, `id`, `name`, `permalink`,
 `created_at`, `custom_field_entries[].custom_field.name` and
-`values[].value_option.value` or `value_text`) and the Svix header names
+`values[].value_option.value`, `value_catalog_entry.name` for a
+catalog-backed field, or `value_text`) and the Svix header names
 follow incident.io's public webhook documentation as of 2026-11 and were not
 checked against a live account.
 
