@@ -40,7 +40,9 @@ var rules07Lists = map[string][]string{
 		"pg_cron_job_failed", "pg_cron_history_unbounded", "partman_premake_gap",
 		"partman_default_rows",
 		// market-16b added the TimescaleDB health checks.
-		"timescale_job_failed", "timescale_cagg_stale"},
+		"timescale_job_failed", "timescale_cagg_stale",
+		// guard-02c added the plan flip after an outside ANALYZE.
+		"plan_flip_after_analyze"},
 	"advisor": {"wal_tuning", "connection_tuning", "query_rewrite",
 		"bloat_remediation", "advisor_degraded", "vacuum_tuning", "memory_tuning",
 		// market-15 added the PostgreSQL 18 I/O settings check.
