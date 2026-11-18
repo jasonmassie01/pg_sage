@@ -194,9 +194,10 @@ elects its own owner. Single-database mode is unchanged.
 
 Some runways and forecasts describe the whole cluster, not one database:
 the XID and multixact age (`forecast_wraparound_runway`, `xid` and `mxid`),
-disk use and every replication slot (`forecast_wal_runway`), connection
-saturation (`forecast_connection_saturation`, which counts every backend)
-and checkpoint pressure (`forecast_checkpoint_pressure`). With several
+multixact member space (`forecast_multixact_member_runway`), disk use and
+every replication slot (`forecast_wal_runway`), connection saturation
+(`forecast_connection_saturation`, which counts every backend) and
+checkpoint pressure (`forecast_checkpoint_pressure`). With several
 databases of one cluster in the fleet, one database reports them: the
 lowest fleet name among the databases whose runway monitor runs (for the
 forecasts, among those whose forecaster runs). Its findings carry

@@ -154,12 +154,14 @@ func (s clusterScope) keepCluster(cat string, keep map[string]bool) {
 }
 
 // resolveDuplicatesSQL resolves a non-owner's open cluster findings,
-// naming the owner that reports them now.
+// naming the owner that reports them now: every finding of the cluster
+// categories ($2: the WAL and multixact member runways) and the xid and
+// mxid rows of the wraparound category.
 const resolveDuplicatesSQL = `/* pg_sage */ UPDATE sage.findings
 	SET status = 'resolved', resolved_at = now(),
 	    detail = CASE WHEN jsonb_typeof(detail) = 'object' THEN detail
 	                  ELSE '{}'::jsonb END || jsonb_build_object('cluster_owner', $1::text)
-	WHERE status = 'open' AND (category = $2 OR
+	WHERE status = 'open' AND (category = ANY ($2::text[]) OR
 	      (category = $3 AND object_identifier = ANY ($4::text[])))`
 
 // resolveDuplicates resolves a non-owner's open cluster findings once its
@@ -169,8 +171,9 @@ func (m *Monitor) resolveDuplicates(ctx context.Context, s clusterScope) (int, e
 	if s.reports() || !m.opts.Owners.OwnerEvaluated(s.key, s.owner, m.ownerTTL()) {
 		return 0, nil
 	}
-	tag, err := m.pool.Exec(ctx, resolveDuplicatesSQL, s.owner, CategoryWAL,
-		CategoryWraparound, []string{probes.RunwayXID, probes.RunwayMXID})
+	tag, err := m.pool.Exec(ctx, resolveDuplicatesSQL, s.owner,
+		[]string{CategoryWAL, CategoryMXMembers}, CategoryWraparound,
+		[]string{probes.RunwayXID, probes.RunwayMXID})
 	if err != nil {
 		return 0, fmt.Errorf("resolve the cluster findings %q reports: %w", s.owner, err)
 	}

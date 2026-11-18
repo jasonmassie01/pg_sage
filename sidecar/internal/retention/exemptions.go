@@ -75,6 +75,8 @@ var coreExemptions = map[string]string{
 	"rollout_run": "low-volume rollout evidence ledger",
 	"runway_samples": "runway series; the runway monitor prunes them on every pass " +
 		"(sre.runways.sample_retention_hours)",
+	"multixact_member_samples": "multixact member space readings; the runway monitor " +
+		"prunes them past 90 days on every pass (guard-02a)",
 	"rollout_instance": "per-database steps of a rollout run; low volume",
 	"schema_migrations": "migration ledger (config-04b): one row per migration " +
 		"step and one catalog fingerprint; purging it would replay every step",

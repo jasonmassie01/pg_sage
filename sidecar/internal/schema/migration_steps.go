@@ -281,5 +281,6 @@ func trancheSixMigrations() []namedStep {
 		{"ddlUpgradeBriefs", ddlUpgradeBriefs},                       // drill-02a
 		{"ddlChangeFeedProviderEvents", ddlChangeFeedProviderEvents}, // guard-02b
 		{"ddlPressureJobs", ddlPressureJobs},                         // guard-01b
+		{"ddlMultixactMembers", ddlMultixactMembers},                 // guard-02a
 	}
 }

@@ -104,6 +104,8 @@ var forecastEntries = []Category{
 		"Time left before retained WAL fills the disk or a slot's limit."),
 	e("forecast_sequence_runway", "forecaster", "runway", sevWC, nil, nil,
 		"Time left before a sequence runs out of values at its current rate."),
+	e("forecast_multixact_member_runway", "forecaster", "runway", sevWC, nil, nil,
+		"Time left before multixact member space reaches the aggressive-vacuum threshold."),
 }
 
 var otherEntries = []Category{

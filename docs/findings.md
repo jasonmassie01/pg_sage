@@ -1480,6 +1480,7 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="forecast_wraparound_runway"></a>`forecast_wraparound_runway` | Runway | Time left before a table or the database reaches transaction ID wraparound. |
 | <a id="forecast_wal_runway"></a>`forecast_wal_runway` | Runway | Time left before retained WAL fills the disk (`forecaster.disk_capacity_bytes`) or a slot's limit. |
 | <a id="forecast_sequence_runway"></a>`forecast_sequence_runway` | Runway | Time left before a sequence runs out of values at its current rate. |
+| <a id="forecast_multixact_member_runway"></a>`forecast_multixact_member_runway` | Runway | Time left before multixact member space reaches the aggressive-vacuum threshold (half of the 2^32 member space), from a sampled estimate and its error ([Multixact member space](configuration.md#multixact-member-space)). |
 | <a id="managed_parameter_drift"></a>`managed_parameter_drift` | Cloud telemetry | A managed provider parameter that drifts from its resolved target. |
 | <a id="managed_storage_runway"></a>`managed_storage_runway` | Cloud telemetry | Time left before a managed instance's provisioned storage fills. |
 | <a id="instance_rightsize"></a>`instance_rightsize` | Cost | An instance that is over or under its size on 14 days of host usage. Advisory only: info severity, no SQL, and no executor path acts on it ([below](#instance-right-sizing)). |

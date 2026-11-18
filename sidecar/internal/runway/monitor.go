@@ -55,6 +55,16 @@ type Monitor struct {
 	ownMu      sync.Mutex
 	ownKey     string
 	noOwnerKey bool
+	// mxMu serializes the multixact member readings (guard-02a) and
+	// guards mxAt and mxLast, the last reading and when it was made, and
+	// mxStatus, the last reading's status (each change is logged once).
+	// mxRead makes a reading and mxLimits are its runway's limits.
+	mxMu     sync.Mutex
+	mxAt     time.Time
+	mxLast   *MXMemberResult
+	mxStatus string
+	mxRead   func(context.Context) (MXMemberEstimate, error)
+	mxLimits mxLimits
 }
 
 // TickResult is what one tick did.
@@ -69,6 +79,10 @@ type TickResult struct {
 	// cluster findings this non-owner resolved because the owner did.
 	ClusterOwner string
 	Duplicates   int
+	// MXMembers is the multixact member space reading (nil on a standby;
+	// a database that does not report the cluster's series samples it
+	// without reporting).
+	MXMembers *MXMemberResult
 }
 
 // NewMonitor validates its dependencies. starter may be nil (findings
@@ -89,7 +103,10 @@ func NewMonitor(pool *pgxpool.Pool, runner ProbeRunner, starter Starter, opts Op
 	}
 	return &Monitor{pool: pool, runner: runner, starter: starter, opts: opts,
 		logFn: logFn, last: map[seriesKey]lastPoint{}, now: time.Now,
-		stale: map[string]bool{}}, nil
+		stale: map[string]bool{}, mxLimits: defaultMXLimits,
+		mxRead: func(ctx context.Context) (MXMemberEstimate, error) {
+			return measureMXMembers(ctx, pool)
+		}}, nil
 }
 
 // Run ticks every interval until ctx ends. A failed tick is logged and
@@ -146,8 +163,11 @@ func (m *Monitor) Tick(ctx context.Context) (TickResult, error) {
 		problems, evaluated = append(problems, openErr), without(evaluated, CategoryWAL)
 	}
 	if !res.Standby {
+		scope := m.claimCluster(snap)
 		problems = append(problems, m.reportScoped(ctx, &res, in, runways, evaluated,
-			m.claimCluster(snap), openErr == nil))
+			scope, openErr == nil))
+		res.MXMembers, err = m.tickMXMembers(ctx, scope)
+		problems = append(problems, err)
 	} else {
 		res.Runways = runways
 	}

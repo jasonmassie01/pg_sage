@@ -51,11 +51,13 @@ func TestPressureJobsMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-func TestPressureJobsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// guard-02a's ddlMultixactMembers merged after this step, so the pin is its
+// place: right after ddlChangeFeedProviderEvents.
+func TestPressureJobsStep_IsPlacedIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if i := stepIndex(steps, "ddlPressureJobs"); i != len(steps)-1 ||
+	if i := stepIndex(steps, "ddlPressureJobs"); i < 1 ||
 		steps[i-1][0] != "ddlChangeFeedProviderEvents" {
-		t.Fatalf("T6 steps = %v, want ddlPressureJobs last, after ddlChangeFeedProviderEvents",
+		t.Fatalf("T6 steps = %v, want ddlPressureJobs after ddlChangeFeedProviderEvents",
 			steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",

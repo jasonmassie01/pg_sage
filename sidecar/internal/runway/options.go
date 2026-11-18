@@ -66,6 +66,10 @@ type Options struct {
 	// runway forecasts over hours); between measurements the last one is
 	// reused and not sampled again. 0 measures it every tick.
 	SizeInterval time.Duration
+	// MXMemberInterval is the multixact member space's own sampling
+	// period (guard-02a; its rate moves with checkpoints); between readings
+	// the last one is kept. 0 reads it every tick.
+	MXMemberInterval time.Duration
 	// Horizons: a runway inside the horizon opens a finding, inside the
 	// critical horizon a critical one.
 	WraparoundHorizon  time.Duration
@@ -120,6 +124,10 @@ func (o Options) validate() error {
 	if !(o.WraparoundGateMargin >= 0 && o.WraparoundGateMargin <= MaxWraparoundGateMargin) {
 		return fmt.Errorf("runway monitor wraparound gate margin %v must be 0-%v",
 			o.WraparoundGateMargin, MaxWraparoundGateMargin)
+	}
+	if o.MXMemberInterval < 0 || (o.MXMemberInterval > 0 && o.MXMemberInterval < o.Interval) {
+		return fmt.Errorf("runway monitor multixact member interval %s must be 0 (every "+
+			"tick) or at least the interval %s", o.MXMemberInterval, o.Interval)
 	}
 	if o.SizeInterval < 0 || (o.SizeInterval > 0 && o.SizeInterval < o.Interval) {
 		return fmt.Errorf("runway monitor size interval %s must be 0 (every tick) or "+
