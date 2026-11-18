@@ -80,6 +80,23 @@ func (m approvalMark) approval() bool {
 		(m.verdict == "improved" || m.verdict == "neutral")
 }
 
+// approvalMarksOf are c's marks as approval evidence. A neutral index
+// create is reverted for no gain (Phase 1.3, verify's no_gain) and that
+// revert is no rollback demerit (rollbackIsDemerit), so its neutral
+// verdict is an approval that did not hold: it never counts.
+func approvalMarksOf(c ActionClass, marks []approvalMark) []approvalMark {
+	if c != ClassIndexCreate {
+		return marks
+	}
+	out := make([]approvalMark, 0, len(marks))
+	for _, m := range marks {
+		if m.verdict != "neutral" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // countApprovals is the approval history of marks (any order) since
 // since, against required approvals.
 func countApprovals(marks []approvalMark, since time.Time, required int) ApprovalHistory {

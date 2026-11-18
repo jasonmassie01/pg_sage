@@ -63,6 +63,25 @@ func TestCountApprovals_NeutralCountsAndMixesWithImproved(t *testing.T) {
 	}
 }
 
+func TestApprovalMarksOf_ANeutralIndexCreateIsNoApproval(t *testing.T) {
+	marks := approvals(4, histNow.Add(-48*time.Hour))
+	for i := 0; i < 8; i++ {
+		marks = append(marks, approvedMark(int64(200+i), "neutral",
+			histNow.Add(-time.Duration(i+1)*time.Minute)))
+	}
+	idx := countApprovals(approvalMarksOf(ClassIndexCreate, marks), since(), 10)
+	if idx.Approvals != 4 || idx.Neutral != 0 || idx.Qualifies {
+		t.Fatalf("index_create = %+v, want the 4 improved only", idx)
+	}
+	stats := countApprovals(approvalMarksOf(ClassStatistics, marks), since(), 10)
+	if stats.Approvals != 12 || stats.Neutral != 8 || !stats.Qualifies {
+		t.Fatalf("statistics = %+v, want 4 improved + 8 neutral", stats)
+	}
+	if got := approvalMarksOf(ClassIndexCreate, nil); len(got) != 0 {
+		t.Fatalf("nil marks = %v, want none", got)
+	}
+}
+
 func TestCountApprovals_OneRollbackInsideTheWindowResetsTheCount(t *testing.T) {
 	marks := approvals(12, histNow.Add(-10*24*time.Hour))
 	rollbackAt := histNow.Add(-3 * 24 * time.Hour)

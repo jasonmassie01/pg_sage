@@ -111,8 +111,8 @@ func (s *Service) evidenceOf(e evidenceSet, f Family, c ActionClass) Evidence {
 		rec := e.records[pairKey{f, c}]
 		ev.Record, ev.Floor = &rec, s.floorStatus(c, e.at)
 		if e.approvalsRead {
-			h := countApprovals(e.approvals[pairKey{f, c}], e.at.Add(-ApprovalHistoryWindow),
-				s.cfg.AskAfterApprovals)
+			h := countApprovals(approvalMarksOf(c, e.approvals[pairKey{f, c}]),
+				e.at.Add(-ApprovalHistoryWindow), s.cfg.AskAfterApprovals)
 			ev.ApprovalHistory = &h
 		}
 		return ev

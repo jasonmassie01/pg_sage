@@ -927,8 +927,9 @@ only a floor: it never grants anything by itself.
 
 Your approvals are evidence too. For each database and self-initiated class, pg_sage counts the
 executions a person approved (L2) in the last 30 days whose verdict was `improved` or
-`neutral`. The count restarts at the newest rollback, `regressed` verdict or rejected approval
-item, and a rolled-back action never counts. Like the ramp, this can create a proposal but
+`neutral`. A neutral `index_create` never counts: pg_sage reverts it for no gain. The count
+restarts at the newest rollback, `regressed` verdict or rejected approval item, and a
+rolled-back action never counts. Like the ramp, this can create a proposal but
 never grants anything:
 
 - **The ask.** When a class at L2 reaches `trust.ask_after_approvals` (10) such approvals,

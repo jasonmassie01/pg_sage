@@ -20,13 +20,20 @@ const humanApprover = "user:7:ops@example.com"
 // approvals) with the ramp long passed.
 func newHistoryFixture(t *testing.T) *fixture {
 	t.Helper()
+	return newHistoryFixtureFor(t, ClassIndexCreate)
+}
+
+// newHistoryFixtureFor is the tuning class at L2 (three improved
+// approvals) with the ramp long passed.
+func newHistoryFixtureFor(t *testing.T, class ActionClass) *fixture {
+	t.Helper()
 	f := newFixture(t)
 	f.svc.cfg.AskAfterApprovals = DefaultAskAfterApprovals
 	f.svc.WithRamp(func() RampFloor {
 		return RampFloor{Start: f.clock.Now().Add(-60 * 24 * time.Hour)}
 	})
-	f.recordApproved(ClassIndexCreate, "improved", 3)
-	if st := f.promote(FamilyTuning, ClassIndexCreate); st.Level != L2 {
+	f.recordApproved(class, "improved", 3)
+	if st := f.promote(FamilyTuning, class); st.Level != L2 {
 		t.Fatalf("seeded level = %v, want L2", st.Level)
 	}
 	return f
@@ -78,13 +85,13 @@ func kindOf(t *testing.T, p Proposal) string {
 }
 
 func TestApprovalHistory_NineApprovalsDoNotAskTenDo(t *testing.T) {
-	f := newHistoryFixture(t)
-	f.recordApproved(ClassIndexCreate, "neutral", 6) // 3 improved + 6 neutral = 9
-	if p := f.askFor(ClassIndexCreate); p != nil {
+	f := newHistoryFixtureFor(t, ClassStatistics)
+	f.recordApproved(ClassStatistics, "neutral", 6) // 3 improved + 6 neutral = 9
+	if p := f.askFor(ClassStatistics); p != nil {
 		t.Fatalf("9 approvals asked: %+v", p)
 	}
-	f.recordApproved(ClassIndexCreate, "neutral", 1)
-	p := f.askFor(ClassIndexCreate)
+	f.recordApproved(ClassStatistics, "neutral", 1)
+	p := f.askFor(ClassStatistics)
 	if p == nil || p.From != L2 || p.To != L3 {
 		t.Fatalf("10 approvals: no L3 ask (%+v)", p)
 	}
@@ -92,45 +99,68 @@ func TestApprovalHistory_NineApprovalsDoNotAskTenDo(t *testing.T) {
 		t.Fatalf("proposal kind = %q, want approval_history", kind)
 	}
 	ask, ok := ApprovalAsk(*p, f.db)
-	if !ok || !strings.Contains(ask, "You approved index_create 10 times on orders") {
+	if !ok || !strings.Contains(ask, "You approved statistics 10 times on orders") {
 		t.Fatalf("ask = %q %v", ask, ok)
 	}
 	// The ask is a proposal, never a grant.
-	if got := f.granted(FamilyTuning, ClassIndexCreate); got != L2 {
+	if got := f.granted(FamilyTuning, ClassStatistics); got != L2 {
 		t.Fatalf("level after the ask = %v, want L2", got)
 	}
 }
 
-func TestApprovalHistory_ZeroDisablesTheAsk(t *testing.T) {
+// A neutral index create is reverted for no gain (Phase 1.3) without a
+// rollback demerit: it did not hold, so it is never an approval, and
+// twenty of them neither ask nor allow-always (review of ux-07a).
+func TestApprovalHistory_NeutralIndexCreatesNeverAsk(t *testing.T) {
 	f := newHistoryFixture(t)
-	f.svc.cfg.AskAfterApprovals = 0
 	f.recordApproved(ClassIndexCreate, "neutral", 20)
 	if p := f.askFor(ClassIndexCreate); p != nil {
+		t.Fatalf("20 no-gain index creates asked: %+v", p)
+	}
+	ev, err := f.svc.decisionEvidence(f.ctx, FamilyTuning, ClassIndexCreate)
+	if err != nil || ev.ApprovalHistory == nil || ev.ApprovalHistory.Approvals != 3 ||
+		ev.ApprovalHistory.Neutral != 0 {
+		t.Fatalf("history = %+v, %v; want the 3 improved only", ev.ApprovalHistory, err)
+	}
+	_, err = f.svc.AllowAlways(f.ctx, FamilyTuning, ClassIndexCreate, humanApprover, "x")
+	if !errors.Is(err, ErrEvidenceNotMet) {
+		t.Fatalf("allow always on no-gain index creates: %v, want ErrEvidenceNotMet", err)
+	}
+	if got := f.granted(FamilyTuning, ClassIndexCreate); got != L2 {
+		t.Fatalf("level = %v, want L2", got)
+	}
+}
+
+func TestApprovalHistory_ZeroDisablesTheAsk(t *testing.T) {
+	f := newHistoryFixtureFor(t, ClassStatistics)
+	f.svc.cfg.AskAfterApprovals = 0
+	f.recordApproved(ClassStatistics, "neutral", 20)
+	if p := f.askFor(ClassStatistics); p != nil {
 		t.Fatalf("ask_after_approvals 0 asked: %+v", p)
 	}
 }
 
 func TestApprovalHistory_NotNowSnoozesTheAskFor30Days(t *testing.T) {
-	f := newHistoryFixture(t)
-	f.recordApproved(ClassIndexCreate, "neutral", 7)
-	p := f.askFor(ClassIndexCreate)
+	f := newHistoryFixtureFor(t, ClassStatistics)
+	f.recordApproved(ClassStatistics, "neutral", 7)
+	p := f.askFor(ClassStatistics)
 	if p == nil {
 		t.Fatal("no ask")
 	}
 	if _, err := f.svc.Reject(f.ctx, p.ID, humanApprover, "not now"); err != nil {
 		t.Fatal(err)
 	}
-	f.recordApproved(ClassIndexCreate, "neutral", 5)
-	if again := f.askFor(ClassIndexCreate); again != nil {
+	f.recordApproved(ClassStatistics, "neutral", 5)
+	if again := f.askFor(ClassStatistics); again != nil {
 		t.Fatalf("asked again inside the snooze: %+v", again)
 	}
 	f.clock.Advance(29 * 24 * time.Hour)
-	f.recordApproved(ClassIndexCreate, "neutral", 10)
-	if again := f.askFor(ClassIndexCreate); again != nil {
+	f.recordApproved(ClassStatistics, "neutral", 10)
+	if again := f.askFor(ClassStatistics); again != nil {
 		t.Fatalf("asked again at 29 days: %+v", again)
 	}
 	f.clock.Advance(2 * 24 * time.Hour)
-	if again := f.askFor(ClassIndexCreate); again == nil ||
+	if again := f.askFor(ClassStatistics); again == nil ||
 		kindOf(t, *again) != EvidenceKindApprovalHistory {
 		t.Fatalf("no ask after the snooze: %+v", again)
 	}
@@ -177,13 +207,13 @@ func TestAllowAlways_GrantsL3AndTheClassActsInTheWindow(t *testing.T) {
 }
 
 func TestAllowAlways_UsesAPendingProposal(t *testing.T) {
-	f := newHistoryFixture(t)
-	f.recordApproved(ClassIndexCreate, "neutral", 8)
-	p := f.askFor(ClassIndexCreate)
+	f := newHistoryFixtureFor(t, ClassStatistics)
+	f.recordApproved(ClassStatistics, "neutral", 8)
+	p := f.askFor(ClassStatistics)
 	if p == nil {
 		t.Fatal("no ask")
 	}
-	if _, err := f.svc.AllowAlways(f.ctx, FamilyTuning, ClassIndexCreate, humanApprover,
+	if _, err := f.svc.AllowAlways(f.ctx, FamilyTuning, ClassStatistics, humanApprover,
 		"allow always from card 3"); err != nil {
 		t.Fatal(err)
 	}
