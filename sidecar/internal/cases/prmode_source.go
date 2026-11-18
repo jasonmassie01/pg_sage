@@ -20,9 +20,9 @@ type prFinding struct {
 	Detail                               map[string]any
 }
 
-// prCandidatesSQL reads open findings that carry a change, and findings
-// whose PR-mode PR is still being followed (open, merged or deployed, or
-// regressed without a revert yet), newest first.
+// prCandidatesSQL reads findings whose PR-mode PR is still being followed
+// (open, merged or deployed, or regressed without a revert yet) first, then
+// open findings that carry a change, newest first.
 const prCandidatesSQL = `/* pg_sage */ SELECT f.id, f.title, COALESCE(f.recommendation, ''),
     COALESCE(f.recommended_sql, ''), COALESCE(f.rollback_sql, ''), f.detail
 FROM sage.findings f
@@ -31,17 +31,26 @@ WHERE (f.status = 'open' AND s.id IS NULL AND (COALESCE(f.recommended_sql, '') <
         OR f.detail ? 'source_fix' OR f.detail ? 'suggested_rewrite'))
    OR (s.origin = 'pg_sage' AND COALESCE(s.pr_state, '') NOT IN ('closed', 'revert_opened')
         AND (s.verdict IS NULL OR s.verdict = 'regressed'))
-ORDER BY f.last_seen DESC, f.id DESC
+ORDER BY (s.id IS NOT NULL) DESC, f.last_seen DESC, f.id DESC
 LIMIT $1`
+
+// prScanFactor bounds the rows one load reads per candidate wanted: most
+// open findings carry a change the executor runs itself, which is no
+// candidate, so a limit on rows alone would starve older migrations.
+const prScanFactor = 25
 
 // LoadPRCandidates reads up to limit PR candidates from sage.findings:
 // changes the executor runs under no contract (classify), fact-bound
-// source fixes, and query rewrites.
+// source fixes, and query rewrites. It reads at most limit*prScanFactor
+// findings.
 func LoadPRCandidates(ctx context.Context, pool *pgxpool.Pool, classify SQLClassifier,
 	limit int) ([]PRCandidate, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, prStoreTimeout)
 	defer cancel()
-	rows, err := pool.Query(ctx, prCandidatesSQL, limit)
+	rows, err := pool.Query(ctx, prCandidatesSQL, limit*prScanFactor)
 	if err != nil {
 		return nil, fmt.Errorf("read PR candidates: %w", err)
 	}
@@ -60,7 +69,9 @@ func LoadPRCandidates(ctx context.Context, pool *pgxpool.Pool, classify SQLClass
 			return nil, fmt.Errorf("decode finding %d detail: %w", f.ID, err)
 		}
 		if c, ok := candidateFromFinding(f, classify); ok {
-			out = append(out, c)
+			if out = append(out, c); len(out) == limit {
+				break
+			}
 		}
 	}
 	return out, rows.Err()
@@ -112,3 +123,4 @@ func prQueryID(detail map[string]any) int64 {
 	}
 	return 0
 }
+
