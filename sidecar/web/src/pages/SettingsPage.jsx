@@ -6,6 +6,7 @@ import { TabPanel } from '../components/Tabs'
 import { queryBlocked } from '../lib/queryState'
 import { MaskedOverridesContext } from './settings/SourceBadge'
 import { PendingRestartPanel } from './settings/PendingRestartPanel'
+import { GitopsBanner } from './settings/GitopsBanner'
 import { FeedbackBanner } from './settings/fields'
 import { TabContent } from './settings/tabs/TabContent'
 import { useSettingsConfig, useSettingsMode } from './settings/useSettingsConfig'
@@ -52,6 +53,7 @@ export function SettingsPage({ database, databaseId }) {
       <ScopeNotice s={s} database={database} />
       <LifecycleBanner supported={s.data?.restart_supported === true} restart={restart} />
       <PendingRestartPanel pending={s.data?.pending} />
+      {!s.isDatabaseScope && <GitopsBanner />}
       <TabPanel id="settings" active={view.tab} className="space-y-4">
         <TabCards tab={view.tab} database={database}
           databaseId={s.isDatabaseScope ? s.numericDatabaseId : undefined} />
