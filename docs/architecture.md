@@ -927,10 +927,41 @@ plan's review; `plans_unavailable: true` says the plans could not be read.
 
 ### API + Dashboard (Web UI)
 
-REST API and embedded React SPA on `:8080` (configurable). The v1 UI is
-organized around Overview, Cases, Actions, Fleet, and Settings. The legacy
-`#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and
-`#/incidents` routes open Cases with the appropriate source context. The API
+REST API and embedded React SPA on `:8080` (configurable). The nav has 14
+entries in three groups (ux-11), each shown only to the roles its page allows,
+and a group a role cannot use is not drawn:
+
+| Group | Entries |
+| --- | --- |
+| Operate | Inbox (`#/`), Changes (`#/changes`), Issues (`#/issues`), Ask Sage (`#/ask`) |
+| Admin | Fleet (`#/manage-databases`), Autonomy (`#/autonomy`), Notifications, Agents, Users, Settings |
+| Evidence (collapsible) | Workload (`#/queries`), SLOs, Facts, Runbooks (`#/advanced/runbooks`) |
+
+The Evidence group opens on one of its pages and otherwise remembers, per
+browser, whether the viewer last opened or closed it. The outcome ledger
+(`#/ledger`) is linked from the Inbox and from Changes rather than the nav;
+its collapsed sections hold the Value summary and every external agent
+request. Fleet's **Health & readiness** tab holds the fleet health summary,
+provider readiness and index admission; the health chart is on the Database
+page; MCP tokens are an admin-only tab of Agents.
+
+Old paths keep working. The dashboard redirects each in place (Back skips
+it), keeps the `?database=` and `?case=` it carried, and adds the view it
+named:
+
+| Old path | Opens |
+| --- | --- |
+| `#/actions`, `#/advanced/actions` | `#/changes` |
+| `#/cases`, `#/findings`, `#/advanced/findings` | `#/issues` |
+| `#/forecasts`, `#/query-hints`, `#/schema-health`, `#/incidents` | `#/issues?source=forecast` (`query_hint`, `schema_health`, `incident`) |
+| `#/value` | `#/ledger?section=value` |
+| `#/trust` | `#/autonomy` |
+| `#/advanced/autonomy` | `#/autonomy?section=history` |
+| `#/advanced` (Snapshot & metrics) | `#/manage-databases?tab=readiness` |
+| `#/alerts` | `#/notifications?tab=log` |
+| `#/mcp-tokens` | `#/agents?tab=tokens` |
+
+The aliases stay for at least two releases. The API
 includes case projection, shadow decisions, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.

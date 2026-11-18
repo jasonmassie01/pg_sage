@@ -102,8 +102,10 @@ reason. When nothing waits and every source answered, the page says so from
 counts, for example "Nothing needs you. 6 changes since Tuesday, all
 verified." When a source could not be read the page names it ("Could not
 read: autonomy promotions") and never claims that nothing waits. The page
-marks itself seen after 5 seconds visible. The Value page moved to `#/value`;
-the Inbox shows one Value line linking to it. The one nav badge is on Inbox:
+marks itself seen after 5 seconds visible. Value is the outcome ledger's
+summary (`#/ledger?section=value`; `#/value` redirects there); the Inbox
+shows one Value line linking to it, and, for operators and admins, the
+external agent requests whose approval it still lists. The one nav badge is on Inbox:
 `/api/v1/inbox/count` `total`, `N+` for a lower bound and `99+` above 99.
 
 Rollbacks from the Inbox and from Actions require a reason (3 to 500

@@ -983,7 +983,7 @@ lower levels, incident families and carried-over levels are not re-validated, an
 demerit rule is unchanged. The cap is per database: each database's ledger compares its own
 server.
 
-The **Autonomy** page (`#/autonomy`; `#/trust` and `#/advanced/autonomy` are aliases) and
+The **Autonomy** page (`#/autonomy`; `#/trust` and `#/advanced/autonomy` redirect to it) and
 `GET /api/v1/trust?database=` show every database x family x class with its level,
 effective level, evidence counts, last change and why, and the path to the next level; an incident row also carries `bench`, the report its bench checks read (id,
 origin, provenance label). MCP `sre_get_autonomy` carries the same grid as `trust`. Each view is read with a
