@@ -5,7 +5,8 @@
 These changes are planned as five releases: v2.5.1 (tranche T0a, the safety fixes),
 v2.5.2 (tranche T0b), v2.6.0 (tranche T1), v2.7.0 (tranche T2) and v2.8.0+ (tranche T3).
 The tranche T4 changes finish them and ship with the T4 release; the T4 follow-ups (tranche T4c)
-follow them, and the T5 foundations (tranche T5) are listed last.
+follow them, the T5 foundations (tranche T5) come next, and the T6 changes
+(tranche T6: Sage Review, restore drills, fleet policy, change guards) are listed last.
 
 ### v2.5.1 (tranche T0a, safety)
 
@@ -3148,6 +3149,234 @@ follow them, and the T5 foundations (tranche T5) are listed last.
   Ask me first, Do safe things and tell me). The checklist gains a Model step, `POST
   /api/v1/onboarding/setup` records each finished step, and
   `pg_sage_setup_within_hour_ratio{part=model|channel}` is exported (ux-04b).
+
+### T6: Sage Review, restore drills, fleet policy, change guards (tranche T6)
+
+#### Security
+
+- **Exposure sweep.** Agent posture now sweeps for exposure between analyzer cycles: every
+  `agents.exposure.sweep_seconds` (default 60, range 15-600) pg_sage reads the catalog hash. When
+  the catalog changed, or a database was just enrolled, it runs AP-01 to AP-05, AP-15 and the new
+  AP-17 at once, so a table exposed to anon is flagged within about a minute. AP-17 flags agent-like
+  sessions connected as a table owner, a BYPASSRLS or superuser role, or Supabase's service_role.
+  Exposure findings carry mode shadow and the action that would close them (fleetpol-02a).
+- **Exposure remediation (opt-in).** Set `exposure.mode: enforce` in the standing policy document to
+  turn AP-15 PUBLIC grants into `revoke_public_grant` actions and AP-03 tables into
+  `enable_row_level_security` proposals. The revoke is moderate, reversible by its stored exact
+  re-GRANT, and reverted if a reader that relied on PUBLIC stops. Enabling RLS always needs approval
+  and shows the affected statements and the roles that would lose access. Nothing changes until an
+  operator sets `enforce`. Adds the `sage.exposure_remediations` table (fleetpol-02b).
+- **Supabase Data API exposure.** On Supabase, AP-03 and AP-04 findings now show whether the
+  project's Data API serves the finding's schema (`detail.data_api_exposed`: true, false or
+  unknown). pg_sage reads this hourly from the Management API using
+  `SAGE_SUPABASE_OBSERVABILITY_TOKEN`. A schema the Data API is known not to serve lowers AP-03 from
+  critical to warning; unknown keeps it critical (fleetpol-02c).
+- **Backup isolation.** pg_sage now reports when every backup of a managed database would be deleted
+  along with the instance (`backup_shares_delete_path`; critical on production with the agent gate
+  on), when a production instance has deletion protection off (`deletion_protection_off`), and when
+  the point-in-time window is shorter than `backup.min_pitr_hours` (default 24;
+  `pitr_window_below_policy`). It reads RDS and Aurora manual snapshots and restore windows
+  (bounded, cached 6 h) and Cloud SQL's retainBackupsOnDelete. Set `backup.external_source` to
+  declare a backup kept elsewhere. RDS needs rds:DescribeDBSnapshots, rds:DescribeDBClusterSnapshots
+  and rds:DescribeDBInstanceAutomatedBackups (drill-01b).
+
+#### Changed
+
+- **Change feed.** Sage SRE's change feed now puts server version changes (minor and major), host
+  changes (server address, system identifier) and restarts or failovers on the timeline even with
+  `sre.change_events.feed_enabled` off. Each is labelled operator, provider or unknown. With cloud
+  telemetry it also reads RDS/Aurora DescribeEvents (needs rds:DescribeEvents) and Cloud SQL
+  maintenance and failover operations, as source `provider_api` (guard-02b).
+- **Enrollment by policy set.** Fleet discovery now enrolls by policy set. Each candidate carries
+  tags, a creator and its creation time: RDS tags, cluster database comments (`pg_sage:
+  creator=agent:x`), Lakebase branch times and a new read-only `neon` source. Each set enrolls on
+  its own `enrollment.interval_minutes` (default 10, min 2) and `enrollment.per_cycle` (default 5,
+  max 20), with its owner rule and `ttl_hours`. Members get a first Sage Review on day one, and
+  per-set time to enroll and 24 h baseline share are exported as `pg_sage_fleet_enroll_seconds` and
+  `pg_sage_fleet_baseline_24h_ratio`. Enrollment still starts at observation with approval
+  (fleetpol-01b).
+
+#### Added
+
+- **Sage Review grade.** pg_sage now grades each database against a versioned "well-run Postgres"
+  rubric (`pg_sage-rubric/1`, eight dimensions). The grade runs once after the first look and then
+  every `review.grade_interval_hours` (default 24). It is deterministic and read-only, and a check
+  that could not run can only lower the grade. The grade is served at `GET
+  /api/v1/databases/{db}/review/grade` and through MCP `review_grade`, and the time to the first
+  grade is reported as `pg_sage_review_first_grade_seconds`. It is on by default (`review.enabled`)
+  (review-01a).
+- **Review page.** The Review page at `#/review` shows each database's grade, its eight dimensions
+  and their checks, what changed since the last grade, and the ranked report. Unknown always reads
+  "Unknown: <reason>", never a grey letter. Grade chips on the first look and the database page link
+  to it. Opening a finished review records a read receipt in `sage.review_view` through `POST
+  /api/v1/databases/{db}/review/runs/{id}/viewed`, once per user (review-01b).
+- **Index portfolio.** Sage Review now proposes index portfolio candidates over a 90-day window
+  (`review.window_days`, 14-100): exact duplicate drops, drops of indexes unused for the whole
+  window, and consolidation sets validated by hiding the set in HypoPG (advice when HypoPG is
+  unavailable). Each candidate cites its pack evidence, states the bytes reclaimed and write blocks
+  saved per day, and is stored in `sage.review_candidate` as a proposal only (review-02a).
+- **Configuration and autovacuum.** Sage Review now judges the server's settings as a set and
+  proposes per-table autovacuum settings. A fixed rule table checks shared_buffers, work_mem,
+  max_wal_size, random_page_cost, the PostgreSQL 18 I/O settings and
+  idle_in_transaction_session_timeout against memory, temp files, checkpoints, storage and idle
+  sessions. Values are clamped to pgconf's safe range. Restart-bound and managed-service changes
+  become operator steps that pg_sage never runs, at most one restart-bound step per review.
+  Per-table autovacuum steps are sized so that dead tuples peak under 5% of live rows (review-02b).
+- **Plan stability.** Sage Review flags plan-stability cliffs on top queries: nearly-all-NULL
+  filtered columns, skew beyond the sample, time-ordered inserts past the histogram, and correlated
+  predicates. It proposes the new moderate, reversible `set_column_statistics` action (10x the
+  target, capped at 10000, rolled back to the prior target) or pg_sage's extended statistics, and
+  reports a table whose statistics it cannot read as unknown with the exact GRANT (review-02c).
+- **Schema debt.** Sage Review now has a schema-debt generator. It turns int4 keys and narrow
+  foreign keys into a measured runway from the runway samples ("exhausts in 247 days", with an error
+  range, or "rate not measured yet" when there are fewer than 3 samples). Under 365 days it proposes
+  a capacity migration. It also drafts online column swaps for type changes and gives advice on
+  timestamp-without-time-zone columns, unpartitioned tables of `review.large_table_bytes` or more
+  (default 10 GiB), and queue or soft-delete tables. Every step needs approval (review-02d).
+- **Connections.** Sage Review's new connections generator finds recycle herds (more than 30% of an
+  application's sessions connecting in the same minute across 3 samples) and each application's
+  idle/active mix, with pooler sizing advice. It also proposes approval-only
+  `idle_in_transaction_session_timeout` and role `CONNECTION LIMIT` steps (never below the role's
+  observed peak) when connection headroom at peak is under 10%. The collector now records client
+  sessions by application and connection minute (review-02e).
+- **Capacity.** Sage Review gains a capacity section: 30/90/365-day size projections for the
+  database and its largest tables, each with a fit error and band; storage-headroom and right-size
+  advice with dollar figures only from `cost.rates` ("unknown: no operator rates" otherwise); an
+  idle-database rule (14 or more observed days with no workload calls); and a stored 30-day forecast
+  error. None of it ever changes an instance (review-02f).
+- **Model pass.** Sage Review gains a model pass, on by default when a model is usable
+  (`review.model_pass: auto`). Over the pack's model tier it ranks, attacks and links the
+  generators' candidates, proposes hypotheses and writes the report. `review.model_runs` (default 3)
+  independent runs are combined by majority or refute (`review.consensus`). Every claim must cite
+  evidence with grounded numbers, and the answer has no SQL field. With no model the review falls
+  back to a deterministic ranking with templated text. Each run is recorded in the append-only
+  `sage.review_model_run` with its output hash, tokens and cost. `llm.review_llm` can give the
+  review its own model (review-03a).
+- **Review plan.** Sage Review now ends as one plan. Generator candidates the review kept become
+  steps. A model hypothesis becomes a step only through a typed template (target resolved in the
+  evidence pack, SQL rendered by pg_sage, HypoPG prediction at or above the minimum improvement);
+  otherwise it is recorded as advice with the reason. Every model-proposed step needs a person's own
+  approval until the model is granted authority (G-M1) (review-03b).
+- **Review triggers.** Sage Review now starts reviews from events: an upgrade readiness check, a
+  regression open 72 h without a verified action, a daily size-growth anomaly (robust z >= 4), a
+  live migration lint touching a table over `review.large_table_bytes`, an instance class, vCPU or
+  memory change, enrollment (14 days of rollups at 80% coverage), and the calendar
+  (`review.calendar_days`, default 30). Triggers inside `review.min_interval_hours` (default 24)
+  join one run; `pre_upgrade` runs at once. Triggers are kept in `sage.review_trigger`, claimed by
+  the leader with SKIP LOCKED, and survive restarts. New metrics:
+  `pg_sage_review_trigger_fire_errors_total{kind}` and `pg_sage_review_runs_total{cause}`
+  (review-04a).
+- **Fleet review tiers.** Sage Review tiers fleet reviews in fleet and meta mode. Every member gets
+  a deterministic rollup. A low-cost model triage (`review.triage_model`, default the general
+  client) names outliers with cited rollup ids and falls back to a deterministic rule. One
+  fleet-level review answers which databases are abandoned, which share an anti-pattern, and what
+  retiring idle ones would save. Deep reviews run only for the top outliers, at most
+  `review.fleet_deep_max` (30) a month, as `fleet_outlier` triggers, with tokens split by need and
+  spend recorded per tier (review-04b).
+- **Scorecard and model gate.** Sage Review now keeps a scorecard per database: plan steps by origin
+  and generator, with how many were accepted, improved, unchanged, inconclusive, regressed, reverted
+  or unverifiable. It is served at `GET /api/v1/databases/{db}/review/scorecard` and by MCP
+  `review_scorecard`. A model gate runs on it. G-M1 files an admin-only inbox promotion when, over
+  50 real reviews, the model's improved rate is within 10 points of the generators' and at most 2%
+  of its decided steps were reverted. Only `POST .../review/gate/{id}/approve` grants it, and a
+  failed window or a model change revokes it automatically. G-M2 stops `review.model_pass: auto`
+  from calling a model that added no accepted step of its own. The `review.gate.*` thresholds are
+  owner proposals (D11) (review-05a).
+- **Scorecard on the Review and Value pages.** The Review page now shows the review scorecard and
+  the model gate card ("Model gate: 32 of 50 reviews; model 78% improved vs generators 84%; reverts
+  0%"), and the Value page shows a compact version. Counts are shown with their denominators, rates
+  over fewer than 10 read "too few to judge", impossible counts read "invalid", and approving a
+  pending G-M1 promotion from the Inbox now reaches the review gate route (review-05b).
+- **Restore drills.** On the fleet leader, pg_sage now restores each database's latest backup to a
+  disposable clone on `clone.provider` (receipted, guarded against connecting to the source, always
+  destroyed). It checks the clone read-only, records the measured RTO and RPO in
+  `sage.restore_drills`, opens the critical, paged finding `restore_drill_failed` when a drill
+  fails, and lifts D7's L2 cap on production agent writes once a drill has passed. Branch,
+  copy-on-write and Database Lab clones are drilled every 30 days by default. Full copies run only
+  with `clone.allow_full_copy` and `full_copy` in the policy document's new drill block. The new
+  `drill.max_concurrent_per_fleet` setting (default 2) caps drills running at once. Without a clone
+  provider a database gets the info finding `recoverability_unknown` (drill-01a).
+- **Restore drills on self-managed servers.** Set `drill.command.restore_argv` and `destroy_argv`
+  (YAML only, restart-bound) to have drills restore your own pgBackRest, Barman or WAL-G backups
+  through your wrapper. The wrapper runs without a shell, in `data_dir/restore-drills`, with a
+  minimal environment plus `drill.command.env_allow`. It prints one JSON line naming the restored
+  DSN, an id and the recovery point. The output is bounded and the stderr tail redacted, a timeout
+  is killed and marked `create_uncertain`, and the clone reaper runs your destroy program for
+  leftovers. It is a full copy, so it needs `clone.allow_full_copy` and `full_copy` in the policy's
+  drill kinds, and it is refused next to a managed clone provider or database (drill-01c).
+- **Recoverability views.** Restore drills are now visible. The Database page has a Recoverability
+  panel (last drill, pass or fail, RPO and RTO, whether backups survive a delete, next full-copy
+  cost, and what to grant when recoverability is unknown); the fleet overview reads "N of M
+  databases passed a restore drill in the last 35 days"; `GET /api/v1/databases/{db}/restore-drills`
+  and `GET /api/v1/fleet/recoverability` serve the same data; and the new read-only MCP tool
+  `restore_drills` lets agents ask whether a database can be restored (drill-01d).
+- **Upgrade brief.** Each database now has an upgrade brief (`GET
+  /api/v1/databases/{db}/upgrade-brief`, or MCP `upgrade_readiness` with `brief: true`). It lists
+  blockers, each extension's path, the plan for each logical slot and its CDC consumer, the indexes
+  to rebuild for changed collations, the cost of waiting at your optional
+  `cost.rates[].extended_support_per_vcpu_hour`, and an ordered checklist. It is stored in
+  `sage.upgrade_briefs` only when it changes. The upgrade itself stays with the operator
+  (drill-02a).
+- **Upgrade rehearsal.** pg_sage can rehearse a major upgrade on a receipted clone: an Aurora or RDS
+  clone upgraded in place (never the source), or the restore command's `upgrade_argv`; Neon is
+  reported as unable. It compares the top 50 statements' plans and blocks per call before the
+  upgrade, as cut over and after ANALYZE, and stores the list of changed plans on the upgrade brief
+  (drill-02b).
+- **After the upgrade.** After a major version upgrade recorded on the change feed, pg_sage proposes
+  one plan per database and new version: ANALYZE of every table, busiest first by the stored upgrade
+  brief's new `query_time_share` (skipped on PostgreSQL 18+, "statistics carried over"), then
+  `REINDEX INDEX CONCURRENTLY` for each brief-listed index whose collation version still differs. A
+  person approves it, and every step runs through the executor. Anything pg_sage's role cannot run
+  is logged as an operator step (`vacuumdb --analyze-in-stages`, `REINDEX ...`) (drill-02c).
+- **Policy sets.** Databases now follow named policy documents chosen by selectors (tags, discovery
+  source, creator) and priority; default, prod and agent-created sets are seeded. Per-database
+  policies are shown as exceptions with a diff, who set them and when they expire. New routes
+  `/api/v1/policy-sets` (with members and YAML export and import) and `/api/v1/policy-exceptions`
+  (fleetpol-01a).
+- **Policy sets in the dashboard.** A new Settings > Policy sets tab lists each policy set with its
+  selectors, members, requirements and YAML. You can propose a change to a set (and an admin can
+  ratify it) through the existing proposal routes. The Exceptions list shows each database's
+  field-by-field diff, who set it, why and when it expires; exceptions with no expiry are flagged
+  and counted, and the Inbox lists each exception as a `policy_exception` item. The database page
+  shows "Governed by: <set>" with the exception when one is in force (fleetpol-01c).
+- **Observe-only members.** Meta-db fleets can hold up to 2,000 observe-only members next to the 50
+  full ones. Observe-only members get no runtime or executor. A fleet sweeper grades them in rounds
+  of 15 minutes, 4 at a time, each with one read-only connection. Policy sets choose the tier with
+  `enrollment.tier`: agent-created defaults to `observe_only`, and an explicit `full` promotes a
+  member. Actions on observe-only members are refused with 409 "observe-only member" (fleetpol-01d).
+- **Sprawl census.** A monthly sprawl census on the fleet leader lists every database (full and
+  observe-only members, and discovered databases never enrolled). Each row has owner, creator,
+  creation time, last real activity (pg_sage's own statements excluded), size and storage cost at
+  your `cost.rates` ("unpriced" without them). Each run records the share of agent-created databases
+  still used 7 or more days after creation. Unadopted discovered members with no real activity for
+  30 days get a "propose TTL 7 days" item of the new inbox kind `advice`; pg_sage deletes nothing
+  (fleetpol-03).
+- **Backfill pressure check.** A backfill or bulk write can ask `GET
+  /api/v1/databases/{db}/pressure?table=&job=&batch=` (viewer session or read-scope API token) or
+  the new MCP tool `check_pressure` between batches whether to proceed, slow down (with a suggested
+  batch and sleep) or stop. The answer weighs replica lag, xid and multixact age, vacuum on the
+  target, WAL rate, the lock queue and free storage against the new policy `pressure` block, which
+  by default stops at half of each alert threshold. The check is read-only and cached for 2 s
+  (guard-01a).
+- **Pressure CLI and backfill jobs.** The new `pg_sage_sidecar pressure` subcommand exits 0
+  (proceed), 10 (slow), 20 (stop) or 3 (no answer), and backfill jobs register through `POST
+  /api/v1/databases/{db}/pressure-jobs` (schema step ddlPressureJobs). With `enforce`, a registered
+  job that keeps writing through two consecutive stop verdicts gets a `cancel_backend` proposal
+  (finding `pressure_job`) that runs only after a person approves it. Shell loop, psql loop and
+  GitHub Actions examples are in docs/backfill-pressure.md (guard-01b).
+- **Multixact member runway.** pg_sage now estimates multixact member space (members of up to 200
+  sampled multixacts times live multixacts, with its standard error) and how fast it is used, and
+  opens `forecast_multixact_member_runway` when the aggressive-vacuum threshold (2^31 members) is
+  under 14 days away (critical under 3). If the role may not execute `pg_control_checkpoint()` or
+  `pg_get_multixact_members()`, the reading is unknown and the log names the grant. Readings are
+  stored in the new `sage.multixact_member_samples` (kept 90 days) (guard-02a).
+- **Plan flips after ANALYZE.** The new `plan_flip_after_analyze` finding: when a query's plan hash
+  changes after an ANALYZE (by autoanalyze or by hand, not by pg_sage) of a table the new plan
+  reads, pg_sage records the table, both plan hashes and blocks per call before and after, and
+  recommends one safe `ANALYZE` of that table. It does not propose another one within 24 hours. If
+  that ANALYZE does not bring the earlier plan back, the finding is reopened without SQL and handed
+  to the plan-stability review. auto_explain now captures a top query's plan again after any ANALYZE
+  of a table it reads (guard-02c).
 
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
