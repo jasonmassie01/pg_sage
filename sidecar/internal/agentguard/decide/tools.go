@@ -71,6 +71,10 @@ var toolClasses = map[string]toolClass{
 	// ux-01a, ux-02a, evid-02c: read scope, read-only; they decide nothing
 	// and get_workload_pack returns only the model tier.
 	"get_inbox": read(), "get_outcomes": read(), "get_workload_pack": read(),
+	// drill-01d, review-01a, review-05a, guard-01a: read scope, read-only;
+	// none starts a drill, a grade or a check that writes.
+	"restore_drills": read(), "review_grade": read(), "review_scorecard": read(),
+	"check_pressure": read(),
 	// agent_* tools (G1+): every D-step applies.
 	"agent_query": agentTool(CapRead), "agent_whoami": agentTool(CapRead),
 	// The capability class of a grant request is the class it asks for;
