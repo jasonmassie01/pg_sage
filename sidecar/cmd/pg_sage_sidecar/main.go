@@ -151,8 +151,9 @@ func main() {
 }
 
 // runSubcommandAndExit handles the vector-lab, bench, history, evidence,
-// verifier-backtest, lint-migration, plan, doctor and healthcheck subcommands
-// and --version, which exit without starting the sidecar.
+// verifier-backtest, lint-migration, plan, approve, apply, explain, doctor and
+// healthcheck subcommands and --version, which exit without starting the
+// sidecar.
 func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Args[2:], os.Stdout, os.Stderr))
@@ -182,14 +183,8 @@ func runSubcommandAndExit() {
 		os.Exit(runVerifierBacktestCommand(context.Background(), os.Args[2:], os.Stdout,
 			os.Stderr))
 	}
-	if len(os.Args) > 1 && os.Args[1] == planSubcommand {
-		getenv, err := secretGetenv("SAGE_API_TOKEN")
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "plan: %v\n", err)
-			os.Exit(planExitUsage)
-		}
-		os.Exit(runPlanCommand(context.Background(), os.Args[2:], getenv, nil, os.Stdout,
-			os.Stderr))
+	if len(os.Args) > 1 && cliCommands[os.Args[1]] {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == doctorSubcommand {
 		os.Exit(runDoctorCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))

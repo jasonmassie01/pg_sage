@@ -1,0 +1,7 @@
+{"pending":[
+ {"id":42,"finding_id":900,"database_name":"orders","status":"pending","eligible":true},
+ {"id":44,"finding_id":901,"database_name":"orders","status":"pending","eligible":false,
+  "defer_reason":"outside the maintenance window"}],
+ "total":2,"errors":[],
+ "scheduled":[{"id":43,"finding_id":902,"database_name":"orders","status":"scheduled",
+  "run_after":"2026-11-19T02:00:00Z","run_after_label":"Thu 19 Nov 02:00 UTC"}]}
