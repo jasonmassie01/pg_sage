@@ -102,13 +102,57 @@ letters across versions.
 ## Runs
 
 `sage.review_run` holds one row per run: `kind` (`grade`, or `review` for a Sage Review),
-`triggers` (`first_look`, `daily`), `rubric_version`, `status`, `overall_grade`,
+`triggers` (`first_look`, `daily`, or the trigger kinds of a review, see [Triggers](#triggers)), `rubric_version`, `status`, `overall_grade`,
 `overall_score`, `coverage_pct`, `started_at`, `finished_at` and `error`. A run is `running`
 until it ends `done`, `partial` (a producer could not be read: its checks are unknown and the
 error names it) or `failed`; a finished run never moves again. One run per database can be
 running (a partial unique index); a second gets "already running". A run a killed sidecar
 left running for 30 minutes is failed with "sidecar stopped during run". `sage.review_grade`
 holds each dimension's letter, score, coverage and check results. Runs are kept 400 days.
+
+## Triggers
+
+A review is worth most when someone has a decision to make, so events start one and the
+calendar is the fallback (`internal/review/trigger`). Each trigger is a row of
+`sage.review_trigger` in the database's own sage schema: `kind`, `detail` (a JSON object: the
+"why now"), `fired_at`, `state`, the `run_id` that consumed it and `coalesced_into`.
+
+| Kind | Fires when | Source |
+|---|---|---|
+| `enrollment` | The rollups hold two complete weekly cycles: the oldest coverage hour is 14 days old and at least 80% of the last 336 hours have a `sage.query_rollup_coverage` row. Once, and only before the first full review. The grade itself runs on day one. | polled hourly |
+| `pre_upgrade` | An upgrade readiness check (`GET /api/v1/upgrade-readiness`) succeeds; once per target major and UTC day. Bypasses the interval: the review starts at the next tick. | the route |
+| `unresolved_regression` | A `query_regression` or `plan_regression` finding open for 72 hours or more whose action was reverted, or that has no verified (`success`) action. Once per finding. | polled hourly |
+| `cost_growth_anomaly` | The newest whole day's database size growth (system snapshots, one value a day, 29 days) is a robust z of 4 or more over the earlier days (`baseline.Judge`, at least 7 days of history) and at least 256 MiB over their median. A missing day breaks the series. Attributed cost is not judged yet. | polled hourly |
+| `large_migration` | A live migration lint (`POST /api/v1/migrations/lint`, not `static`) measured a table larger than `review.large_table_bytes`; once per table set and UTC day. | the route |
+| `instance_change` | The instance class, vCPU count or memory that cloud telemetry reports differs from the last value seen (`sage.review_trigger_state`). A fact unknown on either side is not a change; the first observation is recorded, not fired. Without a cloud adapter (self-managed, Neon, Supabase, serverless) this kind is unavailable: pg_sage does not guess. | polled hourly |
+| `calendar` | `review.calendar_days` (default 30) after the last full review finished. | polled hourly |
+
+**Coalescing.** The oldest waiting trigger opens a window of `review.min_interval_hours`
+(default 24). Every trigger fired inside it joins one review run, and the run starts when the
+window closes: two triggers 23 h 59 min apart give one run, 24 h apart give two. A
+`pre_upgrade` starts the run at once with everything waiting. A trigger fired while a review
+runs waits for the next run. The run's `triggers` lists the distinct kinds; the first trigger
+is `consumed` and the rest `coalesced` into it, each with the run's id.
+
+**Leader, restart and claims.** The loop ticks every 5 minutes, on the leader only. It claims
+the due triggers with `FOR UPDATE SKIP LOCKED` (two sidecars never claim one trigger), records
+the run id on the claim as soon as the run is recorded, and holds the claim for 35 minutes (the
+stale-run reaper's 30 minutes, plus margin). A claim whose sidecar died goes back to `fired`
+when its lease ends, keeping its run id: the next leader consumes it into that run if the run
+finished, waits while it runs, and starts a new run only if it failed. So a trigger gets one
+finished run. A grade that is already running makes the loop release the claim and retry at
+the next tick.
+
+**What a run does.** Today a trigger-started run is a `review` run graded against the rubric,
+read-only, carrying its triggers. Nothing runs on the monitored database: a review reads and
+proposes.
+
+**Errors.** A failed trigger insert names the kind and the database and is returned to the
+source. The routes log it and answer as before; it is counted in
+`pg_sage_review_trigger_fire_errors_total{kind}`. `pg_sage_review_runs_total{cause}` counts
+the runs started by an `event` or by the `calendar`. The median time from trigger to finished
+run is `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY r.finished_at - t.fired_at) FROM
+sage.review_trigger t JOIN sage.review_run r ON r.id = t.run_id`.
 
 ## Candidates
 

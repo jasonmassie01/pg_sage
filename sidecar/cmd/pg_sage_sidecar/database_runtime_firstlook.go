@@ -126,6 +126,7 @@ func (rt *databaseRuntime) startFirstLook() {
 	rt.firstLook = run
 	run.startupDone = make(chan struct{})
 	rt.startReviewGrades(run.startupDone, run.started)
+	rt.startReviewTriggers()
 	rt.start(func() {
 		run.runOnce(rt.ctx)
 		<-rt.ctx.Done()
