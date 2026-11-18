@@ -41,7 +41,7 @@ func startFleetDiscovery(state *metaDBState) {
 	}
 	// fleetpol-01b: enroll by policy set, and ask each member's first grade.
 	runner.WithPolicySets(discovery.PolicySetsFrom(policy.NewStore(state.Pool)),
-		newMetaDiscoveryGrades())
+		newMetaDiscoveryGrades(state.Store))
 	fleetDiscoveryRunner.Store(runner)
 	logInfo("discovery", "fleet discovery: %d source(s) by policy set, max_enrolled %d, "+
 		"ttl %dh", len(bindings), dc.MaxEnrolled, dc.TTLHours)

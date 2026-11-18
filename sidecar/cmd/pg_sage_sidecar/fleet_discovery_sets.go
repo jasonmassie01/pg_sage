@@ -43,10 +43,13 @@ type memberPool func(member string) *pgxpool.Pool
 type metaDiscoveryGrades struct {
 	hub  *trigger.Hub
 	pool memberPool
+	// observed reads an observe-only member's newest sweep (fleetpol-01d);
+	// nil treats every member as full.
+	observed func(ctx context.Context, member string) (*store.ObserveSweep, bool, error)
 }
 
-func newMetaDiscoveryGrades() metaDiscoveryGrades {
-	return metaDiscoveryGrades{hub: trigger.Default, pool: func(member string) *pgxpool.Pool {
+func newMetaDiscoveryGrades(st *store.DatabaseStore) metaDiscoveryGrades {
+	g := metaDiscoveryGrades{hub: trigger.Default, pool: func(member string) *pgxpool.Pool {
 		if fleetMgr == nil {
 			return nil
 		}
@@ -55,12 +58,19 @@ func newMetaDiscoveryGrades() metaDiscoveryGrades {
 		}
 		return nil
 	}}
+	if st != nil {
+		g.observed = st.ObserveSweepByName
+	}
+	return g
 }
 
 // RequestFirstGrade fires the member's enrollment trigger; a member
 // whose review queue is not registered yet is not ready.
 func (g metaDiscoveryGrades) RequestFirstGrade(ctx context.Context, member string,
 	row store.DiscoveredRow) error {
+	if _, observe, err := g.observedSweep(ctx, member); err != nil || observe {
+		return err // an observe-only member is graded by every sweep round
+	}
 	err := g.hub.Enrolled(ctx, member, map[string]any{"source": row.Source,
 		"external_id": row.ExternalID, "set": row.SetName})
 	if errors.Is(err, trigger.ErrUnknownDatabase) {
@@ -72,6 +82,9 @@ func (g metaDiscoveryGrades) RequestFirstGrade(ctx context.Context, member strin
 // Grades is the member's finished review-01 grades, oldest first.
 func (g metaDiscoveryGrades) Grades(ctx context.Context, member string) (
 	[]discovery.Grade, error) {
+	if sw, observe, err := g.observedSweep(ctx, member); err != nil || observe {
+		return observeGrades(sw, err)
+	}
 	pool := g.pool(member)
 	if pool == nil {
 		return nil, fmt.Errorf("%w: %s has no pool yet", discovery.ErrMemberNotReady, member)

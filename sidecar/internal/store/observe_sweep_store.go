@@ -160,3 +160,34 @@ func (s *DatabaseStore) LatestObserveRound(ctx context.Context) (ObserveRound, b
 	}
 	return r, true, nil
 }
+
+// ObserveSweepByName is the newest sweep of the observe-only member name:
+// observe is false when no observe-only member has that name, and sweep is
+// nil when it has not been swept yet.
+func (s *DatabaseStore) ObserveSweepByName(ctx context.Context, name string) (
+	sweep *ObserveSweep, observe bool, err error) {
+	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var id int
+	var round *int64
+	var at *time.Time
+	var status, errText, letter *string
+	var grade []byte
+	var ms *int64
+	err = s.pool.QueryRow(qctx, `/* pg_sage */ SELECT m.id, s.round_id, s.swept_at,
+		s.status, s.error, s.letter, s.grade, s.duration_ms
+		FROM sage.databases m LEFT JOIN sage.observe_sweeps s ON s.database_id = m.id
+		WHERE m.name = $1 AND m.tier = 'observe_only'`, name).Scan(&id, &round, &at,
+		&status, &errText, &letter, &grade, &ms)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("reading the sweep of %q: %w", name, err)
+	}
+	if round == nil {
+		return nil, true, nil
+	}
+	return &ObserveSweep{DatabaseID: id, RoundID: *round, SweptAt: *at, Status: *status,
+		Error: *errText, Letter: *letter, Grade: grade, DurationMS: *ms}, true, nil
+}

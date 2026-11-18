@@ -272,3 +272,36 @@ func TestObserveSweeps_CanceledContextPropagates(t *testing.T) {
 		t.Fatal("canceled SetTier succeeded")
 	}
 }
+
+func TestObserveSweepByName_ObserveOnlyMembersOnly(t *testing.T) {
+	pool, ctx := requireDBWithClean(t)
+	ds := NewDatabaseStore(pool, testKey)
+	id, err := ds.CreateObserveOnly(ctx, tierInput("obs-e"), 1)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := ds.Create(ctx, tierInput("full-e"), 1); err != nil {
+		t.Fatalf("create full: %v", err)
+	}
+	sw, ok, err := ds.ObserveSweepByName(ctx, "obs-e")
+	if err != nil || !ok || sw != nil {
+		t.Fatalf("not swept yet: %+v ok=%v (%v), want observe-only with no sweep", sw, ok,
+			err)
+	}
+	at := time.Now().UTC().Truncate(time.Millisecond)
+	if err := ds.RecordObserveSweep(ctx, ObserveSweep{DatabaseID: id, RoundID: 1,
+		SweptAt: at, Status: ObserveOK, Letter: "C",
+		Grade: []byte(`{"overall":"C"}`)}); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	sw, ok, err = ds.ObserveSweepByName(ctx, "obs-e")
+	if err != nil || !ok || sw == nil || sw.Letter != "C" || !sw.SweptAt.Equal(at) ||
+		sw.DatabaseID != id {
+		t.Fatalf("swept: %+v ok=%v (%v)", sw, ok, err)
+	}
+	for _, name := range []string{"full-e", "nope", ""} {
+		if sw, ok, err := ds.ObserveSweepByName(ctx, name); err != nil || ok || sw != nil {
+			t.Errorf("%q: %+v ok=%v (%v), want not observe-only", name, sw, ok, err)
+		}
+	}
+}
