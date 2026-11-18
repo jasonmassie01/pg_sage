@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/ledger"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/whynot"
 )
 
 // Reading the decision ledger (policy-07). GET /api/v1/decisions answers
@@ -45,10 +46,28 @@ func registerDecisionRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 }
 
 // decisionEntry is one candidate's open withheld decisions as served.
+// WhyNot is the why-not link its reason fails (ux-08b), absent for a
+// reason no link names.
 type decisionEntry struct {
 	Database string `json:"database"`
 	ledger.WithheldEntry
-	HumanReason string `json:"human_reason"`
+	HumanReason string          `json:"human_reason"`
+	WhyNot      *decisionWhyNot `json:"why_not,omitempty"`
+}
+
+// decisionWhyNot names the chain link and its sentence.
+type decisionWhyNot struct {
+	Link     whynot.LinkName `json:"link"`
+	Sentence string          `json:"sentence"`
+}
+
+// entryWhyNot is the link entry's reason fails, or nil.
+func entryWhyNot(entry ledger.WithheldEntry) *decisionWhyNot {
+	link, sentence, ok := whynot.HeldBackLink(entry.Reason)
+	if !ok {
+		return nil
+	}
+	return &decisionWhyNot{Link: link, Sentence: sentence}
 }
 
 // decisionsUnavailable names a database whose ledger could not be read,
@@ -169,7 +188,8 @@ func mergeDecisions(
 		out.Truncated = out.Truncated || cut[i]
 		for _, entry := range results[i] {
 			out.Decisions = append(out.Decisions, decisionEntry{Database: sel.name,
-				WithheldEntry: entry, HumanReason: entryHumanReason(entry)})
+				WithheldEntry: entry, HumanReason: entryHumanReason(entry),
+				WhyNot: entryWhyNot(entry)})
 		}
 	}
 	sort.SliceStable(out.Decisions, func(a, b int) bool {
