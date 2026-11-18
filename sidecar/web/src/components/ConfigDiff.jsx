@@ -187,17 +187,22 @@ async function fetchSavedYAML(keys) {
   return body.yaml
 }
 
+// The state belongs to one save (its keys array): a later save, even of the
+// same keys, starts empty, and an answer for an earlier save is dropped.
+const NO_YAML = { yaml: null, error: null, loading: false }
+
 function useSavedYAML(keys) {
-  const [state, setState] = useState({ yaml: null, error: null, loading: false })
+  const [state, setState] = useState({ ...NO_YAML, keys: null })
   const load = async () => {
-    setState({ yaml: null, error: null, loading: true })
+    setState({ ...NO_YAML, loading: true, keys })
+    const settle = next => setState(prev => (prev.keys === keys ? { ...next, keys } : prev))
     try {
-      setState({ yaml: await fetchSavedYAML(keys), error: null, loading: false })
+      settle({ ...NO_YAML, yaml: await fetchSavedYAML(keys) })
     } catch (e) {
-      setState({ yaml: null, error: e.message || 'YAML unavailable', loading: false })
+      settle({ ...NO_YAML, error: e.message || 'YAML unavailable' })
     }
   }
-  return [state, load]
+  return [state.keys === keys ? state : NO_YAML, load]
 }
 
 function CopyYAML({ yaml }) {
@@ -225,7 +230,7 @@ const SAVED_BOX = {
 }
 
 export function SavedYAML({ keys, onDismiss }) {
-  const [state, load] = useSavedYAML(keys ?? [])
+  const [state, load] = useSavedYAML(keys)
   if (!keys?.length) return null
   const n = keys.length
   return (

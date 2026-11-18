@@ -11,6 +11,7 @@ import { TabContent } from './settings/tabs/TabContent'
 import { useSettingsConfig, useSettingsMode } from './settings/useSettingsConfig'
 import { useSettingsSave } from './settings/useSettingsSave'
 import { useRestartNow } from './settings/useRestartNow'
+import { SavedYAML } from '../components/ConfigDiff'
 import { CARD_STYLE } from './settings/styles'
 import {
   LifecycleBanner, SaveBar, ScopeNotice, SettingsDialogs, SettingsHeader, TabCards,
@@ -60,6 +61,8 @@ export function SettingsPage({ database, databaseId }) {
             database={database} fieldProps={fieldProps} />
         </div>
         {view.tab !== 'General' && s.hasEdits && <SaveBar save={save} onDiscard={s.discard} />}
+        {/* cli-01b: outside the save bar, which hides once a save clears the edits. */}
+        <SavedYAML keys={save.savedKeys} onDismiss={save.dismissSaved} />
       </TabPanel>
     </div></QueryState>
     </MaskedOverridesContext.Provider>
