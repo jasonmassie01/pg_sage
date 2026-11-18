@@ -23,16 +23,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	views := processMetrics.views()
 	var b strings.Builder
 
-	writeBuildMetrics(&b, cfg.Mode)
-	writeModeMetric(&b, cfg.Mode)
-	writeMetricsListenerMetric(&b)
-	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())
-	writeTLSMetrics(&b, apiTLS)
-	writeSSODiscoveryMetrics(&b, api.CurrentSSODiscoveryStatus())
-	writeDeferredIndexMetrics(&b, deferredIndexGauges)
-	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
-	writeSetupMetrics(&b, onboarding.SetupRatios())
-	writeReviewMetrics(&b, reviewFirstGrades)
+	writeProcessStateMetrics(&b)
 	writeConnectionMetric(&b, views)
 
 	// Every family renders whenever its data exists, in every mode
@@ -69,6 +60,22 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	if _, err := fmt.Fprint(w, b.String()); err != nil {
 		logWarn("prometheus", "write /metrics response: %v", err)
 	}
+}
+
+// writeProcessStateMetrics renders the process's own state: build, mode,
+// listeners, login limiter, TLS, SSO discovery, deferred indexes, the first
+// look, setup within the hour (ux-04b) and the first review grade (review-01a).
+func writeProcessStateMetrics(b *strings.Builder) {
+	writeBuildMetrics(b, cfg.Mode)
+	writeModeMetric(b, cfg.Mode)
+	writeMetricsListenerMetric(b)
+	writeLoginLimiterMetric(b, api.LoginLimiterSaturatedTotal())
+	writeTLSMetrics(b, apiTLS)
+	writeSSODiscoveryMetrics(b, api.CurrentSSODiscoveryStatus())
+	writeDeferredIndexMetrics(b, deferredIndexGauges)
+	writeFirstLookMetrics(b, firstLookTracker.Snapshot())
+	writeSetupMetrics(b, onboarding.SetupRatios())
+	writeReviewMetrics(b, reviewFirstGrades)
 }
 
 // writeProcessMetrics renders the process-wide families: every
