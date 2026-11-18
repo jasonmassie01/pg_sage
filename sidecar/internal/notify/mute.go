@@ -86,7 +86,9 @@ func ValidateMute(m Mute, now time.Time) error {
 
 // NeverMuted reports whether evt is a Page that ignores mutes and quiet
 // hours: a marked emergency stop, failed rollback or freeze red line, an
-// action_failed whose rollback failed, or a failing emergency freeze.
+// action_failed whose rollback failed, or a freeze custodian that gave up.
+// The freeze custodian only freezes red tables, so its escalation is a
+// freeze red line whatever its VACUUM profile.
 func NeverMuted(evt Event) bool {
 	switch reason, _ := evt.Data[DataPageReason].(string); reason {
 	case PageEmergencyStop, PageRollbackFailed, PageFreezeRedLine:
@@ -99,8 +101,7 @@ func NeverMuted(evt Event) bool {
 	}
 	if evt.Type == "custodian_escalation" {
 		feature, _ := evt.Data["feature"].(string)
-		profile, _ := evt.Data["profile"].(string)
-		return feature == "freeze" && profile == "emergency"
+		return feature == "freeze"
 	}
 	return false
 }

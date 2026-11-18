@@ -3972,8 +3972,8 @@ database at once leave one mute with the later end. Unmute removes it
 read, the message is sent, the failure is logged, and the sidecar counts it.
 
 These Page messages ignore mutes and quiet hours: the emergency stop, a failed rollback
-(`action_failed` with `rollback_failed`) and a freeze red line (a failing emergency freeze
-VACUUM escalation), plus any event marked with `page_reason` `emergency_stop`,
+(`action_failed` with `rollback_failed`) and a freeze red line (the freeze custodian giving
+up on a red table, whatever its VACUUM profile), plus any event marked with `page_reason` `emergency_stop`,
 `rollback_failed` or `freeze_red_line`.
 
 **The weekly line.** The Notifications page and every digest show "N messages, M led to
