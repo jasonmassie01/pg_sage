@@ -124,6 +124,11 @@ func (l *loader) parseSet(m mapping) {
 		return
 	}
 	if file.Document != nil {
+		if p := file.Document.Profile; p != "staffed" && p != "unattended" {
+			l.add(m.problem("document", "document: profile must be staffed or "+
+				"unattended, got %q", p))
+			return
+		}
 		if _, err := policy.ParseDocument(file.Document.Body); err != nil {
 			l.add(m.problem("document", "document: %v", err))
 			return

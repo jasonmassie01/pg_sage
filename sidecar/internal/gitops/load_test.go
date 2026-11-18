@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // cli-02a: the directory loader reads policy-sets/, principals/ and
@@ -263,4 +265,19 @@ func TestLoad_SetDocumentMustParse(t *testing.T) {
 	body := setProd + "document:\n  profile: unattended\n  body: {serialize_mode: park}\n"
 	_, err := Load(writeTree(t, map[string]string{"policy-sets/p.yaml": body}))
 	wantProblem(t, err, "policy-sets/p.yaml", 7, "document")
+}
+
+// A document's profile is staffed or unattended; anything else would only
+// fail at apply time, so the loader refuses it with its line.
+func TestLoad_SetDocumentProfileMustBeKnown(t *testing.T) {
+	raw, err := policy.MarshalDocument(policy.UnattendedProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	for _, profile := range []string{"", "autonomous"} {
+		body := setProd + "document:\n  profile: \"" + profile + "\"\n  body: " + doc + "\n"
+		_, err := Load(writeTree(t, map[string]string{"policy-sets/p.yaml": body}))
+		wantProblem(t, err, "policy-sets/p.yaml", 7, "profile")
+	}
 }
