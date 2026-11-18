@@ -325,9 +325,10 @@ func TestDatabasesList_ExactlyFiveHundredInOnePage(t *testing.T) {
 func TestDatabasesList_TagForms(t *testing.T) {
 	h := listHandler(listFixture(t, 12))
 	cases := map[string][]string{
-		"tag=critical":                   {"db-002"},
-		"tag=CRITICAL":                   {"db-002"},
-		"tag=team":                       {"db-002", "db-006", "db-010", "pay-000", "pay-004", "pay-008"},
+		"tag=critical": {"db-002"},
+		"tag=CRITICAL": {"db-002"},
+		"tag=team": {"db-002", "db-006", "db-010",
+			"pay-000", "pay-004", "pay-008"},
 		"tag=Tier%3DDev&q=db-00":         {"db-001", "db-003", "db-005", "db-007", "db-009"},
 		"tag=tier%3Dprod&tag=critical":   {"db-002"},
 		"tag=tier%3Dprod&tag=tier%3Ddev": nil,

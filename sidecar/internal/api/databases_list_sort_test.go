@@ -55,6 +55,31 @@ func intCmp(a, b int) int {
 	return 0
 }
 
+// listAllRows follows next_cursor from query to the end and returns every
+// row and the number of pages.
+func listAllRows(t *testing.T, h http.Handler, query string) ([]listRow, int) {
+	t.Helper()
+	var rows []listRow
+	pages := 0
+	cursor := ""
+	for {
+		q := query
+		if cursor != "" {
+			q += "&cursor=" + cursor
+		}
+		code, b := listGet(t, h, q)
+		if code != http.StatusOK {
+			t.Fatalf("?%s = %d: %s", q, code, b.Error)
+		}
+		rows = append(rows, b.rows...)
+		pages++
+		if *b.NextCursor == "" {
+			return rows, pages
+		}
+		cursor = *b.NextCursor
+	}
+}
+
 func TestDatabasesList_SortKeysAndDirections(t *testing.T) {
 	const n = 60
 	h := listHandler(listFixture(t, n))
@@ -79,31 +104,15 @@ func TestDatabasesList_SortKeysAndDirections(t *testing.T) {
 		{"sort=last_snapshot", func(a, b listRow) int {
 			return a.Status.CollectorLastRun.Compare(b.Status.CollectorLastRun)
 		}},
-		{"sort=mode", func(a, b listRow) int { return strings.Compare(mode[a.Name], mode[b.Name]) }},
+		{"sort=mode", func(a, b listRow) int {
+			return strings.Compare(mode[a.Name], mode[b.Name])
+		}},
 		{"sort=mode&order=desc", func(a, b listRow) int {
 			return strings.Compare(mode[b.Name], mode[a.Name])
 		}},
 	}
 	for _, tc := range cases {
-		var rows []listRow
-		pages := 0
-		cursor := ""
-		for {
-			q := tc.query + "&limit=7"
-			if cursor != "" {
-				q += "&cursor=" + cursor
-			}
-			code, b := listGet(t, h, q)
-			if code != http.StatusOK {
-				t.Fatalf("?%s = %d: %s", q, code, b.Error)
-			}
-			rows = append(rows, b.rows...)
-			pages++
-			if *b.NextCursor == "" {
-				break
-			}
-			cursor = *b.NextCursor
-		}
+		rows, pages := listAllRows(t, h, tc.query+"&limit=7")
 		if len(rows) != n || pages != 9 {
 			t.Fatalf("%s: %d rows over %d pages, want %d over 9", tc.query, len(rows), pages, n)
 		}
