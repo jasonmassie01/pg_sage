@@ -42,6 +42,9 @@ func toolDefinitions() []Tool {
 }
 
 func finishTool(tool Tool) Tool {
+	if description, ok := toolDescriptions[tool.Name]; ok {
+		tool.Description = description
+	}
 	if !fleetWideTool(tool.Name) {
 		tool.InputSchema = setDatabaseProperty(tool.Name, tool.InputSchema, nil)
 	}

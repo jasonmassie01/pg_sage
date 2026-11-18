@@ -148,10 +148,11 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (map[string]
 		}
 		return s.callError(call.Name, arguments, failed), nil
 	}
-	if structured, ok := result.(map[string]any); ok {
-		return structured, nil
+	out, ok := result.(map[string]any)
+	if !ok {
+		out = toolSuccess(result)
 	}
-	return toolSuccess(result), nil
+	return withHeldFields(call.Name, arguments, out), nil
 }
 
 // objectArguments returns the arguments when they are a JSON object

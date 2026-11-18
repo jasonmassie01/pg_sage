@@ -50,27 +50,16 @@ func runbookTools() []Tool {
 	}
 	rb := `,"runbook_id":{"type":"string","format":"uuid"}`
 	return []Tool{
-		{Name: "sre_list_runbooks", Description: "List a database's typed runbooks: " +
-			"status (draft, signed, retired, invalid), whether each runs, latest version",
-			InputSchema: schema(``, `[]`)},
-		{Name: "sre_get_runbook", Description: "Read one runbook: every version's DAG, " +
-			"content hash, signer and imported playbook text",
-			InputSchema: schema(rb, `["runbook_id"]`)},
-		{Name: "sre_runbook_runs", Description: "List the investigations a runbook ran " +
-			"in, with the version, path and proposal of each run",
-			InputSchema: schema(rb, `["runbook_id"]`)},
-		{Name: "sre_similar_incidents", Description: "List similar past incidents of " +
-			"an investigation and their operator-verified outcomes (context, not evidence)",
+		{Name: "sre_list_runbooks", InputSchema: schema(``, `[]`)},
+		{Name: "sre_get_runbook", InputSchema: schema(rb, `["runbook_id"]`)},
+		{Name: "sre_runbook_runs", InputSchema: schema(rb, `["runbook_id"]`)},
+		{Name: "sre_similar_incidents",
 			InputSchema: schema(`,"investigation_id":{"type":"string","format":"uuid"}`,
 				`["investigation_id"]`)},
-		{Name: "sre_draft_runbook", Description: "Create a runbook draft from a typed " +
-			"definition, or add a draft version (runbook_id and base_version). Drafts " +
-			"never run until an admin signs them in pg_sage; a signed version keeps " +
-			"running until the new draft is signed",
+		{Name: "sre_draft_runbook",
 			InputSchema: schema(rb+`,"base_version":{"type":"integer","minimum":1},`+
 				`"definition":{"type":"object"}`, `["definition"]`)},
-		{Name: "sre_compile_runbook", Description: "Compile an English playbook into a " +
-			"runbook draft with pg_sage's model; it never runs until an admin signs it",
+		{Name: "sre_compile_runbook",
 			InputSchema: schema(`,"text":{"type":"string","maxLength":16000}`, `["text"]`)},
 	}
 }

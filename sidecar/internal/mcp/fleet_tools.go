@@ -30,10 +30,7 @@ func fleetWideTool(name string) bool {
 }
 
 func fleetTools() []Tool {
-	return []Tool{{Name: "fleet_findings", Description: "List problems open on several " +
-		"fleet databases at once (e.g. the same missing index on many tenant " +
-		"databases), each once with the databases it affects. Read-only; acting " +
-		"still goes through each database's own proposals and approvals",
+	return []Tool{{Name: "fleet_findings",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"min_databases":{"type":"integer","minimum":2,"maximum":10000,` +
 			`"description":"databases a problem must be open on (default from ` +

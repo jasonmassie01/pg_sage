@@ -43,12 +43,7 @@ func outcomesTools() []Tool {
 	for _, v := range outcomes.Verdicts() {
 		verdicts = append(verdicts, fmt.Sprintf("%q", v))
 	}
-	return []Tool{{Name: toolGetOutcomes, Description: "List what pg_sage changed in a " +
-		"window. Returns one row per executed change with what, why, origin, the expected and " +
-		"measured effect, the verdict (pending until judged) and whether it can still be " +
-		"rolled back, plus a summary with the share of changes with a measured effect. " +
-		"Read-only. Without database it reads every database you may read; a database " +
-		"that could not be read is named in errors",
+	return []Tool{{Name: toolGetOutcomes,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"since":{"type":"string","description":"window as a duration from 1s to ` +
 			`9600h (default 24h), such as 24h or 168h"},` +

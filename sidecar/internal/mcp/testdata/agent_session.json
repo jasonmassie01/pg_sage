@@ -1,0 +1,23 @@
+{
+  "about": "A recorded agent session (mcp-01a): each bad call, the error pg_sage returned, then the call the agent made by following next. Replayed against the in-process server.",
+  "databases": ["billing", "orders"],
+  "steps": [
+    {"call": {"name": "request_change", "arguments": {"database": "orders", "intent": {}}},
+     "expect": {"reason": "invalid_arguments", "next_tool": "request_change"}},
+    {"follow": "example", "with": {"database": "orders"},
+     "expect": {"decision": "queued", "held": true}},
+    {"follow": "status",
+     "expect": {"tool": "get_inbox"}},
+    {"call": {"name": "request_change",
+              "arguments": {"intent": {"kind": "ensure_fk_indexes", "schema": "public"}}},
+     "expect": {"reason": "database_required", "next_tool": "list_databases"}},
+    {"follow": "next",
+     "expect": {"databases": 2}},
+    {"call": {"name": "request_change",
+              "arguments": {"database": "orders",
+                            "intent": {"kind": "drop_table", "table": "public.orders"}}},
+     "expect": {"reason": "invalid_arguments", "next_tool": "request_change"}},
+    {"follow": "example", "with": {"database": "orders"},
+     "expect": {"decision": "queued", "held": true}}
+  ]
+}

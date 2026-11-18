@@ -62,25 +62,13 @@ func sreMaintenanceTools() []Tool {
 		`"enum":["dependencies","ndistinct","mcv"]}},"rationale":{"type":"string",` +
 		`"description":"the operator's correlation hypothesis, 10 to 2048 characters"}`
 	return []Tool{
-		{Name: "sre_refresh_table_evidence", Description: "Re-read stat_tables once " +
-			"for a table a concluded or inconclusive investigation observed, so a " +
-			"statistics proposal can cite evidence under 15 minutes old. Refused when " +
-			"the table's database or table OID changed; at most once a minute per " +
-			"investigation. Never executes a change.",
+		{Name: "sre_refresh_table_evidence",
 			InputSchema: schema(db+inv+table, "investigation_id", "schema", "table")},
-		{Name: "sre_propose_statistics", Description: "Propose CREATE STATISTICS on " +
-			"columns of a table the investigation observed, as your explicit " +
-			"hypothesis, with its repair contract and policy verdict. pg_sage cites " +
-			"the newest matching stat_tables evidence itself. Never executes.",
+		{Name: "sre_propose_statistics",
 			InputSchema: schema(db+inv+statistics, "investigation_id", "schema", "table",
 				"columns", "rationale")},
-		{Name: "sre_request_statistics", Description: "Queue exactly one approval item " +
-			"for a statistics proposal. Never executes: a person approves, then " +
-			"pg_sage rechecks the table and column identities under the table lock.",
-			InputSchema: schema(db+proposal, "proposal_id")},
-		{Name: "sre_rollback_statistics", Description: "Drop the statistics object a " +
-			"statistics proposal created, after rechecking it is that object. Prior " +
-			"ANALYZE statistics are not restored. Admin people only.",
+		{Name: "sre_request_statistics", InputSchema: schema(db+proposal, "proposal_id")},
+		{Name: "sre_rollback_statistics",
 			InputSchema: schema(db+proposal+`,"reason":{"type":"string"}`, "proposal_id",
 				"reason")},
 	}

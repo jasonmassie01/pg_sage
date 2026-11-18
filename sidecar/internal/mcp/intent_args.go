@@ -13,18 +13,15 @@ import (
 // below enforce each schema's property set and types before any backend
 // sees the call.
 
-// intentValidators check one intent tool's arguments against its schema.
-// An intent tool without a validator is refused (fail closed).
+// intentValidators check one intent tool's arguments against its schema
+// (request_change: validateChangeRequest). An intent tool without a
+// validator is refused (fail closed).
 var intentValidators = map[string]func(json.RawMessage) *rpcError{
 	"get_policy": strictIntent[struct{}]("get_policy takes database"),
 	"propose_policy_change": strictIntent[struct {
 		Delta        jsonObject `json:"delta"`
 		CallerClaims jsonObject `json:"caller_claims"`
 	}]("propose_policy_change takes database, delta and caller_claims"),
-	"request_change": strictIntent[struct {
-		Intent       jsonObject `json:"intent"`
-		CallerClaims jsonObject `json:"caller_claims"`
-	}]("request_change takes database, intent and caller_claims"),
 	"get_ledger": strictIntent[struct {
 		Filter jsonObject `json:"filter"`
 	}]("get_ledger takes database and filter (an object)"),
@@ -127,6 +124,9 @@ func decodeIntentStrict(arguments json.RawMessage, target any) bool {
 }
 
 func validateIntentArguments(name string, arguments json.RawMessage) *rpcError {
+	if name == "request_change" { // its intent is checked against its kind's branch
+		return validateChangeRequest(arguments)
+	}
 	validate, ok := intentValidators[name]
 	if !ok {
 		slog.Error("MCP intent tool has no argument validator", "tool", name)

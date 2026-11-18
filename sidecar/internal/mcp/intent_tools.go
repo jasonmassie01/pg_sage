@@ -99,22 +99,6 @@ func validateMigrationArguments(arguments json.RawMessage) *rpcError {
 	return nil
 }
 
-// changeIntentSchema types request_change's intent: the kinds
-// intentContract can plan, plus that kind's own arguments.
-const changeIntentSchema = `{"type":"object","description":"the change: kind is ` +
-	`optimize_query, ensure_fk_indexes, apply_migration, declare_table_contract or ` +
-	`register_consumer, plus that kind's arguments (such as query_id, schema, table or ` +
-	`slot_name)","properties":{"kind":{"type":"string","enum":["optimize_query",` +
-	`"ensure_fk_indexes","apply_migration","declare_table_contract",` +
-	`"register_consumer"]}},"required":["kind"]}`
-
-// ledgerDescription points get_ledger users at get_outcomes for results.
-const ledgerDescription = "Use to audit what pg_sage's policy gate decided. Returns " +
-	"the newest policy decision records (evidence_id, decision, feature), narrowed by " +
-	"filter {decision, feature, limit 1-1000, default 100}. Read-only and it never " +
-	"approves. It holds decisions, not results: use get_outcomes for what an executed " +
-	"change measurably did"
-
 func intentTools() []Tool {
 	object := func(properties string, required string) json.RawMessage {
 		return json.RawMessage(`{"type":"object","properties":` + properties +
@@ -123,40 +107,20 @@ func intentTools() []Tool {
 	dbID := `"database_id":{"type":"integer","description":"legacy numeric database id; ` +
 		`prefer database"}`
 	tools := []Tool{
-		{Name: "get_policy", Description: "Use before request_change or optimize_query " +
-			"to see the rules pg_sage's policy gate applies to this database. Returns the " +
-			"standing policy's version and profile. Read-only: it never changes policy " +
-			"or approves anything; propose_policy_change asks a person for a change",
-			InputSchema: object(`{`+dbID+`}`, `[]`)},
-		{Name: "propose_policy_change", Description: "Propose a policy delta (a dry-run " +
-			"proposal a person ratifies)",
-			InputSchema: object(`{`+dbID+`,"delta":{"type":"object"},`+
-				`"caller_claims":{"type":"object"}}`, `["delta"]`)},
-		{Name: "request_change", Description: "Use to ask for a database change by " +
-			"intent rather than SQL: intent names a kind plus that kind's arguments. " +
-			"pg_sage plans it and its policy gate decides. Returns the gate's decision, " +
-			"the evidence_id, the reason and, when the change ran, its outcome. It never " +
-			"approves: a change the gate holds waits for a person (see get_inbox)",
-			InputSchema: object(`{`+dbID+`,"intent":`+changeIntentSchema+`,`+
-				`"caller_claims":{"type":"object"}}`, `["intent"]`)},
-		{Name: "optimize_query", Description: "Use when a query is slow: name it by " +
-			"query_id or query_text with goal latency. pg_sage plans an index under " +
-			"standing policy and its policy gate decides whether it runs. Returns the " +
-			"gate's decision, the evidence_id, the reason and the outcome. It never " +
-			"approves: a change the gate holds waits for a person (see get_inbox)",
-			InputSchema: object(`{`+dbID+`,"query_id":{"type":"integer"},`+
-				`"query_text":{"type":"string"},"goal":{"const":"latency"},`+
-				`"constraints":{"type":"object"}}`, `["goal"]`)},
+		{Name: "get_policy", InputSchema: object(`{`+dbID+`}`, `[]`)},
+		{Name: "propose_policy_change", InputSchema: object(`{`+dbID+`,"delta":{"type":"object"},`+
+			`"caller_claims":{"type":"object"}}`, `["delta"]`)},
+		{Name: "request_change"}, // its typed intent: withRequestChangeSchema
+		{Name: "optimize_query", InputSchema: object(`{`+dbID+`,"query_id":{"type":"integer"},`+
+			`"query_text":{"type":"string"},"goal":{"const":"latency"},`+
+			`"constraints":{"type":"object"}}`, `["goal"]`)},
 	}
-	return append(tools, moreIntentTools(object, dbID)...)
+	return withRequestChangeSchema(append(tools, moreIntentTools(object, dbID)...), dbID)
 }
 
 func moreIntentTools(object func(string, string) json.RawMessage, dbID string) []Tool {
 	return []Tool{
-		{Name: "apply_migration", Description: "Plan and rehearse an online migration " +
-			"(ADD UNIQUE / SET NOT NULL rewritten into expand steps). The policy gate is " +
-			"consulted before any clone rehearsal and again before each expand step; " +
-			"contract steps are never run",
+		{Name: "apply_migration",
 			InputSchema: object(`{`+dbID+`,"table":{"type":"string","pattern":`+
 				`"^[A-Za-z_][A-Za-z0-9_$]{0,62}\\.[A-Za-z_][A-Za-z0-9_$]{0,62}$",`+
 				`"description":"schema-qualified table the migration changes"},`+
@@ -164,37 +128,22 @@ func moreIntentTools(object func(string, string) json.RawMessage, dbID string) [
 				`"description":"the migration statement"},"cycle":{"type":"integer",`+
 				`"minimum":0,"description":"deploy cycle of this migration"}}`,
 				`["table","sql"]`)},
-		{Name: "ensure_fk_indexes", Description: "Ensure foreign keys have supporting indexes",
+		{Name: "ensure_fk_indexes",
 			InputSchema: object(`{`+dbID+`,"schema":{"type":"string"}}`, `["schema"]`)},
-		{Name: "declare_table_contract", Description: "Declare table intent constraints " +
-			"(a person's declaration, imported as a confirmed fact). retention needs both " +
-			"interval and column (the timestamptz, timestamp or date column whose age " +
-			"defines retention); pg_sage never infers the column",
-			InputSchema: object(`{`+dbID+`,"table":{"type":"string"},`+
-				`"append_only":{"type":"boolean"},`+
-				`"retention":{"type":"object","properties":{"interval":{"type":"string"},`+
-				`"column":{"type":"string"}},"required":["interval","column"]},`+
-				`"expected_pk":{"type":"string"},`+
-				`"exemptions":{"type":"array","items":{"type":"string"}}}`, `["table"]`)},
-		{Name: "register_consumer", Description: "Protect a replication slot consumer " +
-			"(a person's declaration, imported as a confirmed fact)",
-			InputSchema: object(`{`+dbID+`,"slot_name":{"type":"string"},`+
-				`"owner":{"type":"string"},"consumer_identity":{"type":"string"}}`,
-				`["slot_name","owner"]`)},
-		{Name: "set_maintenance_policy", Description: "Use to propose a change to how " +
-			"pg_sage maintains a scope (a patch to its maintenance policy). Returns the " +
-			"proposal_id and the dry-run impact; a person ratifies the proposal. It never " +
-			"approves or applies the patch itself",
+		{Name: "declare_table_contract", InputSchema: object(`{`+dbID+`,"table":{"type":"string"},`+
+			`"append_only":{"type":"boolean"},`+
+			`"retention":{"type":"object","properties":{"interval":{"type":"string"},`+
+			`"column":{"type":"string"}},"required":["interval","column"]},`+
+			`"expected_pk":{"type":"string"},`+
+			`"exemptions":{"type":"array","items":{"type":"string"}}}`, `["table"]`)},
+		{Name: "register_consumer", InputSchema: object(`{`+dbID+`,"slot_name":{"type":"string"},`+
+			`"owner":{"type":"string"},"consumer_identity":{"type":"string"}}`,
+			`["slot_name","owner"]`)},
+		{Name: "set_maintenance_policy",
 			InputSchema: object(`{`+dbID+`,"scope":{"type":"object"},"patch":{"type":"object"}}`,
 				`["scope","patch"]`)},
-		{Name: "get_guarantee_status", Description: "Read machine-readable invariant status",
-			InputSchema: object(`{`+dbID+`}`, `[]`)},
-		{Name: "get_value", Description: "Use to report what pg_sage has been worth. " +
-			"Returns verified DBA-hours saved by period, feature and database, incidents " +
-			"avoided, hours still pending and a daily trend; partial and unavailable name " +
-			"any source that could not be read. Read-only: it never changes anything",
-			InputSchema: object(`{`+dbID+`}`, `[]`)},
-		{Name: "get_ledger", Description: ledgerDescription,
-			InputSchema: object(`{`+dbID+`,"filter":{"type":"object"}}`, `[]`)},
+		{Name: "get_guarantee_status", InputSchema: object(`{`+dbID+`}`, `[]`)},
+		{Name: "get_value", InputSchema: object(`{`+dbID+`}`, `[]`)},
+		{Name: "get_ledger", InputSchema: object(`{`+dbID+`,"filter":{"type":"object"}}`, `[]`)},
 	}
 }

@@ -176,7 +176,7 @@ and `message` keep their values:
 
 | Key | Value |
 |---|---|
-| `next` | `{"tool": ..., "arguments": {...}}` to call next; for `invalid_arguments` and `runbook_rejected` the same tool with `required`, its schema's required arguments; or `"wait"` |
+| `next` | `{"tool": ..., "arguments": {...}}` to call next; for `invalid_arguments` and `runbook_rejected` the same tool with `required`, its schema's required arguments (and for `request_change` an `example` call with a valid intent); or `"wait"` |
 | `retry_after` | whole seconds to wait before retrying (at least 1), where pg_sage knows it |
 | `approval_url` | for `approval_reserved_for_humans`, the dashboard page where a person decides |
 
@@ -185,14 +185,37 @@ and `message` keep their values:
 | `approval_reserved_for_humans` | `get_inbox` (with the call's `database`) | none: a person decides |
 | `database_not_permitted`, `database_required`, `unknown_database` | `list_databases` | none |
 | `invalid_arguments`, `runbook_rejected` | the same tool, with `required` | none |
-| `not_found` | the matching list tool (`list_facts`, `sre_list_incidents`, `sre_list_runbooks`, `sre_list_slos`) where there is one | none |
+| `not_found` | the matching list tool (`list_facts`, `sre_list_incidents`, `sre_list_runbooks`, `sre_list_slos`) where there is one; otherwise the same tool with `required`, to correct the identifier (none for a tool without required arguments) | none |
 | `rate_limited` | `"wait"` | the limiter's reset |
 | `unavailable` | `"wait"` | 30, unless the feature is switched off (then neither key) |
 | `conflict`, `too_many_investigations`, `scope_required` | `"wait"` | none: the state, a live investigation or the token has to change first |
 | `internal_error` | none | none |
 
 `"wait"` without `retry_after` means the condition clears only when something else changes;
-do not retry in a loop.
+do not retry in a loop. Every reason has a `next` rule except `internal_error`; a test fails
+when a new reason is added without one.
+
+### Held results
+
+A call that succeeds but leaves work waiting on a person says so in the result itself:
+a `request_change`, `optimize_query` or `ensure_fk_indexes` the policy check queued
+(`decision: queued`) or held back (`parked`), a `propose_policy_change` or
+`set_maintenance_policy` proposal, a `specialist_request_remediation` queued for approval and
+an `agent_request_capability` waiting for an operator. Each adds:
+
+| Key | Value |
+|---|---|
+| `approval_url` | the dashboard page where a person decides (kept as the tool returned it when it already has one) |
+| `status` | `{"tool": ..., "arguments": {...}}`, a read-only call to poll: `get_inbox` for the item's kind while it waits on a person, `get_ledger` for a change held back |
+| `handle` | the item, `<kind>:<id>`: the inbox kind and id (`policy_exception:42`, `change_approval:7`, `agent_request:4`) or `change:<evidence_id>` |
+
+None of these approve anything: a person decides on the page `approval_url` names.
+
+### Tool descriptions
+
+Every tool's description says when to use it ("Use when"), what it returns ("Returns") and
+what it never does ("Never"), in at most 400 characters and in the words of the
+[glossary](glossary.md). A test fails on a tool that breaks the rule.
 
 Every tool rejects an argument its schema does not list, or one of the wrong type, with
 -32602 (a misspelled `databse_id` is an error, not ignored); so is an intent pg_sage cannot
@@ -584,7 +607,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 
 ### `get_policy`
 
-Use before request_change or optimize_query to see the rules pg_sage's policy gate applies to this database. Returns the standing policy's version and profile. Read-only: it never changes policy or approves anything; propose_policy_change asks a person for a change.
+Use when you plan a request_change or optimize_query and need the rules pg_sage's policy check applies to this database. Returns the standing policy's version and profile. Never changes policy and never approves anything; propose_policy_change asks a person for a change.
 
 Scope: `read`
 
@@ -595,7 +618,7 @@ Scope: `read`
 
 ### `propose_policy_change`
 
-Propose a policy delta (a dry-run proposal a person ratifies).
+Use when the standing policy blocks what you think it should allow, or allows too much. Returns proposal_id and the dry-run impact (newly allowed, newly blocked) and, while it waits, approval_url and status. Never changes policy itself: an admin ratifies or rejects the proposal.
 
 Scope: `propose`
 
@@ -608,7 +631,7 @@ Scope: `propose`
 
 ### `request_change`
 
-Use to ask for a database change by intent rather than SQL: intent names a kind plus that kind's arguments. pg_sage plans it and its policy gate decides. Returns the gate's decision, the evidence_id, the reason and, when the change ran, its outcome. It never approves: a change the gate holds waits for a person (see get_inbox).
+Use when you want a database change by intent, not SQL: intent names a kind plus that kind's arguments (one branch of its oneOf). Returns the policy check's decision, evidence_id, reason and, when it ran, the outcome; a held change adds approval_url and status. Never runs your SQL and never approves: a held change waits for a person.
 
 Scope: `propose` (`approve` when the intent kind is `declare_table_contract` or `register_consumer`)
 
@@ -617,11 +640,21 @@ Scope: `propose` (`approve` when the intent kind is `declare_table_contract` or 
 | `caller_claims` | object | no |  |
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `database_id` | integer | no | legacy numeric database id; prefer database |
-| `intent` | object | yes | the change: kind is optimize_query, ensure_fk_indexes, apply_migration, declare_table_contract or register_consumer, plus that kind's arguments (such as query_id, schema, table or slot_name) |
+| `intent` | object | yes | the change: kind is optimize_query, ensure_fk_indexes, apply_migration, declare_table_contract or register_consumer, plus that kind's arguments (such as query_id, schema, table or slot_name); see oneOf for each kind |
+
+`intent` is one of these kinds; a shape matching none is refused with the list of kinds.
+
+| Kind | Arguments | Example |
+|---|---|---|
+| `optimize_query` | `constraints`, `goal`, `query_id`, `query_text` | `{"goal":"latency","kind":"optimize_query","query_id":4711}` |
+| `ensure_fk_indexes` | `schema` (required) | `{"kind":"ensure_fk_indexes","schema":"public"}` |
+| `apply_migration` | `cycle`, `sql` (required), `table` (required) | `{"kind":"apply_migration","sql":"ALTER TABLE public.orders ADD CONSTRAINT orders_ref_key UNIQUE (ref)","table":"public.orders"}` |
+| `declare_table_contract` | `append_only`, `exemptions`, `expected_pk`, `retention`, `table` (required) | `{"append_only":true,"kind":"declare_table_contract","retention":{"column":"created_at","interval":"90 days"},"table":"public.events"}` |
+| `register_consumer` | `consumer_identity`, `owner` (required), `slot_name` (required) | `{"kind":"register_consumer","owner":"data-platform","slot_name":"debezium_orders"}` |
 
 ### `optimize_query`
 
-Use when a query is slow: name it by query_id or query_text with goal latency. pg_sage plans an index under standing policy and its policy gate decides whether it runs. Returns the gate's decision, the evidence_id, the reason and the outcome. It never approves: a change the gate holds waits for a person (see get_inbox).
+Use when a query is slow: name it by query_id or query_text with goal latency. pg_sage plans an index under standing policy and its policy check decides whether it runs. Returns the decision, evidence_id, reason and outcome; a held change adds approval_url and status. Never runs SQL you send and never approves: a held change waits for a person.
 
 Scope: `propose`
 
@@ -636,7 +669,7 @@ Scope: `propose`
 
 ### `apply_migration`
 
-Plan and rehearse an online migration (ADD UNIQUE / SET NOT NULL rewritten into expand steps). The policy gate is consulted before any clone rehearsal and again before each expand step; contract steps are never run.
+Use when a migration (ADD UNIQUE, SET NOT NULL) must run online. pg_sage rewrites it into expand steps, rehearses them on a clone and asks the policy check before the rehearsal and each step. Returns the verdict, reason, plan and the contract SQL it left for you. Never runs contract steps.
 
 Scope: `propose`
 
@@ -650,7 +683,7 @@ Scope: `propose`
 
 ### `ensure_fk_indexes`
 
-Ensure foreign keys have supporting indexes.
+Use when foreign keys in a schema may lack supporting indexes (slow deletes, lock waits on the parent). Returns the policy check's decision, evidence_id, reason and outcome for the indexes pg_sage plans. Never builds an index the policy check holds; a held change waits for a person.
 
 Scope: `propose`
 
@@ -662,7 +695,7 @@ Scope: `propose`
 
 ### `declare_table_contract`
 
-Declare table intent constraints (a person's declaration, imported as a confirmed fact). retention needs both interval and column (the timestamptz, timestamp or date column whose age defines retention); pg_sage never infers the column.
+Use when a person states a table's intent: append_only, retention (interval and the timestamptz, timestamp or date column whose age defines it), expected_pk or exemptions. Returns the decision on the declaration, stored as a confirmed fact. Needs the approve scope. Never infers the retention column.
 
 Scope: `approve`
 
@@ -678,7 +711,7 @@ Scope: `approve`
 
 ### `register_consumer`
 
-Protect a replication slot consumer (a person's declaration, imported as a confirmed fact).
+Use when a replication slot belongs to a consumer pg_sage must protect (CDC, a replica): name slot_name and owner. Returns the decision on the registration, stored as a confirmed fact. Needs the approve scope. Never registers on an agent's word: it is a person's declaration.
 
 Scope: `approve`
 
@@ -692,7 +725,7 @@ Scope: `approve`
 
 ### `set_maintenance_policy`
 
-Use to propose a change to how pg_sage maintains a scope (a patch to its maintenance policy). Returns the proposal_id and the dry-run impact; a person ratifies the proposal. It never approves or applies the patch itself.
+Use when pg_sage should maintain a scope differently (a patch to its maintenance policy). Returns proposal_id and the dry-run impact and, while it waits, approval_url and status; a person ratifies the proposal. Never applies the patch itself and never approves it.
 
 Scope: `propose`
 
@@ -705,7 +738,7 @@ Scope: `propose`
 
 ### `get_guarantee_status`
 
-Read machine-readable invariant status.
+Use when you need to know whether pg_sage's safety invariants hold on this database before you rely on it. Returns the machine-readable status of each invariant. Never changes anything; read-only.
 
 Scope: `read`
 
@@ -716,7 +749,7 @@ Scope: `read`
 
 ### `get_value`
 
-Use to report what pg_sage has been worth. Returns verified DBA-hours saved by period, feature and database, incidents avoided, hours still pending and a daily trend; partial and unavailable name any source that could not be read. Read-only: it never changes anything.
+Use when you report what pg_sage has been worth. Returns verified DBA-hours saved by period, feature and database, incidents avoided, hours still pending and a daily trend; partial and unavailable name any source that could not be read. Never changes anything: it is read-only and never writes.
 
 Scope: `read`
 
@@ -727,7 +760,7 @@ Scope: `read`
 
 ### `get_ledger`
 
-Use to audit what pg_sage's policy gate decided. Returns the newest policy decision records (evidence_id, decision, feature), narrowed by filter {decision, feature, limit 1-1000, default 100}. Read-only and it never approves. It holds decisions, not results: use get_outcomes for what an executed change measurably did.
+Use when you audit what pg_sage's policy check decided. Returns the newest policy decision records (evidence_id, decision, feature), narrowed by filter {decision, feature, limit 1-1000, default 100}. Never approves and never changes a record. It holds decisions, not results: get_outcomes has what an executed change did.
 
 Scope: `read`
 
@@ -739,7 +772,7 @@ Scope: `read`
 
 ### `sre_list_incidents`
 
-List Sage SRE investigations of RCA incidents and plan regressions: family, state, case and conclusion.
+Use when you look for what is wrong now or was recently. Returns pg_sage's investigations of incidents and plan regressions: family, state, issue and conclusion. Never opens or changes an investigation; read-only.
 
 Scope: `read`
 
@@ -750,7 +783,7 @@ Scope: `read`
 
 ### `sre_get_investigation`
 
-Read one investigation: observed facts, likely explanation, alternatives, ruled-out hypotheses with evidence, missing evidence and operator steps.
+Use when you have an investigation id from sre_list_incidents. Returns its observed facts, likely explanation, alternatives, ruled-out hypotheses with evidence, missing evidence and operator steps. Never acts on those steps; read-only.
 
 Scope: `read`
 
@@ -761,7 +794,7 @@ Scope: `read`
 
 ### `sre_get_evidence`
 
-Read one typed, redacted evidence item of an investigation.
+Use when you need one evidence item an investigation cites. Returns that item, typed and redacted. Never returns the unredacted value; read-only.
 
 Scope: `read`
 
@@ -773,7 +806,7 @@ Scope: `read`
 
 ### `sre_get_transcript`
 
-Read the tool-calling investigator's transcript of one investigation: plan, each tool call with its redacted result and digest, cited claims and the outcome with its authority.
+Use when you need how the tool-calling investigator reached its conclusion. Returns its plan, each tool call with its redacted result and digest, cited claims and the outcome with its authority. Never replays a tool call; read-only.
 
 Scope: `read`
 
@@ -785,7 +818,7 @@ Scope: `read`
 
 ### `sre_propose_action`
 
-Propose the evidence-matched mitigation of a concluded investigation (cancel of the one root backend) with its repair contract and policy verdict, or why there is none. Never executes anything.
+Use when a concluded investigation should be mitigated. Returns the evidence-matched mitigation (cancel of the one root backend) with its repair contract and policy decision, or why there is none. Never executes anything; sre_request_execution queues it for a person.
 
 Scope: `propose`
 
@@ -796,7 +829,7 @@ Scope: `propose`
 
 ### `sre_request_execution`
 
-Queue exactly one approval item for a proposal in the existing approval flow. Never executes: a human approves, then pg_sage rechecks the target and runs it.
+Use when sre_propose_action returned a mitigation that should run. Returns the one approval item it queued in the existing approval flow. Never executes: a person approves, then pg_sage rechecks the target and runs it.
 
 Scope: `propose`
 
@@ -807,7 +840,7 @@ Scope: `propose`
 
 ### `sre_refresh_table_evidence`
 
-Re-read stat_tables once for a table a concluded or inconclusive investigation observed, so a statistics proposal can cite evidence under 15 minutes old. Refused when the table's database or table OID changed; at most once a minute per investigation. Never executes a change.
+Use when a statistics proposal needs table evidence under 15 minutes old: re-reads stat_tables once for a table a concluded or inconclusive investigation observed, at most once a minute per investigation. Returns the fresh evidence, or a refusal when the table's database or OID changed. Never executes a change.
 
 Scope: `propose`
 
@@ -820,7 +853,7 @@ Scope: `propose`
 
 ### `sre_propose_statistics`
 
-Propose CREATE STATISTICS on columns of a table the investigation observed, as your explicit hypothesis, with its repair contract and policy verdict. pg_sage cites the newest matching stat_tables evidence itself. Never executes.
+Use when an investigation points at misestimated rows over correlated columns: propose CREATE STATISTICS as your explicit hypothesis. Returns the proposal with its repair contract and policy decision; pg_sage cites the newest matching stat_tables evidence itself. Never executes.
 
 Scope: `propose`
 
@@ -836,7 +869,7 @@ Scope: `propose`
 
 ### `sre_request_statistics`
 
-Queue exactly one approval item for a statistics proposal. Never executes: a person approves, then pg_sage rechecks the table and column identities under the table lock.
+Use when sre_propose_statistics returned a proposal that should be built. Returns the one approval item it queued. Never executes: a person approves, then pg_sage rechecks the table and column identities under the table lock.
 
 Scope: `propose`
 
@@ -847,7 +880,7 @@ Scope: `propose`
 
 ### `sre_rollback_statistics`
 
-Drop the statistics object a statistics proposal created, after rechecking it is that object. Prior ANALYZE statistics are not restored. Admin people only.
+Use when a statistics object pg_sage created should go: it is dropped after pg_sage rechecks it is that object. Returns the rollback's result. Needs the approve scope (admin people only). Never restores the prior ANALYZE statistics.
 
 Scope: `approve`
 
@@ -859,7 +892,7 @@ Scope: `approve`
 
 ### `sre_list_slos`
 
-List SLO error-budget states: ok, ticket, page or unknown (with why), burn rates per window, budget left; app SLIs claim customer impact, database proxies never do.
+Use when you need to know whether users are affected. Returns SLO error-budget states (ok, ticket, page or unknown, with why), burn rates per window and budget left. Never claims customer impact from a database proxy; only app SLIs do. Read-only.
 
 Scope: `read`
 
@@ -869,7 +902,7 @@ Scope: `read`
 
 ### `sre_get_slo`
 
-Read one SLO's state and state history; with recovery_since, the SLI recovery verdict (never certified on missing data, counter resets or low traffic).
+Use when you need one SLO's history or whether it recovered. Returns its state and state history and, with recovery_since, the SLI recovery decision. Never certifies a recovery on missing data, counter resets or low traffic. Read-only.
 
 Scope: `read`
 
@@ -881,7 +914,7 @@ Scope: `read`
 
 ### `sre_list_changes`
 
-List what changed around a database: signed deploys, migrations and feature flags, pg_sage's own actions, config changes, DDL, statistics resets, restarts, failovers and extension changes.
+Use when you ask what changed before a problem started. Returns signed deploys, migrations, feature flags, pg_sage's own changes, config changes, DDL, statistics resets, restarts, failovers and extension changes around a database. Never changes anything; read-only.
 
 Scope: `read`
 
@@ -892,7 +925,7 @@ Scope: `read`
 
 ### `sre_list_runbooks`
 
-List a database's typed runbooks: status (draft, signed, retired, invalid), whether each runs, latest version.
+Use when you look for a runbook that fits an issue. Returns a database's typed runbooks: status (draft, signed, retired, invalid), whether each runs and its latest version. Never runs one; read-only.
 
 Scope: `read`
 
@@ -902,7 +935,7 @@ Scope: `read`
 
 ### `sre_get_runbook`
 
-Read one runbook: every version's DAG, content hash, signer and imported playbook text.
+Use when you need one runbook's content. Returns every version's DAG, content hash, signer and imported playbook text. Never runs or signs it; read-only.
 
 Scope: `read`
 
@@ -913,7 +946,7 @@ Scope: `read`
 
 ### `sre_runbook_runs`
 
-List the investigations a runbook ran in, with the version, path and proposal of each run.
+Use when you need where a runbook has run. Returns the investigations it ran in, with the version, path and proposal of each run. Never runs it; read-only.
 
 Scope: `read`
 
@@ -924,7 +957,7 @@ Scope: `read`
 
 ### `sre_similar_incidents`
 
-List similar past incidents of an investigation and their operator-verified outcomes (context, not evidence).
+Use when you want precedent for an investigation. Returns similar past incidents and their operator-verified outcomes, as context. Never counts them as evidence for this investigation; read-only.
 
 Scope: `read`
 
@@ -935,7 +968,7 @@ Scope: `read`
 
 ### `sre_draft_runbook`
 
-Create a runbook draft from a typed definition, or add a draft version (runbook_id and base_version). Drafts never run until an admin signs them in pg_sage; a signed version keeps running until the new draft is signed.
+Use when you add a runbook, or a draft version of one (runbook_id and base_version), from a typed definition. Returns the draft. Never runs a draft: an admin signs it in pg_sage, and a signed version keeps running until the new draft is signed.
 
 Scope: `propose`
 
@@ -948,7 +981,7 @@ Scope: `propose`
 
 ### `sre_compile_runbook`
 
-Compile an English playbook into a runbook draft with pg_sage's model; it never runs until an admin signs it.
+Use when you have a playbook in English and want a runbook draft. Returns the draft pg_sage's model compiled. Never runs it until an admin signs it in pg_sage.
 
 Scope: `propose`
 
@@ -959,7 +992,7 @@ Scope: `propose`
 
 ### `sre_get_autonomy`
 
-Read pg_sage's earned autonomy: the level per incident family and action class (L0-L3), its cap, the level its evidence supports, active downgrades, pending promotions and history.
+Use when you need how much pg_sage may do on its own. Returns the autonomy level per incident family and action class (L0-L3), its cap, the level its evidence supports, active downgrades, pending promotions and history. Never changes autonomy; read-only.
 
 Scope: `read`
 
@@ -969,7 +1002,7 @@ Scope: `read`
 
 ### `sre_downgrade_autonomy`
 
-Lower pg_sage's autonomy for a family and action class ("*" for every class of the family). Restricting is always allowed; raising autonomy needs a human approval in pg_sage.
+Use when pg_sage should do less on its own for a family and action class ("*" for every class of the family). Returns the lowered level. Restricting is always allowed. Never raises autonomy: raising it needs a person's approval in pg_sage.
 
 Scope: `approve`
 
@@ -983,7 +1016,7 @@ Scope: `approve`
 
 ### `sre_review_investigation`
 
-Review a concluded or inconclusive Sage SRE investigation: accept or reject its diagnosis, optionally with a note and the actual root cause (a causal-graph node id or free text). Records the review and the investigation outcome. A review made here is kept but never counts toward promotion: only a person's review in the UI or REST API does. It never approves a promotion.
+Use when a person has judged a concluded or inconclusive investigation: accept or reject its diagnosis, with an optional note and actual root cause (graph node id or free text). Returns the recorded review and outcome. Never counts toward promotion and never approves one: only a person's review in the UI or REST API counts.
 
 Scope: `approve`
 
@@ -997,7 +1030,7 @@ Scope: `approve`
 
 ### `sre_evaluate_autonomy`
 
-Ask pg_sage to propose the promotions its evidence supports now; returns the proposals created and, for every other family and action class, why not (each unmet check with how to meet it). An admin still approves every promotion.
+Use when you want pg_sage to propose the promotions its evidence supports now. Returns the promotions proposed and, for every other family and action class, why not (each unmet check and how to meet it). Never promotes: an admin approves every promotion.
 
 Scope: `propose`
 
@@ -1007,7 +1040,7 @@ Scope: `propose`
 
 ### `list_facts`
 
-List pg_sage's typed facts about a database (who owns an object, test fixtures, CDC slots, archives, table windows, the owner brief): proposed ones awaiting a person and confirmed ones, which bind pg_sage (the owner brief is context only).
+Use when you need what pg_sage knows about a database: who owns an object, test fixtures, CDC slots, archives, table windows, the owner brief. Returns proposed facts awaiting a person and confirmed ones, which bind pg_sage. Never treats the owner brief as binding; read-only.
 
 Scope: `read`
 
@@ -1019,7 +1052,7 @@ Scope: `read`
 
 ### `propose_fact`
 
-Propose a fact about the database with the evidence for it. It binds nothing until a person confirms it. A confirmed fact only narrows what pg_sage does (e.g. an index owned by the app's migrations is changed through a PR, never by pg_sage's DDL).
+Use when you know something about the database pg_sage should respect, with the evidence for it. Returns the proposed fact. Never binds anything until a person confirms it; a confirmed fact only narrows what pg_sage does (an app-owned index changes through a PR, not pg_sage's DDL).
 
 Scope: `propose`
 
@@ -1034,7 +1067,7 @@ Scope: `propose`
 
 ### `decide_fact`
 
-Confirm or reject a proposed fact (or reject a confirmed one). Confirmed facts only narrow or redirect what pg_sage does.
+Use when a person confirms or rejects a proposed fact, or rejects a confirmed one. Returns the fact's new state. Needs the approve scope. Never widens what pg_sage does: a confirmed fact only narrows or redirects it.
 
 Scope: `approve`
 
@@ -1047,7 +1080,7 @@ Scope: `approve`
 
 ### `list_databases`
 
-List the monitored databases this principal may name in the database argument of every other tool.
+Use when you first connect, or when an error says database_required or unknown_database. Returns the monitored databases you may name in every other tool's database argument. Never lists a database you may not use.
 
 Scope: `read`
 
@@ -1055,7 +1088,7 @@ No arguments.
 
 ### `top_queries`
 
-The database's top statements from pg_stat_statements (pg_sage's own and diagnostic statements excluded) with calls, time, rows, the latest captured plan and sqlcommenter tags.
+Use when you look for the statements that cost the most. Returns the top statements from pg_stat_statements with calls, time, rows, the latest captured plan and sqlcommenter tags. Never includes pg_sage's own or diagnostic statements; read-only.
 
 Scope: `read`
 
@@ -1068,7 +1101,7 @@ Scope: `read`
 
 ### `explain_query`
 
-Safe EXPLAIN of one read statement (text or a pg_stat_statements queryid) in a read-only transaction with a statement timeout. People need the propose scope (operator or admin); analyze runs EXPLAIN ANALYZE only when pg_sage proves the statement has no side effects, and writes are never analyzed. Agents get plan-only EXPLAIN as their own database role through agent governance (analyze is refused), so a plan never describes a table the agent cannot read.
+Use when you need a query plan. Returns a safe EXPLAIN of one read statement (text or queryid) in a read-only transaction with a statement timeout. People need the propose scope; analyze runs only on a statement proven free of side effects. Agents get plan-only EXPLAIN as their own database role. Never analyzes a write.
 
 Scope: `propose` (operator) for people; `read` for agents, plan-only, under the agent's role
 
@@ -1082,7 +1115,7 @@ Scope: `propose` (operator) for people; `read` for agents, plan-only, under the 
 
 ### `whatif_index`
 
-HypoPG what-if for a proposed index: planner cost of the workload queries with and without a hypothetical index (nothing is built). Reports when HypoPG is not installed.
+Use when you want to know whether an index would help before you propose it. Returns the planner cost of the workload queries with and without a hypothetical HypoPG index, or that HypoPG is not installed. Never builds an index.
 
 Scope: `read`
 
@@ -1094,7 +1127,7 @@ Scope: `read`
 
 ### `lint_migration`
 
-Lint migration SQL with pg_sage's DDL classifier and live table statistics: lock level, table rewrite, estimated lock time, risk score and the safe alternative per statement.
+Use when you are about to ship migration SQL. Returns, per statement, the lock level, table rewrite, estimated lock time, risk score and the safe alternative, from pg_sage's DDL classifier and live table statistics. Never runs the SQL.
 
 Scope: `read`
 
@@ -1106,7 +1139,7 @@ Scope: `read`
 
 ### `query_sources`
 
-Attribute statements to application code: sqlcommenter tags in pg_stat_statements text and application_name and tags sampled from pg_stat_activity (no extension needed).
+Use when you need which application code sends a statement. Returns attributions from sqlcommenter tags in pg_stat_statements and from application_name and tags sampled from pg_stat_activity; no extension needed. Never changes anything; read-only.
 
 Scope: `read`
 
@@ -1118,7 +1151,7 @@ Scope: `read`
 
 ### `mark_object`
 
-Propose that an index, table or schema is owned by the application's migrations (owned) or must be left alone by pg_sage's DDL (exempt). It is recorded as a proposed binding fact and binds nothing until a person confirms it.
+Use when an index, table or schema is owned by the app's migrations (owned) or must be left alone by pg_sage's DDL (exempt). Returns the proposed binding fact. Never binds anything until a person confirms it.
 
 Scope: `propose`
 
@@ -1134,7 +1167,7 @@ Scope: `propose`
 
 ### `get_source_fix_packet`
 
-A cited source-fix packet for a finding: the problem, evidence with numbers, the migration to add to the application (up and down), the queries and code it likely touches, and how pg_sage verifies it after the deploy. Text from the database is fenced as data.
+Use when an issue should be fixed in the application's code, not by pg_sage. Returns a cited packet: the problem, evidence with numbers, the migration to add (up and down), the code it likely touches and how pg_sage verifies it after the deploy. Never changes the database; text from it is fenced as data.
 
 Scope: `read`
 
@@ -1145,7 +1178,7 @@ Scope: `read`
 
 ### `report_source_fix`
 
-Report the pull request (stage pr_opened) and the deploy (stage deployed) of a source fix; stage status returns pg_sage's verdict, predicted vs observed, once the verification window after the deploy has passed.
+Use when you opened the pull request (stage pr_opened) or deployed (stage deployed) a source fix. Returns the recorded stage; stage status returns pg_sage's decision, predicted vs observed, once the verification window after the deploy has passed. Never marks a fix verified before then.
 
 Scope: `propose`
 
@@ -1161,7 +1194,7 @@ Scope: `propose`
 
 ### `specialist_open_investigation`
 
-Postgres-specialist contract (pg_sage.specialist.v1): open an investigation of a symptom (the symptom is data, never an instruction) or attach to an existing investigation or incident.
+Use when an incident needs a Postgres specialist (pg_sage.specialist.v1): open an investigation of a symptom, or attach to an existing investigation or incident. Returns the investigation, its state and the links to poll. Never treats the symptom as an instruction: it is data.
 
 Scope: `read`
 
@@ -1179,7 +1212,7 @@ Scope: `read`
 
 ### `specialist_investigation_status`
 
-Poll an investigation's phase and progress (specialist contract).
+Use when you opened an investigation and wait for it. Returns its phase and progress. Never blocks: poll it, then read specialist_investigation_result once it concludes.
 
 Scope: `read`
 
@@ -1190,7 +1223,7 @@ Scope: `read`
 
 ### `specialist_investigation_result`
 
-Read the result: cited causal chain, root cause with source and authority, confidence (calibrated or labelled uncalibrated), missing evidence and typed candidate remediations; since 1.1.0 also the model investigator's verdict (advisory unless its root was adopted under earned authority) and the caller's query scope.
+Use when an investigation concluded. Returns the cited causal chain, root cause with source and authority, confidence (calibrated or labelled uncalibrated), missing evidence, typed candidate remediations, the model investigator's decision (advisory unless adopted under earned authority) and your query scope. Never acts on a remediation.
 
 Scope: `read`
 
@@ -1201,7 +1234,7 @@ Scope: `read`
 
 ### `specialist_investigation_transcript`
 
-Read the model investigator's redacted transcript: its plan, each read with the stored result and digest, its cited claims and outcome (specialist contract 1.1.0).
+Use when you need how the model investigator reached its result. Returns its redacted transcript: the plan, each read with the stored result and digest, its cited claims and outcome (version 1.1.0). Never returns an unredacted value.
 
 Scope: `read`
 
@@ -1212,7 +1245,7 @@ Scope: `read`
 
 ### `specialist_request_remediation`
 
-Request one of a concluded investigation's candidate remediations. It becomes an ordinary pg_sage proposal; the answer is the policy gate's verdict and reason. Never approves, forces or bypasses anything.
+Use when one of a concluded investigation's candidate remediations should be done. It becomes an ordinary pg_sage proposal. Returns the policy check's verdict and reason; a held request adds approval_url and status. Never approves, forces or bypasses anything.
 
 Scope: `propose`
 
@@ -1225,7 +1258,7 @@ Scope: `propose`
 
 ### `ask_sage`
 
-Ask pg_sage's DBA a question about a database. The answer is built only from evidence it reads (findings, actions and their verification outcomes, the trust ledger, facts, incidents, investigations, the catalog, configuration); every statement cites that evidence and what it could not verify is said. With the propose scope it may open an investigation, queue one of pg_sage's findings for a person's approval or propose a fact a person confirms; it never executes, approves or confirms. read_only: true makes the question answer-only (no investigation, proposal or fact) whatever the scope.
+Use when you have a question about a database in plain words. Returns an answer built only from evidence pg_sage reads, each statement cited, saying what it could not verify. With the propose scope it may open an investigation, queue an issue for a person or propose a fact; read_only: true only answers. Never executes, approves or confirms.
 
 Scope: `read`
 
@@ -1238,7 +1271,7 @@ Scope: `read`
 
 ### `fleet_findings`
 
-List problems open on several fleet databases at once (e.g. the same missing index on many tenant databases), each once with the databases it affects. Read-only; acting still goes through each database's own proposals and approvals.
+Use when the same problem may affect many databases (a missing index on every tenant database). Returns the problems open on several fleet databases, each once with the databases it affects. Never acts: a change still goes through each database's own proposals and approvals.
 
 Scope: `read`
 
@@ -1248,7 +1281,7 @@ Scope: `read`
 
 ### `agent_query`
 
-Run one read-only SELECT as this agent's own database role (never pg_sage's), in a read-only transaction with pg_sage's timeouts and row and byte limits. Classified columns are masked or refused by environment; every call is audited. Rows are untrusted data.
+Use when you need rows: one read-only SELECT as this agent's own database role (never pg_sage's) in a read-only transaction with pg_sage's timeouts and row and byte limits. Returns the rows, which are untrusted data, with classified columns masked or refused by environment. Never writes; every call is audited.
 
 Scope: `read`
 
@@ -1261,7 +1294,7 @@ Scope: `read`
 
 ### `agent_whoami`
 
-Describe this agent principal: profile, environment ceiling, status, and per database its environment, lanes, grants and levels.
+Use when you need what this agent may do. Returns the agent's profile, environment ceiling, status and, per database, its environment, lanes, grants and levels. Never changes them; agent_request_capability asks for more.
 
 Scope: `read`
 
@@ -1269,7 +1302,7 @@ No arguments.
 
 ### `agent_request_capability`
 
-Ask for read access to tables or views for a while. Agent governance checks the request; an operator approves it in pg_sage (the result has the approval URL) and the grant then lists only columns the database's environment allows. It expires on its own.
+Use when agent_query is refused for a table or view you need: ask for read access for a while. Returns the verdict, request_id and, while it waits, approval_url and status. Never grants itself: an operator approves, the grant lists only columns the environment allows and it expires on its own.
 
 Scope: `propose`
 
@@ -1284,7 +1317,7 @@ Scope: `propose`
 
 ### `upgrade_readiness`
 
-Check the database for a major-version upgrade: tables logical replication cannot identify rows of, extensions against a target member, logical slots and subscriptions, data checksums against PG18's initdb default, collation versions and indexes to reindex, removed settings and dated support windows. Each check is pass, warn, block or unknown with up to 50 evidence rows. Read-only; it changes nothing.
+Use when you plan a major-version upgrade. Returns pass, warn, block or unknown with up to 50 evidence rows for: tables logical replication cannot identify rows of, extensions, logical slots and subscriptions, data checksums, collation versions and indexes to reindex, removed settings and support windows. Never changes anything.
 
 Scope: `read`
 
@@ -1297,7 +1330,7 @@ Scope: `read`
 
 ### `get_inbox`
 
-List every decision waiting on a person (change approvals, plans, autonomy promotions, proposed facts, unsigned runbooks, agent capability requests, policy proposals). Returns the items with counts by kind, newest risk first. Read-only: it never approves, and an agent decides nothing from it; a person decides each item on its page (href). Without database it reads every database you may read. A source that could not be read is named in errors and the total is then a lower bound.
+Use when you need what waits on a person: change approvals, plans, autonomy promotions, proposed facts, unsigned runbooks, agent capability requests, policy proposals. Returns the items, highest risk first, with counts by kind; a source it could not read is named in errors. Never decides: it never approves, a person decides each item on its page (href).
 
 Scope: `read`
 
@@ -1309,7 +1342,7 @@ Scope: `read`
 
 ### `get_workload_pack`
 
-Read a workload evidence pack's model tier: the redacted form a model may read (numeric column statistics, sanitized statement texts, plan shapes, schema and settings with literals redacted, sparkline charts as PNG data URIs) and its size. It never returns the local tier: no statement text as written, no most-common value, no plan condition. List packs and build one in the dashboard or with POST /api/v1/databases/{db}/workload-packs.
+Use when a model needs a database's workload evidence. Returns a pack's model tier (redacted column statistics, sanitized statement texts, plan shapes, schema, settings, sparkline PNGs) and its size. Never writes; it never returns the local tier (statement text as written, common values, plan conditions). Packs are built in the dashboard.
 
 Scope: `read`
 
@@ -1320,7 +1353,7 @@ Scope: `read`
 
 ### `get_outcomes`
 
-List what pg_sage changed in a window. Returns one row per executed change with what, why, origin, the expected and measured effect, the verdict (pending until judged) and whether it can still be rolled back, plus a summary with the share of changes with a measured effect. Read-only. Without database it reads every database you may read; a database that could not be read is named in errors.
+Use when you need what pg_sage changed in a window and whether it worked. Returns one row per executed change: what, why, origin, expected and measured effect, its verdict (pending until judged) and whether it can still be rolled back, plus the share with a measured effect. Never changes anything; read-only.
 
 Scope: `read`
 
