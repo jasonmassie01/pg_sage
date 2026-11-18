@@ -64,7 +64,7 @@ function Effects({ step, outcome, next, ledgerError }) {
   return <div className="text-xs space-y-0.5" style={muted}>
     <p>Expected: {expectedText(step)} · {tierText(step, outcome)}</p>
     <p>Measured: {measuredText(outcome, ledgerError)}</p>
-    {verdict && <p>Verdict: {verdictText(verdict)}</p>}
+    {verdict && <p>Decision: {verdictText(verdict)}</p>}
     <p>Gate: {gateText(step, next)}</p>
   </div>
 }

@@ -77,7 +77,7 @@ function ClearHero({ summary, databases }) {
       <CheckCircle size={28} style={{ color: 'var(--green)' }} />
       <div>
         <div className="font-semibold" style={{ color: 'var(--green)' }}>
-          No open critical or warning cases
+          No open critical or warning issues
         </div>
         <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
           Monitoring {dbCount(summary.total_databases)}
@@ -134,7 +134,7 @@ export function HealthHero({ summary, databases }) {
       </div>
       <a href="#/cases" data-testid="health-hero-cases-link"
         className="text-sm whitespace-nowrap" style={{ color: 'var(--accent)' }}>
-        Review cases
+        Review issues
       </a>
     </div>
   )

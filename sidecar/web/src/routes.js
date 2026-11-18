@@ -26,7 +26,7 @@ export const NAV_GROUPS = [
 const ADMIN = ['admin']
 const REVIEWERS = ['admin', 'operator']
 const CASES_GUIDE = 'See database issues, the evidence behind them and what remains unknown. '
-  + 'Open a case to investigate it or review a proposed next step.'
+  + 'Open an issue to investigate it or review a proposed next step.'
 const ACCOUNT_GUIDE = 'Review your signed-in identity and account preferences. '
   + 'Your pg_sage role determines which controls you can use.'
 const ACCOUNT_PLATFORM_GUIDE = 'Review your Databricks identity and pg_sage role. '
@@ -35,7 +35,7 @@ const PROTOCOL_PLATFORM_GUIDE = 'This App uses Databricks sign-in. '
   + 'Agent and MCP token access are unavailable in this deployment.'
 
 function caseView(id, path, label, guide) {
-  return { id, path, title: 'Cases', guideTitle: `Cases · ${label}`, memeLabel: label, guide }
+  return { id, path, title: 'Issues', guideTitle: `Issues · ${label}`, memeLabel: label, guide }
 }
 
 export const ROUTES = Object.freeze([
@@ -48,8 +48,8 @@ export const ROUTES = Object.freeze([
   // The full Value page stays at #/value, linked from the Inbox.
   { id: 'value', path: '/value', title: 'Value', icon: Home, hint: 'Verified DBA hours saved',
     guide: 'Compare verified outcomes and estimated DBA effort saved, and see '
-      + 'recommendations still waiting for review.' },
-  { id: 'cases', path: '/cases', aliases: ['/findings', '/advanced/findings'], title: 'Cases',
+      + 'proposed changes still waiting for review.' },
+  { id: 'cases', path: '/cases', aliases: ['/findings', '/advanced/findings'], title: 'Issues',
     navGroup: 'operate', testId: 'nav-cases', icon: AlertTriangle,
     hint: 'Open DBA work queue', guide: CASES_GUIDE },
   { id: 'actions', path: '/actions', aliases: ['/advanced/actions'], title: 'Actions',
@@ -57,7 +57,7 @@ export const ROUTES = Object.freeze([
     hint: 'Executed + pending timeline',
     usesTimeRange: true, timeRangeLabel: 'Ledger window',
     guide: 'Follow proposed database changes through review, approval and outcome '
-      + 'checks. The execution mode determines whether a change can run.' },
+      + 'checks. The database’s autonomy decides whether a change can run.' },
   { id: 'ledger', path: '/ledger', title: 'Outcome ledger', label: 'Ledger',
     navGroup: 'operate', testId: 'nav-ledger', icon: ClipboardCheck,
     hint: 'What changed, and what it did',
@@ -66,7 +66,7 @@ export const ROUTES = Object.freeze([
   { id: 'queries', path: '/queries', title: 'Workload', navGroup: 'operate',
     testId: 'nav-queries', icon: BarChart3, hint: 'Top statements and wait-class load',
     guide: 'See which statements carry the load and what active sessions wait on. '
-      + 'Open a statement for its history, plan changes and related cases.' },
+      + 'Open a statement for its history, plan changes and related issues.' },
   { id: 'slos', path: '/slos', title: 'SLOs', navGroup: 'operate', testId: 'nav-slos',
     icon: Gauge, hint: 'Reliability targets and error budgets',
     guide: 'Check reliability targets, remaining error budgets and how quickly failures '
@@ -130,21 +130,21 @@ export const ROUTES = Object.freeze([
     testId: 'nav-snapshot', hint: 'Collected health and performance metrics',
     usesTimeRange: true, timeRangeLabel: 'Health chart window',
     guide: 'Survey collected database health, performance metrics and recent '
-      + 'recommendations. Provider readiness shows supported capabilities and blockers.' },
+      + 'proposed changes. Provider readiness shows supported capabilities and blockers.' },
   { id: 'database', path: '/database', title: 'Database',
     guide: 'Inspect the latest collected snapshot for one database, including the '
       + 'measurements and raw details used for analysis.' },
   { id: 'query', path: '/query', title: 'Query',
     guide: 'Inspect one statement: its history from the query store, plan changes, the '
-      + 'newest captured plan, and the cases, hints and actions about it.' },
-  caseView('forecasts', '/forecasts', 'Forecasts', 'Review cases based on forecasts, '
+      + 'newest captured plan, and the issues, hints and actions about it.' },
+  caseView('forecasts', '/forecasts', 'Forecasts', 'Review issues based on forecasts, '
     + 'including predicted capacity risks and the evidence behind them.'),
-  caseView('query-hints', '/query-hints', 'Query hints', 'Review cases about query-plan '
-    + 'hints and their evidence. Provider support determines which proposals are available.'),
-  caseView('schema-health', '/schema-health', 'Schema health', 'Review cases from schema '
+  caseView('query-hints', '/query-hints', 'Query hints', 'Review issues about query-plan '
+    + 'hints and their evidence. Provider support determines which changes are available.'),
+  caseView('schema-health', '/schema-health', 'Schema health', 'Review issues from schema '
     + 'checks, such as missing or duplicate indexes, and inspect the supporting evidence.'),
   caseView('incidents', '/incidents', 'Incidents', 'Review incident investigations, '
-    + 'collected evidence and proposed next steps. Open a case to follow its progress.'),
+    + 'collected evidence and proposed next steps. Open an issue to follow its progress.'),
   { id: 'profile', path: '/profile', title: 'Account', memeLabel: 'Profile',
     guide: ACCOUNT_GUIDE, platformGuide: ACCOUNT_PLATFORM_GUIDE },
   // A signed-in user can land on /login from an SSO callback error; the

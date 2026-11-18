@@ -130,6 +130,7 @@ can differ by managed-service constraints.
 
 ## Reference
 
+- [Glossary](glossary.md) — the five nouns (Issue, Plan, Change, Decision, Autonomy) and the terms the dashboard defines
 - [Architecture](architecture.md) — Tier 1 rules engine, Tier 2 LLM analysis, Tier 3 executor
 - [Fleet Mode](fleet.md) — control database, tenant boundaries, fleet learning, leader election, fleet routes
 - [Configuration](configuration.md) — YAML config, environment variables, runtime overrides

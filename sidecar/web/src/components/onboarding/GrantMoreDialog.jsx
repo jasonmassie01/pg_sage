@@ -135,12 +135,12 @@ export function GrantMoreDialog({ database, onClose, onGranted }) {
           <button type="button" onClick={onClose} disabled={busy}
             className="text-sm">Close</button>
         </div>
-        {!guide && error && <LoadError what="Trust levels" error={error} onRetry={refetch} />}
-        {!guide && !error && <p role="status">Loading trust levels…</p>}
+        {!guide && error && <LoadError what="Autonomy levels" error={error} onRetry={refetch} />}
+        {!guide && !error && <p role="status">Loading autonomy…</p>}
         {guide && (
           <>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Every action still passes the policy gate and is verified afterwards.
+              Every action still passes the policy check and is verified afterwards.
               A higher level only widens what pg_sage may do on its own.
             </p>
             {(guide.levels || []).map(level => (

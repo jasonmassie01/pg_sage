@@ -5,7 +5,7 @@ import { response } from './testStub'
 
 // ux-05e (win 14): a request row links its investigation to Cases (the
 // investigation= focus the cases page honours) and, when the remediation
-// queued an approval, the approval to Needs your review (ux-01b's tab= and
+// queued an approval, the approval to Waiting on you (ux-01b's tab= and
 // queue=). A hostile id is shown, never linked.
 // No concurrency test: the component renders one fetched list.
 

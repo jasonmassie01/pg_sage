@@ -49,13 +49,13 @@ export function WhyNotRun({ caseRow, user }) {
     <div className="mt-2 text-xs" style={muted}>
       <button type="button" onClick={explain} disabled={state.loading}
         className="underline" style={{ color: 'var(--accent)' }}>
-        {state.loading ? 'Asking the policy gate…' : "Why hasn't this run?"}
+        {state.loading ? 'Asking the policy check…' : "Why hasn't this run?"}
       </button>
       {state.error && <p role="alert" className="mt-1" style={{ color: 'var(--red)' }}>
-        The policy gate could not explain this case: {state.error}</p>}
+        The policy check could not explain this issue: {state.error}</p>}
       {state.result && <div data-testid="why-not-run-result" className="mt-1">
         {candidates.length === 0
-          ? <p>No action to run: this finding has no candidate the executor could apply.</p>
+          ? <p>No change to run: this issue has no change the executor could apply.</p>
           : candidates.map(c => <p key={c.action_type}>{candidateLine(c)}</p>)}
       </div>}
     </div>

@@ -19,7 +19,7 @@ describe('MonitoringContext', () => {
 
   it('shows exact collection time and qualifies a failed status refresh', () => {
     render(<MonitoringContext database="orders" error="offline" fleetData={{ databases: [db('orders', 'advisory', { collector_last_run: '2026-10-30T12:00:00Z' })] }} />)
-    expect(screen.getByRole('status')).toHaveTextContent('Existing cases do not establish current health')
+    expect(screen.getByRole('status')).toHaveTextContent('Existing issues do not establish current health')
     expect(document.querySelector('time')).toHaveAttribute('dateTime', '2026-10-30T12:00:00.000Z')
     expect(screen.queryByText(/nothing will run/)).toBeNull()
   })

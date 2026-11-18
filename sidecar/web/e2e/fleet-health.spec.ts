@@ -99,7 +99,7 @@ test.describe('firstlook-03 CHECK-05: one database refuses connections', () => {
       await expect(setup).toContainText(unreachable)
       await expect(setup).toContainText(CONNECTED_DOWN)
       await expect(setup).toContainText('orders · new install · trust observation · ' +
-        'First finding 41.2 s after start')
+        'First issue 41.2 s after start')
       // The unreachable database is never counted as set up.
       await expect(setup).not.toContainText('Setup complete.')
 

@@ -28,9 +28,9 @@ function Explainer() {
       </h2>
       <p>
         A token lets an MCP client such as Claude Code or Cursor read pg_sage&apos;s
-        findings and propose fixes. The tokens created here are operator tokens: each
+        issues and propose fixes. The tokens created here are operator tokens: each
         acts for its owner, an operator or admin, and may approve. Agent tokens can
-        read and propose but never approve. Every proposal still goes through
+        read and propose but never approve. Every proposed change still goes through
         pg_sage&apos;s trust gates. See docs/mcp.md for setup and the tools each scope
         unlocks.
       </p>

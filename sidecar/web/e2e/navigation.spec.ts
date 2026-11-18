@@ -30,7 +30,7 @@ test.describe('Sidebar navigation', () => {
     // These nav items are always visible (no admin gate).
     const navItems = [
       { testid: 'nav-inbox', label: 'Inbox' },
-      { testid: 'nav-cases', label: 'Cases' },
+      { testid: 'nav-cases', label: 'Issues' },
       { testid: 'nav-actions', label: 'Actions' },
     ]
 
@@ -83,7 +83,7 @@ test.describe('Sidebar navigation', () => {
     await expect(header).toContainText('Settings')
 
     await page.locator('[data-testid="nav-cases"]').click()
-    await expect(header).toContainText('Cases')
+    await expect(header).toContainText('Issues')
   })
 
   test('user email and sign-out button render', async ({ page }) => {

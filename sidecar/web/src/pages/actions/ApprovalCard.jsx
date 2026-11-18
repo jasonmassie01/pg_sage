@@ -206,7 +206,7 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
         <div data-testid="approval-card-title" className="font-medium"
           style={{ color: 'var(--text-primary)' }}>{card.title}</div>
         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          {card.database} · queue item {card.queue_id} ·{' '}
+          {card.database} · request {card.queue_id} ·{' '}
           <span data-testid="approval-expiry">{expiresIn(card.expires_at, now)}</span>
         </div>
       </div>

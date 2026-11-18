@@ -80,7 +80,7 @@ function DatabaseChecklist({ entry, onGrant, platformManaged, user }) {
         {entry.database} · {entry.install_kind === 'new' ? 'new install' : 'install'}
         {' · '}trust {entry.trust_level}
         {entry.time_to_first_finding_seconds != null &&
-          ` · First finding ${formatSeconds(entry.time_to_first_finding_seconds)} after start`}
+          ` · First issue ${formatSeconds(entry.time_to_first_finding_seconds)} after start`}
       </p>
       {entry.error && (
         <p className="text-sm" style={{ color: 'var(--yellow)' }}>

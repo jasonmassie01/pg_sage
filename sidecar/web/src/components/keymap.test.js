@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { APPROVAL_KEYMAP, KEYMAP, approvalShortcutFor, isTyping, shortcutFor } from './keymap'
+import {
+  APPROVAL_KEYMAP, KEYMAP, approvalShortcutFor, isInteractive, isTyping, shortcutFor,
+} from './keymap'
 
 // ux-05a win 24: the approval list's verbs live in the same table the
 // shortcuts sheet renders, so the sheet and the handler cannot drift.
@@ -8,10 +10,11 @@ import { APPROVAL_KEYMAP, KEYMAP, approvalShortcutFor, isTyping, shortcutFor } f
 const key = (k, init = {}) => ({ key: k, target: document.body, ...init })
 
 describe('APPROVAL_KEYMAP', () => {
-  it('names next, previous, approve, reject and snooze in that order', () => {
+  it('names next, previous, approve, reject, snooze, toggle and open in that order', () => {
     expect(APPROVAL_KEYMAP.map(e => e.id))
-      .toEqual(['next', 'previous', 'approve', 'reject', 'snooze'])
-    expect(APPROVAL_KEYMAP.map(e => e.keys)).toEqual([['j'], ['k'], ['a'], ['r'], ['s']])
+      .toEqual(['next', 'previous', 'approve', 'reject', 'snooze', 'toggle', 'open'])
+    expect(APPROVAL_KEYMAP.map(e => e.keys))
+      .toEqual([['j'], ['k'], ['a'], ['r'], ['s'], ['x'], ['Enter']])
     for (const entry of APPROVAL_KEYMAP) expect(entry.description.length).toBeGreaterThan(10)
     expect(Object.isFrozen(APPROVAL_KEYMAP)).toBe(true)
   })
@@ -36,7 +39,7 @@ describe('APPROVAL_KEYMAP', () => {
 
 describe('approvalShortcutFor ignores keys that are not approval verbs', () => {
   it('returns nothing for other letters, capitals and empty events', () => {
-    expect(approvalShortcutFor(key('x'))).toBeUndefined()
+    expect(approvalShortcutFor(key('q'))).toBeUndefined()
     expect(approvalShortcutFor(key('A'))).toBeUndefined()
     expect(approvalShortcutFor(key('J', { shiftKey: true }))).toBeUndefined()
     expect(approvalShortcutFor({})).toBeUndefined()
@@ -72,5 +75,44 @@ describe('isTyping', () => {
   it('is true for text fields', () => {
     expect(isTyping(document.createElement('input'))).toBe(true)
     expect(isTyping(document.createElement('textarea'))).toBe(true)
+  })
+})
+
+// ux-07b: x selects the card for bulk approve and Enter opens it. Enter
+// must never steal the press from a focused button, link or checkbox.
+describe('the bulk verbs x and Enter', () => {
+  it('maps x to toggle and Enter on the page to open', () => {
+    expect(approvalShortcutFor(key('x'))).toBe('toggle')
+    expect(approvalShortcutFor(key('Enter'))).toBe('open')
+    expect(approvalShortcutFor(key('X', { shiftKey: true }))).toBeUndefined()
+    expect(approvalShortcutFor(key('Enter', { shiftKey: true }))).toBeUndefined()
+    expect(approvalShortcutFor(key('Enter', { ctrlKey: true }))).toBeUndefined()
+  })
+
+  it('leaves Enter to a focused control', () => {
+    for (const tag of ['button', 'a', 'summary']) {
+      const el = document.createElement(tag)
+      expect(approvalShortcutFor(key('Enter', { target: el })), tag).toBeUndefined()
+      expect(isInteractive(el), tag).toBe(true)
+    }
+    const role = document.createElement('div')
+    role.setAttribute('role', 'checkbox')
+    expect(approvalShortcutFor(key('Enter', { target: role }))).toBeUndefined()
+    expect(approvalShortcutFor(key('x', { target: document.createElement('button') })))
+      .toBe('toggle')
+  })
+
+  it('treats the body, plain elements and no element as not interactive', () => {
+    expect(isInteractive(document.body)).toBe(false)
+    expect(isInteractive(document.createElement('div'))).toBe(false)
+    expect(isInteractive(null)).toBe(false)
+    expect(isInteractive(undefined)).toBe(false)
+  })
+
+  it('says x is for safe-tier bulk approve and Enter opens the card', () => {
+    const byId = Object.fromEntries(APPROVAL_KEYMAP.map(e => [e.id, e.description]))
+    expect(byId.toggle).toMatch(/bulk approve/i)
+    expect(byId.toggle).toMatch(/safe/i)
+    expect(byId.open).toMatch(/open/i)
   })
 })

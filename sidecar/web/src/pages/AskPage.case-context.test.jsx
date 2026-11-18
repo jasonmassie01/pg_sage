@@ -20,7 +20,7 @@ describe('case-scoped Ask', () => {
     const input = await screen.findByTestId('ask-input')
     expect(input.value).toContain('finding 17')
     expect(input.value).not.toContain('Do not create')
-    expect(screen.getByRole('link', { name: 'Back to this case' })).toHaveAttribute('href', '#/cases?case=case-17&database=orders')
+    expect(screen.getByRole('link', { name: 'Back to this issue' })).toHaveAttribute('href', '#/cases?case=case-17&database=orders')
     expect(posts(mock)).toHaveLength(0)
     fireEvent.click(screen.getByTestId('ask-submit'))
     await waitFor(() => expect(posts(mock)).toHaveLength(1))

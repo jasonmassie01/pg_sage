@@ -246,7 +246,7 @@ describe('Layout navigation', () => {
     renderLayout({ user: admin })
     expect(screen.getByTestId('nav-cases')).toHaveAttribute('aria-current', 'page')
     expect(screen.getByTestId('nav-inbox')).not.toHaveAttribute('aria-current')
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Cases')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Issues')
   })
 
   it('lists no duplicate Cases or Actions entry under Advanced', () => {

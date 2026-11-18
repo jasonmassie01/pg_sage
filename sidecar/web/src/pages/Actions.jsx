@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { TabList, TabPanel } from '../components/Tabs'
+import { Term } from '../components/Term'
 import { combineQueries } from '../lib/queryState'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { RecommendationsTab } from './actions/RecommendationsTab'
@@ -20,10 +21,10 @@ import { landingTab, pendingCountState } from './actions/landingTab'
 // The Actions page shell: the scope header, the tab bar and the tab bodies.
 // The lists, their rows and their data live in pages/actions/ (dashboard-31).
 
-const CASE_LOAD_FAILED = 'The linked case could not be loaded. '
+const CASE_LOAD_FAILED = 'The linked issue could not be loaded. '
   + 'Its related changes cannot be confirmed.'
-const FLEET_NOTE = ' Stored recommendations require a single database; '
-  + 'case proposals are shown across the fleet.'
+const FLEET_NOTE = ' Stored changes require a single database; '
+  + 'changes proposed for issues are shown across the fleet.'
 const VIEWER_NOTE = ' Your role can inspect changes; '
   + 'approval requests are available to operators and admins.'
 
@@ -54,7 +55,7 @@ function useActionsNav() {
 }
 
 // useLandingTab settles a tab no link chose once the approval count is known:
-// Needs your review when approvals wait, else Proposed changes. It is set
+// Waiting on you when approvals wait, else Proposed changes. It is set
 // once, so a count that later changes never moves the page (ux-05a win 1).
 function useLandingTab(nav, canReview, d) {
   const landing = landingTab({ canReview, ...pendingCountState(d.q, d.pendingTotal) })
@@ -82,8 +83,9 @@ export function Actions({ database, user, fleetData }) {
     <div className="space-y-4" data-testid="actions-page">
       <p className="text-sm" data-testid="actions-page-description"
         style={{ color: 'var(--text-secondary)' }}>
-        Review proposed database changes, decide which requests to approve, and track results.
-        Cases explain the evidence behind a change.
+        Review proposed database <Term id="change">changes</Term>, decide which requests to
+        approve, and track results. <Term id="issue">Issues</Term> explain the evidence
+        behind a change.
         Approval, execution, and a verified improvement are separate steps.
       </p>
       {nav.actionFocus && <ActionFocusNotice id={nav.actionFocus} found={Boolean(focusRow)}
@@ -95,14 +97,14 @@ export function Actions({ database, user, fleetData }) {
       {d.single && modeForDatabase(database) === 'observation' && <p className="text-sm"
         data-testid="actions-observation" style={{ color: 'var(--yellow)' }}>
         Database changes are disabled in Observation mode.
-        Review Cases and proposed changes; no database changes will run in this mode.
+        Review issues and proposed changes; no database changes will run in this mode.
       </p>}
       <TabBar tab={activeTab} setTab={nav.setTab} counts={d.counts} canReview={canReview} />
       <TabPanel id="actions" active={activeTab} className="space-y-4">
         {activeTab === 'recommendations' && landing.error && <div
           data-testid="actions-landing-error"><ErrorBanner onRetry={d.refreshAll}
             message={`Approvals waiting for you could not be counted: ${landing.error}. `
-              + 'Needs your review shows what did load.'} /></div>}
+              + 'Waiting on you shows what did load.'} /></div>}
         {(activeTab === 'recommendations' || activeTab === 'pending') && <NotTimeScoped />}
         <TabBody tab={activeTab} ctx={ctx} />
       </TabPanel>
@@ -116,13 +118,13 @@ function CaseContext({ d, database, onClear }) {
   const caseData = q.caseData
   return <div className="rounded border p-3 text-sm space-y-1" data-testid="actions-case-context"
     style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-    <p>{selectedCase ? `Changes for case: ${selectedCase.title}`
-      : caseData.loading ? 'Loading the linked case…'
+    <p>{selectedCase ? `Changes for issue: ${selectedCase.title}`
+      : caseData.loading ? 'Loading the linked issue…'
         : caseData.error ? CASE_LOAD_FAILED
-          : 'The linked case is unavailable in this database view.'}</p>
+          : 'The linked issue is unavailable in this database view.'}</p>
     {caseData.error && <ErrorBanner message={caseData.error} onRetry={caseData.refetch} />}
     {selectedCase && <a href={caseHref(selectedCase, database)} className="underline"
-      style={{ color: 'var(--accent)' }}>Review case evidence</a>}
+      style={{ color: 'var(--accent)' }}>Review issue evidence</a>}
     <a href={`#/actions${d.single ? `?database=${encodeURIComponent(database)}` : ''}`}
       className="ml-3 underline" style={{ color: 'var(--accent)' }} onClick={onClear}>
       Show all changes</a>
@@ -134,7 +136,7 @@ function ScopeNote({ d, database, canReview }) {
   const label = range?.range?.label?.toLowerCase() || 'the selected time range'
   return <p className="text-xs" data-testid="actions-scope"
     style={{ color: 'var(--text-secondary)' }}>
-    {single ? database : 'All selected databases'} · Proposals and requests show current work.
+    {single ? database : 'All selected databases'} · Proposed changes and requests show current work.
     {' '}In progress and History use {label} for change records.
     {' '}Counts cover loaded items; + means more may be available.
     {!single && FLEET_NOTE}
@@ -152,7 +154,7 @@ function NotTimeScoped() {
 function TabBar({ tab, setTab, counts, canReview }) {
   const tabs = [{ key: 'plans', label: 'Plans' },
     { key: 'recommendations', label: 'Proposed changes' }]
-  if (canReview) tabs.push({ key: 'pending', label: 'Needs your review' })
+  if (canReview) tabs.push({ key: 'pending', label: 'Waiting on you' })
   tabs.push({ key: 'progress', label: 'In progress' }, { key: 'executed', label: 'History' })
   if (canReview) tabs.push({ key: 'decisions', label: 'Held back' })
   const labelled = tabs.map(t => ({ ...t, testId: `actions-tab-${t.key}`,
@@ -199,7 +201,7 @@ function LedgerTab({ tab, ctx }) {
   const progress = tab === 'progress'
   const recs = progress ? d.ledger.progressRecs : d.ledger.historyRecs
   return <>
-    {recommendations.error && <ErrorBanner message={`Recommendation ${progress
+    {recommendations.error && <ErrorBanner message={`Change ${progress
       ? 'progress' : 'outcomes'} could not be loaded: ${recommendations.error}`}
     onRetry={recommendations.refetch} />}
     {progress && <ManagedChanges database={database} canDecide={false}

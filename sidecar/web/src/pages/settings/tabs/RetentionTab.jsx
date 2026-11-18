@@ -6,7 +6,7 @@ export function RetentionTab(props) {
       <SectionHeading>Retention</SectionHeading>
       <Field label="Snapshots (days)"
         configKey="retention.snapshots_days" {...props} />
-      <Field label="Findings (days)"
+      <Field label="Issues (days)"
         configKey="retention.findings_days" {...props} />
       <Field label="Actions (days)"
         configKey="retention.actions_days" {...props} />

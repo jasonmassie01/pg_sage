@@ -98,8 +98,8 @@ function ExplainBody({ result }) {
         {result.note}</p>}
       <EntryList title="Why it is slow" testID="explain-slow-because" empty="No reasons found."
         entries={entriesOf(result, 'slow_because', result.slow_because)} />
-      <EntryList title="Recommendations" testID="explain-recommendations"
-        empty="No recommendations."
+      <EntryList title="Proposed changes" testID="explain-recommendations"
+        empty="No proposed changes."
         entries={entriesOf(result, 'recommendation', result.recommendations)} />
       <NodeTable nodes={result.node_breakdown} />
     </>

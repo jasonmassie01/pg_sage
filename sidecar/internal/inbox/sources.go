@@ -63,7 +63,7 @@ func ChangeApprovals(in Instances) Source {
 				Title: "Approve " + nonEmpty(a.ActionType, "a change"), Why: a.Reason,
 				Risk: a.ActionRisk, CreatedAt: a.ProposedAt, DueAt: &due,
 				Href:   href("actions", "tab", "pending", "queue", id, "database", db),
-				Source: "sage.action_queue"})
+				Source: "sage.action_queue", Class: a.ActionType})
 		}
 		return out, nil
 	})

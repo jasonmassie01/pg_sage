@@ -61,7 +61,7 @@ function Links({ row }) {
       <a className="underline" href={`#/actions?action=${encodeURIComponent(row.action_id)}`}
         aria-label={`Open action ${row.action_id}`}>Action #{row.action_id}</a>
       {caseHref && <a className="underline" href={caseHref}
-        aria-label={`Open case for action ${row.action_id}`}>Case</a>}
+        aria-label={`Open issue for action ${row.action_id}`}>Issue</a>}
       {row.evidence_id && <span className="font-mono text-xs">{row.evidence_id}</span>}
     </span>
   )

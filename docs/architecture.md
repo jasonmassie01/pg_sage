@@ -1003,7 +1003,7 @@ fleet tooltip add "2 databases have not reported their action policy" and the
 strip limits its claim to the databases that did, since one that has not
 reported may still auto-execute.
 
-**Approval cards.** Each pending action in "Needs your review" is a card
+**Approval cards.** Each pending action in "Waiting on you" is a card
 (`GET /api/v1/approvals`): why it needs a person, the cited evidence, the
 rationale, the predicted effect, the exact SQL and rollback, and the risk. A
 `pg_hint_plan` card (`apply_query_hint`, `retire_query_hint`) also carries

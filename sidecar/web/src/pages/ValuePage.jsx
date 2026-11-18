@@ -55,7 +55,7 @@ function EmptyState() {
         </p>
         <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
           The first credit comes from the first verified change: an action
-          pg_sage ran, with your approval or within its trust level, whose
+          pg_sage ran, with your approval or within its autonomy, whose
           outcome it then measured and verified.
         </p>
         <a href="#/" className="mt-3 inline-block text-sm underline"
@@ -105,7 +105,7 @@ function PotentialValue({ hours }) {
       <h2 className="text-lg font-semibold">Potential savings</h2>
       <p className="mt-1 text-2xl font-semibold">{formatHours(hours)}</p>
       <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        Pending recommendations only. Not included in DBA hours saved.
+        Pending changes only. Not included in DBA hours saved.
       </p>
     </section>
   )

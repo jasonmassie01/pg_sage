@@ -17,7 +17,7 @@ import { formatTime } from '../../lib/time'
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
 // The filter's verdicts, in the ledger's spelling, named as the rows name them.
-const VERDICTS = [['', 'Every verdict'], ...['queue_approval', 'parked', 'blocked',
+const VERDICTS = [['', 'Every decision'], ...['queue_approval', 'parked', 'blocked',
   'observe_only'].map(value => [value, verdictLabel(value)])]
 
 function decisionsURL(database, verdict) {
@@ -37,10 +37,10 @@ export function DecisionsTab({ database }) {
         Changes the standing policy has withheld and not run since, newest first. The
         reasons are listed in the <a className="underline" style={{ color: 'var(--accent)' }}
           href={POLICY_GATE_DOC}>
-          policy gate reference</a>.
+          policy check reference</a>.
       </p>
       <label className="text-sm flex items-center gap-2" style={muted}>
-        Verdict
+        Decision
         <select data-testid="decisions-verdict" value={verdict}
           onChange={e => setVerdict(e.target.value)} className="rounded px-2 py-1"
           style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', ...strong }}>
@@ -72,12 +72,12 @@ function DecisionsList({ data, database }) {
           database={database} />)}
       </ul>}
     {data?.truncated && <p data-testid="decisions-truncated" className="text-xs" style={muted}>
-      Showing the newest {data.limit}; narrow the verdict or the database to see the rest.
+      Showing the newest {data.limit}; narrow the decision or the database to see the rest.
     </p>}
   </>
 }
 
-// decisionLink focuses the row's approval request on Needs your review
+// decisionLink focuses the row's approval request on Waiting on you
 // (tab= and queue=, ux-01b) or its finding on Cases (finding=, caseFocus.js).
 // queue= is a queue id, never action= (an executed change record's id).
 function decisionLink(d) {
@@ -85,11 +85,11 @@ function decisionLink(d) {
   const db = d.database ? { database: d.database } : {}
   if (d.queue_id) {
     return { href: link('actions', { tab: 'pending', queue: d.queue_id, ...db }),
-      label: `Approval request #${d.queue_id}` }
+      label: `Request #${d.queue_id}` }
   }
   if (d.finding_id) {
     return { href: link('cases', { finding: d.finding_id, ...db }),
-      label: `Finding #${d.finding_id}` }
+      label: `Issue #${d.finding_id}` }
   }
   return null
 }

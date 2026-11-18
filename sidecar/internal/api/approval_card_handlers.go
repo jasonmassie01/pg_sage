@@ -55,6 +55,8 @@ func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 		http.HandlerFunc(h.reject))
 	routeDB(mux, "POST /api/v1/approvals/{id}/snooze", gateOperator, card,
 		http.HandlerFunc(h.snooze))
+	// One request, several databases: fleet-wide (apiauth-08), ux-07b.
+	route(mux, "POST "+bulkApprovePath, gateOperator, http.HandlerFunc(h.bulkApprove))
 }
 
 // cardLoader reads one database's cards with its executor's trust level

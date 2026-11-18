@@ -42,7 +42,7 @@ export function LLMTab(props) {
         <SectionHeading>Index Optimizer</SectionHeading>
         <Field label="Optimizer Enabled"
           configKey="llm.optimizer.enabled" type="toggle"
-          help="LLM-powered index recommendation engine"
+          help="LLM-powered engine that proposes index changes"
           {...props} />
         <Field label="Min Query Calls"
           configKey="llm.optimizer.min_query_calls"

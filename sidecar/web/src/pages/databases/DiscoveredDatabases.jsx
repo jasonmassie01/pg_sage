@@ -95,7 +95,7 @@ function SourceErrors({ sources }) {
       style={{ color: 'var(--yellow)' }}>
       {failing.map(s => (
         <p key={s.source}>
-          Source {s.source}: {s.last_error} (previous candidates kept)
+          Source {s.source}: {s.last_error} (previously discovered databases kept)
         </p>
       ))}
     </div>

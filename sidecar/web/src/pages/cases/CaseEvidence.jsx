@@ -11,7 +11,7 @@ export function EvidenceList({ evidence, category, database, canExplain }) {
   )
   if (visibleEvidence.length === 0) return null
   return (
-    <div className="mt-3 space-y-2" aria-label="Case evidence">
+    <div className="mt-3 space-y-2" aria-label="Issue evidence">
       {visibleEvidence.map((item, index) => (
         <EvidenceItem
           key={`${item.type || 'evidence'}-${index}`}

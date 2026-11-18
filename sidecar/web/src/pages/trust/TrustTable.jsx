@@ -17,8 +17,8 @@ const KIND_TITLE = {
 }
 
 const KIND_NOTE = {
-  self_initiated: 'Tuning classes earn trust only from improved verdicts; hygiene '
-    + 'classes also from neutral verdicts that held. A regressed verdict, an operator '
+  self_initiated: 'Tuning classes earn trust only from improved outcomes; hygiene '
+    + 'classes also from neutral outcomes that held. A regressed outcome, an operator '
     + 'rollback or a rejection demotes the class one level.',
   incident: 'Earned from bench, shadow-review and live-recovery evidence '
     + '(Advanced > Earned autonomy).',

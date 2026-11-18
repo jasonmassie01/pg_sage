@@ -55,15 +55,15 @@ function renderHero(overrides) {
 
 function expectNotHealthy(hero) {
   expect(hero).not.toHaveTextContent(/healthy/i)
-  expect(hero).not.toHaveTextContent(/No open critical or warning cases/)
+  expect(hero).not.toHaveTextContent(/No open critical or warning issues/)
   expect(hero).not.toHaveTextContent(/No issues detected/)
 }
 
 describe('HealthHero', () => {
-  it('claims no open cases only when every count is zero', () => {
+  it('claims no open issues only when every count is zero', () => {
     renderHero({})
     const hero = screen.getByTestId('health-hero')
-    expect(hero).toHaveTextContent('No open critical or warning cases')
+    expect(hero).toHaveTextContent('No open critical or warning issues')
     expect(hero).toHaveTextContent(/last collection \d{2}:\d{2}/)
     expect(hero).not.toHaveTextContent(/All Systems Healthy/)
     expect(screen.queryByTestId('health-hero-cases-link')).toBeNull()
@@ -81,7 +81,7 @@ describe('HealthHero', () => {
   it('moves from the clear state to open work when an incident opens', () => {
     const { rerender } = renderHero({})
     expect(screen.getByTestId('health-hero'))
-      .toHaveTextContent('No open critical or warning cases')
+      .toHaveTextContent('No open critical or warning issues')
     rerender(<Dashboard database="all" onSelectDB={vi.fn()}
       fleet={fleetWith({ ...CLEAR, incidents_critical: 1 })} />)
     expectNotHealthy(screen.getByTestId('health-hero'))
@@ -156,7 +156,7 @@ describe('HealthHero', () => {
 
   it('keeps the stat cards on findings and databases', () => {
     renderHero({ total_critical: 2, incidents_critical: 5 })
-    expect(screen.getByText('Critical Findings').parentElement)
+    expect(screen.getByText('Critical Issues').parentElement)
       .toHaveTextContent('2')
     expect(screen.getByTestId('stat-databases')).toHaveTextContent('2')
   })

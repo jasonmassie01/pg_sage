@@ -106,7 +106,7 @@ describe('Cases investigation focus over the real useAPI (cases-12)', () => {
       go(`#/cases?investigation=${INV}&database=orders`)
       render(<CasesPage database="orders" user={{ role: 'viewer' }} />)
       const notice = await screen.findByTestId('cases-focus-missing')
-      expect(notice).toHaveTextContent(/no case here/)
+      expect(notice).toHaveTextContent(/no issue here/)
       expect(within(notice).getByRole('link', { name: /investigation record/i }))
         .toHaveAttribute('href', detailURL(INV))
       expect(requested.some(u => u.startsWith('/api/v1/cases') && u.includes('case=')))
@@ -119,7 +119,7 @@ describe('Cases investigation focus over the real useAPI (cases-12)', () => {
     go(`#/cases?investigation=${INV}&database=orders`)
     render(<CasesPage database="orders" user={{ role: 'viewer' }} />)
     expect(await screen.findByTestId('cases-focus-missing'))
-      .toHaveTextContent(`No case is loaded for investigation ${INV}`)
+      .toHaveTextContent(`No issue is loaded for investigation ${INV}`)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(detailReads()).toEqual([detailURL(INV)])
     expect(requested.some(u => u.startsWith('/api/v1/investigations?') &&

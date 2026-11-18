@@ -18,12 +18,12 @@ export function FocusMissing({ focus, investigation, database }) {
     <div data-testid="cases-focus-missing" className="rounded border p-4 text-sm"
       style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
       {focus.kind === 'finding'
-        ? <>No open case holds finding {focus.id}; it may have been resolved,
+        ? <>No open issue holds record {focus.id}; it may have been resolved,
           suppressed, or not loaded in this view.{' '}
           <a href={`/api/v1/findings/${encodeURIComponent(focus.id)}${db}`}
             className="underline" style={{ color: 'var(--accent)' }}>
-            View the finding record</a></>
-        : <>No case is loaded for investigation {focus.id}; it may have expired
+            View the source record</a></>
+        : <>No issue is loaded for investigation {focus.id}; it may have expired
           or belong to another database.</>}
     </div>
   )
@@ -49,7 +49,7 @@ function CaselessInvestigation({ inv }) {
   return (
     <div data-testid="cases-focus-missing" className="rounded border p-4 text-sm"
       style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-      Investigation {inv.id} has no case here; it was not opened from a case (Ask Sage
+      Investigation {inv.id} has no issue here; it was not opened from an issue (Ask Sage
       opens its own from a question).{' '}
       <a href={href} className="underline" style={{ color: 'var(--accent)' }}>
         View the investigation record</a>

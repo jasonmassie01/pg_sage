@@ -10,7 +10,7 @@ export function FindingSourceSelect({ value, sources, onChange }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-2 text-xs"
       style={{ color: 'var(--text-secondary)' }}>
-      <label htmlFor="cases-finding-source">Finding source</label>
+      <label htmlFor="cases-finding-source">Issue source</label>
       <select id="cases-finding-source" data-testid="cases-finding-source"
         value={value || ''} onChange={e => onChange(e.target.value)}
         className="rounded px-2 py-1 text-xs"
@@ -20,7 +20,7 @@ export function FindingSourceSelect({ value, sources, onChange }) {
         {options.map(source => <option key={source} value={source}>{source}</option>)}
       </select>
       {value && <span data-testid="finding-source-note">
-        Showing {value} findings only; incidents and query hints are hidden.
+        Showing {value} issues only; incidents and query hints are hidden.
       </span>}
     </span>
   )

@@ -60,7 +60,7 @@ export function ActionProposals({ database, investigationId, user }) {
   if (items.length === 0) return null
   return (
     <div data-testid="action-proposals" className="space-y-2">
-      <div className="font-medium" style={strong}>Proposed action</div>
+      <div className="font-medium" style={strong}>Proposed change</div>
       {items.map(p => (
         <ProposalCard key={p.id} proposal={p} database={database} path={path}
           operator={canOperate(user)} onDone={refetch} />

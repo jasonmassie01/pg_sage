@@ -91,7 +91,7 @@ describe('WhyNotRun', () => {
     render(<WhyNotRun caseRow={findingCase} user={operator} />)
     fireEvent.click(screen.getByRole('button', { name: /why hasn't this run/i }))
     expect(await screen.findByTestId('why-not-run-result')).toHaveTextContent(
-      /no action to run/i)
+      /no change to run/i)
   })
 
   it('shows the error when the explanation fails', async () => {

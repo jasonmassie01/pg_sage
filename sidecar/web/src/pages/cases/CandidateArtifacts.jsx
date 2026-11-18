@@ -92,7 +92,7 @@ export function CandidateArtifacts({ candidate }) {
   return (
     <div className="mt-3 space-y-2">
       <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-        Proposed action: {candidate.action_type} · Risk: {candidate.risk_tier || 'unknown'}
+        Proposed change: {candidate.action_type} · Risk: {candidate.risk_tier || 'unknown'}
         {candidate.blocked_reason && <p>Recorded restriction: {candidate.blocked_reason}</p>}
         <CandidateTiming candidate={candidate} />
         <p>Recovery classification: {candidate.rollback_class || 'unknown'}</p>

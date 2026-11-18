@@ -37,20 +37,40 @@ export function isTyping(el) {
 const plainKey = (event, key) => event.key === key
   && !event.ctrlKey && !event.metaKey && !event.altKey
 
-// APPROVAL_KEYMAP holds the approval list's verbs (ux-05a). They act only on
-// the Needs your review cards, never while typing; approve and reject still
-// ask (a confirm, a reason) before anything is sent.
+const CONTROL_TAGS = new Set(['button', 'a', 'summary', 'input', 'select', 'textarea'])
+const CONTROL_ROLES = new Set(['button', 'link', 'checkbox', 'menuitem', 'option', 'radio',
+  'switch', 'tab'])
+
+// isInteractive is true when el is a control Enter already acts on (a
+// button, link, checkbox and the like), so the list's Enter leaves it be.
+export function isInteractive(el) {
+  if (!el || el === document.body) return false
+  const tag = (el.tagName || '').toLowerCase()
+  return CONTROL_TAGS.has(tag) || CONTROL_ROLES.has(el.getAttribute?.('role') || '')
+    || isTyping(el)
+}
+
+// APPROVAL_KEYMAP holds the approval list's verbs (ux-05a; x and Enter,
+// ux-07b). They act only on an approval list (the Waiting on you cards,
+// the Inbox), never while typing; approve and reject still ask (a confirm,
+// a reason) before anything is sent.
 export const APPROVAL_KEYMAP = Object.freeze([
   { id: 'next', keys: ['j'], description: 'Select the next approval card',
     matches: e => plainKey(e, 'j') },
   { id: 'previous', keys: ['k'], description: 'Select the previous approval card',
     matches: e => plainKey(e, 'k') },
-  { id: 'approve', keys: ['a'], description: 'Approve the selected card (asks you to confirm)',
+  { id: 'approve', keys: ['a'],
+    description: 'Approve the selected card, or the cards marked with x (asks you to confirm)',
     matches: e => plainKey(e, 'a') },
   { id: 'reject', keys: ['r'], description: 'Reject the selected card (opens the reason field)',
     matches: e => plainKey(e, 'r') },
   { id: 'snooze', keys: ['s'], description: 'Open the snooze options of the selected card',
     matches: e => plainKey(e, 's') },
+  { id: 'toggle', keys: ['x'],
+    description: 'Mark or unmark the selected card for bulk approve (safe tier only)',
+    matches: e => plainKey(e, 'x') },
+  { id: 'open', keys: ['Enter'], description: 'Open the selected card',
+    matches: e => plainKey(e, 'Enter') && !e.shiftKey && !isInteractive(e.target) },
 ])
 
 // approvalShortcutFor returns the id of the approval verb the key event

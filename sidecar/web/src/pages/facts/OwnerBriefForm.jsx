@@ -67,7 +67,7 @@ export function OwnerBriefForm({ database, canDecide, onDeclared }) {
       </h3>
       <p className="text-xs" style={muted}>
         What the owner knows that pg_sage cannot measure. It is context for
-        pg_sage&apos;s proposals; it never allows or forbids a change.
+        pg_sage&apos;s proposed changes; it never allows or forbids a change.
       </p>
       {!oneDatabase ? (
         <p data-testid="brief-pick-database" className="text-xs" style={muted}>

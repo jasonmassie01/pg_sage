@@ -44,7 +44,7 @@ describe('Cases page opened from a fleet finding', () => {
     expect(screen.getAllByRole('article')).toHaveLength(1)
     expect(screen.getByText('Missing index on public.orders')).toBeInTheDocument()
     expect(screen.queryByText('Query hint 12')).toBeNull()
-    expect(screen.getByRole('link', { name: 'Back to all cases' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Back to all issues' })).toBeInTheDocument()
   })
 
   it('opens the case in fleet scope by the linked database', () => {
@@ -61,7 +61,7 @@ describe('Cases page opened from a fleet finding', () => {
     window.history.replaceState(null, '', '#/cases?database=tenant_b&finding=999')
     render(<CasesPage database="tenant_b" user={{ role: 'viewer' }} />)
     expect(screen.queryByRole('article')).toBeNull()
-    expect(screen.getByTestId('cases-focus-missing')).toHaveTextContent(/finding 999/)
+    expect(screen.getByTestId('cases-focus-missing')).toHaveTextContent(/record 999/)
   })
 
   // A non-numeric parameter names no finding: it opens no case (source ids
@@ -70,7 +70,7 @@ describe('Cases page opened from a fleet finding', () => {
     window.history.replaceState(null, '', '#/cases?database=tenant_b&finding=12abc')
     render(<CasesPage database="tenant_b" user={{ role: 'viewer' }} />)
     expect(screen.queryByRole('article')).toBeNull()
-    expect(screen.getByTestId('cases-focus-missing')).toHaveTextContent(/finding 12abc/)
+    expect(screen.getByTestId('cases-focus-missing')).toHaveTextContent(/record 12abc/)
   })
 
   it('follows a hash change to a finding link', () => {

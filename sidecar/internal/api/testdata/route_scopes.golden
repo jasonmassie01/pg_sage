@@ -119,6 +119,7 @@ bare GET /api/v1/approvals/{id} gate:operator scope:aggregate
 bare POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 bare POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 bare POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+bare POST /api/v1/approvals/bulk-approve gate:operator scope:fleet-wide
 bare GET /api/v1/plans gate:viewer scope:aggregate
 bare GET /api/v1/plans/{id} gate:viewer scope:aggregate
 bare POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
@@ -385,6 +386,7 @@ standalone GET /api/v1/approvals/{id} gate:operator scope:aggregate
 standalone POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 standalone POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 standalone POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+standalone POST /api/v1/approvals/bulk-approve gate:operator scope:fleet-wide
 standalone GET /api/v1/plans gate:viewer scope:aggregate
 standalone GET /api/v1/plans/{id} gate:viewer scope:aggregate
 standalone POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
@@ -632,6 +634,7 @@ fleet-readonly GET /api/v1/approvals/{id} gate:operator scope:aggregate
 fleet-readonly POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+fleet-readonly POST /api/v1/approvals/bulk-approve gate:operator scope:fleet-wide
 fleet-readonly GET /api/v1/plans gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/plans/{id} gate:viewer scope:aggregate
 fleet-readonly POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
@@ -820,6 +823,7 @@ store-only-actions GET /api/v1/approvals/{id} gate:operator scope:aggregate
 store-only-actions POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+store-only-actions POST /api/v1/approvals/bulk-approve gate:operator scope:fleet-wide
 store-only-actions GET /api/v1/plans gate:viewer scope:aggregate
 store-only-actions GET /api/v1/plans/{id} gate:viewer scope:aggregate
 store-only-actions POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
@@ -1088,6 +1092,7 @@ optional GET /api/v1/approvals/{id} gate:operator scope:aggregate
 optional POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 optional POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 optional POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+optional POST /api/v1/approvals/bulk-approve gate:operator scope:fleet-wide
 optional GET /api/v1/plans gate:viewer scope:aggregate
 optional GET /api/v1/plans/{id} gate:viewer scope:aggregate
 optional POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
@@ -1307,6 +1312,7 @@ databricks-app GET /api/v1/approvals/{id} gate:operator scope:aggregate
 databricks-app POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+databricks-app POST /api/v1/approvals/bulk-approve gate:operator scope:fleet-wide
 databricks-app GET /api/v1/plans gate:viewer scope:aggregate
 databricks-app GET /api/v1/plans/{id} gate:viewer scope:aggregate
 databricks-app POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only

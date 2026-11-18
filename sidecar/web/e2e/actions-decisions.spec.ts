@@ -32,12 +32,12 @@ test.describe('Decisions tab', () => {
       .toHaveText('Budget: next frees at 18:00')
     await expect(rows.nth(1)).toContainText('Outside the maintenance window')
     await expect(rows.nth(1).getByTestId('decision-budget')).toHaveCount(0)
-    await expect(rows.nth(1).getByRole('link', { name: 'Approval request #9' }))
+    await expect(rows.nth(1).getByRole('link', { name: 'Request #9' }))
       .toHaveAttribute('href', '#/actions?tab=pending&queue=9&database=orders')
   })
 
   // ux-05b CHECK-02: the tab reads "Held back", no raw enum is on screen,
-  // and a row's link opens Needs your review on that exact card.
+  // and a row's link opens Waiting on you on that exact card.
   test('ux-05b: a held-back row opens its exact approval card', async ({ page }) => {
     await routeActions(page, {
       ledger: () => [], pending: () => ({ pending: [pendingQueued()], scheduled: [] }),
@@ -53,7 +53,7 @@ test.describe('Decisions tab', () => {
     await expect(rows.nth(0)).toContainText('Waiting for approval')
     const tabText = await page.getByTestId('decisions-tab').innerText()
     expect(tabText).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/)
-    await rows.nth(0).getByRole('link', { name: 'Approval request #41' }).click()
+    await rows.nth(0).getByRole('link', { name: 'Request #41' }).click()
     await expect(page).toHaveURL(/#\/actions\?tab=pending&queue=41&database=orders$/)
     await expect(page.getByTestId('actions-tab-pending')).toHaveAttribute('aria-selected', 'true')
     const focused = page.getByTestId('approval-card-focused')
@@ -70,9 +70,9 @@ test.describe('Decisions tab', () => {
         status: 200, json: decisionsBody([queuedDecision]),
       }))
       await page.goto('/#/actions?tab=decisions')
-      await page.getByRole('link', { name: 'Approval request #41' }).click()
+      await page.getByRole('link', { name: 'Request #41' }).click()
       await expect(page.getByTestId('approval-queue-missing'))
-        .toContainText('Approval request #41 is no longer waiting for review')
+        .toContainText('Request #41 is no longer waiting on you')
       await expect(page.getByTestId('approval-card-focused')).toHaveCount(0)
     })
 

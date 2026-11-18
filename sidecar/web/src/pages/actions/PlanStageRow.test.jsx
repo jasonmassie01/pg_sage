@@ -30,7 +30,7 @@ describe('PlanStageRow', () => {
     expect(el).toHaveTextContent('Expected: blocks per call down 30%')
     expect(el).toHaveTextContent('Tested on a clone')
     expect(el).toHaveTextContent('Measured: blocks per call -31%')
-    expect(el).toHaveTextContent('Verdict: Improved')
+    expect(el).toHaveTextContent('Decision: Improved')
     expect(el).toHaveTextContent(/Gate: Automatic/)
     expect(within(el).getByTestId('plan-stage-rollback-1'))
       .toHaveTextContent('DROP INDEX CONCURRENTLY public.idx_a')

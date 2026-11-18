@@ -132,7 +132,7 @@ export function ShadowModePage({ database }) {
       <div>
         <h2 className="text-sm font-semibold" style={strong}>Shadow Mode</h2>
         <p className="text-sm" style={muted}>
-          What pg_sage would have done below each class&apos;s earned trust level, and how
+          What pg_sage would have done below each class&apos;s earned autonomy, and how
           it scored. Nothing here ran. The potential column prices the counted correct
           decisions with the toil model; only verified outcomes count on the Value page.
         </p>

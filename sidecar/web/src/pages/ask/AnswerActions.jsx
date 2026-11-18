@@ -7,11 +7,11 @@ const muted = { color: 'var(--text-secondary)' }
 const accent = { color: 'var(--accent)' }
 
 const PROPOSAL_TEXT = {
-  queued: 'Proposal queued for approval',
-  already_pending: 'Proposal already pending approval',
-  blocked: 'Proposal blocked',
-  refused: 'Proposal refused',
-  failed: 'Proposal failed',
+  queued: 'Change queued for approval',
+  already_pending: 'Change already pending approval',
+  blocked: 'Change blocked',
+  refused: 'Change refused',
+  failed: 'Change failed',
 }
 
 const INVESTIGATION_TEXT = {
@@ -70,7 +70,7 @@ function ActionItem({ action }) {
 function ProposalDetail({ action }) {
   return (
     <div className="space-y-1 text-xs" style={muted}>
-      {action.verdict && <div>Verdict: {action.verdict}</div>}
+      {action.verdict && <div>Decision: {action.verdict}</div>}
       {action.sql && <SQL label="SQL" text={action.sql} />}
       {action.rollback_sql && <SQL label="Rollback SQL" text={action.rollback_sql} />}
       {action.rollback_class && <div>Rollback class: {action.rollback_class}</div>}
@@ -92,6 +92,6 @@ function SQL({ label, text }) {
 
 function ActionLink({ kind }) {
   const [href, text] = Object.hasOwn(LINKS, kind)
-    ? LINKS[kind] : ['#/cases', 'Follow it on the Cases page']
+    ? LINKS[kind] : ['#/cases', 'Follow it on the Issues page']
   return <a href={href} className="text-xs underline" style={accent}>{text}</a>
 }

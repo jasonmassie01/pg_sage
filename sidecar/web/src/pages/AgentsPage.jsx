@@ -23,7 +23,7 @@ function Explainer() {
         Each agent is a principal with an accountable sponsor and an environment ceiling.
         It reaches databases only through grants an operator approved, on roles pg_sage
         manages; every request passes the trust gate. A tainted agent&apos;s changes wait
-        for a person. Freeze one agent, or kill them all, at any trust level.
+        for a person. Freeze one agent, or kill them all, whatever their autonomy.
       </p>
     </div>
   )

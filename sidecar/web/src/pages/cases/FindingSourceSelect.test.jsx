@@ -82,7 +82,7 @@ describe('FindingSourceSelect', () => {
   it('is a labelled select defaulting to All with the server sources', () => {
     const onChange = vi.fn()
     render(<FindingSourceSelect value="" sources={SOURCES} onChange={onChange} />)
-    const select = screen.getByLabelText('Finding source')
+    const select = screen.getByLabelText('Issue source')
     expect(select.value).toBe('')
     const options = [...select.querySelectorAll('option')].map(o => o.textContent)
     expect(options).toEqual(['All', ...SOURCES])
@@ -94,7 +94,7 @@ describe('FindingSourceSelect', () => {
     for (const sources of [undefined, null, []]) {
       const { unmount } = render(
         <FindingSourceSelect value="" sources={sources} onChange={vi.fn()} />)
-      const options = screen.getByLabelText('Finding source').querySelectorAll('option')
+      const options = screen.getByLabelText('Issue source').querySelectorAll('option')
       expect([...options].map(o => o.value)).toEqual([''])
       unmount()
     }
@@ -102,7 +102,7 @@ describe('FindingSourceSelect', () => {
 
   it('keeps a hash value the server does not list visible', () => {
     render(<FindingSourceSelect value="nope" sources={SOURCES} onChange={vi.fn()} />)
-    expect(screen.getByLabelText('Finding source').value).toBe('nope')
+    expect(screen.getByLabelText('Issue source').value).toBe('nope')
   })
 
   it('says incidents and query hints are hidden while filtered', () => {
@@ -123,7 +123,7 @@ describe('Cases page finding source', () => {
       render(<CasesPage database="prod" />)
       await waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(2))
       expect(casesRequests()).toEqual(['/api/v1/cases?database=prod'])
-      const select = () => screen.getByLabelText('Finding source')
+      const select = () => screen.getByLabelText('Issue source')
 
       await act(async () => {
         fireEvent.change(select(), { target: { value: 'optimizer' } })
@@ -154,7 +154,7 @@ describe('Cases page finding source', () => {
     render(<CasesPage database="prod" />)
     await waitFor(() => expect(screen.getAllByRole('article')).toHaveLength(1))
     expect(casesRequests()).toEqual(['/api/v1/cases?database=prod&finding_source=optimizer'])
-    expect(screen.getByLabelText('Finding source').value).toBe('optimizer')
+    expect(screen.getByLabelText('Issue source').value).toBe('optimizer')
   })
 
   it('does not filter a focused case link', async () => {

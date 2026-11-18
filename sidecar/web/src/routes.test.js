@@ -187,8 +187,8 @@ describe('canSee and allowsRole', () => {
 describe('pageGuide from the registry', () => {
   it('uses the route guide, or the platform guide when the platform signs in', () => {
     expect(pageGuide('#/advanced/findings')).toEqual(
-      { title: 'Cases', description: byId('cases').guide })
-    expect(pageGuide('#/forecasts?database=a').title).toBe('Cases · Forecasts')
+      { title: 'Issues', description: byId('cases').guide })
+    expect(pageGuide('#/forecasts?database=a').title).toBe('Issues · Forecasts')
     expect(pageGuide('#/mcp-tokens', { authMode: 'databricks_app' }).description)
       .toMatch(/Databricks sign-in/)
     expect(pageGuide('#/mcp-tokens', { authMode: 'session' }).description)

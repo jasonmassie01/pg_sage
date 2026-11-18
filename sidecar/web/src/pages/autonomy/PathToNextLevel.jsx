@@ -51,7 +51,7 @@ export function PathToNextLevel({ families, benchRuns, canRunBench, onRunBench }
       data-testid="path-to-next-level">
       <h3 className="text-sm font-semibold" style={strong}>Path to next level</h3>
       <div data-testid="path-reviews-by-a-person" className="text-xs" style={muted}>
-        Only reviews by a person count: accept or reject finished investigations in Cases
+        Only reviews by a person count: accept or reject finished investigations in Issues
         (or the REST API). Reviews an agent records through MCP are kept but never count
         toward promotion.
       </div>

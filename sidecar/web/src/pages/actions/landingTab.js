@@ -1,5 +1,5 @@
 // landingTab picks the tab Actions opens on when no link names one
-// (ux-05a win 1): Needs your review when the role can review and approvals
+// (ux-05a win 1): Waiting on you when the role can review and approvals
 // wait, else Proposed changes. tab is null while the count is still
 // loading; error is the count's read error when the fallback is a guess.
 export function landingTab({ canReview = false, pendingCount = 0, loading = false,

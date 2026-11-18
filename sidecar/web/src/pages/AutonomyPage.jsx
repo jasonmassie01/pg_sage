@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { Term } from '../components/Term'
 import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
 import { EvaluateNow } from './autonomy/EvaluateNow'
@@ -155,7 +156,7 @@ function FastElevation({ info }) {
   return (
     <div data-testid="fast-elevation" className="mt-2 rounded px-2 py-1 text-xs"
       style={{ border: '1px solid var(--yellow)', color: 'var(--text-primary)' }}>
-      <span className="font-semibold">Fast elevation</span>
+      <span className="font-semibold"><Term id="fast-elevation">Fast elevation</Term></span>
       <span style={muted}> — these settings are below the spec, so trust is earned in
         hours. Irreversible actions, L4 and admin approval are unchanged.</span>
       <ul className="mt-1 list-disc pl-5">
