@@ -93,6 +93,7 @@ func writeOptimizerMetrics(b *strings.Builder, views []metricsView) {
 
 func writeFleetMetrics(b *strings.Builder) {
 	// Fleet totals only; per-database series are the health families.
+	defer writeFleetEnrollMetrics(b) // fleetpol-01b, meta-db discovery
 	status := fleetMgr.FleetStatus()
 	metricsreg.Header(b, "pg_sage_fleet_databases")
 	fmt.Fprintf(b, "pg_sage_fleet_databases %d\n\n",

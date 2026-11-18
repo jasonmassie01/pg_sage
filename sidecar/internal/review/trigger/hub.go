@@ -105,3 +105,21 @@ func (h *Hub) LargeMigration(ctx context.Context, database string, tables []Tabl
 			"large_table_bytes": e.largeBytes}})
 	return err
 }
+
+// Enrolled fires a discovered member's enrollment review (fleetpol-01b):
+// fleet discovery asks for it on the day the member is enrolled instead
+// of waiting for two weeks of rollups. It fires once per member (key
+// "discovered"); a member whose queue is not registered yet is
+// ErrUnknownDatabase, and discovery asks again next cycle.
+func (h *Hub) Enrolled(ctx context.Context, database string, detail map[string]any) error {
+	name, e, err := h.entry(database, KindEnrollment)
+	if err != nil {
+		return err
+	}
+	if detail == nil {
+		detail = map[string]any{}
+	}
+	_, _, err = e.store.Fire(ctx, Trigger{Database: name, Kind: KindEnrollment,
+		Key: "discovered", Detail: detail})
+	return err
+}

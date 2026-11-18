@@ -75,6 +75,9 @@ func (r *Runner) gradeRow(ctx context.Context, row store.DiscoveredRow, set poli
 		}
 	}
 	grades, err := r.grades.Grades(ctx, member)
+	if errors.Is(err, ErrMemberNotReady) {
+		return
+	}
 	if err != nil {
 		rep.Errors = append(rep.Errors, fmt.Errorf("reading %s's grades: %w", member, err))
 		return

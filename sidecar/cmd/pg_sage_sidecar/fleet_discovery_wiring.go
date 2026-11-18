@@ -11,10 +11,12 @@ import (
 	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/fleet/discovery"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
-// fleetDiscoveryInterval is the period between discovery cycles.
+// fleetDiscoveryInterval is the period between discovery cycles; a policy
+// set's enrollment.interval_minutes may shorten it (to 2 minutes at least).
 const fleetDiscoveryInterval = 10 * time.Minute
 
 // startFleetDiscovery starts fleet auto-discovery (market-06) in a meta-db
@@ -37,8 +39,12 @@ func startFleetDiscovery(state *metaDBState) {
 		logWarn("discovery", "fleet discovery disabled: %v", err)
 		return
 	}
-	logInfo("discovery", "fleet discovery: %d source(s), max_enrolled %d, ttl %dh",
-		len(bindings), dc.MaxEnrolled, dc.TTLHours)
+	// fleetpol-01b: enroll by policy set, and ask each member's first grade.
+	runner.WithPolicySets(discovery.PolicySetsFrom(policy.NewStore(state.Pool)),
+		newMetaDiscoveryGrades())
+	fleetDiscoveryRunner.Store(runner)
+	logInfo("discovery", "fleet discovery: %d source(s) by policy set, max_enrolled %d, "+
+		"ttl %dh", len(bindings), dc.MaxEnrolled, dc.TTLHours)
 	go runner.Run(shutdownCtx, fleetDiscoveryInterval)
 }
 
@@ -79,6 +85,7 @@ func metaDiscoverySourceDeps(state *metaDBState) discovery.SourceDeps {
 			}
 			return rds.NewFromConfig(awsCfg), nil
 		},
+		Neon: neonDiscoveryAPI,
 	}
 }
 
@@ -114,7 +121,7 @@ func (m metaDiscoveryMembers) Enrol(ctx context.Context, from string,
 		func(ctx context.Context) (int, error) {
 			return m.state.Store.CreateDiscovered(ctx, fromRec.ID, store.DiscoveredMember{
 				Name: name, DatabaseName: row.DBName, Source: row.Source,
-				Owner: row.Owner, ExpiresAt: expiresAt})
+				Owner: row.Owner, ExpiresAt: expiresAt, Tags: row.Tags})
 		})
 	if err != nil {
 		return 0, err
