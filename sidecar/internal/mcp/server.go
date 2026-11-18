@@ -84,6 +84,8 @@ func familyOf(name string) toolFamily {
 		return (*Server).callAutonomyTool
 	case factToolNames[name]:
 		return (*Server).callFactTool
+	case planToolNames[name]:
+		return (*Server).callPlanTool
 	case specialistToolNames[name]:
 		return (*Server).callSpecialistTool
 	case agentToolNames[name]:

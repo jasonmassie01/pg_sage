@@ -251,5 +251,6 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlUserInboxSeenAt", ddlUserInboxSeenAt},                           // ux-01b
 		{"ddlActionQueueLadder", ddlActionQueueLadder},                       // lab-03a
 		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},               // lab-03b
+		{"ddlPlanCardDeliveries", ddlPlanCardDeliveries},                     // plan-03b
 	}
 }
