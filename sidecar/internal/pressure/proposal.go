@@ -132,6 +132,27 @@ func (q *PGProposer) insert(ctx context.Context, tx pgx.Tx, key string, p Propos
 	return queueID, err
 }
 
+// settleSQL resolves the open enforcement findings whose approval item is
+// no longer live (run, failed, denied or expired): nothing else resolves
+// them, and an open warning would otherwise stay on the findings list.
+const settleSQL = `/* pg_sage */ UPDATE sage.findings f
+	SET status = 'resolved', resolved_at = COALESCE(f.resolved_at, now())
+	WHERE f.category = $1 AND f.status = 'open'
+	  AND NOT EXISTS (SELECT 1 FROM sage.action_queue q
+	        WHERE q.finding_id = f.id
+	          AND (q.status IN ('approved', 'scheduled')
+	               OR (q.status = 'pending' AND q.expires_at > now())))`
+
+// Settle resolves the enforcement findings whose approval item ended and
+// returns how many it resolved.
+func (q *PGProposer) Settle(ctx context.Context) (int64, error) {
+	tag, err := q.pool.Exec(ctx, settleSQL, FindingCategory)
+	if err != nil {
+		return 0, fmt.Errorf("resolving the settled backfill cancel findings: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // proposalDetail is the finding detail the approval card cites: the job,
 // the target incarnation and every stopping or slowing input as one line.
 func proposalDetail(p Proposal) map[string]any {

@@ -114,8 +114,9 @@ func NewEnforcer(o EnforcerOptions) (*Enforcer, error) {
 		proposed: map[int64]map[string]bool{}}, nil
 }
 
-// Tick checks every active enforced job once. A job's failure is joined
-// into the error and the other jobs still run.
+// Tick checks every active enforced job once, then settles the findings
+// of approval items that ended. A job's failure is joined into the error
+// and the other jobs still run.
 func (e *Enforcer) Tick(ctx context.Context) (TickResult, error) {
 	jobs, err := e.o.Jobs.Active(ctx, e.o.Database)
 	if err != nil {
@@ -144,7 +145,18 @@ func (e *Enforcer) Tick(ctx context.Context) (TickResult, error) {
 		}
 	}
 	e.forget(live)
+	if s, ok := e.o.Proposals.(settler); ok {
+		if _, err := s.Settle(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	return res, errors.Join(errs...)
+}
+
+// settler is a Proposer that also resolves the findings of approval
+// items that ended (PGProposer).
+type settler interface {
+	Settle(ctx context.Context) (int64, error)
 }
 
 // forget drops what it kept for jobs that are no longer active.

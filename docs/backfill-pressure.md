@@ -213,8 +213,9 @@ proposal per session, with the stopping inputs on its card, expiring after
 the count again.
 
 Nothing is cancelled until a person approves. When someone does, pg_sage
-checks again, and cancels only if the job is still registered, the
-pressure still reads stop and the same session (pid and start time) is
+checks again, and cancels only if the job is still registered with
+`enforce` (registering it again without `enforce` withdraws its open
+proposals), the pressure still reads stop and the same session (pid and start time) is
 still writing under the job's name; otherwise it refuses and nothing is
 signalled. The cancel goes through the executor like every action: the
 standing policy gate authorizes it, the statement rechecks the session's
@@ -224,5 +225,6 @@ signalled, and the action is in the audit log. A cancel ends the job's
 current statement and rolls back its open transaction; the job's next
 `check_pressure` still says stop.
 
-Only the fleet leader on a writable primary proposes. Expired jobs are
-deleted 90 days after they expired.
+Once a proposal is run, refused, denied or expired, its finding is
+resolved. Only the fleet leader on a writable primary proposes. Expired
+jobs are deleted 90 days after they expired.
