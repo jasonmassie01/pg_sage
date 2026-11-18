@@ -527,6 +527,57 @@ says "token cannot read <repo>". The query page reads the call site from
 `GET /api/v1/queries/<queryid>/call-site?database=<name>` (viewer); with no code host it
 answers `configured: false`.
 
+### PR mode: one pull request per change
+
+A schema migration or a query rewrite is a change pg_sage cannot apply itself. With PR mode
+on, pg_sage opens one pull request for it on the application's repository; a person reviews
+and merges it. Off by default:
+
+```yaml
+agents:
+  pr_mode:
+    enabled: false           # needs agents.code_host; the token then needs write access
+    repo: ""                 # empty means agents.code_host.repo
+    migrations_path: db/migrate
+    label: pg_sage
+```
+
+Every 15 minutes each database's runtime (on a writable primary only) reads up to 20
+candidates from `sage.findings`:
+
+- **Migration**: a change the executor runs under no contract, or a fact-bound source fix
+  (`detail.source_fix`). The PR adds one new file under `migrations_path`, named after the
+  newest file there: a 14-digit timestamp, a zero-padded sequence, Flyway's
+  `V<n>__name.sql`, or `.up.sql`/`.down.sql` pairs (the down file holds the rollback). Any
+  other layout is refused, not guessed.
+- **Query rewrite**: only when the call site is `exact`, the statement text appears once,
+  verbatim, at that line, and the rewrite passed an equivalence check
+  (`detail.rewrite_equivalence: passed`). The literal is replaced and nothing else changes.
+  A rewrite that would add a quote, backslash or newline the literal lacks is refused. A
+  `likely` call site, or no check, keeps the change as text for a person or coding agent.
+
+The description is built in code: what it changes, why (with the evidence ids), the expected
+effect from the verification ladder receipt with its tier, the risk tier and rollback, the
+call site, and a hidden `<!-- pg_sage:key=... -->` marker. Over GitHub's 65,536-character
+limit, whole sections are cut from the end and named. When a model is configured, it writes
+the first paragraph from redacted facts (kind, title, risk tier, file names, the ladder
+line; no SQL text). Its answer is dropped for the template when it fails, times out, is not
+the JSON asked for, or names a URL or an identifier the facts lack.
+
+Nothing is opened when a PR already covers the change: an open PR with the `label` carrying
+the marker, or any `sage.source_fix` row on the finding (a coding agent's report, or a PR
+declined earlier). A session advisory lock per candidate keeps two cycles from racing. A
+finding without a source-fix packet gets no PR. The PR is recorded through the source-fix
+stage `pr_opened` with `origin = 'pg_sage'`, its repository and number, so the deploy report
+and the verdict use the same verify window as a coding agent's fix. If recording fails after
+the PR opened, the next pass finds the marker and records it, and no second PR is opened.
+
+PR mode then follows the PR: closed unmerged is "declined in <repo>#<n>" and is never
+proposed again; merged waits for the deploy report (`report_source_fix`, stage `deployed`);
+then the verdict. A migration that regressed after its deploy gets one revert PR, with its
+rollback as a new migration, only if it has a rollback. A rewrite that regressed is left to
+a person.
+
 ## Tool reference
 
 <!-- BEGIN GENERATED MCP TOOL REFERENCE: regenerate with `go test ./internal/mcp -run TestToolReferenceDocsMatchSchemas -update-docs` -->

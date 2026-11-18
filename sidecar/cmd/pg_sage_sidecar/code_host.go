@@ -13,6 +13,15 @@ import (
 // from (pr-01a). nil means agents.code_host is off. A configured host
 // that cannot be built fails startup: an operator who set it expects it.
 func callSiteSource(cfg *config.Config) (*api.CallSiteSource, error) {
+	host, err := codeHostClient(cfg)
+	if err != nil || host == nil {
+		return nil, err
+	}
+	return &api.CallSiteSource{Host: host, Repo: cfg.Agents.CodeHost.Repo}, nil
+}
+
+// codeHostClient builds the configured code host; nil when it is off.
+func codeHostClient(cfg *config.Config) (codehost.Host, error) {
 	if cfg == nil || !cfg.Agents.CodeHost.Enabled() {
 		return nil, nil
 	}
@@ -23,23 +32,19 @@ func callSiteSource(cfg *config.Config) (*api.CallSiteSource, error) {
 	}
 	opts := codehost.Options{BaseURL: ch.BaseURL, Token: getenv(config.CodeHostTokenEnv),
 		Timeout: time.Duration(ch.TimeoutSeconds) * time.Second}
-	var host codehost.Host
 	switch ch.Provider {
 	case "github":
 		gh, err := codehost.NewGitHub(opts)
 		if err != nil {
 			return nil, fmt.Errorf("agents.code_host: %w", err)
 		}
-		host = gh
+		return gh, nil
 	case "gitlab":
 		gl, err := codehost.NewGitLab(opts)
 		if err != nil {
 			return nil, fmt.Errorf("agents.code_host: %w", err)
 		}
-		host = gl
-	default:
-		return nil, fmt.Errorf("agents.code_host.provider %q is not github or gitlab",
-			ch.Provider)
+		return gl, nil
 	}
-	return &api.CallSiteSource{Host: host, Repo: ch.Repo}, nil
+	return nil, fmt.Errorf("agents.code_host.provider %q is not github or gitlab", ch.Provider)
 }

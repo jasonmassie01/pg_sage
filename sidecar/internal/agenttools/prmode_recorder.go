@@ -34,3 +34,23 @@ func (r PRRecorder) RecordOpened(ctx context.Context, findingID int64, repo stri
 		Repo: repo, Number: pr.Number})
 	return err
 }
+
+// PRCallSites is PR mode's cases.CallSiteFinder: the call site pr-01a
+// finds on Host in Repo.
+type PRCallSites struct {
+	Tools *Tools
+	Host  codehost.Host
+	Repo  string
+}
+
+var _ cases.CallSiteFinder = PRCallSites{}
+
+// CallSite finds the statement's call site.
+func (s PRCallSites) CallSite(ctx context.Context, queryID int64) (cases.PRCallSite, error) {
+	site, err := s.Tools.CallSite(ctx, s.Host, s.Repo, QueryID(queryID))
+	if err != nil {
+		return cases.PRCallSite{}, err
+	}
+	return cases.PRCallSite{Path: site.Path, Line: site.Line,
+		Confidence: string(site.Confidence), Note: site.Note}, nil
+}
