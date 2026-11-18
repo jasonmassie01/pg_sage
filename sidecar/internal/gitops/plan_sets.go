@@ -65,10 +65,18 @@ func (p *planner) planSets(ctx context.Context, tx pgx.Tx) error {
 		return nil
 	}
 	p.holdLayout(layout, widened)
+	// Only a set the file already owns keeps its document step: a new set
+	// was not created, and an API set's adopt was held, so its document
+	// stays the API's.
 	for _, d := range docs {
-		if _, exists := p.st.sets[d.change.Name]; exists {
+		if cur, exists := p.st.sets[d.change.Name]; exists &&
+			cur.ManagedBy == policy.ManagedByConfig {
 			p.steps = append(p.steps, d)
+			continue
 		}
+		c := d.change
+		c.Detail, c.Op = c.Op+" held with its set's layout change", OpHold
+		p.note(c)
 	}
 	return nil
 }
