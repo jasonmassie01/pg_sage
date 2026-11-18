@@ -31,9 +31,23 @@ function InlineApproval({ item, onDecided }) {
     windowOnly={data.policy_detail?.window_only === true} />
 }
 
+// A G-M1 model gate promotion (review-05a) is "review-gate-<id>" from
+// sage.review_gate and is approved on its own route; every other promotion
+// is the SRE autonomy ledger's.
+const REVIEW_GATE = /^review-gate-([1-9][0-9]*)$/
+
+function promotionURL(item) {
+  if (!String(item.id).startsWith('review-gate-')) {
+    return `/api/v1/sre/autonomy/proposals/${encodeURIComponent(item.id)}`
+      + `/approve${dbQuery(item.database)}`
+  }
+  const m = REVIEW_GATE.exec(item.id)
+  if (!m) throw new Error(`${item.id} is not a valid model gate id`)
+  return `/api/v1/databases/${encodeURIComponent(item.database)}/review/gate/${m[1]}/approve`
+}
+
 async function approvePromotion(item) {
-  const res = await fetch(`/api/v1/sre/autonomy/proposals/${encodeURIComponent(item.id)}`
-    + `/approve${dbQuery(item.database)}`, {
+  const res = await fetch(promotionURL(item), {
     method: 'POST', credentials: 'include',
     headers: withSurface({ 'Content-Type': 'application/json' }, SURFACE),
     body: JSON.stringify({ note: 'approved from the Inbox' }),
