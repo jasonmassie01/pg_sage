@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/agentposture"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -34,14 +35,39 @@ func (rt *databaseRuntime) newPostureMonitor() *agentposture.Monitor {
 	})
 }
 
+// startExposureSweep runs the exposure sweep (fleetpol-02a) beside the
+// analyzer: it reads the catalog fingerprint every
+// agents.exposure.sweep_seconds and publishes the exposure detectors'
+// findings through the analyzer when the catalog changed. The analyzer is
+// fully configured by now, so the sweep never races its setup.
+func (rt *databaseRuntime) startExposureSweep(posture *agentposture.Monitor) {
+	rt.start(func() {
+		posture.RunSweeps(rt.ctx, agentposture.SweepOptions{Publisher: rt.analyzer,
+			Interval: rt.exposureSweepInterval})
+	})
+	rt.note("exposure_sweep")
+}
+
+// exposureSweepInterval is the live agents.exposure.sweep_seconds.
+func (rt *databaseRuntime) exposureSweepInterval() time.Duration {
+	config.RLockForHotReload()
+	defer config.RUnlockForHotReload()
+	if rt.cfg == nil {
+		return agentposture.DefaultSweepInterval
+	}
+	return rt.cfg.Agents.Exposure.SweepInterval()
+}
+
 // newPostureMonitorConfig is the posture monitor's configuration for one
 // cycle: the live agents.* keys, the backup posture and the action role
-// (AP-14 checks both of pg_sage's roles, security-09).
+// (AP-14 checks both of pg_sage's roles, security-09) and, on Supabase, the
+// Data API exposure (fleetpol-02c).
 func (rt *databaseRuntime) newPostureMonitorConfig() agentposture.Config {
 	config.RLockForHotReload()
 	defer config.RUnlockForHotReload()
 	cfg := postureConfig(rt.cfg)
 	cfg.Platform.Backup = rt.postureBackup()
+	cfg.Platform.DataAPI = postureDataAPI(rt.dataAPI)
 	cfg.ActionRole = actionRole(rt.spec.ActionPool)
 	return cfg
 }

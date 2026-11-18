@@ -289,6 +289,8 @@ func (executor *ProductionIntentExecutor) runMigration(
 		ContractNotBeforeCycle: result.ContractNotBeforeCycle,
 		PendingContractSQL:     result.PendingContractSQL,
 		ContractScript:         result.ContractScript, Plan: planned,
+		AffectedQueries: result.AffectedQueries,
+		Ladder:          result.Ladder,
 	}, nil
 }
 

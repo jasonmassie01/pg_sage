@@ -10,6 +10,7 @@ import { TuningCalibration } from './trust/TuningCalibration'
 import { formatTime } from '../lib/time'
 import { summarizes } from '../lib/fleetScope'
 import { TrustSummary } from './trust/TrustSummary'
+import { WaitingPromotions } from './autonomy/WaitingPromotions'
 
 // One trust system (roadmap 1.2): database x family x class. Each class
 // pg_sage runs on its own initiative has one level per database, earned
@@ -41,8 +42,11 @@ async function postAutonomy(path, database, body) {
   }
 }
 
-const approve = (database, id) => postAutonomy(`proposals/${id}/approve`, database,
-  { note: 'approved on the Trust page' })
+const approve = (database, id, note) => postAutonomy(`proposals/${id}/approve`, database,
+  { note: note || 'approved on the Trust page' })
+
+const reject = (database, id, note) => postAutonomy(`proposals/${id}/reject`, database,
+  { note: note || 'rejected on the Trust page' })
 
 // earned-07: re-approve a self-initiated level capped by a PostgreSQL major
 // upgrade (admin only, like a promotion).
@@ -61,22 +65,28 @@ export function TrustPage({ database, user, onSelectDatabase }) {
     return <QueryState query={trust} skeleton={<LoadingSpinner />} />
   }
 
+  // Every decision re-reads the ledger, a refused one too: a second admin's
+  // approval of a decided proposal shows the server's conflict and the row
+  // as it now is (ux-06b).
   const act = fn => async (...args) => {
     setActionError(null)
     try {
       await fn(...args)
-      trust.refetch?.()
     } catch (err) {
       setActionError(err.message)
+    } finally {
+      trust.refetch?.()
     }
   }
   const onApprove = act(approve)
+  const onReject = act(reject)
   const onRevalidate = act(revalidate)
   const databases = trust.data?.databases || []
+  const role = user?.role
   return (
     <QueryState query={trust}><section className="space-y-4" data-testid="trust-page">
       <div>
-        <h2 className="text-sm font-semibold" style={strong}>Trust</h2>
+        <h3 className="text-sm font-semibold" style={strong}>Each class</h3>
         <p className="text-sm" style={muted}>{trust.data?.meaning}</p>
         {trust.data && !trust.data.enforced && (
           <div data-testid="trust-not-enforced" className="mt-2 text-xs"
@@ -101,16 +111,18 @@ export function TrustPage({ database, user, onSelectDatabase }) {
         ? <TrustSummary views={databases} onSelectDatabase={onSelectDatabase} />
         : databases.map(view => (
           <DatabaseTrust key={view.database} view={view}
-            isAdmin={user?.role === 'admin'} onApprove={onApprove}
-            onRevalidate={onRevalidate} />
+            isAdmin={role === 'admin'} onRevalidate={onRevalidate} />
         ))}
+      <WaitingPromotions databases={databases} isAdmin={role === 'admin'}
+        canReject={role === 'admin' || role === 'operator'}
+        onApprove={onApprove} onReject={onReject} />
       <ModelLift database={database} />
       <TuningCalibration database={database} />
     </section></QueryState>
   )
 }
 
-function DatabaseTrust({ view, isAdmin, onApprove, onRevalidate }) {
+function DatabaseTrust({ view, isAdmin, onRevalidate }) {
   const rows = view.rows || []
   return (
     <div className="rounded border p-3 space-y-3" style={card}
@@ -120,10 +132,17 @@ function DatabaseTrust({ view, isAdmin, onApprove, onRevalidate }) {
         <Floor floor={view.floor} />
       </div>
       <Grandfathered database={view.database} record={view.grandfathered} />
+      {rows.length === 0 && (
+        <div data-testid={`trust-no-classes-${view.database}`} className="text-xs"
+          style={muted}>
+          No action classes yet: the ledger lists every class once this
+          database&apos;s executor starts.
+        </div>
+      )}
       {['self_initiated', 'incident'].map(kind => (
         <TrustTable key={kind} database={view.database} kind={kind}
           rows={rows.filter(r => r.kind === kind)} isAdmin={isAdmin}
-          onApprove={onApprove} onRevalidate={onRevalidate} shadow={view.shadow || []} />
+          onRevalidate={onRevalidate} shadow={view.shadow || []} />
       ))}
     </div>
   )

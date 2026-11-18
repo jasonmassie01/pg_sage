@@ -52,7 +52,8 @@ func migrationSteps() []migrationStep {
 	steps = append(steps, namedSteps(trancheTwoMigrations())...)
 	steps = append(steps, namedSteps(trancheThreeMigrations())...)
 	steps = append(steps, namedSteps(trancheFourMigrations())...)
-	return append(steps, namedSteps(trancheFiveMigrations())...)
+	steps = append(steps, namedSteps(trancheFiveMigrations())...)
+	return append(steps, namedSteps(trancheSixMigrations())...)
 }
 
 // namedStep pairs a constant's name with its SQL for laterMigrations.
@@ -251,5 +252,16 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlUserInboxSeenAt", ddlUserInboxSeenAt},                           // ux-01b
 		{"ddlActionQueueLadder", ddlActionQueueLadder},                       // lab-03a
 		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},               // lab-03b
+		{"ddlCloneInstancesHolder", ddlCloneInstancesHolder},                 // lab-05a
+	}
+}
+
+// trancheSixMigrations are the T6 steps, after trancheFiveMigrations.
+func trancheSixMigrations() []namedStep {
+	return []namedStep{
+		{"ddlRestoreDrills", ddlRestoreDrills},               // drill-01a
+		{"ddlExposureRemediations", ddlExposureRemediations}, // fleetpol-02b
+		{"ddlReviewRuns", ddlReviewRuns},                     // review-01a
+		{"ddlPolicySets", ddlPolicySets},                     // fleetpol-01a
 	}
 }

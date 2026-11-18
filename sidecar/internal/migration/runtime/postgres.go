@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -73,17 +74,19 @@ func (r *PostgresRecorder) Record(ctx context.Context, record Record) error {
 	}
 	// A conflict refreshes source_sql_hash and reason with the verdict, so
 	// the row never pairs the latest verdict with the first run's SQL.
+	// clone_id is the rehearsal clone's receipt id (lab-04b).
 	_, err = r.pool.Exec(ctx, `INSERT INTO sage.migration_run
 		(database_id, evidence_id, phase, source_sql_hash, measurement, verdict,
-		 contract_not_before, reason)
-		VALUES ($1, $2, 'expand', $3, $6::jsonb, $4, $5, $7)
+		 contract_not_before, reason, clone_id)
+		VALUES ($1, $2, 'expand', $3, $6::jsonb, $4, $5, $7, $8)
 		ON CONFLICT (evidence_id) DO UPDATE SET
 		database_id=EXCLUDED.database_id, phase=EXCLUDED.phase,
 		source_sql_hash=EXCLUDED.source_sql_hash, measurement=EXCLUDED.measurement,
 		verdict=EXCLUDED.verdict, contract_not_before=EXCLUDED.contract_not_before,
-		reason=EXCLUDED.reason, updated_at=now()`, record.Request.DatabaseID, evidenceID,
-		migrationHash(record.Request.SQL),
-		databaseMigrationVerdict(record.Verdict), contractAt, measurement, record.Reason)
+		reason=EXCLUDED.reason, clone_id=EXCLUDED.clone_id, updated_at=now()`,
+		record.Request.DatabaseID, evidenceID, migrationHash(record.Request.SQL),
+		databaseMigrationVerdict(record.Verdict), contractAt, measurement, record.Reason,
+		receiptText(record.CloneReceipt))
 	if err != nil {
 		return fmt.Errorf("persist migration continuation: %w", err)
 	}
@@ -100,6 +103,12 @@ func measurementJSON(record Record) ([]byte, error) {
 		doc["disk_delta_bytes"] = m.DiskDeltaBytes
 		doc["affected_queries"] = affectedQueriesJSON(m.AffectedQueries)
 		doc["steps"] = stepsJSON(m.Steps)
+		if m.WorkloadNote != "" {
+			doc["workload_note"] = m.WorkloadNote
+		}
+	}
+	if record.Ladder != nil {
+		doc["ladder"] = record.Ladder
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
@@ -111,13 +120,38 @@ func measurementJSON(record Record) ([]byte, error) {
 func affectedQueriesJSON(queries []rehearsalpkg.QueryMeasurement) []map[string]any {
 	out := make([]map[string]any, 0, len(queries))
 	for _, q := range queries {
-		out = append(out, map[string]any{
+		row := map[string]any{
 			"query_id": q.QueryID, "before_latency_ms": q.BeforeLatencyMS,
 			"after_latency_ms": q.AfterLatencyMS, "before_plan_hash": q.BeforePlanHash,
-			"after_plan_hash": q.AfterPlanHash,
-		})
+			"after_plan_hash": q.AfterPlanHash, "before_cost": q.BeforeCost,
+			"after_cost": q.AfterCost, "timed_out": q.TimedOut,
+		}
+		optional(row, "before_blocks", q.BeforeBlocks)
+		optional(row, "after_blocks", q.AfterBlocks)
+		for key, text := range map[string]string{"not_executed": q.NotExecuted,
+			"unmeasured": q.Unmeasured} {
+			if text != "" {
+				row[key] = text
+			}
+		}
+		out = append(out, row)
 	}
 	return out
+}
+
+func optional(row map[string]any, key string, v *int64) {
+	if v != nil {
+		row[key] = *v
+	}
+}
+
+// receiptText is a clone receipt id as migration_run.clone_id, or NULL.
+func receiptText(id int64) *string {
+	if id <= 0 {
+		return nil
+	}
+	text := strconv.FormatInt(id, 10)
+	return &text
 }
 
 func milliseconds(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }

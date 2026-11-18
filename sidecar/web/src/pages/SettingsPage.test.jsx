@@ -94,10 +94,12 @@ describe('SettingsPage', () => {
     expect(screen.queryByTestId('shadow-mode-report')).not.toBeInTheDocument()
   })
 
-  it('keeps the shadow report on the general settings tab', () => {
+  // ux-06b moved the shadow ledger to the Autonomy page (AutonomyHub.test).
+  it('no longer shows the shadow report on the general settings tab', () => {
     render(<SettingsPage database="all" />)
 
-    expect(screen.getByTestId('shadow-mode-report')).toBeInTheDocument()
+    expect(screen.getByTestId('settings-tab-general')).toBeInTheDocument()
+    expect(screen.queryByTestId('shadow-mode-report')).not.toBeInTheDocument()
   })
 
   it('renders YAML fleet configuration as readable but not editable', () => {

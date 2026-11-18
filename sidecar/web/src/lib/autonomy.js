@@ -97,3 +97,62 @@ export function fleetBadge(autonomy) {
   if (autonomy.unknown) parts.push(`${autonomy.unknown} unknown`)
   return { kind: 'mixed', label: ['Mixed', ...parts].join(' · ') }
 }
+
+// One autonomy scale per class (ux-06b, decision D6). The server computes
+// each class's mode from the gate's own inputs (GET /api/v1/trust rows'
+// mode and mode_because); the page only names it. Least autonomy first.
+export const MODES = ['observes', 'asks_first', 'acts_then_tells', 'acts_in_window']
+
+const MODE_SENTENCE = {
+  observes: 'watches only',
+  asks_first: 'asks first',
+  acts_then_tells: 'acts, then tells you',
+  acts_in_window: 'acts in the window',
+}
+
+const MODE_COUNT_LABEL = {
+  observes: 'watch only',
+  asks_first: 'ask first',
+  acts_then_tells: 'act, then tell',
+  acts_in_window: 'act in window',
+}
+
+// normalizeMode reads a row's mode; anything unknown watches only (fail
+// closed: the badge never claims more than the server said).
+export function normalizeMode(mode) {
+  return MODES.includes(mode) ? mode : 'observes'
+}
+
+export function modeSentence(mode) {
+  return MODE_SENTENCE[normalizeMode(mode)]
+}
+
+// modeCounts counts the classes of every database in a trust view by
+// mode; rows without a mode (an older server) are not counted.
+export function modeCounts(trust) {
+  const counts = Object.fromEntries(MODES.map(m => [m, 0]))
+  let total = 0
+  for (const view of Array.isArray(trust?.databases) ? trust.databases : []) {
+    for (const row of Array.isArray(view?.rows) ? view.rows : []) {
+      if (typeof row?.mode !== 'string' || row.mode === '') continue
+      counts[normalizeMode(row.mode)] += 1
+      total += 1
+    }
+  }
+  return { counts, total }
+}
+
+// modeBadgeLabel is the header badge text, "12 ask first · 3 act in
+// window", in scale order; null when nothing was counted.
+export function modeBadgeLabel(summary) {
+  if (!summary?.total) return null
+  return MODES.filter(m => summary.counts[m] > 0)
+    .map(m => `${summary.counts[m]} ${MODE_COUNT_LABEL[m]}`).join(' · ')
+}
+
+// stoppedRows names the fleet rows whose emergency stop is on: they run
+// nothing, whatever a cached mode says (rowAutoFamilies returns []).
+export function stoppedRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter(row => row?.emergency_stopped === true).map(row => row.name)
+}

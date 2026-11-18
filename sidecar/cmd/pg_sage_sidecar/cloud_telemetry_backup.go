@@ -141,11 +141,28 @@ func (rt *databaseRuntime) upsertBackupFindings(ctx context.Context) error {
 		logWarn(rt.spec.Scope, "db %q: backup freshness unavailable: %s", rt.spec.Name,
 			reason)
 	}
-	for category, findings := range backupFindings(b, st.Resource, rt.cfg.Backup,
-		time.Now()) {
+	rt.noteIsolation(b)
+	evaluated := backupFindings(b, st.Resource, rt.cfg.Backup, time.Now())
+	for category, findings := range isolationFindings(b, st.Resource, rt.cfg.Backup,
+		productionOf(ctx, rt.spec.Name)) {
+		evaluated[category] = findings
+	}
+	for category, findings := range evaluated {
 		if err := replaceFindings(ctx, rt.spec.Pool, category, findings); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// noteIsolation logs a withheld isolation read once per reason (drill-01b).
+func (rt *databaseRuntime) noteIsolation(b *cloudtel.BackupPosture) {
+	reason := ""
+	if b != nil {
+		reason = b.IsolationUnavailable
+	}
+	if rt.isolationNote.changed(reason) {
+		logWarn(rt.spec.Scope, "db %q: backup isolation unavailable: %s", rt.spec.Name,
+			reason)
+	}
 }

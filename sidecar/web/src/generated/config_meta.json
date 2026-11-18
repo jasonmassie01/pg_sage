@@ -127,6 +127,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "agents.exposure.sweep_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between exposure sweeps: each reads the catalog fingerprint and, when it changed, re-runs the exposure checks (AP-01 to AP-05, AP-15, AP-17) outside the analyzer cycle. 15-600. Default: 60.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "agents.kill_fallback_log": {
     "type": "string",
     "default": "agent-kill-fallback.log",
@@ -923,6 +930,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "backup.external_source": {
+    "type": "string",
+    "default": "",
+    "doc": "A backup outside the provider's delete path that pg_sage cannot read (another account's vault, an external dump). Set, it resolves backup_shares_delete_path. One line, max 200 chars. Default: empty.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "backup.max_age_hours": {
     "type": "int",
     "default": 26,
@@ -934,6 +948,13 @@
     "type": "int",
     "default": 15,
     "doc": "Minutes completed WAL may wait since the last successful archive before wal_archive_stale opens; critical at four times the gap. 1-10080. Default: 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "backup.min_pitr_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours of point-in-time window the provider must offer; less opens pitr_window_below_policy. 0 turns the check off. 0-8760. Default: 24.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },
@@ -1154,6 +1175,90 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "clone.allow_full_copy": {
+    "type": "bool",
+    "default": false,
+    "doc": "Allow full-copy clones that restore a whole instance (the *_restore and cloudsql_clone providers, or a provider that does not describe its clones). Default: false: they create nothing.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.alloydb.cluster": {
+    "type": "string",
+    "default": "",
+    "doc": "Cluster id of the monitored AlloyDB cluster; it needs continuous backup on, and pg_sage must connect to its primary instance's IP.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.alloydb.location": {
+    "type": "string",
+    "default": "",
+    "doc": "Region of the monitored AlloyDB cluster, such as us-central1; restores are made in the same region.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.alloydb.project": {
+    "type": "string",
+    "default": "",
+    "doc": "Google Cloud project of the monitored AlloyDB cluster; restores are made there and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.aurora.instance_class": {
+    "type": "string",
+    "default": "",
+    "doc": "Instance class of the clone's one instance, such as db.r6g.large or db.serverless. Default: the source writer's class (db.serverless for a Serverless v2 writer).",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.aurora.region": {
+    "type": "string",
+    "default": "",
+    "doc": "AWS region of the monitored Aurora PostgreSQL cluster; its copy-on-write clones are made there and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.aurora.ttl_minutes": {
+    "type": "int",
+    "default": 60,
+    "doc": "Longest a clone lives, in minutes, 30 to 1440; tagged on the clone, and a rehearsal ends by then. Aurora has no server-side expiry, so the reaper destroys a leaked clone. Default: 60.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.azure.resource_group": {
+    "type": "string",
+    "default": "",
+    "doc": "Resource group of the monitored flexible server; restores are made in it and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.azure.server": {
+    "type": "string",
+    "default": "",
+    "doc": "Name of the monitored flexible server (not its FQDN); pg_sage must connect to its \u003cname\u003e.postgres.database.azure.com FQDN.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.azure.subscription_id": {
+    "type": "string",
+    "default": "",
+    "doc": "Azure subscription ID of the monitored flexible server; restores are made there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.cloudsql.instance": {
+    "type": "string",
+    "default": "",
+    "doc": "Name of the monitored Cloud SQL for PostgreSQL instance (its instance id, not the connection name); pg_sage must connect to one of its IPs.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.cloudsql.project": {
+    "type": "string",
+    "default": "",
+    "doc": "Google Cloud project of the monitored Cloud SQL for PostgreSQL instance; clones are made there and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "clone.dle_endpoint": {
     "type": "string",
     "default": "",
@@ -1206,17 +1311,101 @@
     "min": 1,
     "max": 1073741824
   },
+  "clone.max_creates_per_hour": {
+    "type": "int",
+    "default": 4,
+    "doc": "Most clones this deployment creates in any hour, rehearsals and every other purpose together, 1 to 60. Default: 4.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.neon.api_key": {
+    "type": "string",
+    "default": null,
+    "doc": "Neon API key that creates and deletes the rehearsal branches; a project-scoped key where possible. Without it rehearsals are recommend-only. Also SAGE_CLONE_NEON_API_KEY.",
+    "secret": true,
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.neon.endpoint_max_cu": {
+    "type": "float64",
+    "default": 1,
+    "doc": "Autoscaling maximum, in compute units, of the read-write endpoint on a rehearsal branch, 0.25 to 8. Default: 1.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.neon.parent_branch": {
+    "type": "string",
+    "default": "",
+    "doc": "Branch id (br-...) or name a rehearsal branches from. Default: the branch of the monitored endpoint, found by its host.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.neon.project_id": {
+    "type": "string",
+    "default": "",
+    "doc": "Neon project id rehearsal branches are created in (the monitored database's project).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.neon.ttl_minutes": {
+    "type": "int",
+    "default": 60,
+    "doc": "Expiry Neon sets on every rehearsal branch, in minutes, 1 to 1440: the backstop if pg_sage cannot delete it. Default: 60.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "clone.provider": {
     "type": "string",
     "default": "none",
-    "doc": "Clone provider: none, dle (Database Lab) or lakebase_branch (a Lakebase branch per rehearsal).",
+    "doc": "Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch), aurora_clone, or the full copies rds_restore, cloudsql_clone, alloydb_restore, azure_restore (allow_full_copy).",
     "class": "safety_critical",
     "lifecycle": "restart",
     "enum": [
       "none",
       "dle",
-      "lakebase_branch"
+      "lakebase_branch",
+      "neon_branch",
+      "aurora_clone",
+      "rds_restore",
+      "cloudsql_clone",
+      "alloydb_restore",
+      "azure_restore"
     ]
+  },
+  "clone.rds.instance_class": {
+    "type": "string",
+    "default": "",
+    "doc": "Instance class of the restored instance, such as db.m6g.large. Default: the source instance's class.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.rds.region": {
+    "type": "string",
+    "default": "",
+    "doc": "AWS region of the monitored RDS for PostgreSQL instance; its point-in-time restores are made there and the reaper looks for leaked ones there.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "clone.rehearsal_statement_timeout_seconds": {
+    "type": "int",
+    "default": 5,
+    "doc": "Longest one statement an index rehearsal executes on the clone may run, in seconds, 1 to 300; a statement that hits it records timed out, not a cost. Default: 5.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.rehearsals_per_hour": {
+    "type": "int",
+    "default": 2,
+    "doc": "Most index rehearsals on a clone one database starts in any hour, 1 to 60. Default: 2.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "clone.restore_deadline_minutes": {
+    "type": "int",
+    "default": 120,
+    "doc": "Longest a full-copy clone (rds_restore, cloudsql_clone, alloydb_restore, azure_restore) may take to be ready, in minutes, 30 to 720; one not ready by then is left to the reaper. Default: 120.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
   },
   "cloud_telemetry.alloydb.cluster": {
     "type": "string",
@@ -1700,6 +1889,34 @@
     "doc": "Default trust level applied to fleet databases. Falls back to the global trust.level when unset.",
     "mode": "fleet-only",
     "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.command.destroy_argv": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Required with drill.command.restore_argv: program and arguments that remove a restore, given SAGE_CLONE_ID; may run twice for one id. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.command.env_allow": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Sidecar environment variable names passed to the drill.command programs besides PATH. SAGE_ names are refused; values are never logged. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.command.restore_argv": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Self-managed restore drill program and arguments (absolute path, no shell); prints one JSON line {dsn, id, recovery_point}. Needs clone.allow_full_copy. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.max_concurrent_per_fleet": {
+    "type": "int",
+    "default": 2,
+    "doc": "Most restore drills the fleet leader runs at once, across every database, 1-10, on top of clone.max_creates_per_hour. Each database runs one drill at a time. Default: 2.",
+    "class": "operator_preference",
     "lifecycle": "restart"
   },
   "encryption_key": {
@@ -3281,6 +3498,20 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "review.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Grade each database against the rubric after its first look, then every grade_interval_hours. Deterministic and read-only; writes only sage.review_* rows. Default: true.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.grade_interval_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between two grades of one database. Range 1-720. Default: 24.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "runaway.enabled": {
     "type": "bool",
     "default": false,
@@ -3796,7 +4027,7 @@
   "sre.autonomy.game_days.enabled": {
     "type": "bool",
     "default": false,
-    "doc": "Run game days. Needs clone.provider dle or lakebase_branch, or local_dsn. Default: false.",
+    "doc": "Run game days. Needs clone.provider dle, lakebase_branch, neon_branch or aurora_clone, or local_dsn. Default: false.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

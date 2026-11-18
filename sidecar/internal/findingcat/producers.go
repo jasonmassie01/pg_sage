@@ -125,6 +125,22 @@ var otherEntries = []Category{
 	e("backup_retention_below_policy", "cloud", "cloud_telemetry", sevW,
 		k("backup.min_retention_days"), nil,
 		"A managed instance keeping backups for fewer days than the retention policy."),
+	e("backup_shares_delete_path", "cloud", "cloud_telemetry", sevWC,
+		k("backup.external_source"), nil,
+		"Every backup the provider shows is deleted with the instance; critical on "+
+			"production with the agent gate on (drill-01b)."),
+	e("deletion_protection_off", "cloud", "cloud_telemetry", sevW, nil, nil,
+		"A production managed instance without deletion protection (drill-01b)."),
+	e("pitr_window_below_policy", "cloud", "cloud_telemetry", sevW,
+		k("backup.min_pitr_hours"), nil,
+		"A managed instance whose point-in-time recovery window is shorter than the "+
+			"policy (drill-01b)."),
+	e("restore_drill_failed", "cloud", "drill", sevC, k("drill.max_concurrent_per_fleet"),
+		nil, "A restore drill of the database's latest backup failed its checks or "+
+			"could not run; resolved by the next passed drill (drill-01a)."),
+	e("recoverability_unknown", "cloud", "drill", sevI, k("clone.provider"), nil,
+		"No clone provider can restore the database, so no drill proves its backups "+
+			"restore; says what to configure."),
 	e("instance_rightsize", "cloud", "cost", sevI, k("cost.rates"), nil,
 		"An instance that is over or under its size on 14 days of host usage (advisory)."),
 	e("cnpg_target_unconfigured", "cloud", "cnpg", sevW, nil, nil,

@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/pg-sage/sidecar/internal/advisor"
+	"github.com/pg-sage/sidecar/internal/agentposture"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/autoexplain"
 	"github.com/pg-sage/sidecar/internal/catalogread"
@@ -38,7 +39,7 @@ func (rt *databaseRuntime) startMonitoring() {
 		logStructuredWrapper,
 	)
 	rt.attachAnalyzerInputs()
-	rt.attachSupplementalDetectors()
+	posture := rt.attachSupplementalDetectors()
 	rt.note("analyzer")
 	rt.wireRCA()
 	rt.startBudgetCancels()
@@ -54,7 +55,7 @@ func (rt *databaseRuntime) startMonitoring() {
 		rt.analyzer.WithPlanNarrator(
 			analyzer.NewLLMPlanNarrator(rt.generalLLM, logStructuredWrapper))
 	}
-	rt.start(func() { rt.analyzer.Run(rt.ctx) })
+	rt.startAnalyzer(posture)
 	if alerts := newInstanceAlertManager(rt.spec.Pool, rt.spec.Name); alerts != nil {
 		rt.start(func() { alerts.Run(rt.ctx) })
 		rt.note("alerting")
@@ -67,16 +68,28 @@ func (rt *databaseRuntime) startMonitoring() {
 	rt.startObservedPlans()
 }
 
+// startAnalyzer starts the Supabase Data API reader posture reads
+// (fleetpol-02c), the fully configured analyzer, then the exposure sweep
+// that publishes through it (fleetpol-02a).
+func (rt *databaseRuntime) startAnalyzer(posture *agentposture.Monitor) {
+	rt.startSupabaseDataAPI()
+	rt.start(func() { rt.analyzer.Run(rt.ctx) })
+	rt.startExposureSweep(posture)
+}
+
 // attachSupplementalDetectors adds the analyzer's extra per-cycle detectors:
 // runaway queries, agent posture, workload budgets (market-08) and upgrade
-// readiness (market-05).
-func (rt *databaseRuntime) attachSupplementalDetectors() {
+// readiness (market-05). It returns the posture monitor, which the
+// exposure sweep shares.
+func (rt *databaseRuntime) attachSupplementalDetectors() *agentposture.Monitor {
 	rt.analyzer.WithSupplementalDetector(executor.NewRunawayDetector(
 		rt.spec.Pool, &cfg.Runaway, logStructuredWrapper,
 	))
-	rt.analyzer.WithSupplementalDetector(rt.newPostureMonitor())
+	posture := rt.newPostureMonitor()
+	rt.analyzer.WithSupplementalDetector(posture)
 	rt.analyzer.WithSupplementalDetector(rt.newBudgetMonitor())
 	rt.analyzer.WithSupplementalDetector(rt.newUpgradeMonitor())
+	return posture
 }
 
 // attachAnalyzerInputs gives the analyzer the index floor (when on), the

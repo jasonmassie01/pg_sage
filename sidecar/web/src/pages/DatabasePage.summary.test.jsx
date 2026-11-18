@@ -10,6 +10,7 @@ import { DatabasePage } from './DatabasePage'
 const snapshotURL = '/api/v1/snapshots/latest?database=orders'
 const fleetURL = '/api/v1/databases'
 const lookURL = '/api/v1/fleet/lookalikes?database=orders'
+const drillsPath = '/api/v1/databases/orders/restore-drills'
 
 const orders = {
   id: 3, database_id: 3, name: 'orders',
@@ -29,6 +30,8 @@ function routes({ databases = [orders], looks = { json: { database: 'orders', lo
     [snapshotURL]: { json: { snapshot: { tables: 3 } } },
     [fleetURL]: { json: { databases } },
     [lookURL]: looks,
+    // drill-01d: the Recoverability panel's request (path key: any limit).
+    [drillsPath]: { json: { database: 'orders', status: 'never_drilled', drills: [] } },
   })
 }
 

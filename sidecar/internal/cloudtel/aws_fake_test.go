@@ -59,6 +59,11 @@ type fakeAWS struct {
 	pi        []piSeries
 	fail      map[string]fakeFailure // "cw", "pi", "rds:<Action>"
 	dateSkew  time.Duration
+	// snapshots: "instance:<id>" or "cluster:<id>" -> manual snapshots;
+	// autoBackups: DbiResourceId -> DBInstanceAutomatedBackup XML (drill-01b).
+	snapshots     map[string][]fakeSnapshot
+	autoBackups   map[string]string
+	recordQueries []url.Values
 
 	calls      map[string]int
 	authHeader []string
@@ -77,7 +82,8 @@ func newFakeAWS(t *testing.T, now time.Time) *fakeAWS {
 	f := &fakeAWS{t: t, now: now, instances: map[string]string{},
 		clusters: map[string]string{}, params: map[string][]fakeParam{},
 		metrics: map[string]map[string][]fakePoint{}, fail: map[string]fakeFailure{},
-		calls: map[string]int{}}
+		calls: map[string]int{}, snapshots: map[string][]fakeSnapshot{},
+		autoBackups: map[string]string{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -252,6 +258,9 @@ func (f *fakeAWS) serveRDS(w http.ResponseWriter, action string, form url.Values
 			`</DescribeDBClustersResult></DescribeDBClustersResponse>`, cl)
 	case "DescribeDBParameters":
 		f.writeParams(w, form)
+	case "DescribeDBSnapshots", "DescribeDBClusterSnapshots",
+		"DescribeDBInstanceAutomatedBackups":
+		f.writeBackupRecords(w, action, form)
 	default:
 		http.Error(w, "unknown action "+action, http.StatusBadRequest)
 	}

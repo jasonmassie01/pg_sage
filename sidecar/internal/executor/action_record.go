@@ -101,6 +101,8 @@ func categorizeAction(sql string) string {
 	switch {
 	case IsIndexReplaceSQL(sql):
 		return ActionTypeReplaceIndex
+	case exposureActionType(sql) != "":
+		return exposureActionType(sql)
 	case extstats.IsCreate(sql):
 		return "create_statistics"
 	case extstats.IsDrop(sql):

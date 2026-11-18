@@ -747,6 +747,14 @@ use `dle`. In fleet mode one clone provider serves the deployment: each
 database's rehearsal branches from its own endpoint's branch, and a database
 whose endpoint is in another project is recommendation-only.
 
+Index rehearsals use the same branches (lab-04a): with `lakebase_branch` set,
+the tuning agent and the index floor build a proposed index on a branch and
+compare the target statements' shared blocks per call before and after, at most
+`clone.rehearsals_per_hour` (default 2) per database, each executed statement
+bounded by `clone.rehearsal_statement_timeout_seconds` (default 5). The branch
+gets the same `target_is_production` check, receipt and expiry as a migration
+rehearsal. See [index rehearsal](configuration.md) under the `clone` keys.
+
 To check that a live run left nothing behind, list the project's branches
 (`databricks postgres list-branches projects/<project>`); no `sage-rh-*` branch
 should remain after a rehearsal ends.

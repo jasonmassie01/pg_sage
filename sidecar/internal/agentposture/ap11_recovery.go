@@ -20,7 +20,7 @@ type ap11 struct{}
 
 func (ap11) Spec() Spec {
 	return Spec{ID: "AP-11", Title: "Recovery and audit posture", Severity: Warning,
-		Arms: []Arm{{Name: "archive_library", MinVersion: 150000,
+		ReadsSessions: true, Arms: []Arm{{Name: "archive_library", MinVersion: 150000,
 			SkipReason: "archive_library exists from PostgreSQL 15; archive_command alone " +
 				"decides whether WAL is archived"}}}
 }

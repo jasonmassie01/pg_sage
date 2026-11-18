@@ -112,3 +112,41 @@ never blocked for more than about twice the `lock_timeout`, that every pre-swap 
 reached the new column, and that afterwards the column is a `bigint NOT NULL` primary key
 filled from a `bigint` sequence, with the foreign key validated and enforced and nothing of
 the swap left behind. It runs on PostgreSQL 14 and 17.
+
+## What a migration rehearsal measures
+
+With a clone provider configured (`clone.provider`), `apply_migration` rehearses the expand
+steps on a disposable, receipted clone before it asks the policy gate to run them on
+production. The clone is connected only after it is shown not to be the production server.
+
+Before and after the expand steps, the rehearsal measures on the clone the 20 statements
+that production spends the most total time on and that reference the migrated table. It
+reads their texts from production's `pg_stat_statements` in a bounded read-only transaction
+(the shipped `safety.query_timeout_ms`); nothing else runs on production. Each statement is
+measured in a read-only transaction that is rolled back, on the application's
+`search_path`:
+
+- A statement with no `$n` parameters that the analyze guard proves read-only runs with
+  `EXPLAIN (ANALYZE, BUFFERS)`, up to three times, keeping the fastest run. It is judged on
+  latency; a rise of 1 ms or less is noise and never parks.
+- Every other statement is planned only (`EXPLAIN`; a generic plan for a `$n` statement on
+  PostgreSQL 16 and later) and judged on plan cost.
+- Each executed statement has `clone.rehearsal_statement_timeout_seconds` (default 5 s). A
+  statement that times out is recorded as timed out and is not measured. One that ran before
+  the expand steps and timed out or failed after them keeps the rehearsal from promoting.
+- A text that holds more than one statement is skipped, with that reason.
+
+A statement slower by more than 15%, or by more than `rehearsal.plan_flip_pct` (default 5%)
+when its plan hash changed, parks the migration with `plan_regression`, naming the statement
+and the change. With at least one statement measured and none slower, the expand steps are
+promoted. The rehearsal stays `recommend_only` with `inconclusive_no_workload`, and the
+detail says why, when:
+
+- production has no `pg_stat_statements` (`pg_stat_statements unavailable on production`);
+- no statement references the table (`no statement references the table`);
+- no statement could be measured: before PostgreSQL 16, a `$n` statement cannot be planned
+  without its parameters, so a workload of only parameterized statements stays inconclusive.
+
+The result is a tier-2 verification ladder record with the clone receipt. It is returned in
+the `apply_migration` outcome (`affected_queries`, `ladder`) and kept on the migration's
+`sage.migration_run` row (`measurement`, `clone_id`).

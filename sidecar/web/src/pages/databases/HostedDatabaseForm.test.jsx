@@ -26,7 +26,7 @@ describe('Hosted Postgres registration', () => {
     expect(JSON.parse(request.body)).toEqual({
       name, host, database_name: database, username, password: 'fixture-password',
       port: 5432, sslmode: 'require', max_connections: 2,
-      trust_level: 'observation', execution_mode: 'approval',
+      trust_level: 'observation', execution_mode: 'manual',
     })
   })
 })

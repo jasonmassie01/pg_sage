@@ -36,6 +36,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 	"github.com/pg-sage/sidecar/internal/startup"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/tuning"
 )
 
 // databaseRuntimeSpec is everything that legitimately differs between the
@@ -137,6 +138,10 @@ type databaseRuntime struct {
 	// place among the process's databases of the same cluster (facts-02).
 	facts       *facts.Store
 	factCluster *factClusterMember
+	// rehearser is the database's clone rehearser (lab-04a), built once by
+	// cloneRehearser; nil without a clone provider.
+	rehearserOnce sync.Once
+	rehearser     tuning.Rehearser
 	// instanceOwner is the runtime's place among the process's databases
 	// of one instance (advisors-08); nil in single-database mode.
 	instanceOwner *instanceMember
@@ -147,6 +152,8 @@ type databaseRuntime struct {
 	cloudResolver managedparam.Resolver
 	// backupNote logs a withheld backup freshness once per reason.
 	backupNote reasonLatch
+	// isolationNote logs a withheld backup isolation read once per reason.
+	isolationNote reasonLatch
 	// azureParams is the database's Azure ARM adapter (nil off Azure or
 	// without the azure: identity): the managed-change worker reads server
 	// parameters through it.
@@ -160,6 +167,9 @@ type databaseRuntime struct {
 	// providerObs is Supabase observability (nil: not running); its memory
 	// backs the gates when there is no managed-cloud telemetry.
 	providerObs atomic.Pointer[providerobs.Runtime]
+	// dataAPI is the Supabase Data API exposure reader (fleetpol-02c), set
+	// before the analyzer starts; nil off Supabase or without a token.
+	dataAPI *cloudtel.SupabaseDataAPI
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It

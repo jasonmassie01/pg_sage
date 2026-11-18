@@ -166,6 +166,9 @@ type RuntimeDeps struct {
 	// on (apiauth-08); nil reads sage.user_database_grants on the control
 	// pool.
 	DatabaseGrants DatabaseGrantSource
+	// RestoreDrillResults names the pool a database's restore drill rows
+	// live in (drill-01d); nil, or a nil pool, reads the database's own.
+	RestoreDrillResults func(database string) *pgxpool.Pool
 }
 
 // NewRouterFullRuntime creates the API handler with process controllers.
@@ -265,7 +268,7 @@ func registerFleetScopedRoutes(
 	registerDeploymentStatusRoutes(apiMux, cfg, rt, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	// Sage SRE investigations live with each database's runtime (D3-style
 	// fleet resolution), not in the control pool.
-	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy), cfg, workloadPackKeys(rt, pool))
+	registerSRERoutes(apiMux, mgr, cfg, pool, rt)
 	registerSRESignalRoutes(apiMux, mgr, cfg)
 	if rt.DatabricksAppAuth {
 		registerAppSLISampleRoute(apiMux, mgr, cfg)
@@ -361,6 +364,7 @@ func registerControlPoolRoutes(
 	registerPolicyRoutesWith(apiMux, policy.NewStore(pool), func() bool {
 		return cfg != nil && cfg.Agents.SingleOperatorMode
 	})
+	registerPolicySetRoutes(apiMux, policy.NewStore(pool)) // fleetpol-01a
 	registerDecommissionRoutes(apiMux, pool)
 	registerSecurityPostureRoutes(apiMux, rt.SecretsPosture)
 	registerInboxSeenRoutes(apiMux, pool) // the Inbox seen time (ux-01b)

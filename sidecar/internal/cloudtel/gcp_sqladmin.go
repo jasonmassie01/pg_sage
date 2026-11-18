@@ -27,6 +27,7 @@ type sqlInstance struct {
 		StorageAutoResizeLimit string          `json:"storageAutoResizeLimit"`
 		BackupConfiguration    *cloudSQLBackup `json:"backupConfiguration"`
 		DeletionProtection     *bool           `json:"deletionProtectionEnabled"`
+		RetainBackupsOnDelete  *bool           `json:"retainBackupsOnDelete"`
 		DatabaseFlags          []struct {
 			Name  string `json:"name"`
 			Value string `json:"value"`

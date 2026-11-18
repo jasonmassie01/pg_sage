@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "ResourceNotFound",
+    "message": "The Resource 'Microsoft.DBforPostgreSQL/flexibleServers/sage-rehearsal-0a1b2c3d' under resource group 'rg-shop-prod' was not found. For more details please go to https://aka.ms/ARMResourceNotFoundFix"
+  }
+}

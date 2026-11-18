@@ -47,7 +47,9 @@ async function postJSON(url, body) {
   return res.json()
 }
 
-export function AutonomyPage({ database, user }) {
+// embedded (ux-06b) is the Autonomy page's collapsed history section: no
+// title, and no pending list (Waiting promotions holds the one Approve).
+export function AutonomyPage({ database, user, embedded = false }) {
   const q = dbQuery(database)
   const view = useAPI(`/api/v1/sre/autonomy${q}`, 30000)
   const history = useAPI(`/api/v1/sre/autonomy/history${dbQuery(database, 'limit=50')}`,
@@ -79,7 +81,7 @@ export function AutonomyPage({ database, user }) {
   const families = view.data?.view?.families || []
   return (
     <QueryState query={view}><section className="space-y-4" data-testid="autonomy-page">
-      <Header data={view.data} />
+      <Header data={view.data} embedded={embedded} />
       {actionError && (
         <div role="alert" className="text-sm" style={{ color: 'var(--red)' }}>
           {actionError}
@@ -89,9 +91,11 @@ export function AutonomyPage({ database, user }) {
         view.refetch?.()
         history.refetch?.()
       }} />}
-      <PendingProposals families={families} isAdmin={role === 'admin'} canAct={canAct}
-        onDecide={(id, verb, note) => run(
-          `/api/v1/sre/autonomy/proposals/${id}/${verb}${q}`, { note })} />
+      {!embedded && (
+        <PendingProposals families={families} isAdmin={role === 'admin'} canAct={canAct}
+          onDecide={(id, verb, note) => run(
+            `/api/v1/sre/autonomy/proposals/${id}/${verb}${q}`, { note })} />
+      )}
       <PathToNextLevel families={families} benchRuns={benchRuns.data}
         canRunBench={role === 'admin'}
         onRunBench={async family => {
@@ -120,11 +124,13 @@ function PickDatabase() {
   )
 }
 
-function Header({ data }) {
+function Header({ data, embedded }) {
   const bench = data?.view?.bench
   return (
     <div>
-      <h2 className="text-sm font-semibold" style={strong}>Earned autonomy</h2>
+      {!embedded && (
+        <h2 className="text-sm font-semibold" style={strong}>Earned autonomy</h2>
+      )}
       <p className="text-sm" style={muted}>
         Per incident family and action class. pg_sage proposes a promotion only from
         benchmark, shadow-review and live-recovery evidence; an admin approves it.

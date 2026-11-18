@@ -91,13 +91,22 @@ func (v *validator) judgeIndexCreate(ctx context.Context, c Case, p Proposal) Ju
 	if ov.family != "" {
 		v.flight.families[ov.family] = ddl
 	}
-	f := analyzer.OptimizerRecommendationFinding(adm.Rec)
+	f := v.withRehearsal(analyzer.OptimizerRecommendationFinding(adm.Rec), ddl)
 	pred := v.createPrediction(c, p, adm.Rec)
 	if ov.replaces != nil {
 		return v.admitReplacement(p, f, table, adm.Rec.DDL, replaced, pred)
 	}
 	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: []string{table},
 		Class: verify.ClassIndexCreate, Prediction: pred}
+}
+
+// withRehearsal attaches the tier-2 record of the cycle's rehearsal of the
+// same index, if it ran (lab-04a).
+func (v *validator) withRehearsal(f analyzer.Finding, ddl string) analyzer.Finding {
+	if rec, ok := v.tools.rehearsalOf(ddl); ok {
+		f.Detail["ladder"] = verify.LadderValue(rec)
+	}
+	return f
 }
 
 // replacedRef is the index a replacement removes, for the optimizer's

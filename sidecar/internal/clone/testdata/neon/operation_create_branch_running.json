@@ -1,0 +1,13 @@
+{
+  "operation": {
+    "id": "b6afbc21-2990-4a76-980b-b57d8c2948f2",
+    "project_id": "shiny-wind-028834",
+    "branch_id": "br-wispy-meadow-a5k2x9q1",
+    "action": "create_branch",
+    "status": "running",
+    "failures_count": 0,
+    "created_at": "2026-11-16T10:00:00Z",
+    "updated_at": "2026-11-16T10:00:04Z",
+    "total_duration_ms": 4120
+  }
+}

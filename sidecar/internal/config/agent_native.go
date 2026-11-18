@@ -44,12 +44,38 @@ type IOCapacityConfig struct {
 }
 
 type CloneProviderConfig struct {
-	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab) or lakebase_branch (a Lakebase branch per rehearsal)." api:"clone_provider" enum:"none|dle|lakebase_branch"`
+	Provider           string `yaml:"provider" doc:"Clone provider: none, dle (Database Lab), lakebase_branch or neon_branch (a branch), aurora_clone, or the full copies rds_restore, cloudsql_clone, alloydb_restore, azure_restore (allow_full_copy)." api:"clone_provider" enum:"none|dle|lakebase_branch|neon_branch|aurora_clone|rds_restore|cloudsql_clone|alloydb_restore|azure_restore"`
 	DLEEndpoint        string `yaml:"dle_endpoint" doc:"Database Lab Engine API endpoint." api:"string"`
 	DLEToken           string `yaml:"dle_token" doc:"Database Lab bearer token." secret:"true" api:"string"`
 	MaxCloneAgeMinutes int    `yaml:"max_clone_age_minutes" doc:"Maximum source snapshot age." api:"int_pos"`
+	// RehearsalsPerHour caps the index rehearsals one database starts in
+	// any hour, tuning agent and index floor together (lab-04a).
+	RehearsalsPerHour int `yaml:"rehearsals_per_hour" doc:"Most index rehearsals on a clone one database starts in any hour, 1 to 60. Default: 2."`
+	// RehearsalStatementTimeoutSeconds bounds each statement a rehearsal
+	// executes on the clone (EXPLAIN ANALYZE).
+	RehearsalStatementTimeoutSeconds int `yaml:"rehearsal_statement_timeout_seconds" doc:"Longest one statement an index rehearsal executes on the clone may run, in seconds, 1 to 300; a statement that hits it records timed out, not a cost. Default: 5."`
+	// AllowFullCopy opts in to full-copy clones (a whole-instance restore:
+	// hours and a full instance bill), lab-05a.
+	AllowFullCopy bool `yaml:"allow_full_copy" doc:"Allow full-copy clones that restore a whole instance (the *_restore and cloudsql_clone providers, or a provider that does not describe its clones). Default: false: they create nothing."`
+	// MaxCreatesPerHour caps the clones one deployment creates in any
+	// hour, all purposes together (lab-05a).
+	MaxCreatesPerHour int `yaml:"max_creates_per_hour" doc:"Most clones this deployment creates in any hour, rehearsals and every other purpose together, 1 to 60. Default: 4."`
 	// Lakebase configures clone.provider lakebase_branch (market-03).
 	Lakebase CloneLakebaseConfig `yaml:"lakebase"`
+	// Neon configures clone.provider neon_branch (lab-05b).
+	Neon CloneNeonConfig `yaml:"neon"`
+	// Aurora configures clone.provider aurora_clone (lab-05c).
+	Aurora CloneAuroraConfig `yaml:"aurora"`
+	// RestoreDeadlineMinutes bounds a full-copy restore (lab-05d).
+	RestoreDeadlineMinutes int `yaml:"restore_deadline_minutes" doc:"Longest a full-copy clone (rds_restore, cloudsql_clone, alloydb_restore, azure_restore) may take to be ready, in minutes, 30 to 720; one not ready by then is left to the reaper. Default: 120."`
+	// RDS configures clone.provider rds_restore (lab-05d).
+	RDS CloneRDSConfig `yaml:"rds"`
+	// CloudSQL configures clone.provider cloudsql_clone (lab-05e).
+	CloudSQL CloneCloudSQLConfig `yaml:"cloudsql"`
+	// AlloyDB configures clone.provider alloydb_restore (lab-05f).
+	AlloyDB CloneAlloyDBConfig `yaml:"alloydb"`
+	// Azure configures clone.provider azure_restore (lab-05g).
+	Azure CloneAzureConfig `yaml:"azure"`
 }
 
 // CloneLakebaseConfig is the Lakebase project rehearsal branches are made

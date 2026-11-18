@@ -8,6 +8,7 @@ import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
 import { DatabaseTile } from '../components/DatabaseTile'
 import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
+import { FleetRecoverabilityLine } from '../components/RecoverabilityPanel'
 import { BriefingCard } from '../components/BriefingCard'
 import { Skeleton } from '../components/Skeleton'
 import { HealthHero } from '../components/HealthHero'
@@ -264,6 +265,7 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
           color={summary?.total_critical > 0
             ? 'var(--red)' : 'var(--text-primary)'} />
       </div>
+      <FleetRecoverabilityLine />
 
       <BriefingCard database={database} />
 

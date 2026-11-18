@@ -57,6 +57,8 @@ var contractRegistry = []contractRow{
 	{ActionTypeGuardUnfreeze, fixed(guardUnfreezeContract)},
 	{ActionTypeGuardGrant, fixed(guardGrantContract)},
 	{ActionTypeGuardRevoke, fixed(guardRevokeContract)},
+	{ActionTypeRevokePublicGrant, fixed(revokePublicGrantContract)},
+	{ActionTypeEnableRLS, fixed(enableRLSContract)},
 	{"create_index_concurrently", createIndexConcurrentlyContract},
 	{"drop_unused_index", dropUnusedIndexContract},
 	{"alter_table", alterTableContract},

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AutonomyChoice } from './AutonomyChoice'
 
 const SSL_MODES = [
   'disable', 'allow', 'prefer', 'require',
@@ -36,7 +37,7 @@ export function DatabaseForm({ db, onClose, onError }) {
     sslmode: db?.sslmode || 'require',
     max_connections: db?.max_connections || 2,
     trust_level: db?.trust_level || 'observation',
-    execution_mode: db?.execution_mode || 'approval',
+    execution_mode: db?.execution_mode || 'manual',
     action_username: storedActionUser,
     action_password: '',
     // Round-trip tags: the PUT replaces them, so omitting them wiped
@@ -160,15 +161,21 @@ export function DatabaseForm({ db, onClose, onError }) {
             value={form.max_connections}
             onChange={set('max_connections')} style={inputStyle}
             required data-testid="db-max-connections" />
-          <SelectField label="Trust Level" value={form.trust_level}
-            onChange={set('trust_level')} options={TRUST_LEVELS}
-			style={inputStyle} data-testid="db-trust-level"
-			disabled={isEdit} />
-          <SelectField label="Execution Mode"
-            value={form.execution_mode}
-            onChange={set('execution_mode')} options={EXEC_MODES}
-			style={inputStyle} data-testid="db-execution-mode"
-			disabled={isEdit} />
+          <AutonomyChoice trustLevel={form.trust_level}
+            executionMode={form.execution_mode} disabled={isEdit}
+            onChoose={c => setForm(f => ({
+              ...f, trust_level: c.trust_level, execution_mode: c.execution_mode,
+            }))}>
+            <SelectField label="Trust Level" value={form.trust_level}
+              onChange={set('trust_level')} options={TRUST_LEVELS}
+              style={inputStyle} data-testid="db-trust-level"
+              disabled={isEdit} />
+            <SelectField label="Execution Mode"
+              value={form.execution_mode}
+              onChange={set('execution_mode')} options={EXEC_MODES}
+              style={inputStyle} data-testid="db-execution-mode"
+              disabled={isEdit} />
+          </AutonomyChoice>
         </div>
 		{isEdit && (
 		  <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>

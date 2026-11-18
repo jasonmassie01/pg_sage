@@ -51,7 +51,7 @@ describe('route registry integrity', () => {
   it('keeps the existing nav test ids and hash URLs', () => {
     const expected = {
       'nav-inbox': '#/', 'nav-cases': '#/cases', 'nav-actions': '#/actions',
-      'nav-slos': '#/slos', 'nav-trust': '#/trust', 'nav-facts': '#/facts',
+      'nav-slos': '#/slos', 'nav-autonomy': '#/autonomy', 'nav-facts': '#/facts',
       'nav-ask': '#/ask', 'nav-databases': '#/manage-databases',
       'nav-settings': '#/settings', 'nav-mcp-tokens': '#/mcp-tokens',
       'nav-agents': '#/agents',
@@ -69,7 +69,7 @@ describe('route registry integrity', () => {
     expect(ids(groups.find(g => g.id === 'admin').routes)).toEqual([
       'databases', 'users', 'notifications', 'alerts', 'settings', 'mcp-tokens', 'agents'])
     expect(ids(groups.find(g => g.id === 'advanced').routes))
-      .toEqual(['runbooks', 'autonomy', 'snapshot'])
+      .toEqual(['runbooks', 'snapshot'])
   })
 
   it('lists no duplicate Advanced entry for Cases or Actions', () => {

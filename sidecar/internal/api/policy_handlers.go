@@ -96,6 +96,14 @@ func authenticatedPolicy(next policyHandler) http.HandlerFunc {
 
 func policyScope(w http.ResponseWriter, r *http.Request) (policy.Scope, bool) {
 	raw := r.URL.Query().Get("database_id")
+	set := r.URL.Query().Get("set_name")
+	if raw != "" && set != "" {
+		jsonError(w, "name a database_id or a set_name, not both", http.StatusBadRequest)
+		return policy.Scope{}, false
+	}
+	if set != "" {
+		return policy.Scope{SetName: set}, true // fleetpol-01a
+	}
 	if raw == "" {
 		return policy.Scope{}, true
 	}
@@ -127,6 +135,7 @@ func decodePolicyProposal(
 ) (policy.ProposalRequest, bool) {
 	var wire struct {
 		DatabaseID      *int64               `json:"database_id"`
+		SetName         string               `json:"set_name"`
 		ExpectedVersion int64                `json:"expected_version"`
 		Profile         string               `json:"profile"`
 		Document        json.RawMessage      `json:"document"`
@@ -141,7 +150,13 @@ func decodePolicyProposal(
 		}
 		return policy.ProposalRequest{}, false
 	}
-	return policy.ProposalRequest{Scope: policy.Scope{DatabaseID: wire.DatabaseID},
+	if wire.DatabaseID != nil && wire.SetName != "" {
+		jsonError(w, "a proposal names a database_id or a set_name, not both",
+			http.StatusBadRequest)
+		return policy.ProposalRequest{}, false
+	}
+	scope := policy.Scope{DatabaseID: wire.DatabaseID, SetName: wire.SetName}
+	return policy.ProposalRequest{Scope: scope,
 		ExpectedVersion: wire.ExpectedVersion, Profile: wire.Profile,
 		Document: wire.Document, Actor: actor, Preview: wire.Preview}, true
 }
