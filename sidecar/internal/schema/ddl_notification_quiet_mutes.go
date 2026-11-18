@@ -3,8 +3,8 @@ package schema
 // ddlNotificationQuietAndMutes (ux-09b) adds:
 //   - a channel's own quiet hours (quiet_start, quiet_end HH:MM in
 //     quiet_tz); NULL keeps the global alerting.quiet_hours_* pair;
-//   - sage.notification_mutes, one row per database and class (” is
-//     every class), active while until is in the future; a mute lasts at
+//   - sage.notification_mutes, one row per database and class (the empty
+//     class is every class), active while until is in the future; a mute lasts at
 //     most 90 days;
 //   - item_refs on the delivery log ("queue:<id>"), and snoozed_at on the
 //     queue, so the weekly line joins a message to the decision it led to.
