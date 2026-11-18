@@ -54,8 +54,8 @@ function ReadOnlyRow({ database, onSelectDatabase }) {
 // It has no row selection: the bulk actions need an API-managed
 // registration, and the page's read-only note says to edit the YAML file.
 // databases is the whole runtime inventory, shown if the list fails.
-export function ReadOnlyFleetTable({ databases, onSelectDatabase }) {
-  const view = useFleetView()
+export function ReadOnlyFleetTable({ databases, onSelectDatabase, initialTags }) {
+  const view = useFleetView(initialTags)
   const list = useAPI(databases.length ? view.url : null, 30000)
   const paging = useCursorPages(list.data, view.url, 'databases', { idOf: row => row?.name })
   if (!databases.length) return null

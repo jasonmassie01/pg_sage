@@ -10,7 +10,10 @@ import { joinRuntime } from './databases/runtimeStatus'
 import { ReadOnlyFleet, ReadOnlyFleetTable } from './databases/ReadOnlyFleet'
 import { TabList, TabPanel } from '../components/Tabs'
 
-export function DatabasesPage({ onSelectDatabase }) {
+// scopeTag is the header tag scope (ux-10b): the fleet tables open filtered
+// by it, and a new tag scope starts them over.
+export function DatabasesPage({ onSelectDatabase, scopeTag = '' }) {
+  const initialTags = scopeTag ? [scopeTag] : []
   const [databases, setDatabases] = useState([])
   const [error, setError] = useState(null)
   const [showForm, setShowForm] = useState(false)
@@ -231,7 +234,7 @@ export function DatabasesPage({ onSelectDatabase }) {
       {!loading && !readOnly && (
         <TabPanel id="fleet" active={tab}>
           {tab === 'discovered' ? <DiscoveredDatabases /> : databases.length > 0 ? (
-            <DatabaseTable databases={databases}
+            <DatabaseTable key={scopeTag} databases={databases} initialTags={initialTags}
               onEdit={handleEdit}
               onDelete={setDeleteTarget}
               onError={setError}
@@ -242,7 +245,8 @@ export function DatabasesPage({ onSelectDatabase }) {
       )}
 
       {!loading && readOnly && (
-        <ReadOnlyFleetTable databases={databases} onSelectDatabase={onSelectDatabase} />
+        <ReadOnlyFleetTable key={scopeTag} databases={databases} initialTags={initialTags}
+          onSelectDatabase={onSelectDatabase} />
       )}
 
       {!loading && inventoryComplete && inventory.length === 0 && (

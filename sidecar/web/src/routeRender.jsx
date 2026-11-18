@@ -25,6 +25,12 @@ import { AgentsPage } from './pages/AgentsPage'
 import { QueriesPage } from './pages/QueriesPage'
 import { QueryDetailPage } from './pages/QueryDetailPage'
 import { allowsRole, findRoute } from './routes'
+import { NeedsOneDatabase } from './components/NeedsOneDatabase'
+
+// TAG_SCOPED_ROUTES read a header tag scope (?tag=, ux-10b); every other
+// page asks for one database instead of showing the whole fleet as if it
+// were the tag.
+const TAG_SCOPED_ROUTES = new Set(['databases'])
 
 // routeRender.jsx renders the page for a route of the registry in routes.js
 // (dashboard-06). RENDERERS has one entry per signed-in route id.
@@ -106,8 +112,10 @@ export const RENDERERS = Object.freeze({
   // Onboarding and first look stay above the Inbox until ux-04b's wizard.
   inbox: ctx => (
     <div className="space-y-6">
-      <OnboardingPanel database={ctx.database} authMode={ctx.authMode} user={ctx.user} />
-      <FirstLookPanel database={ctx.database} user={ctx.user} />
+      <OnboardingPanel database={ctx.database} authMode={ctx.authMode} user={ctx.user}
+        onSelectDatabase={ctx.selectDatabase} />
+      <FirstLookPanel database={ctx.database} user={ctx.user}
+        onSelectDatabase={ctx.selectDatabase} />
       <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
     </div>
   ),
@@ -118,7 +126,8 @@ export const RENDERERS = Object.freeze({
   queries: ctx => <QueriesPage database={ctx.database} />,
   query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
   slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,
-  trust: ctx => <TrustPage database={ctx.database} user={ctx.user} />,
+  trust: ctx => <TrustPage database={ctx.database} user={ctx.user}
+    onSelectDatabase={ctx.selectDatabase} />,
   facts: ctx => <FactsPage database={ctx.database} user={ctx.user} />,
   ask: ctx => (
     <AskPage database={ctx.database} user={ctx.user} caseId={ctx.linkedCase}
@@ -126,7 +135,9 @@ export const RENDERERS = Object.freeze({
       databaseError={ctx.inventoryError} onRetryDatabase={ctx.refetchFleet}
       onSelectDatabase={ctx.selectDatabase} />
   ),
-  databases: ctx => <DatabasesPage onSelectDatabase={ctx.setSelectedDB} />,
+  databases: ctx => (
+    <DatabasesPage onSelectDatabase={ctx.setSelectedDB} scopeTag={ctx.scopeTag} />
+  ),
   users: ctx => <UsersPage currentUser={ctx.user} authMode={ctx.authMode} />,
   notifications: ctx => {
     const tab = new URLSearchParams(ctx.route.split('?')[1] || '').get('tab') || ''
@@ -167,5 +178,10 @@ export function renderRoute(path, ctx) {
       node: <PlatformProtocolUnavailable agents={route.id === 'agents'} /> }
   }
   if (!allowsRole(route, ctx.user)) return { title: 'Access denied', node: <AccessDenied /> }
+  if (ctx.scopeTag && !TAG_SCOPED_ROUTES.has(route.id)) {
+    return { title: route.title,
+      node: <NeedsOneDatabase tag={ctx.scopeTag} isAdmin={ctx.user?.role === 'admin'}
+        onShowAll={() => ctx.selectDatabase('all')} /> }
+  }
   return { title: route.title, node: RENDERERS[route.id](ctx) }
 }

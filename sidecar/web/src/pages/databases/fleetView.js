@@ -15,9 +15,10 @@ function useDebounced(value, delay) {
   return settled
 }
 
-export function useFleetView() {
+// initialTags start the view filtered, as a header tag scope does (ux-10b).
+export function useFleetView(initialTags = []) {
   const [query, setQuery] = useState('')
-  const [tags, setTags] = useState([])
+  const [tags, setTags] = useState(() => [...(initialTags || [])])
   const [sort, setSort] = useState(DEFAULT_SORT)
   const [selected, setSelected] = useState(() => new Set())
   const q = useDebounced(query, SEARCH_DELAY_MS)

@@ -58,8 +58,9 @@ function useConnectionTests(onError) {
 export function DatabaseTable({
   databases, onEdit, onDelete, onError,
   runtimeFor = () => undefined, runtimeKnown = true, onSelectDatabase, onChanged = () => {},
+  initialTags,
 }) {
-  const view = useFleetView()
+  const view = useFleetView(initialTags)
   const list = useAPI(databases.length ? view.url : null, 30000)
   const paging = useCursorPages(list.data, view.url, 'databases', { idOf: row => row?.name })
   const tests = useConnectionTests(onError)

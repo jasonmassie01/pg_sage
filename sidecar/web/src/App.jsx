@@ -100,9 +100,12 @@ export default function App({ reloadPage = () => window.location.reload() }) {
   const { data: fleetData, loading: fleetLoading, error: fleetError,
     refetch: refetchFleet, updatedAt: fleetUpdatedAt } = fleetQuery
 
+  // A visible linked database becomes the scope; a link to one the user
+  // cannot see falls back to all databases (ux-10b).
   useEffect(() => {
     const linked = new URLSearchParams(route.split('?')[1] || '').get('database')
-    if (linked && fleetData?.databases?.some(db => db.name === linked)) setSelectedDB(linked)
+    if (!linked || !Array.isArray(fleetData?.databases)) return
+    setSelectedDB(fleetData.databases.some(db => db.name === linked) ? linked : 'all')
   }, [route, fleetData])
 
   useEffect(() => {
@@ -188,19 +191,33 @@ export default function App({ reloadPage = () => window.location.reload() }) {
   const routeParams = new URLSearchParams(route.split('?')[1] || '')
   const linkedDatabase = routeParams.get('database')
   const linkedCase = routeParams.get('case')
+  const linkedTag = (routeParams.get('tag') || '').trim()
   // Only inventory-known links may change scope. Resolve it before mounting
   // a page so a case never opens an Ask session against the previous DB.
-  const effectiveDB = resolveSelectedDB(
-    databases.some(db => db.name === linkedDatabase) ? linkedDatabase : selectedDB,
-    databaseInventory,
-  )
-  function selectDatabase(name) {
-    setSelectedDB(name)
+  const linkKnown = databases.some(db => db.name === linkedDatabase)
+  const hiddenLink = Boolean(linkedDatabase) && databaseInventory !== undefined && !linkKnown
+  // A tag scope (ux-10b) is the fleet narrowed by a tag; a database link wins.
+  const scopeTag = linkedDatabase ? '' : linkedTag
+  const effectiveDB = scopeTag ? 'all' : resolveSelectedDB(
+    linkKnown ? linkedDatabase : hiddenLink ? 'all' : selectedDB, databaseInventory)
+  const scopeNotice = hiddenLink
+    ? `${linkedDatabase} is not a database you can see. Showing all databases.` : ''
+  function scopeHash(tag) {
     const params = new URLSearchParams(route.split('?')[1] || '')
     params.delete('database')
     params.delete('case')
+    params.delete('tag')
+    if (tag) params.set('tag', tag)
     const query = params.toString()
-    if (linkedDatabase || linkedCase) window.location.hash = `#${routePath}${query ? `?${query}` : ''}`
+    return `#${routePath}${query ? `?${query}` : ''}`
+  }
+  function selectDatabase(name) {
+    setSelectedDB(name)
+    if (linkedDatabase || linkedCase || linkedTag) window.location.hash = scopeHash('')
+  }
+  function selectTag(tag) {
+    setSelectedDB('all')
+    window.location.hash = scopeHash(tag)
   }
   const selectedDatabase = effectiveDB === 'all'
     ? null
@@ -209,7 +226,7 @@ export default function App({ reloadPage = () => window.location.reload() }) {
   const pageState = renderRoute(routePath, {
     route, database: effectiveDB, user, authMode, fleetQuery, fleetData, fleetLoading,
     databases, databaseInventory, inventoryError, refetchFleet, selectDatabase,
-    setSelectedDB, selectedDatabase, linkedCase,
+    setSelectedDB, selectedDatabase, linkedCase, scopeTag,
   })
 
   return (
@@ -218,7 +235,8 @@ export default function App({ reloadPage = () => window.location.reload() }) {
         <TimeRangeProvider>
           {authDegraded && <AuthStoreBanner />}
           <Layout data-testid="app-loaded" databases={databases}
-            selectedDB={effectiveDB}
+            selectedDB={effectiveDB} selectedTag={scopeTag} onSelectTag={selectTag}
+            scopeNotice={scopeNotice}
             onSelectDB={selectDatabase} user={user} authMode={authMode}
             fleetError={inventoryError}
             fleetData={fleetData ? { ...fleetData, databases } : fleetData}

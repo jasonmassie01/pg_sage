@@ -132,10 +132,25 @@ function SidebarNav({ user, platformManaged, activeId, pending, advanced }) {
     )))
 }
 
+// ScopeEmpty stands in for the scope picker before any database exists;
+// only an admin can open the Fleet page to add one.
+function ScopeEmpty({ isAdmin }) {
+  return (
+    <span data-testid="scope-empty" className="text-sm"
+      style={{ color: 'var(--text-secondary)' }}>
+      No databases yet.{' '}
+      {isAdmin
+        ? <a href="#/manage-databases" className="underline"
+          style={{ color: 'var(--accent)' }}>Add a database</a>
+        : 'Ask an admin to add one.'}
+    </span>
+  )
+}
+
 // App owns the one /api/v1/databases poll: fleetData is its result (null
 // until the first load) and onFleetChanged refetches it.
 export function Layout({
-  children, databases, selectedDB, onSelectDB,
+  children, databases, selectedDB, onSelectDB, selectedTag = '', onSelectTag, scopeNotice,
   user, authMode = user?.auth_mode, fleetData, fleetUpdatedAt, fleetError,
   onFleetChanged, onLogout, pageTitle,
   ...rest
@@ -319,13 +334,16 @@ export function Layout({
               <TimeRangePicker label={activeRoute.timeRangeLabel} />
             )}
             <TimeZoneToggle />
-            {databases && databases.length > 0 && (
-              <DatabasePicker
-                data-testid="database-picker"
-                databases={databases}
-                selected={selectedDB}
-                onSelect={onSelectDB}
-              />
+            <DatabasePicker
+              data-testid="database-picker"
+              databases={databases}
+              selected={selectedDB}
+              selectedTag={selectedTag}
+              onSelect={onSelectDB}
+              onSelectTag={onSelectTag}
+            />
+            {fleetData && !fleetError && databases?.length === 0 && (
+              <ScopeEmpty isAdmin={isAdmin} />
             )}
           </div>
         </header>
@@ -333,6 +351,10 @@ export function Layout({
           {/* A page render error stays here; the header and nav survive. */}
           <PageErrorBoundary resetKey={window.location.hash || '#/'}>
             <SecretsPostureBanner isAdmin={isAdmin} />
+            {scopeNotice && (
+              <p role="status" data-testid="scope-notice" className="mb-4 text-sm"
+                style={{ color: 'var(--amber, #f0a54a)' }}>{scopeNotice}</p>
+            )}
             <MonitoringContext database={selectedDB} fleetData={fleetData}
               error={fleetError} user={user} />
             <PageIntro route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
