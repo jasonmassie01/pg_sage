@@ -2,6 +2,8 @@ import { useAPI } from '../hooks/useAPI'
 import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
 import { CostCard } from '../components/CostCard'
+import { ReviewScorecard } from '../components/review/ReviewScorecard'
+import { useReviewScorecard } from '../hooks/useReviewScorecard'
 
 const valuePollIntervalMs = 60000
 
@@ -254,7 +256,9 @@ function isEmptyValue(data) {
   )
 }
 
-export function ValuePage({ database }) {
+export function ValuePage({ database, user }) {
+  // Read before the value, so the value stays this page's last read.
+  const scorecard = useReviewScorecard(database)
   const value = useAPI(valueURL(database), valuePollIntervalMs)
   const { data } = value
 
@@ -273,6 +277,7 @@ export function ValuePage({ database }) {
       </div>
       {data?.partial && <PartialWarning unavailable={data.unavailable} />}
       <CostCard cost={data?.cost} />
+      <ReviewScorecard query={scorecard} database={database} user={user} compact />
       {isEmptyValue(data) ? <EmptyState /> : (
         <>
           <RealizedValue savings={data.dba_hours_saved || {}} />

@@ -3,6 +3,7 @@ import { entryErrorText } from './entryError'
 import { LoadError } from './LoadError'
 import { RecheckButton } from './RecheckButton'
 import { useRecheckedRefetch } from './recheck'
+import { GradeChip } from '../review/GradeChip'
 
 // FirstLookPanel shows the catalog-only first look: what a DBA would flag
 // on day one, each finding with the catalog evidence it rests on. Suggested
@@ -193,6 +194,7 @@ function Report({ entry, user }) {
         read in {report.duration_ms} ms, catalog only.
         <RecheckButton database={entry.database} user={user} />
       </p>
+      <GradeChip database={entry.database} firstLook />
       {report.summary && <p className="text-sm font-medium">{report.summary}</p>}
       {items.length === 0 ? (
         <p className="text-sm">{emptyText(checks)}</p>

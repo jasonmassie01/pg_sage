@@ -1,4 +1,5 @@
 import { useAPI } from '../../hooks/useAPI'
+import { GradeChip } from '../../components/review/GradeChip'
 import {
   budgetState, connectionLabel, formatRun, haLabel, healthLabel, healthReasons,
   stopLabel, trustState,
@@ -15,7 +16,10 @@ export function DatabaseSummary({ database }) {
   const runtime = rows?.find(row => row?.name === database)
   return (
     <section className="rounded p-4 space-y-3" style={card} data-testid="db-summary">
-      <h2 className="text-sm font-medium" style={muted}>Database: {database}</h2>
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-medium" style={muted}>Database: {database}</h2>
+        <GradeChip database={database} />
+      </div>
       {fleet.loading && <p className="text-sm" style={muted}>Loading runtime status...</p>}
       {fleet.error && (
         <p className="text-sm" data-testid="summary-runtime-error" style={{ color: 'var(--red)' }}>

@@ -45,9 +45,14 @@ func newFleetDBLLMClients(
 		)
 		attachFleetBudget(optimizerClient, databaseName)
 	}
+	var reviewClient *llm.Client
+	if cfg.LLM.ReviewLLM.Enabled {
+		reviewClient = llmClients.newClient(llmRoleReview, databaseName, allowed)
+		attachFleetBudget(reviewClient, databaseName)
+	}
 	return general, llm.NewManager(
 		general, optimizerClient, cfg.LLM.OptimizerLLM.FallbackToGeneral,
-	)
+	).WithReview(reviewClient)
 }
 
 // attachFleetBudget registers the database with the fleet budget (so

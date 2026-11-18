@@ -25,6 +25,7 @@ import { MCPTokensPage } from './pages/MCPTokensPage'
 import { AgentsPage } from './pages/AgentsPage'
 import { QueriesPage } from './pages/QueriesPage'
 import { QueryDetailPage } from './pages/QueryDetailPage'
+import { ReviewPage } from './pages/ReviewPage'
 import { allowsRole, findRoute } from './routes'
 
 // routeRender.jsx renders the page for a route of the registry in routes.js
@@ -114,10 +115,11 @@ export const RENDERERS = Object.freeze({
       <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
     </HomeSetup>
   ),
-  value: ctx => <ValuePage database={ctx.database} />,
+  value: ctx => <ValuePage database={ctx.database} user={ctx.user} />,
   cases: ctx => cases(ctx),
   actions,
   ledger: ctx => <LedgerPage key={ctx.route} database={ctx.database} />,
+  review: ctx => <ReviewPage route={ctx.route} database={ctx.database} user={ctx.user} />,
   queries: ctx => <QueriesPage database={ctx.database} />,
   query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
   slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,

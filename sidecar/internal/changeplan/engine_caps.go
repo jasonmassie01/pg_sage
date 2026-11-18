@@ -190,5 +190,10 @@ func coverageNow(ctx context.Context, tx pgx.Tx, p Plan, s Step,
 	if own != nil {
 		steps = []StepApproval{*own}
 	}
-	return Coverage(Plan{PlanHash: p.PlanHash, Steps: []Step{s}}, live, steps, settings)[0], nil
+	holds, err := readModelHolds(ctx, tx, p)
+	if err != nil {
+		return StepCoverage{}, err
+	}
+	return CoverageWithHolds(Plan{PlanHash: p.PlanHash, Steps: []Step{s}}, live, steps,
+		settings, holds)[0], nil
 }

@@ -35,6 +35,8 @@ const (
 	SectionSaved    = "saved"
 	SectionNeedsYou = "needs_you"
 	SectionCouldNot = "could_not"
+	// SectionModelGate is listed only when the review model gate changed.
+	SectionModelGate = "model_gate"
 )
 
 // maxSectionItems caps the lines a section lists; its summary counts all.
@@ -106,6 +108,8 @@ type DigestInput struct {
 	InboxErr       error
 	HeldBack       []ledger.WithheldEntry
 	HeldBackErr    error
+	GateNotes      []string
+	GateNotesErr   error
 	DBAHourRateUSD float64
 }
 
@@ -115,11 +119,15 @@ func BuildDigest(in DigestInput) Digest {
 	d.Counts = countsOf(in)
 	d.Sections = []Section{didSection(in), verifiedSection(d.Counts),
 		savedSection(d.Counts), needsSection(in, d.Counts), couldNotSection(in, d.Counts)}
+	if s, ok := gateSection(in.GateNotes); ok {
+		d.Sections = append(d.Sections, s)
+	}
 	for _, gap := range []struct {
 		err  error
 		name string
 	}{{in.OutcomesErr, "the outcome ledger"}, {in.InboxErr, "the inbox"},
-		{in.HeldBackErr, "the held-back decisions"}} {
+		{in.HeldBackErr, "the held-back decisions"},
+		{in.GateNotesErr, "the review model gate"}} {
 		if gap.err != nil {
 			d.Gaps = append(d.Gaps, gap.name+" could not be read")
 		}

@@ -145,6 +145,8 @@ type Worker struct {
 	// its Needs you section (ux-02b); nil when not wired.
 	notifier Notifier
 	inbox    InboxCounter
+	// gate lists the review model gate's changes (review-05a); nil: none.
+	gate GateNotes
 }
 
 // WithDatabaseName sets the fleet database the worker briefs, so the

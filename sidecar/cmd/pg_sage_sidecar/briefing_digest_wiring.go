@@ -30,11 +30,16 @@ func (n digestNotifier) EnsureDefaultRule(ctx context.Context, event string) (bo
 }
 
 // newBriefingWorker is the database's briefing worker: its digest goes
-// through Notifications and its Needs you section counts the inbox.
+// through Notifications, its Needs you section counts the inbox, and it
+// states the review model gate's changes (review-05a).
 func (rt *databaseRuntime) newBriefingWorker() *briefing.Worker {
-	return briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
+	w := briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
 		WithDatabaseName(rt.spec.Name).WithNotifier(rt.briefingNotifier()).
 		WithInboxCounter(digestInboxCounts)
+	if rt.spec.Pool != nil {
+		w = w.WithGateNotes(rt.reviewGate().Notes)
+	}
+	return w
 }
 
 // briefingNotifier is the database runtime's digest notifier, or nil when

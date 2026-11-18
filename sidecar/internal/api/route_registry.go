@@ -79,6 +79,9 @@ var viewerWriteRoutes = map[string]string{
 		"another actor's run is not found (mcp-07b)",
 	"POST " + inboxSeenPath: "moves forward only the caller's own Inbox seen time on " +
 		"their user row (ux-01b); it changes no database and decides nothing",
+	"POST " + reviewViewedPath: "records only the caller's own first opening of a " +
+		"finished review in sage.review_view (review-01b); it decides nothing and " +
+		"changes no monitored data",
 }
 
 // viewerWriteOrTokenRoutes lists the writes a signed-in user or a

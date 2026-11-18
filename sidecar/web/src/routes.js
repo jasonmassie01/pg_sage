@@ -13,8 +13,8 @@
 // header shows the picker only there, captioned with timeRangeLabel
 // (dashboard-07).
 import {
-  Activity, AlertTriangle, BarChart3, Bell, BookCheck, Bot, ClipboardCheck, Gauge, Home, Inbox,
-  KeyRound, MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
+  Activity, AlertTriangle, Award, BarChart3, Bell, BookCheck, Bot, ClipboardCheck, Gauge, Home,
+  Inbox, KeyRound, MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
 } from 'lucide-react'
 
 export const NAV_GROUPS = [
@@ -63,6 +63,11 @@ export const ROUTES = Object.freeze([
     hint: 'What changed, and what it did',
     guide: 'See every change pg_sage made in a window, what it expected, what was '
       + 'measured and whether it can still be rolled back.' },
+  // Sage Review (review-01b): a database's grade, what changed and the report.
+  { id: 'review', path: '/review', title: 'Review', navGroup: 'operate', testId: 'nav-review',
+    icon: Award, hint: 'The grade of a database, and why',
+    guide: 'Read the grade of one database against the pg_sage rubric, what changed since '
+      + 'the last grade and the ranked report. Unknown means a check could not run.' },
   { id: 'queries', path: '/queries', title: 'Workload', navGroup: 'operate',
     testId: 'nav-queries', icon: BarChart3, hint: 'Top statements and wait-class load',
     guide: 'See which statements carry the load and what active sessions wait on. '

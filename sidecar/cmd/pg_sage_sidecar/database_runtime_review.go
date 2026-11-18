@@ -151,6 +151,7 @@ func (rt *databaseRuntime) gradeOnce(ctx context.Context, run *rubric.Runner, fi
 		logWarn(rt.spec.Scope, "db %q: review grade is partial: %v", rt.spec.Name,
 			out.LoadErr)
 	}
+	rt.evaluateReviewGate(ctx) // review-05a
 	return true
 }
 

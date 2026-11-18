@@ -351,6 +351,10 @@ A person approves a plan at the plan hash they were shown, in one of three modes
   approval; an approval racing an edit is either voided by it or refused as stale.
 - **Approval is never automatic.** Every plan needs a person's approval, whatever the trust
   level. A never-automatic step always needs its own approval as well.
+- **A model-origin step needs its own approval** too (review-03b): in a plan whose origin is
+  `model`, an action step the model proposed is not covered by `all` or `up_to` until a person
+  grants that model authority (review-05a's G-M1, `sage.review_model_authority`); its reason
+  starts with `model_origin`. See [review.md](review.md#from-review-to-plan).
 ## Exposure remediation
 
 The exposure detectors (AP-03 tables reachable by exposed roles without RLS, AP-15

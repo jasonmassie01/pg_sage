@@ -499,11 +499,36 @@ before any model reads it. The signed export holds the local tier's statement te
 only admins download it, and each download is recorded in `sage.auth_audit`.
 
 Decision D3 is open (OWNER ACTION). It decides which LLM providers may receive the
-model tier by default and whether `hash_identifiers` is on by default. Until the owner
-decides, no code path sends the tier to a model, and identifiers are not hashed unless
-asked for. The spec's recommendation: send only the model tier, keep identifiers
+model tier by default and whether `hash_identifiers` is on by default. Identifiers are not
+hashed unless asked for (`review.hash_identifiers`). The spec's recommendation, which
+pg_sage follows until the owner decides: send only the model tier, keep identifiers
 hashable, check each provider's data-retention terms before enabling it by default, and
 keep a local-model path.
+
+### Sage Review model pass and provider retention
+
+Sage Review's model pass ([review.md](review.md#model-pass)) is the one code path that
+sends a pack's model tier to a model, and only to the operator's own configured provider
+(`llm.review_llm`, else `llm.optimizer_llm`, else `llm.*`). It refuses a pack that is not a
+model tier before any call. Besides the tier it sends each candidate's kind, target,
+evidence ids and predicted numbers, never its SQL or the generator's prose, and the grade's
+letters and scores. Statement texts in the tier are normalized and redacted, and every
+data block is wrapped as untrusted data with a system rule that data is not instructions.
+Set `review.model_pass: off` to send nothing, or `review.hash_identifiers: true` to send
+pseudonyms instead of names.
+
+Provider data-retention notes (check each provider's current terms; pg_sage cannot):
+
+- A hosted API (OpenAI, Gemini, Groq, Azure OpenAI, Bedrock, Databricks Model Serving)
+  keeps prompts under its own retention and abuse-monitoring terms; some keep them for a
+  period unless a zero-retention agreement applies. Confirm the terms of the account whose
+  key the review client sends (`llm.review_llm.api_key`, or the general key).
+- A gateway (LiteLLM, a corporate proxy) may log prompts; its log retention applies.
+- A local model (Ollama, vLLM, llama.cpp behind an OpenAI-compatible endpoint) keeps the
+  tier on your network.
+
+Confirming the providers, checking their terms and setting `review.hash_identifiers` is
+decision D3 (OWNER ACTION), with one live review per approved provider.
 
 ### Model output is data
 

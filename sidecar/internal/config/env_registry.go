@@ -143,6 +143,12 @@ var runtimeEnvVars = []EnvVar{
 		Doc: "Separate endpoint for the optimizer model (optional)"},
 	{Name: "SAGE_OPTIMIZER_LLM_MODEL", Default: envNone,
 		Doc: "Separate model name for the optimizer (optional)"},
+	{Name: "SAGE_REVIEW_LLM_API_KEY", Default: envNone, File: true,
+		Doc: "Separate API key for the Sage Review model (optional)"},
+	{Name: "SAGE_REVIEW_LLM_ENDPOINT", Default: envNone,
+		Doc: "Separate endpoint for the Sage Review model (optional)"},
+	{Name: "SAGE_REVIEW_LLM_MODEL", Default: envNone,
+		Doc: "Separate model name for Sage Review (optional)"},
 	{Name: "SAGE_LAKEBASE_ENDPOINT", Default: envNone, Doc: "Lakebase endpoint resource path " +
 		"for OAuth; applies to target and metadata pools"},
 	{Name: "SAGE_LAKEBASE_ENDPOINTS", Default: envNone, Doc: "JSON hostname-to-endpoint map " +

@@ -328,6 +328,10 @@ func readDetail(ctx context.Context, q querier, id int64) (Detail, error) {
 			live = &d.Approvals[i]
 		}
 	}
-	d.Coverage = Coverage(p, live, d.StepApprovals, settings)
+	holds, err := readModelHolds(ctx, q, p)
+	if err != nil {
+		return Detail{}, err
+	}
+	d.Coverage = CoverageWithHolds(p, live, d.StepApprovals, settings, holds)
 	return d, nil
 }
