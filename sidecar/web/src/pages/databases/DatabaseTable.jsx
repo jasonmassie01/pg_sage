@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { WhyNotPanel } from '../../components/WhyNotPanel'
 import { filterDatabases } from '../../lib/databaseFilter'
 import { RuntimeCells } from './RuntimeCells'
 import { RUNTIME_HEADERS } from './runtimeStatus'
@@ -8,6 +9,8 @@ import { RUNTIME_HEADERS } from './runtimeStatus'
 export const TABLE_ROW_LIMIT = 100
 
 const muted = { color: 'var(--text-secondary)' }
+const COLUMNS = ['Name', 'Host', 'Trust Level', 'Execution Mode', 'Registration',
+  ...RUNTIME_HEADERS, '']
 const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
 
 // FleetFilter is the text filter above the table (name, host or tag).
@@ -108,8 +111,7 @@ function FleetRows({ databases, testing, testResult, runtimeFor, ...rest }) {
       <table className="w-full text-sm" data-testid="databases-table">
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
-            {['Name', 'Host', 'Trust Level', 'Execution Mode', 'Registration',
-              ...RUNTIME_HEADERS, ''].map(h => (
+            {COLUMNS.map(h => (
               <th key={h} className="text-left px-4 py-2 text-xs whitespace-nowrap"
                 style={muted}>{h}</th>
             ))}
@@ -132,6 +134,7 @@ function DatabaseRow({
   db, onEdit, onDelete, onTest, testing, testResult,
   runtime, runtimeKnown, onSelectDatabase,
 }) {
+  const [whyNot, setWhyNot] = useState(false)
   const badge = (text, color) => (
     <span className="px-2 py-0.5 rounded text-xs"
       style={{
@@ -152,7 +155,7 @@ function DatabaseRow({
     manual: '#6b7280',
   }
 
-  return (
+  return (<>
     <tr data-testid="db-row"
       style={{ borderBottom: '1px solid var(--border)' }}>
       <td className="px-4 py-2"
@@ -179,6 +182,10 @@ function DatabaseRow({
         registeredTrust={db.trust_level} onSelectDatabase={onSelectDatabase} />
       <td className="px-4 py-2 text-right">
         <div className="flex gap-2 justify-end">
+          <button type="button" aria-expanded={whyNot} onClick={() => setWhyNot(!whyNot)}
+            className="px-2 py-1 rounded text-xs" style={{ color: 'var(--accent)' }}>
+            Why not?
+          </button>
           <button onClick={() => onTest(db)} disabled={testing}
             data-testid="db-test-button"
             className="px-2 py-1 rounded text-xs"
@@ -200,5 +207,10 @@ function DatabaseRow({
         </div>
       </td>
     </tr>
-  )
+    {whyNot && <tr style={{ borderBottom: '1px solid var(--border)' }}>
+      <td colSpan={COLUMNS.length} className="px-4 pb-3">
+        <WhyNotPanel database={db.name} />
+      </td>
+    </tr>}
+  </>)
 }

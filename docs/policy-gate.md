@@ -377,6 +377,7 @@ row's verdict and reason and every open row's repeats:
 | `deadline_kind`, `deadline_hard_at` | The XID or disk deadline behind it, if any. |
 | `policy_version`, `policy_doc_sha256` | The standing policy it was decided under. |
 | `queue_id`, `finding_id` | The approval queue item or finding it belongs to, when recorded. |
+| `why_not` | `{link, sentence}`: the why-not link (below) its reason fails and that link's sentence; the row's reason line. Absent for a reason no link names. |
 
 Parameters, each optional: `database` (a configured database name), `verdict` (one of the
 four withheld verdicts), `reason` (a reason on this page, an agent reason, or
@@ -387,8 +388,7 @@ parameter. A database that cannot be read is listed in `partial` with its error 
 (`connection`, `timeout`, `query`) and the others are still returned; when every selected
 database fails the status is `503`. `truncated` says the list was cut at `limit`.
 
-**Why hasn't this run?** on a finding's case, and
-`GET /api/v1/policy/explain?database=&finding_id=`, ask the gate how it would decide the
+`GET /api/v1/policy/explain?database=&finding_id=` asks the gate how it would decide the
 finding's candidates now, through the same path the cases view and the executor use. Each
 candidate has its `decision`, `blocked_reason`, the gate's `detail` (only when the reason
 is the gate's, not a candidate's own refusal) and `human_reason`. `status` is `explained`,
@@ -417,6 +417,16 @@ link and to a fix or a `no_fix`. Both `finding_id` and `object` is `400`, a bad 
 or category is `400`, and a finding that is not in the named database is `404`. Like the
 explain route it is operator only, records no decision and takes no budget slot. The chain
 does not report who holds a key or network policy.
+
+**The Why not panel** shows that chain where you are: **Why not?** on a finding's case (it
+replaced "Why hasn't this run?"), on a database row of the Databases page, under an
+approval card's blocker line and on each Held back row, and **Nothing proposed? See why**
+on an empty Inbox for one database. It lists the ten links with the first failure
+highlighted; a `grant_sql` or `setting` fix has a Copy button, a `ui_link` an Open link
+and a `wait_until` its time. An `unknown` link is shown as unknown, and a chain with no
+failure but an unknown link never says nothing is holding the change back. Agents ask the
+same question with the read-scope MCP tool `why_not` (docs/mcp.md), which returns the
+route's JSON as `structuredContent`.
 
 ## Approval flow
 

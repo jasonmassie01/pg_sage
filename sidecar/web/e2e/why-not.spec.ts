@@ -28,7 +28,9 @@ function chain(database: string) {
 }
 
 // routeWhyNot answers GET /api/v1/whynot for the database asked about
-// and records each request's query string.
+// and records each request's query string. React StrictMode mounts
+// effects twice under the dev server, so one open may ask twice; every
+// request must ask the same question.
 async function routeWhyNot(page: Page) {
   const asked: string[] = []
   await page.route(url => url.pathname === '/api/v1/whynot', route => {
@@ -37,6 +39,11 @@ async function routeWhyNot(page: Page) {
     return route.fulfill({ json: chain(url.searchParams.get('database') || '') })
   })
   return asked
+}
+
+function expectOnly(asked: string[], search: string) {
+  expect(asked.length).toBeGreaterThanOrEqual(1)
+  for (const q of asked) expect(q).toBe(search)
 }
 
 async function expectChain(page: Page) {
@@ -69,7 +76,7 @@ test('ux-08b: the panel opens from a case for its finding', async ({ page }) => 
   const panel = await expectChain(page)
   await expect(panel.locator('[data-link="policy"]').getByRole('link', { name: /open/i }))
     .toHaveAttribute('href', '#/cases?finding=41&database=orders')
-  expect(asked).toContain('?database=orders&finding_id=41')
+  expectOnly(asked, '?database=orders&finding_id=41')
 })
 
 test('ux-08b: the panel opens from a database row on Fleet', async ({ page }) => {
@@ -80,7 +87,7 @@ test('ux-08b: the panel opens from a database row on Fleet', async ({ page }) =>
   await expect(rows).toHaveCount(2)
   await rows.nth(1).getByRole('button', { name: 'Why not?' }).click()
   await expectChain(page)
-  expect(asked).toEqual(['?database=reporting'])
+  expectOnly(asked, '?database=reporting')
   await rows.nth(1).getByRole('button', { name: 'Why not?' }).click()
   await expect(page.getByTestId('why-not-panel')).toHaveCount(0)
 })
@@ -88,11 +95,11 @@ test('ux-08b: the panel opens from a database row on Fleet', async ({ page }) =>
 test('ux-08b: an empty Inbox asks why nothing was proposed', async ({ page }) => {
   await routeInbox(page, { items: [], rows: [] })
   const asked = await routeWhyNot(page)
-  await page.goto('/#/')
+  await page.goto('/#/?database=primary')
   await expect(page.getByTestId('inbox-goal')).toHaveText('Nothing needs you.')
   await page.getByRole('button', { name: 'Nothing proposed? See why' }).click()
   await expectChain(page)
-  expect(asked).toEqual(['?database=primary'])
+  expectOnly(asked, '?database=primary')
 })
 
 test('ux-08b: a failed read shows the error and no chain', async ({ page }) => {
