@@ -14,7 +14,7 @@ describe('DatabasesPage', () => {
           }),
         }
       }
-      if (url === '/api/v1/databases') {
+      if (url.split('?')[0] === '/api/v1/databases') {
         return {
           ok: true,
           json: async () => ({

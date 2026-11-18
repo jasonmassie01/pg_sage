@@ -43,7 +43,7 @@ const WALK_TIMEOUT = 30000
 const CONFIG_FIELD = 'names the trust.level / execution_mode config key a person sets; '
   + 'ux-06b replaces the two selects with one Autonomy scale'
 const ALLOWLIST = ['pages/databases/DatabaseForm.jsx', 'pages/settings/tabs/TrustSafetyTab.jsx',
-  'pages/settings/tabs/SimpleMonitoringTab.jsx'].flatMap(file => ['trust level',
+  'pages/settings/tabs/SimpleMonitoringTab.jsx', 'pages/databases/DatabaseTable.jsx'].flatMap(file => ['trust level',
   'execution mode'].map(word => ({ file, word, reason: CONFIG_FIELD })))
 
 function shippedSources(dir) {
