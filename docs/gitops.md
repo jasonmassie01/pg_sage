@@ -128,3 +128,69 @@ pg_sage_sidecar config diff policy/
 
 See [cli](cli.md#config). `GET /api/v1/gitops` (admin) returns the last
 reconcile: mode, hash, the changes, or the error with every problem.
+
+## Approval requests as pull requests
+
+With `policy.approval_prs.repo` set, pg_sage also asks for approvals as pull requests on that
+config repository, beside the inbox and chat. Each change that waits for approval gets one pull
+request (never a second one), labelled `pg_sage-approval`, adding
+`<path><database>/<queue_id>.yaml`:
+
+```yaml
+kind: ApprovalRequest
+schema_version: 1
+database: orders
+queue_id: 412
+title: Index recommendation for public.orders
+card_hash: 3f1c...
+risk_tier: safe
+sql: CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders (customer_id)
+rollback: DROP INDEX CONCURRENTLY public.idx_orders_customer
+ladder:
+  - {tier: 1, name: clone, result: passed, at: 2026-11-18T09:00:00Z}
+expires_at: 2026-11-21T09:00:00Z
+```
+
+pg_sage polls the pull request every minute (no inbound webhook, so no new public route):
+
+| On the code host | In pg_sage |
+|---|---|
+| Merged by a login mapped to an active user with the operator role (or admin) on the database | Approved and run as that user, through the same single-use approval as the inbox: the change runs only if its SQL is still the SQL in the file. A comment reports the outcome. |
+| Merged with the file edited, after the change was changed in pg_sage, or by an unmapped login or a viewer | Refused with a comment; the change stays waiting in pg_sage. |
+| Closed without merging | Rejected with the reason `closed in <repo>#<n>`. |
+| Still open when the change is decided in the inbox or chat | Closed with a comment ("already decided"). |
+| Still open at its expiry (`expiry_hours`, or sooner when the change expires) | Closed as expired; the change stays waiting in pg_sage and gets no second PR. |
+
+High-risk changes, and any tier above `notification_policy.chat_approval_max_tier`, are never
+opened as pull requests: the inbox says so and they are approved in pg_sage. An approval in the
+app and a merge at the same moment run the change once.
+
+`principals/users.yaml` maps code-host logins to pg_sage users; the GitOps reconcile ignores
+this file, so `policy.directory` is required:
+
+```yaml
+kind: CodeHostUsers
+schema_version: 1
+users:
+  - login: octo-dba
+    email: alice@example.com
+```
+
+The write token comes from `SAGE_APPROVAL_PRS_TOKEN` (or `SAGE_APPROVAL_PRS_TOKEN_FILE`); it is
+sent only in a request header and never logged, written to a pull request or audited. A
+code-host error while opening is shown on the card ("PR not opened: HTTP 503") and retried with
+backoff (30 seconds, doubling to 30 minutes). A refused token (401 or 403) turns approval pull
+requests off until the token is fixed and pg_sage restarts; the Settings GitOps banner says so.
+Every state change is recorded in `sage.approval_prs` and audited once as
+`approval_pr_transition`. Only the fleet leader polls.
+
+```yaml
+policy:
+  directory: ./gitops
+  approval_prs:
+    provider: github      # or gitlab
+    repo: acme/pg-config
+    base_branch: ""       # empty: the repository's default branch
+    path: approvals/
+    expiry_hours: 72
+```
