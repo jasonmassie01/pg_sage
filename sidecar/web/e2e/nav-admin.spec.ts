@@ -7,7 +7,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mockAllAPIs, mockAuthMe } from './fixtures'
 
-const OPERATE = ['Inbox', 'Issues', 'Actions', 'Ledger', 'Workload', 'SLOs', 'Trust', 'Facts',
+const OPERATE = ['Inbox', 'Issues', 'Actions', 'Ledger', 'Workload', 'SLOs', 'Autonomy', 'Facts',
   'Ask Sage']
 const ADMIN = ['Fleet', 'Users', 'Notifications', 'Alert log', 'Settings', 'MCP tokens',
   'Agents']
@@ -45,7 +45,7 @@ test('dashboard-06: an admin sees the Admin group, in registry order', async ({ 
   await expect(page.getByTestId('nav-runbooks')).toHaveCount(0)
   await advanced.click()
   await expect(page.locator('#advanced-navigation a')).toHaveText(
-    ['Runbooks', 'Earned autonomy', 'Snapshot & metrics'])
+    ['Runbooks', 'Snapshot & metrics'])
 })
 
 test('an operator sees only the Admin pages a reviewer may open', async ({ page }) => {

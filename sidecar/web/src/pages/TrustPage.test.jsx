@@ -170,7 +170,7 @@ describe('TrustPage', () => {
     const ret = screen.getByTestId('trust-row-orders-hygiene-retention')
     expect(within(ret).getByTestId('trust-next')).toHaveTextContent(/irreversible/i)
     const create = screen.getByTestId('trust-row-orders-tuning-index_create')
-    expect(within(create).getByTestId('trust-next')).toHaveTextContent(/waiting for an admin/i)
+    expect(within(create).getByTestId('trust-next')).toHaveTextContent(/under Waiting promotions/i)
   })
 
   // earned-10: the newest bench report decides whatever its origin, so

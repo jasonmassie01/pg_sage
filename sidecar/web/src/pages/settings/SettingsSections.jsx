@@ -1,6 +1,5 @@
 import { Save, RotateCcw } from 'lucide-react'
 import { ConfigDiff } from '../../components/ConfigDiff'
-import { ShadowModePage } from '../ShadowModePage'
 import { AuditCard } from './AuditCard'
 import { DatabricksStatusCard } from './DatabricksStatusCard'
 import { DerivedSettings } from './DerivedSettings'
@@ -123,7 +122,6 @@ export function TabCards({ tab, database, databaseId }) {
   return (
     <>
       {general && <DatabricksStatusCard />}
-      {general && <ShadowModePage database={database} />}
       {general && <DerivedSettings database={database} />}
       {general && <Footprint database={database} />}
       {tab === 'Trust & Safety' && <StandingPolicy databaseId={databaseId} />}

@@ -64,7 +64,7 @@ describe('App: document title follows the route', () => {
     await navigate('#/actions')
     expect(document.title).toBe('Actions · pg_sage')
     await navigate('#/advanced/autonomy')
-    expect(document.title).toBe('Earned autonomy · pg_sage')
+    expect(document.title).toBe('Autonomy · pg_sage')
   })
 
   it('keeps the route title when a hash carries a query', async () => {

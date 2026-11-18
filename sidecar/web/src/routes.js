@@ -71,10 +71,14 @@ export const ROUTES = Object.freeze([
     icon: Gauge, hint: 'Reliability targets and error budgets',
     guide: 'Check reliability targets, remaining error budgets and how quickly failures '
       + 'consume them. Missing evidence appears as unknown.' },
-  { id: 'trust', path: '/trust', title: 'Trust', navGroup: 'operate', testId: 'nav-trust',
-    icon: ShieldCheck, hint: 'What pg_sage may do, and why',
-    guide: 'See what pg_sage is allowed to do and the evidence behind each autonomy '
-      + 'level. Review proposed increases before granting more control.' },
+  // One Autonomy page (ux-06b, decision D6): one scale per class, the
+  // waiting promotions, the ledger's history and the shadow ledger. The
+  // old Trust and Earned autonomy paths stay as aliases.
+  { id: 'autonomy', path: '/autonomy', aliases: ['/trust', '/advanced/autonomy'],
+    title: 'Autonomy', navGroup: 'operate', testId: 'nav-autonomy', icon: ShieldCheck,
+    hint: 'What pg_sage may do per class, and why',
+    guide: 'See, per class, whether pg_sage watches only, asks first, acts then tells '
+      + 'you, or acts in the window, and why. Approve waiting promotions here.' },
   { id: 'facts', path: '/facts', title: 'Facts', navGroup: 'operate', testId: 'nav-facts',
     icon: BookCheck, hint: 'Context pg_sage cannot discover',
     guide: 'Record context pg_sage cannot discover, such as application-owned indexes. '
@@ -122,10 +126,6 @@ export const ROUTES = Object.freeze([
     testId: 'nav-runbooks', hint: 'Signed investigation guides',
     guide: 'Review versioned investigation guides. An administrator must sign each version '
       + 'before use; runbooks propose changes without executing them.' },
-  { id: 'autonomy', path: '/advanced/autonomy', title: 'Earned autonomy',
-    navGroup: 'advanced', testId: 'nav-autonomy', hint: 'Evidence for more independence',
-    guide: 'Review evidence for giving pg_sage more independence on specific tasks. '
-      + 'Administrators approve proposed increases in autonomy.' },
   { id: 'snapshot', path: '/advanced', title: 'Snapshot & metrics', navGroup: 'advanced',
     testId: 'nav-snapshot', hint: 'Collected health and performance metrics',
     usesTimeRange: true, timeRangeLabel: 'Health chart window',

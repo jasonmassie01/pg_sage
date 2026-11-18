@@ -16,8 +16,7 @@ import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
 import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
 import { SLOsPage } from './pages/SLOsPage'
 import { RunbooksPage } from './pages/RunbooksPage'
-import { AutonomyPage } from './pages/AutonomyPage'
-import { TrustPage } from './pages/TrustPage'
+import { AutonomyHub } from './pages/autonomy/AutonomyHub'
 import { FactsPage } from './pages/FactsPage'
 import { AskPage } from './pages/AskPage'
 import { MCPTokensPage } from './pages/MCPTokensPage'
@@ -118,7 +117,6 @@ export const RENDERERS = Object.freeze({
   queries: ctx => <QueriesPage database={ctx.database} />,
   query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
   slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,
-  trust: ctx => <TrustPage database={ctx.database} user={ctx.user} />,
   facts: ctx => <FactsPage database={ctx.database} user={ctx.user} />,
   ask: ctx => (
     <AskPage database={ctx.database} user={ctx.user} caseId={ctx.linkedCase}
@@ -141,7 +139,9 @@ export const RENDERERS = Object.freeze({
   'mcp-tokens': () => <MCPTokensPage />,
   agents: ctx => <AgentsPage user={ctx.user} databases={ctx.databases.map(d => d.name)} />,
   runbooks: ctx => <RunbooksPage database={ctx.database} user={ctx.user} />,
-  autonomy: ctx => <AutonomyPage database={ctx.database} user={ctx.user} />,
+  autonomy: ctx => (
+    <AutonomyHub key={ctx.route} database={ctx.database} user={ctx.user} route={ctx.route} />
+  ),
   snapshot: ctx => (
     <Dashboard database={ctx.database} onSelectDB={ctx.setSelectedDB} user={ctx.user}
       fleet={ctx.fleetQuery} />
