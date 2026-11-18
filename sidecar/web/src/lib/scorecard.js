@@ -14,8 +14,11 @@ const ORIGIN_LABELS = Object.freeze({
   generator: 'Generators', model: 'Model', person: 'People',
 })
 
+// eligible is a stored state the gate files at once (review-05a), so a row
+// in it is shown by name rather than as an unknown verdict.
 export const GATE_VERDICTS = Object.freeze({
   not_eligible: 'Not eligible',
+  eligible: 'Eligible, not yet filed for approval',
   pending_approval: "Waiting for an admin's approval",
   granted: 'Granted by an admin',
   revoked: 'Revoked',

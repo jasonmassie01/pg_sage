@@ -188,6 +188,18 @@ describe('Scorecard', () => {
     }
   })
 
+  it('an eligible row is named and offers no approval until it is filed', () => {
+    const { rerender } = render(<Scorecard data={withGate(gm1({ verdict: 'eligible' }))}
+      user={admin} />)
+    expect(screen.getByTestId('gate-verdict'))
+      .toHaveTextContent('Eligible, not yet filed for approval')
+    expect(screen.queryByText(/Unknown verdict/)).toBeNull()
+    expect(screen.queryByRole('link', { name: /approve/i })).toBeNull()
+    rerender(<Scorecard data={withGate(gm1({ verdict: 'pending_approval' }))} user={admin} />)
+    expect(screen.queryByText(/Eligible, not yet filed/)).toBeNull()
+    expect(screen.getByRole('link', { name: 'Approve in the Inbox' })).toBeInTheDocument()
+  })
+
   it('an unknown verdict is named, not shown as a known state', () => {
     render(<Scorecard data={withGate(gm1({ verdict: 'promoted' }))} user={admin} />)
     expect(screen.getByTestId('gate-verdict')).toHaveTextContent('Unknown verdict (promoted)')

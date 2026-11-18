@@ -436,9 +436,9 @@ compact section for the database picked in the header (the whole fleet has none,
 with a link to the review. Both read `GET /api/v1/databases/{db}/review/scorecard` each minute.
 
 - **The gate card** is the newest G-M1 evaluation: "Model gate: 32 of 50 reviews; model 78%
-  improved vs generators 84%; reverts 0%", then its verdict (`Not eligible`, `Waiting for an
-  admin's approval`, `Granted by an admin` with the approver, `Revoked`) and its reason, and the
-  newest G-M2 reason. An evaluation without its counts shows its reason instead. Before the
+  improved vs generators 84%; reverts 0%", then its verdict (`Not eligible`, `Eligible, not
+  yet filed for approval`, `Waiting for an admin's approval`, `Granted by an admin` with the
+  approver, `Revoked`) and its reason, and the newest G-M2 reason. An evaluation without its counts shows its reason instead. Before the
   first evaluation it reads "Model gate: 0 of 50 reviews; not evaluated yet".
 - **Approval** happens in the Inbox, like every autonomy promotion: a pending G-M1 shows an
   admin "Approve in the Inbox", and the Inbox's Approve (typed-phrase confirm, high risk)
