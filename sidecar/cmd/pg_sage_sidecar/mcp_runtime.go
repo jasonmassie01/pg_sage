@@ -56,8 +56,7 @@ func mcpDependencies() mcp.ProductionDependencies {
 	access := &fleetMCPAccess{manager: fleetMgr, fallback: pool}
 	standingGate := mcp.NeverApproved(&fleetStandingPolicyGate{manager: fleetMgr})
 	return mcp.ProductionDependencies{
-		Gate:    standingGate,
-		Planner: mcp.DeterministicIntentPlanner{},
+		Gate: standingGate, Planner: mcp.DeterministicIntentPlanner{},
 		Executor: &fleetIntentExecutor{
 			access: access, gate: standingGate, cloneConfig: cfg.Clone,
 			migrationFactory: configuredMCPMigrationRuntime,
@@ -97,10 +96,10 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Briefings: fleetBriefingsMCP{manager: fleetMgr},
 		// upgrade_readiness (market-05): read-only, on the resolved database.
 		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
-		// get_inbox, get_outcomes, restore_drills, review_grade and check_pressure
-		// (guard-01a): reads, never a decision.
-		Inbox: api.InboxMCP(fleetMgr, processAutonomy().registry), Pressure: api.PressureMCP(fleetMgr),
+		// get_inbox, get_outcomes, restore_drills, review_grade, check_pressure: reads only.
+		Inbox:    api.InboxMCP(fleetMgr, processAutonomy().registry),
 		Outcomes: api.OutcomesMCP(fleetMgr), RestoreDrills: mcpRestoreDrills(fleetMgr),
+		Pressure: api.PressureMCP(fleetMgr),
 	}
 }
 
