@@ -276,5 +276,6 @@ func trancheSevenMigrations() []namedStep {
 		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},         // lab-03b
 		{"ddlGitopsManagedBy", ddlGitopsManagedBy},                     // cli-02a
 		{"ddlSourceFixPROrigin", ddlSourceFixPROrigin},                 // pr-01b
+		{"ddlApprovalPRs", ddlApprovalPRs},                             // cli-02b
 	}
 }

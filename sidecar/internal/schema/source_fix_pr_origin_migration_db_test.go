@@ -68,7 +68,13 @@ func TestSourceFixPROriginStep_IsIdempotentAndBounded(t *testing.T) {
 		}
 	}
 	steps := migrationSteps()
-	if steps[len(steps)-1].name != "ddlSourceFixPROrigin" {
-		t.Fatalf("last step = %s, want ddlSourceFixPROrigin", steps[len(steps)-1].name)
+	at := -1
+	for i, s := range steps {
+		if s.name == "ddlSourceFixPROrigin" {
+			at = i
+		}
+	}
+	if at < 1 || steps[at-1].name != "ddlGitopsManagedBy" {
+		t.Fatalf("ddlSourceFixPROrigin at %d, want right after ddlGitopsManagedBy", at)
 	}
 }
