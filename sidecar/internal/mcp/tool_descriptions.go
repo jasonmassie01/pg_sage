@@ -244,4 +244,11 @@ var toolDescriptions = map[string]string{
 		"measured effect, its verdict (pending until judged) and whether it can still be " +
 		"rolled back, plus the share with a measured effect. Never changes anything; " +
 		"read-only",
+	"get_request_status": "Use when a held result gave you a handle and you want its " +
+		"state now. Returns state, decided_by_kind, outcome and next for your own " +
+		"request only; another principal's handle is not_found. Never decides or waits",
+	"wait_for_decision": "Use when a held result gave you a handle and you want to wait " +
+		"for its next state instead of polling. Returns when it changes, at timeout_seconds " +
+		"(at most 60; state pending, next wait_for_decision) or state unknown. Never " +
+		"decides; at most 5 waits per principal",
 }

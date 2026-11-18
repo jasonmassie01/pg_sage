@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Streamable HTTP. Every JSON-RPC message is one POST; the server answers
@@ -18,6 +19,21 @@ import (
 // tools/call, the tool name; for resources/read, the uri) Mcp-Name headers.
 
 const maxHTTPBody = 4 << 20
+
+// waitWriteDeadline bounds the response of a wait_for_decision call.
+const waitWriteDeadline = (MaxWaitSeconds + 15) * time.Second
+
+// waitCall reports whether body is a tools/call of wait_for_decision.
+func waitCall(body []byte) bool {
+	var call struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	return json.Unmarshal(body, &call) == nil && call.Method == "tools/call" &&
+		call.Params.Name == toolWaitForDecision
+}
 
 // devOrigins are the dashboard's development origins. The API's
 // cross-origin check runs first and refuses their cross-port writes, so in
@@ -61,6 +77,12 @@ func (r *Runtime) serveHTTP(w http.ResponseWriter, request *http.Request) {
 }
 
 func (r *Runtime) answer(w http.ResponseWriter, request *http.Request, body []byte) {
+	if waitCall(body) {
+		// wait_for_decision may wait up to a minute; the API server's
+		// 60 s write timeout would cut the answer, so this response gets
+		// its own bounded deadline (never an unbounded one).
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(waitWriteDeadline))
+	}
 	response := r.server.Handle(request.Context(), body)
 	if response == nil {
 		w.WriteHeader(http.StatusAccepted) // notification: no body

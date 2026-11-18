@@ -16,13 +16,17 @@ type Server struct {
 	tools     []Tool
 	directory Directory
 	version   string
+	// events and waiters serve wait_for_decision (mcp-01b).
+	events  DecisionEvents
+	waiters *waiterPool
 }
 
 // NewServer returns a server over backend. Backends that also implement
 // the optional tool interfaces (facts, investigations, coding-agent
 // tools, ...) serve those tools; the others report them unavailable.
 func NewServer(backend Backend) *Server {
-	return &Server{backend: backend, tools: toolDefinitions(), version: "dev"}
+	return &Server{backend: backend, tools: toolDefinitions(), version: "dev",
+		waiters: newWaiterPool()}
 }
 
 // WithDirectory sets the fleet the server validates `database` against.
@@ -98,6 +102,8 @@ func familyOf(name string) toolFamily {
 		return (*Server).callInboxTool
 	case name == toolGetOutcomes:
 		return (*Server).callOutcomesTool
+	case requestStatusToolNames[name]:
+		return (*Server).callRequestStatusTool
 	case upgradeToolNames[name]:
 		return (*Server).callUpgradeTool
 	case workloadPackToolNames[name]:

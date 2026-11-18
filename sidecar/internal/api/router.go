@@ -419,6 +419,9 @@ func wrapAPIHandler(
 		// refusals too; inside the security headers.
 		apiHandler = accessLogMiddleware(apiHandler)
 	}
+	// Outermost but the security headers, so it sees the final status:
+	// only a write that succeeded signals in-process waiters (mcp-01b).
+	apiHandler = decisionSignalMiddleware(defaultBroker, apiHandler)
 	apiHandler = securityHeadersMiddleware(apiHandler)
 	return apiHandler
 }

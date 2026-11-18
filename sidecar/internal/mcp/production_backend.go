@@ -92,6 +92,9 @@ type ProductionDependencies struct {
 	Inbox InboxBackend
 	// Outcomes serves get_outcomes (ux-02a); optional.
 	Outcomes OutcomesBackend
+	// RequestStatus serves get_request_status and wait_for_decision
+	// (mcp-01b); optional.
+	RequestStatus RequestStatusBackend
 }
 
 type ProductionBackend struct {

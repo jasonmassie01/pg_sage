@@ -200,16 +200,51 @@ when a new reason is added without one.
 A call that succeeds but leaves work waiting on a person says so in the result itself:
 a `request_change`, `optimize_query` or `ensure_fk_indexes` the policy check queued
 (`decision: queued`) or held back (`parked`), a `propose_policy_change` or
-`set_maintenance_policy` proposal, a `specialist_request_remediation` queued for approval and
-an `agent_request_capability` waiting for an operator. Each adds:
+`set_maintenance_policy` proposal, a `propose_plan` plan, a `specialist_request_remediation`
+queued for approval and an `agent_request_capability` waiting for an operator. Each adds:
 
 | Key | Value |
 |---|---|
 | `approval_url` | the dashboard page where a person decides (kept as the tool returned it when it already has one) |
-| `status` | `{"tool": ..., "arguments": {...}}`, a read-only call to poll: `get_inbox` for the item's kind while it waits on a person, `get_ledger` for a queued or parked change (the intent path records the decision in the ledger and creates no approval item) |
-| `handle` | the item, `<kind>:<id>`: the inbox kind and id (`policy_exception:42`, `change_approval:7`, `agent_request:4`) or `change:<evidence_id>` |
+| `handle` | the item, `<kind>:<id>`: the inbox kind and id (`policy_exception:42`, `change_approval:7`, `agent_request:4`, `plan:9`) or `change:<evidence_id>` for a change the policy check queued or held back |
+| `status` | `{"tool": "get_request_status", "arguments": {"handle": ..., "database": ...}}`, a read-only call that reports the item now; without a handle (no id came back) it is `get_inbox` for the item's kind. A tool that has its own `status` field keeps it (`propose_plan`'s plan status) |
+| `wait` | `{"tool": "wait_for_decision", "arguments": {...}}` with the same arguments, present with a handle |
 
 None of these approve anything: a person decides on the page `approval_url` names.
+
+### Waiting for a decision
+
+`get_request_status {handle}` answers at once; `wait_for_decision {handle, timeout_seconds}`
+(1 to 60, default 30) answers when the item reaches its next state. Both return the same
+shape:
+
+| Key | Value |
+|---|---|
+| `state` | `pending` (no person has decided), `approved`, `running`, `halted`, `executed`, `verified`, `completed`, `rejected`, `failed`, `expired`, `cancelled`, `reverted`, `rolled_back`, `recorded`, `held`, `blocked`, `resolved` or `unknown` |
+| `decided_by_kind` | `person`, `policy` (the standing policy decided, no person), `system` (expiry, voiding) or empty while nobody has decided. An agent never decides |
+| `outcome` | one line on what happened |
+| `next` | `wait_for_decision` while more can happen, `get_request_status` after `unknown`, `null` when the item is final |
+
+How a wait ends:
+
+- the item changes state (an item already final answers at once). Call again to follow the
+  next transition: pending, approved, executed, verified;
+- `timeout_seconds` passes: `state` as last read (`pending`), `next: wait_for_decision`;
+- the live-event stream shuts down (the sidecar is stopping): `state: unknown`,
+  `next: get_request_status`. A wait never hangs.
+
+The wait listens to the sidecar's own live-event stream (every successful API write, such
+as a person's approval, signals it at once; the dashboard's change poller and heartbeat
+also wake it) and reads the item once per signal: no polling loop, and no database
+connection is held while it waits. Each principal may have 5 waits open and the sidecar
+200; one more is `rate_limited` with `retry_after` (when the soonest open wait ends).
+
+The status is the requester's own: another principal's handle, a person's MCP session or a
+caller with no principal gets `not_found`, the same answer as a handle that does not exist.
+A `change:<evidence_id>` handle resolves for the agent principal recorded on the ledger
+decision; a decision that queued an approval reports that approval's state. A change the
+policy check held back without an approval is `held` and final: nothing waits on a person
+(see `get_ledger`).
 
 ### Tool descriptions
 
@@ -607,6 +642,8 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`propose_plan`](#propose_plan) | `propose` | always |
 | [`list_plans`](#list_plans) | `read` | always |
 | [`get_plan`](#get_plan) | `read` | always |
+| [`get_request_status`](#get_request_status) | `read` | always |
+| [`wait_for_decision`](#wait_for_decision) | `read` | always |
 
 ### `get_policy`
 
@@ -1401,5 +1438,28 @@ Scope: `read`
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `plan_id` | integer | yes | value >= 1 |
+
+### `get_request_status`
+
+Use when a held result gave you a handle and you want its state now. Returns state, decided_by_kind, outcome and next for your own request only; another principal's handle is not_found. Never decides or waits.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `handle` | string | yes | the handle a held result returned, such as change_approval:12; pattern `^(change_approval\|plan\|agent_request\|policy_exception\|change):[^\s]+$`; length <= 160 |
+
+### `wait_for_decision`
+
+Use when a held result gave you a handle and you want to wait for its next state instead of polling. Returns when it changes, at timeout_seconds (at most 60; state pending, next wait_for_decision) or state unknown. Never decides; at most 5 waits per principal.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `handle` | string | yes | the handle a held result returned, such as change_approval:12; pattern `^(change_approval\|plan\|agent_request\|policy_exception\|change):[^\s]+$`; length <= 160 |
+| `timeout_seconds` | integer | no | how long to wait (default 30); value 1-60 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

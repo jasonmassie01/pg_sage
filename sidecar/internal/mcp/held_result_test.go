@@ -37,8 +37,9 @@ func (b *intentRecorder) RequestIntent(_ context.Context, _ string,
 	return b.changeResult, nil
 }
 
-// A queued change creates no action-queue item on the intent path, so its
-// status polls the ledger that records it, never the change approvals.
+// A queued change creates no action-queue item on the intent path; its
+// handle names the ledger decision, and status (mcp-01b) reads it with
+// get_request_status, never the change approvals.
 func TestHeldChangeCarriesApprovalURLStatusAndHandle(t *testing.T) {
 	for _, tool := range []string{"request_change", "optimize_query"} {
 		backend := &recordingBackend{changeResult: ChangeResult{Decision: "queued",
@@ -54,12 +55,10 @@ func TestHeldChangeCarriesApprovalURLStatusAndHandle(t *testing.T) {
 			tool)
 		require.Equal(t, "change:ev-9", content["handle"], tool)
 		status := objectMap(t, content["status"])
-		require.Equal(t, "get_ledger", status["tool"], tool)
-		require.Equal(t, map[string]any{"database": "orders"}, status["arguments"], tool)
-		polled := invoke(t, server, operatorContext(context.Background()),
-			toolCall("get_ledger", mustJSON(t, status["arguments"])))
-		require.Zero(t, polled.Error.Code, polled.Error.Message)
-		require.Equal(t, 1, backend.ledgerCalls, "%s: the status call reads the ledger", tool)
+		require.Equal(t, toolGetRequestStatus, status["tool"], tool)
+		require.Equal(t, map[string]any{"database": "orders", "handle": "change:ev-9"},
+			status["arguments"], tool)
+		require.Equal(t, toolWaitForDecision, objectMap(t, content["wait"])["tool"], tool)
 	}
 }
 
@@ -71,8 +70,9 @@ func TestParkedChangePointsAtHeldBack(t *testing.T) {
 	require.Equal(t, "#/actions?tab=decisions&database=orders", content["approval_url"])
 	require.Equal(t, "change:ev-3", content["handle"])
 	status := objectMap(t, content["status"])
-	require.Equal(t, "get_ledger", status["tool"])
-	require.Equal(t, map[string]any{"database": "orders"}, status["arguments"])
+	require.Equal(t, toolGetRequestStatus, status["tool"])
+	require.Equal(t, map[string]any{"database": "orders", "handle": "change:ev-3"},
+		status["arguments"])
 }
 
 func TestChangeThatIsNotHeldCarriesNoHeldFields(t *testing.T) {
@@ -103,7 +103,7 @@ func TestPolicyProposalIsHeldForAPerson(t *testing.T) {
 	require.Equal(t, "policy_exception:42", content["handle"])
 	status := objectMap(t, content["status"])
 	require.Equal(t, map[string]any{"database": "orders",
-		"kinds": []any{"policy_exception"}}, status["arguments"])
+		"handle": "policy_exception:42"}, status["arguments"])
 	none := &recordingBackend{}
 	empty := structuredContent(t, invoke(t, changeServer(none),
 		operatorContext(context.Background()), toolCall("propose_policy_change",
@@ -137,10 +137,18 @@ func TestRemediationQueuedCarriesTheApprovalQueueHandle(t *testing.T) {
 			content["approval_url"], verdict)
 		require.Equal(t, "change_approval:7", content["handle"], verdict)
 		status := objectMap(t, content["status"])
-		require.Equal(t, toolGetInbox, status["tool"])
+		require.Equal(t, toolGetRequestStatus, status["tool"])
 	}
+	noQueue := &remediationBackend{response: specialist.RemediationResponse{
+		Verdict: "queued_for_approval"}}
+	content := heldContent(t, NewServer(noQueue).WithDirectory(fleetOf("orders")),
+		operatorContext(context.Background()), "specialist_request_remediation",
+		remediationArgs)
+	require.NotContains(t, content, "wait", "no queue id, no handle to wait on")
+	require.Equal(t, toolGetInbox, objectMap(t, content["status"])["tool"],
+		"without a handle, status stays the inbox")
 	blocked := &remediationBackend{response: specialist.RemediationResponse{Verdict: "blocked"}}
-	content := structuredContent(t, invoke(t, NewServer(blocked).WithDirectory(
+	content = structuredContent(t, invoke(t, NewServer(blocked).WithDirectory(
 		fleetOf("orders")), operatorContext(context.Background()),
 		toolCall("specialist_request_remediation", remediationArgs)))
 	require.NotContains(t, content, "status", "a blocked request waits on nobody")
@@ -155,7 +163,7 @@ func TestQueuedCapabilityKeepsItsApprovalURLAndAddsStatus(t *testing.T) {
 	require.Equal(t, "agent_request:4", content["handle"])
 	status := objectMap(t, content["status"])
 	require.Equal(t, map[string]any{"database": "orders",
-		"kinds": []any{"agent_request"}}, status["arguments"])
+		"handle": "agent_request:4"}, status["arguments"])
 }
 
 // decidingInbox is an inbox a person empties by deciding its items.
@@ -173,20 +181,33 @@ func (b *decidingInbox) Inbox(_ context.Context, req InboxRequest) (any, error) 
 	return map[string]any{"items": append([]map[string]any{}, b.items...)}, nil
 }
 
+// RequestStatus (mcp-01b) is pending while an item waits, then approved;
+// the caller made every request.
+func (b *decidingInbox) RequestStatus(ctx context.Context, _ RequestQuery) (RequestRecord,
+	error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.items) > 0 {
+		return RequestRecord{State: "pending", OwnerActor: ActorFromContext(ctx)}, nil
+	}
+	return RequestRecord{State: "approved", DecidedByKind: byPerson, Final: true,
+		OwnerActor: ActorFromContext(ctx)}, nil
+}
+
 func (b *decidingInbox) decide() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.items = nil
 }
 
-// pollStatus calls the tool and arguments a held result's status names.
-func pollStatus(t *testing.T, server *Server, status map[string]any) []any {
+// pollStatus calls the tool and arguments a held result's status names
+// and returns the state it reports.
+func pollStatus(t *testing.T, server *Server, status map[string]any) any {
 	t.Helper()
 	args := mustJSON(t, status["arguments"])
 	content := structuredContent(t, invoke(t, server, operatorContext(context.Background()),
 		toolCall(status["tool"].(string), args)))
-	items, _ := content["items"].([]any)
-	return items
+	return content["state"]
 }
 
 func TestHeldProposalStatusShowsItWaitingThenDecided(t *testing.T) {
@@ -197,13 +218,8 @@ func TestHeldProposalStatusShowsItWaitingThenDecided(t *testing.T) {
 	content := heldContent(t, server, operatorContext(context.Background()),
 		"propose_policy_change", `{"delta":{"x":1}}`)
 	status := objectMap(t, content["status"])
-	waiting := pollStatus(t, server, status)
-	require.Len(t, waiting, 1, "held: the item waits on a person")
-	require.Equal(t, "42", objectMap(t, waiting[0])["id"],
-		"the handle's id is the inbox item's id")
+	require.Equal(t, "pending", pollStatus(t, server, status),
+		"held: the item waits on a person")
 	backend.decide()
-	require.Empty(t, pollStatus(t, server, status), "decided: it left the inbox")
-	require.Len(t, backend.asked, 2)
-	require.Equal(t, "orders", backend.asked[0].Database)
-	require.Equal(t, []string{"policy_exception"}, backend.asked[0].Kinds)
+	require.Equal(t, "approved", pollStatus(t, server, status), "decided by a person")
 }

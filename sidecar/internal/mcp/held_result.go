@@ -12,9 +12,12 @@ import (
 // person says where the person decides (approval_url), what the agent can
 // poll meanwhile (status: {tool, arguments}) and the item's handle,
 // "<kind>:<id>". Where an inbox item exists the handle is its inbox kind
-// and id, so the agent finds it in get_inbox; a change the policy check
-// held back is "change:<evidence_id>". mcp-01b's get_request_status takes
-// the same handle. Polling is read-only: no field here approves anything.
+// and id; a change the policy check held back is "change:<evidence_id>"
+// and a proposed plan "plan:<id>". With a handle, status is
+// get_request_status {handle, database} and wait is wait_for_decision with
+// the same arguments (mcp-01b); without one (no id came back), status
+// stays the list the item shows up in. Polling and waiting are read-only:
+// no field here approves anything.
 
 // heldItem is what one held result adds.
 type heldItem struct {
@@ -29,7 +32,7 @@ var heldShapers = map[string]func(content map[string]any, database string) (held
 	"request_change": changeHeld, "optimize_query": changeHeld,
 	"ensure_fk_indexes": changeHeld, "propose_policy_change": policyHeld,
 	"set_maintenance_policy": policyHeld, "specialist_request_remediation": remediationHeld,
-	toolRequestCapability: capabilityHeld,
+	toolRequestCapability: capabilityHeld, "propose_plan": planHeld,
 }
 
 // withHeldFields adds a held result's fields to the tools/call result out.
@@ -50,9 +53,18 @@ func withHeldFields(tool string, arguments json.RawMessage,
 	if _, kept := content["approval_url"]; !kept && item.approvalURL != "" {
 		content["approval_url"] = item.approvalURL
 	}
-	content["status"] = map[string]any{"tool": item.statusTool, "arguments": item.statusArgs}
+	status := map[string]any{"tool": item.statusTool, "arguments": item.statusArgs}
 	if item.handle != "" {
 		content["handle"] = item.handle
+		args := databaseArgs(boundDatabase(arguments))
+		args["handle"] = item.handle
+		status = map[string]any{"tool": toolGetRequestStatus, "arguments": args}
+		content["wait"] = map[string]any{"tool": toolWaitForDecision, "arguments": args}
+	}
+	// A tool's own status field (propose_plan's plan status) is kept: the
+	// held fields are additive. handle and wait still name the item.
+	if _, own := content["status"]; !own {
+		content["status"] = status
 	}
 	return toolSuccess(content)
 }
@@ -139,6 +151,17 @@ func capabilityHeld(content map[string]any, database string) (heldItem, bool) {
 		item.handle = "agent_request:" + id
 	}
 	return item, true
+}
+
+// planHeld: a proposed plan waits for a person's approval.
+func planHeld(content map[string]any, database string) (heldItem, bool) {
+	id := text(content["plan_id"])
+	if text(content["status"]) != "proposed" || id == "" || id == "0" {
+		return heldItem{}, false
+	}
+	return heldItem{handle: "plan:" + id,
+		approvalURL: page("actions", "tab", "plans", "plan", id, "database", database),
+		statusTool:  toolGetInbox, statusArgs: inboxStatus(database, "plan_approval")}, true
 }
 
 // inboxStatus are get_inbox's arguments for one kind on one database.

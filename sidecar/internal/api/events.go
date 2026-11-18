@@ -23,6 +23,10 @@ const (
 	EventActions   EventType = "actions"
 	EventHealth    EventType = "health"
 	EventHeartbeat EventType = "heartbeat"
+	// EventDecisions follows every successful API write (a person's
+	// decision among them) so in-process waiters (MCP wait_for_decision,
+	// mcp-01b) re-read at once. The dashboard stream never shows it.
+	EventDecisions EventType = "decisions"
 )
 
 // Event is the envelope sent to every subscriber.
@@ -39,6 +43,7 @@ type Event struct {
 type EventBroker struct {
 	mu          sync.RWMutex
 	subscribers map[chan Event]struct{}
+	stopped     bool // guarded by mu: Stop closed every subscription
 	started     atomic.Bool
 	stopCh      chan struct{}
 }
@@ -53,10 +58,16 @@ func NewEventBroker() *EventBroker {
 }
 
 // Subscribe registers a new listener. The returned cancel function
-// drops the subscription and closes the channel.
+// drops the subscription and closes the channel. After Stop the channel
+// is closed at once, so no listener waits on a stopped broker.
 func (b *EventBroker) Subscribe() (<-chan Event, func()) {
 	ch := make(chan Event, 32)
 	b.mu.Lock()
+	if b.stopped {
+		b.mu.Unlock()
+		close(ch)
+		return ch, func() {}
+	}
 	b.subscribers[ch] = struct{}{}
 	b.mu.Unlock()
 	return ch, func() {
@@ -118,12 +129,20 @@ func (b *EventBroker) Start(
 	go b.heartbeatLoop(ctx, heartbeatInterval)
 }
 
-// Stop is safe to call multiple times.
+// Stop ends the loops and closes every subscription. It is safe to call
+// multiple times.
 func (b *EventBroker) Stop() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	select {
 	case <-b.stopCh:
 	default:
 		close(b.stopCh)
+	}
+	b.stopped = true
+	for ch := range b.subscribers {
+		delete(b.subscribers, ch)
+		close(ch)
 	}
 }
 
@@ -135,6 +154,7 @@ func (b *EventBroker) heartbeatLoop(
 	for {
 		select {
 		case <-ctx.Done():
+			b.Stop() // the process is shutting down: release every listener
 			return
 		case <-b.stopCh:
 			return
@@ -205,7 +225,7 @@ func eventsHandlerWithLifetime(b *EventBroker, lifetime time.Duration) http.Hand
 				if !open {
 					return
 				}
-				if !eventVisible(evt, visible, scoped) {
+				if evt.Type == EventDecisions || !eventVisible(evt, visible, scoped) {
 					continue
 				}
 				if !writeEventFrame(w, evt) {
