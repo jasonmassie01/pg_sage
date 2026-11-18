@@ -93,7 +93,8 @@ func candidateFromFinding(f prFinding, classify SQLClassifier) (PRCandidate, boo
 		}
 	}
 	if sql := strings.TrimSpace(f.SQL); sql != "" {
-		if kind, tier := classifySQL(sql, classify); kind == ddlPreflightType {
+		if kind, tier := classifySQL(sql, classify); kind == ddlPreflightType &&
+			appMigration(sql) {
 			c.Kind, c.MigrationSQL, c.RollbackSQL, c.RiskTier = PRKindMigration, sql,
 				strings.TrimSpace(f.Rollback), tier
 			return c, true
@@ -124,3 +125,31 @@ func prQueryID(detail map[string]any) int64 {
 	return 0
 }
 
+// appMigration reports DDL that belongs in an application's migrations: a
+// schema object's CREATE, ALTER, DROP or COMMENT. Maintenance (VACUUM,
+// REINDEX), data removal (TRUNCATE), privileges (GRANT, REVOKE, default
+// privileges) and cluster-wide objects (ALTER SYSTEM, roles, databases,
+// tablespaces, subscriptions, event triggers) stay advice for a person.
+func appMigration(sql string) bool {
+	words := strings.Fields(strings.ToUpper(sql))
+	if len(words) < 2 {
+		return false
+	}
+	object := words[1]
+	switch words[0] {
+	case "CREATE", "ALTER", "DROP":
+	case "COMMENT":
+		if len(words) < 3 {
+			return false
+		}
+		object = words[2] // COMMENT ON <object>
+	default:
+		return false
+	}
+	switch object {
+	case "SYSTEM", "ROLE", "USER", "GROUP", "DATABASE", "TABLESPACE", "SUBSCRIPTION",
+		"DEFAULT", "EVENT":
+		return false
+	}
+	return true
+}
