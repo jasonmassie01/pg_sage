@@ -368,9 +368,27 @@ example) are listed below the table. In YAML fleet mode the table is
 searched, tag-filtered, sorted and paged the same way but is read-only:
 it has no row selection, and you edit the YAML file to change a database.
 
-From six databases the header scope picker adds a **Find database** box over
-the same names: typing narrows the list, and a unique exact name, or Enter
-on a single match, selects it.
+From six databases the header scope picker is a search box. Type part of a
+name or host and it asks the sidecar (`GET /api/v1/databases?q=...`, 50
+names at a time, **Load more** for the next 50); arrow keys and Enter, or a
+click, select one, and Enter alone selects an exact name or a single match.
+With nothing typed it lists your five most recent databases first. **All
+databases** is always offered. A smaller fleet keeps the plain list.
+
+Type `tag:key=value` (or `tag:name` for a bare tag) to choose a **tag
+scope**: every database with that tag. The URL then carries `?tag=`. The
+Fleet page opens filtered by the tag; pages that cannot yet filter by tag
+say "This page needs one database" and offer the whole fleet instead of
+showing every database as if it were the tag. A link whose `?database=`
+names a database you cannot see opens all databases and says so.
+
+In the all-databases scope of a fleet of six or more, the home page and
+Trust show the fleet as a summary instead of one block per database: the
+first look as counts by grade with the worst ten listed, setup as "N of M
+databases set up" with the incomplete ones ten at a time, Trust as level
+counts per action class with the databases off the usual level listed, and
+the scope strip as counts ("analyze on 41 databases"). Select a database to
+see its detail.
 
 ## API routes
 
