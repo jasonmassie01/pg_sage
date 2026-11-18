@@ -32,19 +32,25 @@ func codeHostClient(cfg *config.Config) (codehost.Host, error) {
 	}
 	opts := codehost.Options{BaseURL: ch.BaseURL, Token: getenv(config.CodeHostTokenEnv),
 		Timeout: time.Duration(ch.TimeoutSeconds) * time.Second}
-	switch ch.Provider {
+	return buildCodeHost("agents.code_host", ch.Provider, opts)
+}
+
+// buildCodeHost is a GitHub or GitLab client; key names the setting in
+// errors.
+func buildCodeHost(key, provider string, opts codehost.Options) (codehost.Host, error) {
+	switch provider {
 	case "github":
 		gh, err := codehost.NewGitHub(opts)
 		if err != nil {
-			return nil, fmt.Errorf("agents.code_host: %w", err)
+			return nil, fmt.Errorf("%s: %w", key, err)
 		}
 		return gh, nil
 	case "gitlab":
 		gl, err := codehost.NewGitLab(opts)
 		if err != nil {
-			return nil, fmt.Errorf("agents.code_host: %w", err)
+			return nil, fmt.Errorf("%s: %w", key, err)
 		}
 		return gl, nil
 	}
-	return nil, fmt.Errorf("agents.code_host.provider %q is not github or gitlab", ch.Provider)
+	return nil, fmt.Errorf("%s.provider %q is not github or gitlab", key, provider)
 }

@@ -161,6 +161,12 @@ func (h *approvalCardHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if err == nil && a.Status == "scheduled" {
 		body["schedule"] = cardSchedule(*a, time.Now())
 	}
+	if err != nil {
+		a = nil
+	}
+	if note := approvalPRNote(r.Context(), inst.Name, c, a); note != nil {
+		body["approval_pr"] = note // cli-02b
+	}
 	jsonResponse(w, body)
 }
 

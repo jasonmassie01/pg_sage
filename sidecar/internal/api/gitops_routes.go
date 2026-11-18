@@ -38,13 +38,18 @@ func registerGitopsRoutes(mux *http.ServeMux) {
 	route(mux, "GET /api/v1/gitops", gateAdmin, http.HandlerFunc(
 		func(w http.ResponseWriter, _ *http.Request) {
 			report, ok := currentGitopsReport()
+			body := map[string]any{"configured": ok}
+			if prs := approvalPRStatus(); prs != nil {
+				body["approval_prs"] = prs // cli-02b
+			}
 			if !ok {
-				jsonResponse(w, map[string]any{"configured": false})
+				jsonResponse(w, body)
 				return
 			}
 			if report.Changes == nil {
 				report.Changes = []gitops.Change{}
 			}
-			jsonResponse(w, map[string]any{"configured": true, "report": report})
+			body["report"] = report
+			jsonResponse(w, body)
 		}))
 }
