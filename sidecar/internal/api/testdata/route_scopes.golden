@@ -46,6 +46,7 @@ bare GET /api/v1/forecasts/growth gate:viewer scope:aggregate
 bare GET /api/v1/findings/stats gate:viewer scope:aggregate
 bare GET /api/v1/decisions gate:operator scope:aggregate
 bare GET /api/v1/policy/explain gate:operator scope:aggregate
+bare GET /api/v1/whynot gate:operator scope:aggregate
 bare GET /api/v1/events gate:viewer scope:aggregate
 bare GET /api/v1/llm/status gate:viewer scope:fleet-only
 bare POST /api/v1/llm/budget/reset gate:admin scope:-
@@ -216,6 +217,7 @@ standalone GET /api/v1/forecasts/growth gate:viewer scope:aggregate
 standalone GET /api/v1/findings/stats gate:viewer scope:aggregate
 standalone GET /api/v1/decisions gate:operator scope:aggregate
 standalone GET /api/v1/policy/explain gate:operator scope:aggregate
+standalone GET /api/v1/whynot gate:operator scope:aggregate
 standalone GET /api/v1/events gate:viewer scope:aggregate
 standalone GET /api/v1/llm/status gate:viewer scope:fleet-only
 standalone POST /api/v1/llm/budget/reset gate:admin scope:-
@@ -485,6 +487,7 @@ fleet-readonly GET /api/v1/forecasts/growth gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/findings/stats gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/decisions gate:operator scope:aggregate
 fleet-readonly GET /api/v1/policy/explain gate:operator scope:aggregate
+fleet-readonly GET /api/v1/whynot gate:operator scope:aggregate
 fleet-readonly GET /api/v1/events gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/llm/status gate:viewer scope:fleet-only
 fleet-readonly POST /api/v1/llm/budget/reset gate:admin scope:-
@@ -738,6 +741,7 @@ store-only-actions GET /api/v1/forecasts/growth gate:viewer scope:aggregate
 store-only-actions GET /api/v1/findings/stats gate:viewer scope:aggregate
 store-only-actions GET /api/v1/decisions gate:operator scope:aggregate
 store-only-actions GET /api/v1/policy/explain gate:operator scope:aggregate
+store-only-actions GET /api/v1/whynot gate:operator scope:aggregate
 store-only-actions GET /api/v1/events gate:viewer scope:aggregate
 store-only-actions GET /api/v1/llm/status gate:viewer scope:fleet-only
 store-only-actions POST /api/v1/llm/budget/reset gate:admin scope:-
@@ -917,6 +921,7 @@ optional GET /api/v1/forecasts/growth gate:viewer scope:aggregate
 optional GET /api/v1/findings/stats gate:viewer scope:aggregate
 optional GET /api/v1/decisions gate:operator scope:aggregate
 optional GET /api/v1/policy/explain gate:operator scope:aggregate
+optional GET /api/v1/whynot gate:operator scope:aggregate
 optional GET /api/v1/events gate:viewer scope:aggregate
 optional GET /api/v1/llm/status gate:viewer scope:fleet-only
 optional POST /api/v1/llm/budget/reset gate:admin scope:-
@@ -1186,6 +1191,7 @@ databricks-app GET /api/v1/forecasts/growth gate:viewer scope:aggregate
 databricks-app GET /api/v1/findings/stats gate:viewer scope:aggregate
 databricks-app GET /api/v1/decisions gate:operator scope:aggregate
 databricks-app GET /api/v1/policy/explain gate:operator scope:aggregate
+databricks-app GET /api/v1/whynot gate:operator scope:aggregate
 databricks-app GET /api/v1/events gate:viewer scope:aggregate
 databricks-app GET /api/v1/llm/status gate:viewer scope:fleet-only
 databricks-app POST /api/v1/llm/budget/reset gate:admin scope:-

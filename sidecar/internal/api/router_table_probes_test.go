@@ -71,6 +71,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/policy"},
 	{"GET", "/api/v1/provider-advice"},
 	{"GET", "/api/v1/policy/explain"},
+	{"GET", "/api/v1/whynot"},
 	{"GET", "/api/v1/policy/history"},
 	{"GET", "/api/v1/queries/7"},        // market-01
 	{"GET", "/api/v1/queries/top"},      // market-01

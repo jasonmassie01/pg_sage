@@ -19,9 +19,10 @@ import (
 // Reading the decision ledger (policy-07). GET /api/v1/decisions answers
 // "why hasn't this run?" for every withheld candidate of the selected
 // databases; GET /api/v1/policy/explain (policy_explain.go) answers it
-// for one finding before the gate has recorded anything. Both are
-// operator routes: a viewer sees no decision data. Neither returns SQL
-// text, and neither records anything.
+// for one finding before the gate has recorded anything, and GET
+// /api/v1/whynot (whynot.go) as one chain from observed to emergency stop.
+// All are operator routes: a viewer sees no decision data. None returns
+// SQL text, and none records anything.
 
 const decisionsPath = "/api/v1/decisions"
 
@@ -40,6 +41,7 @@ func registerDecisionRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	routeAggregate(mux, "GET "+decisionsPath, gateOperator, mgr, aggregateHandler(decisionsHandler))
 	routeAggregate(mux, "GET /api/v1/policy/explain", gateOperator, mgr,
 		aggregateHandler(policyExplainHandler))
+	routeAggregate(mux, "GET "+whyNotPath, gateOperator, mgr, aggregateHandler(whyNotHandler))
 }
 
 // decisionEntry is one candidate's open withheld decisions as served.
