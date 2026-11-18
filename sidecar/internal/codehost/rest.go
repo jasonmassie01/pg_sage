@@ -152,6 +152,10 @@ func (r *rest) do(ctx context.Context, c call) ([]byte, error) {
 			r.name(), c.method, c.path, ctx.Err())
 	}
 	defer func() { <-r.sem }()
+	// A rate-limit answer may have arrived while this request waited.
+	if err := r.coolingDown(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	req, err := r.request(ctx, c)
