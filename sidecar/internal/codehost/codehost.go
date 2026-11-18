@@ -60,6 +60,10 @@ type Host interface {
 	SearchCode(ctx context.Context, repo, query string) ([]SearchHit, error)
 	// GetFile reads path on repo's default branch.
 	GetFile(ctx context.Context, repo, path string) (File, error)
+	// ListDir returns the names of the files directly in dir on the default
+	// branch, sorted; subdirectories are left out. A directory of more than
+	// MaxDirEntries entries is ErrTooLarge, never a partial list.
+	ListDir(ctx context.Context, repo, dir string) ([]string, error)
 	// ListOpenPRs returns the open pull requests of repo carrying label.
 	ListOpenPRs(ctx context.Context, repo, label string) ([]PullRequest, error)
 	// OpenPR creates req.Branch from req.Base, commits req.Files to it and
@@ -75,6 +79,8 @@ type Host interface {
 const (
 	// MaxSearchHits is how many files one SearchCode returns at most.
 	MaxSearchHits = 20
+	// MaxDirEntries is the most entries ListDir reads from one directory.
+	MaxDirEntries = 1000
 	// MaxFileBytes is the largest file GetFile reads.
 	MaxFileBytes = 1 << 20
 	// DefaultTimeout bounds one request when Options.Timeout is zero.

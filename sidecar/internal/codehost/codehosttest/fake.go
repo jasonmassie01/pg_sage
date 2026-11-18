@@ -15,14 +15,15 @@ import (
 
 // Fake is an in-memory code host. Its zero value is not usable; use New.
 type Fake struct {
-	mu     sync.Mutex
-	files  map[string]map[string]string
-	prs    map[string][]codehost.PullRequest
-	states map[string]codehost.PRStatus
-	err    error
-	calls  int
-	opened []codehost.PRRequest
-	notes  []string
+	mu      sync.Mutex
+	files   map[string]map[string]string
+	prs     map[string][]codehost.PullRequest
+	states  map[string]codehost.PRStatus
+	err     error
+	openErr error
+	calls   int
+	opened  []codehost.PRRequest
+	notes   []string
 }
 
 var _ codehost.Host = (*Fake)(nil)
@@ -131,6 +132,36 @@ func (f *Fake) GetFile(ctx context.Context, repo, path string) (codehost.File, e
 	return codehost.File{Path: path, Content: content}, nil
 }
 
+// FailOpenPR makes every later OpenPR return err, while other calls answer
+// normally (nil restores OpenPR).
+func (f *Fake) FailOpenPR(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.openErr = err
+}
+
+// ListDir implements codehost.Host: the files directly in dir, sorted.
+func (f *Fake) ListDir(ctx context.Context, repo, dir string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.begin(ctx); err != nil {
+		return nil, err
+	}
+	prefix := strings.TrimSuffix(dir, "/") + "/"
+	var names []string
+	for path := range f.files[repo] {
+		rest, ok := strings.CutPrefix(path, prefix)
+		if ok && rest != "" && !strings.Contains(rest, "/") {
+			names = append(names, rest)
+		}
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("%w: %s in %s", codehost.ErrNotFound, dir, repo)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 // ListOpenPRs implements codehost.Host.
 func (f *Fake) ListOpenPRs(ctx context.Context, repo, label string,
 ) ([]codehost.PullRequest, error) {
@@ -141,6 +172,10 @@ func (f *Fake) ListOpenPRs(ctx context.Context, repo, label string,
 	}
 	var out []codehost.PullRequest
 	for _, pr := range f.prs[repo] {
+		st := f.states[fmt.Sprintf("%s#%d", repo, pr.Number)]
+		if st.State != "" && st.State != codehost.PROpen {
+			continue
+		}
 		for _, l := range pr.Labels {
 			if l == label {
 				out = append(out, pr)
@@ -159,6 +194,9 @@ func (f *Fake) OpenPR(ctx context.Context, repo string, req codehost.PRRequest,
 	defer f.mu.Unlock()
 	if err := f.begin(ctx); err != nil {
 		return codehost.PullRequest{}, err
+	}
+	if f.openErr != nil {
+		return codehost.PullRequest{}, f.openErr
 	}
 	f.opened = append(f.opened, req)
 	pr := codehost.PullRequest{Number: len(f.opened), Title: req.Title, Body: req.Body,
