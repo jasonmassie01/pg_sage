@@ -17,8 +17,8 @@ import (
 // place (just before ddlReviewPlans), not "last".
 func TestReviewModelRunsStep_IsPlacedIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) < 2 || steps[len(steps)-2][0] != "ddlReviewModelRuns" ||
-		steps[len(steps)-1][0] != "ddlReviewPlans" {
+	at := stepIndex(steps, "ddlReviewModelRuns")
+	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewPlans" {
 		t.Fatalf("T6 steps %v, want ddlReviewModelRuns then ddlReviewPlans", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
