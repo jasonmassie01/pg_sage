@@ -315,7 +315,7 @@ over all reviews since a time, it counts the plan steps each origin proposed (`g
 | `verified_improved`, `no_change`, `regressed` | the verifier's verdict |
 | `inconclusive` | an inconclusive or expired verdict |
 | `unverifiable` | the verifier could not measure it |
-| `reverted` | any rollback of the step (its state, or its action's `rolled_back` outcome) |
+| `reverted` | any rollback of the step: its state, or its action's `rolling_back`, `rolled_back`, `rollback_failed` or `reverted` outcome |
 | `pending` | no verdict yet |
 | `decided` | improved, no change or regressed, plus every reverted step |
 
@@ -350,13 +350,13 @@ level without their own approval. A grant for one model id never applies to anot
 
 **Revocation is automatic.** At each evaluation (after every grade), a window that fails
 G-M1, a change of the running review model, or a grant with no approved evaluation behind it
-revokes the flag at once, with a `revoked` row and a digest line. Plans of another model id
+revokes the flag at once, with a `revoked` row and a digest line. Evaluations are hourly ticks, so a window that fails within the hour its grant was approved in is revoked at the next tick's evaluation. Plans of another model id
 never use the old grant, since the grant is keyed by model id.
 
 **G-M2 (drop the model pass).** Over the same reviews, if no accepted step was the model's
 alone, `review.model_pass: auto` stops calling that model id for the review, and the digest
 says so. It only narrows: `review.model_pass: on` always runs the pass, a gate that cannot be
-read changes nothing, and a new model id starts on.
+read changes nothing, and a new model id starts on. The model pass reads this verdict once the review pipeline runs it (review-04a); until then G-M2 is evaluated, recorded and stated in the digest, but no review calls a model to skip.
 
 **Stored.** `sage.review_gate`: one row per model, rule and hourly evaluation tick (`model`,
 `rule`, `tick`, `evaluated_at`, `verdict` `not_eligible`, `pending_approval`, `granted`,
