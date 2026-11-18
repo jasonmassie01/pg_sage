@@ -72,6 +72,9 @@ type DatabaseInstance struct {
 	// without a pool, which the route and the MCP tool answer as
 	// unavailable.
 	Pressure *pressure.Checker
+	// PressureJobs registers the database's backfill jobs (guard-01b);
+	// nil without a pool, which the job routes answer as unavailable.
+	PressureJobs pressure.JobRegistry
 	// FirstLookRecheck re-runs the first look on request; nil without one.
 	FirstLookRecheck func(context.Context) (firstlook.Report, error)
 	Stopped          bool

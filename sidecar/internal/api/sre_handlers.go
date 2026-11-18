@@ -42,6 +42,10 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager, cfg *conf
 	// store outside a Databricks App, as migration lint does.
 	registerPressureRoutes(perDB, mgr, lintTokenStore(mcpTokenStore(pool)),
 		rt.DatabricksAppAuth)
+	// Backfill jobs (guard-01b) take an operator token with the propose
+	// scope to register, by the plan routes' pattern.
+	registerPressureJobRoutes(perDB, mgr, lintTokenStore(mcpTokenStore(pool)),
+		rt.DatabricksAppAuth)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode
 	// "managed/{id}" routes overlap with neither more specific, which

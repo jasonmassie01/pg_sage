@@ -222,6 +222,42 @@ no answer as `stop`.
  "checked_at": "2026-11-17T12:00:00Z", "cached_until": "2026-11-17T12:00:02Z"}
 ```
 
+## Backfill jobs
+
+A backfill registers the `application_name` its sessions run under, so pg_sage can tie a
+backend to the job; the CLI, a psql loop and a GitHub Actions step are in
+[Backfill pressure](backfill-pressure.md).
+
+### `POST /api/v1/databases/{db}/pressure-jobs`
+
+Operator on `{db}`, or an operator's API token with the `propose` scope (an agent token is
+refused). Body: `application_name` (required, 1-63 printable ASCII characters, not
+containing `pg_sage`), `table` (optional, the table the job writes), `enforce` (default
+false) and `ttl_seconds` (default 86400, at most 604800). Registering a name that already
+has an active job in `{db}` refreshes that job. 201 with the job:
+
+```json
+{"id": 7, "database": "orders", "application_name": "backfill_orders",
+ "table_name": "public.orders", "registered_by": "token:3f2a", "enforce": true,
+ "created_at": "2026-11-17T12:00:00Z", "expires_at": "2026-11-17T18:00:00Z"}
+```
+
+With `enforce`, after two consecutive `stop` verdicts on the job's table while one of its
+sessions is still writing, pg_sage queues `cancel_backend` for that session in the approval
+queue (finding category `pressure_job`); it runs only when a person approves it, and only
+if the job, the stop and the session are all still there. Errors: a bad body is 400
+`invalid_request`; an unknown database (or one the token may not use) is 404; a database
+that is not connected or a job store that cannot be written is 503.
+
+### `GET /api/v1/databases/{db}/pressure-jobs`
+
+Viewer, or a read-scope API token. `{"jobs": [...]}`, the active jobs of `{db}`.
+
+### `POST /api/v1/databases/{db}/pressure-jobs/{id}/end`
+
+Operator, or an operator token with the `propose` scope. Ends an active job now and
+returns it; an unknown or already ended job is 404 `job_not_found`.
+
 ## Sage Review grade
 
 ### `GET /api/v1/databases/{db}/review/grade`

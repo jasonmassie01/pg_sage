@@ -149,13 +149,14 @@ func TestPressureJobRoutes_RefusesBadInput(t *testing.T) {
 		path, body string
 		code       int
 	}{
-		"no name":         {jobsPath, `{"table":"t"}`, http.StatusBadRequest},
-		"unknown field":   {jobsPath, `{"application_name":"a","pid":1}`, http.StatusBadRequest},
-		"not json":        {jobsPath, `application_name=a`, http.StatusBadRequest},
-		"negative ttl":    {jobsPath, `{"application_name":"a","ttl_seconds":-1}`, 400},
-		"pg_sage name":    {jobsPath, `{"application_name":"pg_sage_x"}`, http.StatusBadRequest},
-		"trailing data":   {jobsPath, `{"application_name":"a"}{}`, http.StatusBadRequest},
-		"unknown db":      {"/api/v1/databases/nope/pressure-jobs", `{"application_name":"a"}`, 404},
+		"no name":       {jobsPath, `{"table":"t"}`, http.StatusBadRequest},
+		"unknown field": {jobsPath, `{"application_name":"a","pid":1}`, http.StatusBadRequest},
+		"not json":      {jobsPath, `application_name=a`, http.StatusBadRequest},
+		"negative ttl":  {jobsPath, `{"application_name":"a","ttl_seconds":-1}`, 400},
+		"pg_sage name":  {jobsPath, `{"application_name":"pg_sage_x"}`, http.StatusBadRequest},
+		"trailing data": {jobsPath, `{"application_name":"a"}{}`, http.StatusBadRequest},
+		"unknown db": {"/api/v1/databases/nope/pressure-jobs", `{"application_name":"a"}`,
+			http.StatusNotFound},
 		"end bad id":      {jobsPath + "/x/end", ``, http.StatusBadRequest},
 		"end unknown job": {jobsPath + "/77/end", ``, http.StatusNotFound},
 	}
