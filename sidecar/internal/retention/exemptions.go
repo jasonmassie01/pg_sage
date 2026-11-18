@@ -9,7 +9,7 @@ var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemption
 	decommissionExemptions, agentEnvClassExemptions, agentGuardExemptions,
 	agentGateExemptions, auditChainExemptions, agentKillExemptions, agentGrantExemptions,
 	trancheThreeExemptions, planExemptions, trancheFiveExemptions, reviewExemptions,
-	sprawlCensusExemptions, upgradeBriefExemptions)
+	sprawlCensusExemptions, upgradeBriefExemptions, trancheSixExemptions)
 
 // agentGuardExemptions: agent identities and their roles are the record of
 // truth for who could act (spec §6.4, §6.6); §6.17 sets no age

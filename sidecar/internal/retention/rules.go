@@ -302,7 +302,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 	}
 	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule,
 		restoreDrillsRule, reviewRunRule, reviewTriggerRule, reviewFleetPassRule,
-		pressureJobsRule)
+		pressureJobsRule, reviewForecastRule, reviewGateRule)
 	return append(rules, planPurgeRule(r))
 }
 
