@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/executor"
 )
 
 // The approval item of an enforcement proposal: an open sage.findings row
@@ -22,7 +24,7 @@ import (
 const (
 	// JobIdentityPrefix starts the identity key of an enforcement item
 	// (pressure_job:<job>:<pid>:<backend_start unix microseconds>).
-	JobIdentityPrefix = "pressure_job:"
+	JobIdentityPrefix = executor.PressureJobIdentityPrefix
 	// RunnerName names the enforcement runner among the executor's
 	// approved-action runners.
 	RunnerName = "pressure_jobs"

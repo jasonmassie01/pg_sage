@@ -31,6 +31,12 @@ type ApprovedActionRunner interface {
 // through the plan runner: with none registered it is refused.
 const PlanStepIdentityPrefix = "plan_step:"
 
+// PressureJobIdentityPrefix starts the identity key of a backfill job's
+// cancel (pressure_job:<job>:<pid>:<backend_start>, guard-01b). Such an
+// item runs only through the pressure runner, which rechecks the job, the
+// pressure and the backend first: with none that owns it, it is refused.
+const PressureJobIdentityPrefix = "pressure_job:"
+
 // Errors of the approved-action runner list.
 var (
 	ErrInvalidRunner = errors.New("invalid approved-action runner")
@@ -40,6 +46,10 @@ var (
 	// executor without its plan engine (an Actions approval, a card, the
 	// scheduled runner) and was refused.
 	ErrPlanStepOutsidePlan = errors.New("a plan step runs only through its plan engine")
+	// ErrPressureJobOutsideRunner: a backfill job's cancel reached the
+	// executor without the pressure runner owning it and was refused.
+	ErrPressureJobOutsideRunner = errors.New(
+		"a backfill job's cancel runs only through its pressure runner")
 )
 
 // registeredRunner is one runner and the identity-key prefixes it owns.
@@ -123,8 +133,8 @@ func (e *Executor) approvedRunnerCount() int {
 
 // RunApprovedAction runs an approved queue item for its approver: items a
 // registered runner owns go to it, every other item keeps the manual path
-// (ExecuteManual against its finding), except a plan step or SRE
-// maintenance item no runner owns, which is refused.
+// (ExecuteManual against its finding), except a plan step, a backfill
+// job's cancel or an SRE maintenance item no runner owns, which is refused.
 func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAction,
 	approvedBy int) (ApprovedRun, error) {
 	if approvedBy <= 0 {
@@ -143,6 +153,10 @@ func (e *Executor) RunApprovedAction(ctx context.Context, action store.QueuedAct
 	if strings.HasPrefix(action.IdentityKey, PlanStepIdentityPrefix) {
 		return ApprovedRun{}, fmt.Errorf("queue item %d (%s): %w", action.ID,
 			action.IdentityKey, ErrPlanStepOutsidePlan)
+	}
+	if strings.HasPrefix(action.IdentityKey, PressureJobIdentityPrefix) {
+		return ApprovedRun{}, fmt.Errorf("queue item %d (%s): %w", action.ID,
+			action.IdentityKey, ErrPressureJobOutsideRunner)
 	}
 	if strings.HasPrefix(action.IdentityKey, "sre_maintenance:") {
 		return ApprovedRun{}, fmt.Errorf("SRE maintenance requires its typed runner")
