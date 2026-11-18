@@ -172,5 +172,16 @@ func literalSafe(original, rewrite string) error {
 	if strings.Contains(rewrite, "\n") && !strings.Contains(original, "\n") {
 		return fmt.Errorf("%w: the rewrite adds a newline", errNoPR)
 	}
+	// Interpolation (${x}, #{x}, f"{x}") and format verbs (%) the host
+	// language may read inside the literal.
+	for _, ch := range []string{"{", "}", "%", "#"} {
+		if strings.Contains(rewrite, ch) && !strings.Contains(original, ch) {
+			return fmt.Errorf("%w: the rewrite adds a %s the host language may "+
+				"interpret", errNoPR, ch)
+		}
+	}
+	if strings.Count(rewrite, "?") > strings.Count(original, "?") {
+		return fmt.Errorf("%w: the rewrite adds a ? bind placeholder", errNoPR)
+	}
 	return nil
 }
