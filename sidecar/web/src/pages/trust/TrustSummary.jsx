@@ -38,6 +38,49 @@ function fleetClasses(views) {
   return { classes, pending }
 }
 
+// needsAdmin is every row an admin must act on, by database: a promotion
+// waiting for approval, or a level capped by a PostgreSQL major upgrade
+// waiting for re-approval. Both are done on that database's page.
+function needsAdmin(views) {
+  const out = []
+  for (const view of views) {
+    for (const row of view.rows || []) {
+      const what = `${row.family} / ${row.class}`
+      if (row.major_cap) {
+        out.push({ database: view.database,
+          what: `${what}: re-approve after a PostgreSQL major upgrade` })
+      }
+      if (row.pending) {
+        out.push({ database: view.database, what: `${what}: promotion to ${row.pending.to}` })
+      }
+    }
+  }
+  return out.sort((a, b) => String(a.database).localeCompare(String(b.database))
+    || a.what.localeCompare(b.what))
+}
+
+function NeedsAdmin({ views, onSelectDatabase }) {
+  const rows = needsAdmin(views)
+  if (rows.length === 0) return null
+  const listed = rows.slice(0, SUMMARY_LIST)
+  const more = rows.length - listed.length
+  return (
+    <div className="space-y-1">
+      <ul aria-label="Waiting for an admin" className="space-y-1 text-sm">
+        {listed.map(r => (
+          <li key={`${r.database} ${r.what}`} data-testid="trust-needs-admin-row" data-db-row="">
+            <button type="button" className="font-mono underline"
+              onClick={() => onSelectDatabase?.(r.database)}>{r.database}</button>
+            {' '}<span style={muted}>{r.what}</span>
+          </li>
+        ))}
+      </ul>
+      {more > 0 && <p className="text-xs" style={muted}
+        data-testid="trust-needs-admin-more">{more} more</p>}
+    </div>
+  )
+}
+
 function ClassRow({ entry, onSelectDatabase }) {
   const listed = entry.exceptions.slice(0, SUMMARY_LIST)
   const more = entry.exceptions.length - listed.length
@@ -78,6 +121,7 @@ export function TrustSummary({ views, onSelectDatabase }) {
           {pending} promotion{pending === 1 ? ' is' : 's are'} waiting for an admin.
         </p>
       )}
+      <NeedsAdmin views={views} onSelectDatabase={onSelectDatabase} />
       <ul className="space-y-2">
         {classes.map(entry => <ClassRow key={`${entry.family}/${entry.cls}`} entry={entry}
           onSelectDatabase={onSelectDatabase} />)}
