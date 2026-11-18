@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"flag"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -272,5 +273,26 @@ func TestDatabasesList_ListResponseKeepsOverviewFields(t *testing.T) {
 	}
 	if strings.Index(body, `"billing"`) > strings.Index(body, `"orders"`) {
 		t.Errorf("sort=name did not put billing first: %s", body)
+	}
+}
+
+// A database never collected (db-009, zero collector time) is the oldest:
+// first ascending, last descending, and its cursor pages on.
+func TestDatabasesList_NeverCollectedIsOldestSnapshot(t *testing.T) {
+	if got := snapshotKey(time.Time{}); got != math.MinInt64 {
+		t.Fatalf("snapshotKey(zero) = %d, want MinInt64", got)
+	}
+	h := listHandler(listFixture(t, 20))
+	_, first := listGet(t, h, "sort=last_snapshot&limit=1")
+	if strings.Join(first.names(), ",") != "db-009" || *first.NextCursor == "" {
+		t.Fatalf("oldest snapshot = %v, want db-009 with a cursor", first.names())
+	}
+	pages := listPages(t, h, "sort=last_snapshot&limit=1")
+	if len(pages) != 20 || pages[1][0] != "db-011" || pages[2][0] != "pay-000" {
+		t.Fatalf("pages after db-009 = %v, want db-011 then pay-000", pages[:3])
+	}
+	_, desc := listGet(t, h, "sort=last_snapshot&order=desc&limit=20")
+	if names := desc.names(); len(names) != 20 || names[19] != "db-009" {
+		t.Fatalf("descending = %v, want db-009 last", names)
 	}
 }

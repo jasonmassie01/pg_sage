@@ -3,10 +3,12 @@ package api
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
@@ -240,11 +242,20 @@ func fleetSortKey(db fleet.DatabaseStatus, f fleet.DatabaseFacets, sortName stri
 	case "open_issues":
 		k.n = int64(st.FindingsOpen)
 	case "last_snapshot":
-		k.n = st.CollectorLastRun.UnixNano()
+		k.n = snapshotKey(st.CollectorLastRun)
 	case "mode":
 		k.s = f.ExecutionMode
 	}
 	return k
+}
+
+// snapshotKey is a collection time as a sort value. A database never
+// collected (zero time) is the oldest of all; UnixNano is undefined for it.
+func snapshotKey(t time.Time) int64 {
+	if t.IsZero() {
+		return math.MinInt64
+	}
+	return t.UnixNano()
 }
 
 // fleetRowMatches is true when the row's name or host contains q (case
