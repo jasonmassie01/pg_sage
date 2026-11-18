@@ -68,7 +68,9 @@ Name only the members that most need a deep review: falling grades, large candid
 impact, unusual cost, idleness. Reply with JSON only, in this shape:
 {"outliers": [{"member": "R12", "reason": "one sentence", "cites": ["R12"]}]}
 member is a rollup id from the data. cites lists the rollup ids whose numbers support
-the reason. Never write SQL.`
+the reason. Never write SQL.
+
+` + llm.UntrustedDataRule
 
 // RunTriage is tier 2 over the rollups: the model triages them in
 // batches; a batch whose call fails or whose reply is empty or not JSON
