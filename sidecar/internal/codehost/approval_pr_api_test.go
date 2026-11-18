@@ -79,8 +79,9 @@ func TestGitLabPRStateReportsMergerAndMergeCommit(t *testing.T) {
 
 func TestGitLabGetFileAtAndClosePR(t *testing.T) {
 	base := "/api/v4" + glProjectPath
+	raw := "GET " + base + "/repository/files/approvals%2Fdb1%2F7.yaml/raw"
 	rec := newRecorder(t, map[string]answer{
-		"GET " + base + "/repository/files/approvals%2Fdb1%2F7.yaml/raw": {body: "kind: y\n"},
+		raw:                                 {body: "kind: y\n"},
 		"PUT " + base + "/merge_requests/5": {body: `{"iid":5,"state":"closed"}`},
 	})
 	gl := newTestGitLab(t, rec)
