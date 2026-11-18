@@ -71,6 +71,10 @@ var readRouteScopes = map[string]readScope{
 	"GET /api/v1/model-lift":                    readFleetOnly,
 	"GET /api/v1/policy":                        readFleetOnly,
 	"GET /api/v1/policy/history":                readFleetOnly,
+	"GET /api/v1/policy-sets":                   readFleetOnly, // fleetpol-01a
+	"GET /api/v1/policy-sets/{name}/members":    readFleetOnly,
+	"GET /api/v1/policy-sets/{name}/export":     readFleetOnly,
+	"GET /api/v1/policy-exceptions":             readFleetOnly,
 	"GET /api/v1/trust":                         readFleetOnly,
 	"GET /api/v1/upgrade-readiness":             readFleetOnly,
 	"GET /api/v1/case-tickets":                  readFleetOnly,

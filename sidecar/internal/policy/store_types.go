@@ -23,13 +23,20 @@ var (
 	ErrReasonRequired = errors.New("single-operator approval requires a reason")
 )
 
+// Scope names whose document a row is: a database, a policy set
+// (SetName, fleetpol-01a) or, with neither, the global document.
 type Scope struct {
 	DatabaseID *int64 `json:"database_id,omitempty"`
+	SetName    string `json:"set_name,omitempty"`
 }
 
 type Policy struct {
-	ID        int64           `json:"id"`
-	Scope     Scope           `json:"scope"`
+	ID    int64 `json:"id"`
+	Scope Scope `json:"scope"`
+	// Set names the policy set whose document this is: the row of a set,
+	// or the set a database follows (fleetpol-01a). "" for a database's
+	// own document (an exception) and the global document.
+	Set       string          `json:"set,omitempty"`
 	Version   int64           `json:"version"`
 	Profile   string          `json:"profile"`
 	Document  json.RawMessage `json:"document"`

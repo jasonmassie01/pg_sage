@@ -16,11 +16,13 @@ import (
 // kind. No concurrent-writer test here: Bootstrap holds its advisory lock;
 // the ledger's state rules are tested in internal/review/fleet.
 
-func TestReviewFleetStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// fleetpol-01a's ddlPolicySets merged after this step, so the pin is its
+// place: right after ddlReviewTriggers, whose table it alters.
+func TestReviewFleetStep_IsPlacedIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) < 2 || steps[len(steps)-1][0] != "ddlReviewFleet" ||
-		steps[len(steps)-1][1] != ddlReviewFleet || steps[len(steps)-2][0] != "ddlReviewTriggers" {
-		t.Fatalf("T6 steps %v, want ddlReviewTriggers then ddlReviewFleet last", steps)
+	at := stepIndex(steps, "ddlReviewFleet")
+	if at < 1 || steps[at][1] != ddlReviewFleet || steps[at-1][0] != "ddlReviewTriggers" {
+		t.Fatalf("T6 steps %v, want ddlReviewTriggers then ddlReviewFleet", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout = '5s'",
 		"CREATE TABLE IF NOT EXISTS sage.review_fleet_pass (",

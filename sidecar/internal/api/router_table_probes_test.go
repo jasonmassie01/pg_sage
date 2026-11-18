@@ -73,9 +73,13 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/provider-advice"},
 	{"GET", "/api/v1/policy/explain"},
 	{"GET", "/api/v1/policy/history"},
-	{"GET", "/api/v1/queries/7"},        // market-01
-	{"GET", "/api/v1/queries/top"},      // market-01
-	{"GET", "/api/v1/queries/coverage"}, // evid-01b
+	{"GET", "/api/v1/policy-sets"},           // fleetpol-01a
+	{"GET", "/api/v1/policy-sets/7/members"}, // fleetpol-01a
+	{"GET", "/api/v1/policy-sets/7/export"},  // fleetpol-01a
+	{"GET", "/api/v1/policy-exceptions"},     // fleetpol-01a
+	{"GET", "/api/v1/queries/7"},             // market-01
+	{"GET", "/api/v1/queries/top"},           // market-01
+	{"GET", "/api/v1/queries/coverage"},      // evid-01b
 	{"GET", "/api/v1/query-hints"},
 	{"GET", "/api/v1/recommendations"},
 	{"GET", "/api/v1/recommendations/7"},
@@ -120,6 +124,8 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/onboarding/setup"},
 	{"POST", "/api/v1/policy/proposals"},
 	{"POST", "/api/v1/policy/proposals/7/ratify"},
+	{"POST", "/api/v1/policy-exceptions"},  // fleetpol-01a
+	{"POST", "/api/v1/policy-sets/import"}, // fleetpol-01a
 	{"POST", "/api/v1/restart"},
 	{"POST", "/api/v1/resume"},
 	{"POST", "/api/v1/users"},
@@ -127,6 +133,7 @@ var routeProbes = []routeProbe{
 	{"PUT", "/api/v1/config"},
 	{"PUT", "/api/v1/config/databases/7"},
 	{"PUT", "/api/v1/config/global"},
+	{"PUT", "/api/v1/policy-sets/7"}, // fleetpol-01a
 	{"PUT", "/api/v1/databases/managed/7"},
 	{"PUT", "/api/v1/notifications/channels/7"},
 	{"PUT", "/api/v1/notifications/rules/7"},

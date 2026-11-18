@@ -19,6 +19,7 @@ the inbox. It reads seven sources across every database the caller may read:
 | `runbook_signature` | A runbook whose latest version is an unsigned draft | `#/advanced/runbooks?database=<db>&runbook=<id>` | admin |
 | `agent_request` | An agent's unexpired pending capability request | `#/agents?agent=<id>&request=<id>&database=<db>` | operator |
 | `policy_exception` | A policy proposal waiting for ratification, an agent's `propose_policy_change` among them | `#/agents?tab=policy&proposal=<id>&database=<db>` | admin |
+| `policy_exception` | A policy-set exception in force on the database (id `exception-<database_id>`): moderate without an expiry, safe and due at its expiry otherwise | `#/settings?tab=policy-sets&database=<db>` | admin |
 
 The inbox only reads. Every decision still goes through the item's own route
 and the executor, ledger or store behind it, with the same approvals,

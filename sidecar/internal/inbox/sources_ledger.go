@@ -87,6 +87,6 @@ func FleetSources(in Instances, ledgers *earned.Registry) map[Kind]Source {
 		KindFact:              Facts(in),
 		KindRunbookSignature:  Runbooks(in),
 		KindAgentRequest:      AgentRequests(in),
-		KindPolicyException:   PolicyProposals(in),
+		KindPolicyException:   joinSources(PolicyProposals(in), PolicyExceptions(in)),
 	}
 }

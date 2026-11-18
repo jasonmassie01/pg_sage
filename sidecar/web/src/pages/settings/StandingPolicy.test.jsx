@@ -53,4 +53,16 @@ describe('StandingPolicy', () => {
     render(<StandingPolicy />)
     expect(screen.getByTestId('standing-policy-current')).toHaveTextContent(/no standing policy/i)
   })
+
+  // fleetpol-01c: a database's tab names the policy set it resolves to.
+  it('names the set a database resolves to, and nothing for the global scope', () => {
+    responses['/api/v1/policy'] = { ...current, set: 'prod' }
+    responses['/api/v1/policy-exceptions'] = { exceptions: [] }
+    const { unmount } = render(<StandingPolicy databaseId={12} />)
+    expect(screen.getByTestId('governed-by')).toHaveTextContent('Governed by: prod')
+    expect(requested).toContain('/api/v1/policy-exceptions')
+    unmount()
+    render(<StandingPolicy />)
+    expect(screen.queryByTestId('governed-by')).toBeNull()
+  })
 })

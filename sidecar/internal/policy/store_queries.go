@@ -6,22 +6,27 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
+// currentPolicySQL reads one scope's own active row: $1 the database (NULL
+// for the global and set scopes), $2 the set (NULL outside a set).
 const currentPolicySQL = `
-SELECT id, database_id, version, profile, doc, ratified_by, activated_at
+SELECT id, database_id, version, profile, doc, ratified_by, activated_at,
+       COALESCE(set_name, '')
 FROM sage.policy
-WHERE database_id IS NOT DISTINCT FROM $1 AND status = 'active'
+WHERE database_id IS NOT DISTINCT FROM $1 AND set_name IS NOT DISTINCT FROM $2
+  AND status = 'active'
 ORDER BY version DESC LIMIT 1`
 
 const policyHistorySQL = `
 SELECT id, database_id, version, profile, doc,
        COALESCE(ratified_by, proposed_by),
-       COALESCE(activated_at, ratified_at, proposed_at)
+       COALESCE(activated_at, ratified_at, proposed_at), COALESCE(set_name, '')
 FROM sage.policy
-WHERE database_id IS NOT DISTINCT FROM $1
+WHERE database_id IS NOT DISTINCT FROM $1 AND set_name IS NOT DISTINCT FROM $3
   AND status IN ('active', 'superseded')
 ORDER BY version DESC LIMIT $2`
 
@@ -34,9 +39,10 @@ func scanPolicy(row rowScanner) (Policy, error) {
 	var databaseID *int64
 	err := row.Scan(
 		&item.ID, &databaseID, &item.Version, &item.Profile,
-		&item.Document, &item.UpdatedBy, &item.UpdatedAt,
+		&item.Document, &item.UpdatedBy, &item.UpdatedAt, &item.Scope.SetName,
 	)
 	item.Scope.DatabaseID = databaseID
+	item.Set = item.Scope.SetName
 	return item, err
 }
 
@@ -50,19 +56,21 @@ func (s *Store) insertProposal(
 WITH next_id AS (SELECT nextval('sage.policy_id_seq') AS id)
 INSERT INTO sage.policy (
     id, database_id, version, scope, profile, doc, preview, status,
-    proposed_by, supersedes_id, proposed_principal_id, proposed_sponsor_id, widening
+    proposed_by, supersedes_id, proposed_principal_id, proposed_sponsor_id, widening,
+    set_name
 )
 SELECT id, $1, -id, $2, $3, $4, $5, 'proposed', $6, $7, NULLIF($8, ''),
-       NULLIF($9, 0), $10 FROM next_id
+       NULLIF($9, 0), $10, $11 FROM next_id
 RETURNING id, database_id, profile, doc, proposed_by, preview, proposed_at,
-          COALESCE(proposed_principal_id, ''), COALESCE(proposed_sponsor_id, 0), widening`,
+          COALESCE(proposed_principal_id, ''), COALESCE(proposed_sponsor_id, 0), widening,
+          COALESCE(set_name, '')`,
 		request.Scope.DatabaseID, scopeName(request.Scope), request.Profile,
 		request.Document, preview, request.Actor, current.ID,
-		agent.ID, agent.SponsorID, widening,
+		agent.ID, agent.SponsorID, widening, setNameArg(request.Scope),
 	).Scan(
 		&result.ID, &databaseID, &result.Profile, &result.Document,
 		&result.Actor, &result.Preview, &result.CreatedAt,
-		&result.PrincipalID, &result.SponsorID, &result.Widening,
+		&result.PrincipalID, &result.SponsorID, &result.Widening, &result.Scope.SetName,
 	)
 	if err != nil {
 		return Proposal{}, fmt.Errorf("insert policy proposal: %w", err)
@@ -73,7 +81,7 @@ RETURNING id, database_id, profile, doc, proposed_by, preview, proposed_at,
 }
 
 func ratifyInTransaction(
-	ctx context.Context, tx pgx.Tx, request RatifyRequest,
+	ctx context.Context, tx pgx.Tx, request RatifyRequest, now time.Time,
 ) (Policy, error) {
 	proposal, baseID, err := loadProposalForUpdate(ctx, tx, request.ProposalID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -89,6 +97,9 @@ func ratifyInTransaction(
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", lockKey); err != nil {
 		return Policy{}, fmt.Errorf("lock policy scope: %w", err)
 	}
+	if proposal.Scope.DatabaseID != nil {
+		return ratifyDatabaseProposal(ctx, tx, proposal, baseID, request, now)
+	}
 	current, err := currentPolicyForUpdate(ctx, tx, proposal.Scope)
 	if err != nil {
 		return Policy{}, err
@@ -103,7 +114,7 @@ func ratifyInTransaction(
 UPDATE sage.policy SET status = 'superseded' WHERE id = $1`, current.ID); err != nil {
 		return Policy{}, fmt.Errorf("supersede policy: %w", err)
 	}
-	return activateProposal(ctx, tx, proposal, current, request.Actor)
+	return activateProposal(ctx, tx, proposal, current.Version+1, request.Actor)
 }
 
 func loadProposalForUpdate(
@@ -115,11 +126,11 @@ func loadProposalForUpdate(
 	err := tx.QueryRow(ctx, `
 SELECT id, database_id, profile, doc, proposed_by, preview, proposed_at,
        supersedes_id, COALESCE(proposed_principal_id, ''),
-       COALESCE(proposed_sponsor_id, 0), widening
+       COALESCE(proposed_sponsor_id, 0), widening, COALESCE(set_name, '')
 FROM sage.policy WHERE id = $1 AND status = 'proposed' FOR UPDATE`, proposalID).Scan(
 		&result.ID, &databaseID, &result.Profile, &result.Document,
 		&result.Actor, &result.Preview, &result.CreatedAt, &baseID,
-		&result.PrincipalID, &result.SponsorID, &result.Widening,
+		&result.PrincipalID, &result.SponsorID, &result.Widening, &result.Scope.SetName,
 	)
 	result.Scope.DatabaseID = databaseID
 	return result, baseID, err
@@ -128,7 +139,8 @@ FROM sage.policy WHERE id = $1 AND status = 'proposed' FOR UPDATE`, proposalID).
 func currentPolicyForUpdate(
 	ctx context.Context, tx pgx.Tx, scope Scope,
 ) (Policy, error) {
-	row := tx.QueryRow(ctx, currentPolicySQL+" FOR UPDATE", scope.DatabaseID)
+	row := tx.QueryRow(ctx, currentPolicySQL+" FOR UPDATE", scope.DatabaseID,
+		setNameArg(scope))
 	policy, err := scanPolicy(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Policy{}, ErrNotFound
@@ -137,15 +149,16 @@ func currentPolicyForUpdate(
 }
 
 func activateProposal(
-	ctx context.Context, tx pgx.Tx, proposal Proposal, current Policy, actor string,
+	ctx context.Context, tx pgx.Tx, proposal Proposal, version int64, actor string,
 ) (Policy, error) {
 	row := tx.QueryRow(ctx, `
 UPDATE sage.policy
 SET version = $2, status = 'active', ratified_by = $3,
     ratified_at = now(), activated_at = now()
 WHERE id = $1
-RETURNING id, database_id, version, profile, doc, ratified_by, activated_at`,
-		proposal.ID, current.Version+1, actor,
+RETURNING id, database_id, version, profile, doc, ratified_by, activated_at,
+          COALESCE(set_name, '')`,
+		proposal.ID, version, actor,
 	)
 	policy, err := scanPolicy(row)
 	if err != nil {
@@ -169,8 +182,20 @@ func validateProposal(request ProposalRequest) error {
 }
 
 func scopeName(scope Scope) string {
-	if scope.DatabaseID == nil {
+	switch {
+	case scope.SetName != "":
+		return setScope(scope.SetName)
+	case scope.DatabaseID == nil:
 		return "global"
 	}
 	return "database"
+}
+
+// setNameArg is the set_name parameter of scope: NULL outside a set.
+func setNameArg(scope Scope) *string {
+	if scope.SetName == "" {
+		return nil
+	}
+	name := scope.SetName
+	return &name
 }

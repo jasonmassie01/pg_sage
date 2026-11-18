@@ -160,8 +160,8 @@ func AgentRequests(in Instances) Source {
 }
 
 // PolicyProposals lists policy proposals waiting for ratification (an
-// agent's propose_policy_change among them); fleetpol-02 exceptions join
-// this kind through the same interface.
+// agent's propose_policy_change among them); policy-set exceptions join
+// this kind through PolicyExceptions (fleetpol-01c).
 func PolicyProposals(in Instances) Source {
 	return SourceFunc(func(ctx context.Context, db string) ([]Item, error) {
 		pool, err := poolOf(in, db)

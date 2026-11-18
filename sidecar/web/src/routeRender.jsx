@@ -4,6 +4,7 @@ import { CasesPage } from './pages/CasesPage'
 import { Actions } from './pages/Actions'
 import { DatabasePage } from './pages/DatabasePage'
 import { SettingsPage } from './pages/SettingsPage'
+import { settingsTabFromRoute } from './pages/settings/useSettingsConfig'
 import { AlertsRedirect } from './pages/AlertsRedirect'
 import { UsersPage } from './pages/UsersPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -140,7 +141,8 @@ export const RENDERERS = Object.freeze({
   },
   alerts: ctx => <AlertsRedirect route={ctx.route} />,
   settings: ctx => (
-    <SettingsPage database={ctx.database}
+    <SettingsPage database={ctx.database} user={ctx.user}
+      linkedTab={settingsTabFromRoute(ctx.route)}
       databaseId={ctx.selectedDatabase?.id || ctx.selectedDatabase?.database_id} />
   ),
   'mcp-tokens': () => <MCPTokensPage />,
@@ -151,7 +153,8 @@ export const RENDERERS = Object.freeze({
     <Dashboard database={ctx.database} onSelectDB={ctx.setSelectedDB} user={ctx.user}
       fleet={ctx.fleetQuery} />
   ),
-  database: ctx => <DatabasePage database={ctx.database} user={ctx.user} />,
+  database: ctx => <DatabasePage database={ctx.database} user={ctx.user}
+    databaseId={ctx.selectedDatabase?.id || ctx.selectedDatabase?.database_id} />,
   forecasts: ctx => cases(ctx, 'forecast'),
   'query-hints': ctx => cases(ctx, 'query_hint'),
   'schema-health': ctx => cases(ctx, 'schema_health'),
