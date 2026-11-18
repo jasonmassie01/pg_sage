@@ -130,6 +130,14 @@ func (p *ApprovalPRs) decideMerged(ctx context.Context, rec ApprovalPRRecord,
 // returns why the merge is not an approval, or "".
 func (p *ApprovalPRs) mergeRefusal(ctx context.Context, rec ApprovalPRRecord,
 	st codehost.PRStatus, item ApprovalItem) (string, error) {
+	mergedAt := p.now()
+	if st.MergedAt != nil {
+		mergedAt = st.MergedAt.UTC()
+	}
+	if !mergedAt.Before(rec.ExpiresAt) {
+		return "merged after this approval request expired at " +
+			rec.ExpiresAt.UTC().Format("2006-01-02 15:04 MST"), nil
+	}
 	ref := st.MergeSHA
 	if ref == "" {
 		ref = p.Config.BaseBranch
