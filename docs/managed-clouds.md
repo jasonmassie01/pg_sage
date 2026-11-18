@@ -97,6 +97,32 @@ still goes through the policy gate and the trust ledger.
   "ok". `pg_stat_archiver` is still read on managed servers, but providers often run their own
   archiving, so the provider's restorable time is the evidence to trust there. See
   [Backups and WAL archiving](findings.md#backups-and-wal-archiving).
+- **Backup isolation.** A backup deleted in the same call that deletes the database is no
+  backup against that call. pg_sage records whether any backup it can see outlives a delete
+  of the instance, and how far back point-in-time recovery reaches:
+  - RDS: one `DescribeDBSnapshots` (manual snapshots, 20 records) and one
+    `DescribeDBInstanceAutomatedBackups` (the active backup's restore window) per 6 hours,
+    15 minutes after a failed read. A manual snapshot no older than `backup.max_age_hours`,
+    an AWS Backup recovery point or a cross-region backup replication (both in the instance
+    description) outlives the instance. Automated backups alone do not: `DeleteDBInstance`
+    deletes them unless the caller asks to retain them.
+    When more than 20 manual snapshots exist and none of the first 20 is recent enough,
+    isolation is unknown (the newest may be on a later page), not false.
+  - Aurora, and an RDS Multi-AZ DB cluster member: one `DescribeDBClusterSnapshots`
+    (manual) per 6 hours; the window is the cluster's latest minus earliest restorable
+    time, and on Aurora deletion protection is the cluster's, all in the cluster
+    description.
+  - Cloud SQL: `settings.retainBackupsOnDelete` in the instance description; the window is
+    the transaction log retention while point-in-time recovery is on.
+  - AWS Backup vaults, exports and copies in other accounts are not read; name one in
+    `backup.external_source` and `backup_shares_delete_path` resolves. Azure, AlloyDB, Neon
+    and Lakebase report isolation unknown (no adapter reads it yet).
+
+  Findings: `backup_shares_delete_path` (warning; critical on a production database with the
+  agent gate on), `deletion_protection_off` (warning, production only) and
+  `pitr_window_below_policy` (below `backup.min_pitr_hours`, 24). An unknown value evaluates
+  nothing, so an open finding stays open; a denied read is logged once per reason and
+  leaves the rest of the posture as read.
 - **Parameter drift.** Values set in the parameter group or flags that PostgreSQL does not run
   (pending a reboot, overridden by a database/role setting, or not in effect) open
   `managed_parameter_drift` findings.
@@ -362,7 +388,9 @@ Credentials come only from the standard chains and are never stored, logged or p
 
 - **AWS:** the default chain (environment, shared config/SSO, web identity, ECS task or EC2
   instance role). Read-only permissions: `cloudwatch:GetMetricData`, `pi:GetResourceMetrics`,
-  `rds:DescribeDBInstances`, `rds:DescribeDBClusters`, `rds:DescribeDBParameters`.
+  `rds:DescribeDBInstances`, `rds:DescribeDBClusters`, `rds:DescribeDBParameters`, and for
+  backup isolation `rds:DescribeDBSnapshots`, `rds:DescribeDBClusterSnapshots` and
+  `rds:DescribeDBInstanceAutomatedBackups`.
 - **Google Cloud:** Application Default Credentials (`GOOGLE_APPLICATION_CREDENTIALS` with a
   service-account key or user credentials, `gcloud auth application-default login`, or the
   metadata server on GCE/GKE/Cloud Run). Roles: `roles/monitoring.viewer`,
@@ -934,6 +962,82 @@ flexible server to a new server in the same region and major version: a full cop
 server price, which needs `clone.allow_full_copy: true`. See
 [Azure: restore rehearsal](azure.md#restore-rehearsal) for the cost warning, the flow and the
 RBAC actions.
+
+## Restore drills
+
+pg_sage checks that a database's latest backup actually restores (drill-01a). Every hour the
+fleet leader starts the drills that are due on `clone.provider`, at most
+`drill.max_concurrent_per_fleet` (2) at once and one per database, on top of
+`clone.max_creates_per_hour` and the provider's backoff. Each database's cadence, kinds,
+budget and marker query are in its standing policy document's
+[drill block](policy-gate.md#restore-drills).
+
+A drill:
+
+1. Writes the clone's receipt (purpose `drill`, expiring an hour after the drill budget) and
+   logs its cost label first (instance-hours; an amount only with an operator `cost.rates`
+   entry, never a price table).
+2. Asks the provider for a clone at the latest restorable point: a branch (Neon, Lakebase),
+   an Aurora clone, a Database Lab thin clone, or a full restore (RDS, Cloud SQL, AlloyDB,
+   Azure).
+3. Connects only after the identity guard shows the clone is not the source
+   (`target_is_production` otherwise).
+4. Runs its checks read-only in one `READ ONLY` transaction with a statement timeout: the
+   source's 20 largest tables exist with the same columns, row estimates within 5%, exact
+   counts of the 3 smallest within 5%, a primary-key sample checksum, `SELECT 1` on each, and
+   the newest committed marker. The only statements sent to the source are the same
+   read-only, bounded catalog, count and sample queries.
+5. Destroys the clone, always, even when a check failed or the drill timed out. A teardown
+   that fails leaves the receipt `destroying` for the clone reaper, which also destroys a
+   drill clone a killed sidecar left once its receipt expires.
+6. Records the result in `sage.restore_drills` (kept 400 days): measured RTO (clone ready and
+   checks done, from the request) and RPO (the restore point minus the newest marker on the
+   clone; unknown, with the reason, when no marker exists).
+
+| Platform | Drill |
+|---|---|
+| Neon, Lakebase, Aurora, Database Lab | On by default (cheap: branch, copy-on-write or thin clone) |
+| RDS, Cloud SQL, AlloyDB, Azure | Opt-in: `clone.allow_full_copy: true` and `full_copy` in `drill.kinds`; a full instance bill for the drill |
+| Self-managed, with `drill.command.restore_argv` | Opt-in: your restore command restores your own backups (pgBackRest, Barman, WAL-G); see [restore drills on self-managed servers](restore-drills.md) |
+| Self-managed, no clone provider or restore command | No drill: the info finding `recoverability_unknown` says what to configure |
+
+A failed or errored drill opens the critical finding
+[`restore_drill_failed`](findings.md#restore_drill_failed), which pages through the finding
+alerts and resolves on the next pass. A drill held back by the create limit or the provider's
+backoff is retried on the next pass and records nothing.
+
+### Recoverability: the panel, the API and `restore_drills`
+
+Each database is in one status: `passed` (its newest passed drill finished at most 35 days
+ago; a pass exactly 35 days old counts), `failed` (no pass in the window and the newest drill
+failed), `stale` (the newest drill passed, more than 35 days ago), `never_drilled` (a provider
+can drill it, no drill has run) or `unknown` (no drill can run: `clone.provider` is none or no
+kind is allowed, as `recoverability_unknown` says, or the history could not be read). A failed
+drill after a pass in the window does not reset the pass, as D7 reads it; the panel still shows
+the failure.
+
+- The Database page's **Recoverability** panel shows the last drill (when, pass or fail, kind
+  and provider), RPO and RTO in plain units (`RPO unknown` with the reason when no marker
+  exists), whether backups survive a delete of the database (the [backup
+  isolation](#what-the-telemetry-is-used-for) evidence, unknown without a cloud source),
+  the cost label of the next full-copy drill, and, when unknown, what to configure and grant.
+  The fleet overview shows one line: "7 of 9 databases passed a restore drill in the last 35
+  days".
+- `GET /api/v1/databases/{db}/restore-drills?limit=20` (viewer and up) is that database's
+  newest drills, newest first (`limit` 1 to 100, default 20; anything else is `400`), with
+  `status`, `reason`, `advice`, `latest`, `last_pass`, `isolation` and
+  `next_full_copy_cost_label`. An unknown database, or one your grants do not cover, is `404`;
+  one not connected is `503`; an unreadable history is `500` naming the database.
+- `GET /api/v1/fleet/recoverability` (viewer and up) counts the databases you may read by
+  status, with `median_rto_seconds` over the passed databases' newest passes. A database
+  that could not be read counts as `unknown` and is named in `errors`; it never counts as
+  passed.
+- The MCP tool [`restore_drills`](mcp.md#restore_drills) answers the same count, with each
+  database's newest drill and newest pass, for the databases the token may read (or the one
+  named). It only reads; no API route or tool starts a drill.
+
+Drill rows are read where the drill pass records them: the governance control database when
+one is set (meta mode, or `agents.control_database`), else the database's own `sage` schema.
 
 ## Live check (owner-run, never in CI)
 

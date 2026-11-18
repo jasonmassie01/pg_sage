@@ -32,6 +32,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeDeferredIndexMetrics(&b, deferredIndexGauges)
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
 	writeSetupMetrics(&b, onboarding.SetupRatios())
+	writeReviewMetrics(&b, reviewFirstGrades)
 	writeConnectionMetric(&b, views)
 
 	// Every family renders whenever its data exists, in every mode

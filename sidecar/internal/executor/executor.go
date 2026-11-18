@@ -130,6 +130,12 @@ type Executor struct {
 	// clock reads the monitored database's clock for windows over the
 	// samples it stamps; nil reads pool (executor-31).
 	clock dbClock
+	// exposureMode reads the standing document's exposure mode (nil:
+	// shadow); exposureHistory and revokeWindow are the reader
+	// verification's statement history and window (fleetpol-02b).
+	exposureMode    func(context.Context) (string, error)
+	exposureHistory queryObserver
+	revokeWindow    time.Duration
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal

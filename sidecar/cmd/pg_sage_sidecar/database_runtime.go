@@ -152,6 +152,8 @@ type databaseRuntime struct {
 	cloudResolver managedparam.Resolver
 	// backupNote logs a withheld backup freshness once per reason.
 	backupNote reasonLatch
+	// isolationNote logs a withheld backup isolation read once per reason.
+	isolationNote reasonLatch
 	// azureParams is the database's Azure ARM adapter (nil off Azure or
 	// without the azure: identity): the managed-change worker reads server
 	// parameters through it.
@@ -165,6 +167,9 @@ type databaseRuntime struct {
 	// providerObs is Supabase observability (nil: not running); its memory
 	// backs the gates when there is no managed-cloud telemetry.
 	providerObs atomic.Pointer[providerobs.Runtime]
+	// dataAPI is the Supabase Data API exposure reader (fleetpol-02c), set
+	// before the analyzer starts; nil off Supabase or without a token.
+	dataAPI *cloudtel.SupabaseDataAPI
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It

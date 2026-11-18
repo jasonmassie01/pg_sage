@@ -220,6 +220,8 @@ func wireRouter(p WireParams) (WireResult, error) {
 			TLSExpiring: apiTLSExpiringFunc(apiTLS),
 			// GET /metrics on this listener (prometheus.serve_on_api).
 			Metrics: apiMetricsRoute(p, authPool),
+			// Where restore drill rows live (drill-01d).
+			RestoreDrillResults: restoreDrillResults(p.Cfg, p.FleetMgr, p.MetaState),
 		},
 		middlewares...,
 	)

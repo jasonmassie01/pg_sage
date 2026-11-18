@@ -127,6 +127,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "agents.exposure.sweep_seconds": {
+    "type": "int",
+    "default": 60,
+    "doc": "Seconds between exposure sweeps: each reads the catalog fingerprint and, when it changed, re-runs the exposure checks (AP-01 to AP-05, AP-15, AP-17) outside the analyzer cycle. 15-600. Default: 60.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "agents.kill_fallback_log": {
     "type": "string",
     "default": "agent-kill-fallback.log",
@@ -923,6 +930,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "backup.external_source": {
+    "type": "string",
+    "default": "",
+    "doc": "A backup outside the provider's delete path that pg_sage cannot read (another account's vault, an external dump). Set, it resolves backup_shares_delete_path. One line, max 200 chars. Default: empty.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "backup.max_age_hours": {
     "type": "int",
     "default": 26,
@@ -934,6 +948,13 @@
     "type": "int",
     "default": 15,
     "doc": "Minutes completed WAL may wait since the last successful archive before wal_archive_stale opens; critical at four times the gap. 1-10080. Default: 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "backup.min_pitr_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours of point-in-time window the provider must offer; less opens pitr_window_below_policy. 0 turns the check off. 0-8760. Default: 24.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },
@@ -1882,6 +1903,34 @@
     "doc": "Default trust level applied to fleet databases. Falls back to the global trust.level when unset.",
     "mode": "fleet-only",
     "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.command.destroy_argv": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Required with drill.command.restore_argv: program and arguments that remove a restore, given SAGE_CLONE_ID; may run twice for one id. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.command.env_allow": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Sidecar environment variable names passed to the drill.command programs besides PATH. SAGE_ names are refused; values are never logged. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.command.restore_argv": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Self-managed restore drill program and arguments (absolute path, no shell); prints one JSON line {dsn, id, recovery_point}. Needs clone.allow_full_copy. YAML only, restart-bound.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "drill.max_concurrent_per_fleet": {
+    "type": "int",
+    "default": 2,
+    "doc": "Most restore drills the fleet leader runs at once, across every database, 1-10, on top of clone.max_creates_per_hour. Each database runs one drill at a time. Default: 2.",
+    "class": "operator_preference",
     "lifecycle": "restart"
   },
   "encryption_key": {
@@ -3461,6 +3510,34 @@
     "default": 180,
     "doc": "Days to keep stored workload evidence packs (sage.workload_packs), from when each was built. 0 disables. Range 0-3650. Default 180.",
     "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "review.enabled": {
+    "type": "bool",
+    "default": true,
+    "doc": "Grade each database against the rubric after its first look, then every grade_interval_hours. Deterministic and read-only; writes only sage.review_* rows. Default: true.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.grade_interval_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between two grades of one database. Range 1-720. Default: 24.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.large_table_bytes": {
+    "type": "int64",
+    "default": 10737418240,
+    "doc": "Bytes from which Sage Review advises partitioning an unpartitioned table with a time-ordered key. Range 1073741824-1125899906842624 (1 GiB-1 PiB). Default: 10737418240 (10 GiB).",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.window_days": {
+    "type": "int",
+    "default": 90,
+    "doc": "Days of history the review generators judge (index portfolio, ...); a pack shorter than this, as retention allows, is partial coverage. Range 14-100. Default: 90.",
+    "class": "operator_preference",
     "lifecycle": "restart"
   },
   "runaway.enabled": {

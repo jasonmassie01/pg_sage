@@ -1230,6 +1230,91 @@ Retention 0 is AP-11's "backups off" case and is left to it.
 
 **Detail:** `retention_days`, `min_retention_days` and `resource`.
 
+### backup_shares_delete_path
+
+**Severity:** warning, or critical on a production database with the agent gate on
+
+**What it detects:** no backup the provider shows outlives a delete of the instance, so
+one delete call would remove the database and its backups together. RDS: no manual
+snapshot within `backup.max_age_hours`, no AWS Backup recovery point and no cross-region
+backup replication (automated backups are deleted with the instance unless the delete
+retains them). Aurora and RDS Multi-AZ DB clusters: no manual cluster snapshot within that
+age. More than 20 manual snapshots with none of the first 20 recent enough is unknown, not
+a finding. Cloud SQL:
+`settings.retainBackupsOnDelete` is false. Snapshots and automated backups are read once
+per 6 hours (15 minutes after a failed read); a snapshot without a create time or not yet
+`available` does not count, and one exactly `backup.max_age_hours` old does. A denied
+read, a missing field or a provider without an adapter (Azure, AlloyDB, Neon, Lakebase)
+leaves the category unevaluated, so an open finding stays open. Production is the agent
+gate's environment binding (a database the gate cannot classify counts as production);
+pg_sage cannot see which agent holds a cloud credential able to delete the instance, so
+with the gate on a production database is the critical case. Naming a backup in
+`backup.external_source` resolves it.
+
+**Detail:** `isolation_evidence` (what decided it), `survives_delete`, `production` and
+`resource`.
+
+### deletion_protection_off
+
+**Severity:** warning
+
+**What it detects:** a production database (by the agent gate's environment binding, as
+above) whose instance, or Aurora cluster, has deletion protection off. Without the agent
+gate the environment is unknown and the category is not evaluated; AP-11 still reports
+deletion protection off on every managed instance.
+
+**Detail:** `deletion_protection` and `resource`.
+
+### pitr_window_below_policy
+
+**Severity:** warning
+
+**What it detects:** point-in-time recovery reaches back less than `backup.min_pitr_hours`
+(default 24; 24 hours passes, 23 h 59 m fails; 0 turns the check off). RDS: the active
+automated backup's restore window; Aurora: the cluster's latest minus earliest restorable
+time; Cloud SQL: the transaction log retention while point-in-time recovery is on. With
+point-in-time recovery off there is no window and AP-11 reports it.
+
+**Detail:** `pitr_window_minutes`, `min_pitr_hours` and `resource`.
+
+### restore_drill_failed
+
+**Severity:** critical
+
+**What it detects:** a restore drill of the database failed or could not run. A
+drill asks `clone.provider` for a copy at the latest restorable point, connects only
+after the identity guard proves the copy is not the source, and checks, read-only:
+the source's 20 largest tables exist with the same columns; each table's row
+estimate is within 5% of the source's (5.0% passes, 5.1% fails) and the 3 smallest
+match an exact `count(*)` within 5%; a checksum of the first 1,000 rows by primary
+key created before the recovery point matches the source (only for tables with a
+`created_at`-like column, else `unknown`); `SELECT 1` reads each table; and the
+newest committed marker (`sage.snapshots.collected_at`, or the policy document's
+`drill.marker_query`) is read to measure RPO. A provider error, a clone that is the
+source (`target_is_production`) or a failed invariant opens the finding, and it
+pages through the finding alerts (`finding_opened` at critical). The next passed
+drill resolves it. A failed drill after a pass does not reset the pass that D7
+reads ([agent governance](agent-governance.md)).
+
+**Detail:** `drill_id`, `provider`, `kind`, `failure` (the step and provider, or the
+failed invariants), `receipt_id`, `cost_label`, `rto_seconds`, and `rpo_seconds` or
+`rpo_unknown`. Every drill, passed or not, is a row of `sage.restore_drills`.
+
+### recoverability_unknown
+
+**Severity:** info
+
+**What it detects:** no clone provider is configured (`clone.provider: none`), so no
+drill can prove the database's backups restore ("SQL only: recoverability
+unknown"). The recommendation names what to configure: a branch or copy-on-write
+provider (`lakebase_branch`, `neon_branch`, `aurora_clone`) or `dle` drills by
+default; a full copy (`rds_restore`, `cloudsql_clone`, `alloydb_restore`,
+`azure_restore`) needs `clone.allow_full_copy: true` and `full_copy` in the policy
+document's `drill.kinds`. Until a drill passes, D7 keeps production agent writes at
+L2. A passed drill resolves it.
+
+**Detail:** `reason`.
+
 ---
 
 ## More Tier 1 Categories
@@ -1404,7 +1489,7 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="upgrade_readiness"></a>`upgrade_readiness` | Upgrade readiness | A major-version upgrade check (U1-U7) that does not pass; see [Upgrade Readiness](#upgrade-readiness). |
 | <a id="test_fixture_cleanup"></a>`test_fixture_cleanup` | Facts | A confirmed test-fixture fact's cleanup batch for an operator to review. pg_sage never drops a schema itself. |
 | <a id="schema_lint"></a>`schema_lint` | Schema lint | `schema_lint:<rule id>`: a schema lint rule's finding. |
-| <a id="agent_posture"></a>`agent_posture` | Agent posture | `agent_posture:<detector>`: an agent posture detector's finding. |
+| <a id="agent_posture"></a>`agent_posture` | Agent posture | `agent_posture:<detector>`: an agent posture detector's finding (AP-01 to AP-17; AP-17 is an agent-like session connected as an owner or service role). The exposure detectors also run in a sweep between cycles; see [Agent governance](agent-governance.md#where-you-see-it). |
 | <a id="agent_environment_binding"></a>`agent_environment_binding` | Agent guard | An agent connected to a database outside its bound environment. |
 | <a id="agent_role_drift"></a>`agent_role_drift` | Agent guard | An agent role whose access differs from what governance recorded. |
 | <a id="agent_backend_violation"></a>`agent_backend_violation` | Agent guard | A connected agent role that breaks the agent role rules. |

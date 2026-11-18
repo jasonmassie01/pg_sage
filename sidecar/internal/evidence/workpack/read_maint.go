@@ -27,6 +27,7 @@ type tableCounters struct {
 	ins, upd, del, av, aa int64
 	lastAV, lastAA        *time.Time
 	reloptions            []string
+	live                  *int64 // n_live_tup; nil when the snapshot lacks it
 }
 
 // relWindow is the indexes and tables counters at the window's first and
@@ -117,7 +118,8 @@ var tableCountersSQL = `/* pg_sage */ SELECT e->>'schemaname', e->>'relname',
        COALESCE((e->>'autoanalyze_count')::int8, 0),
        (e->>'last_autovacuum')::timestamptz, (e->>'last_autoanalyze')::timestamptz,
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(e->'reloptions') = 'array'
-             THEN e->'reloptions' ELSE '[]'::jsonb END))
+             THEN e->'reloptions' ELSE '[]'::jsonb END)),
+       (e->>'n_live_tup')::int8
   FROM sage.snapshots s
  CROSS JOIN LATERAL jsonb_array_elements(` + snapstore.DataSQL("s") + `) e
  WHERE {db:s} AND s.id = $1`
@@ -133,7 +135,7 @@ func (r reader) tableCounters(ctx context.Context, id int64) (map[string]tableCo
 		var schema, name string
 		var c tableCounters
 		if err := rows.Scan(&schema, &name, &c.ins, &c.upd, &c.del, &c.av, &c.aa, &c.lastAV,
-			&c.lastAA, &c.reloptions); err != nil {
+			&c.lastAA, &c.reloptions, &c.live); err != nil {
 			rows.Close()
 			return nil, r.fail("sage.snapshots (tables)", err)
 		}

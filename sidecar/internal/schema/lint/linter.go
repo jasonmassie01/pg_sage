@@ -122,6 +122,17 @@ func filterIncludedSchemas(findings []Finding, include []string) []Finding {
 	return out
 }
 
+// RuleIDs are the ids of the built-in rules, in scan order: the registry
+// the review rubric validates its lint checks against (review-01a).
+func RuleIDs() []string {
+	rules := defaultRules()
+	ids := make([]string, len(rules))
+	for i, r := range rules {
+		ids[i] = r.ID()
+	}
+	return ids
+}
+
 // defaultRules returns the built-in rule set.
 //
 // Scope: schema lint is responsible ONLY for design/convention/

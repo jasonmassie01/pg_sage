@@ -47,7 +47,11 @@ var readRouteScopes = map[string]readScope{
 		pathDB),
 	"GET /api/v1/databases/{db}/investigations/{id}/transcript": readDatabase(
 		pathDB),
-	"GET /api/v1/databases/{db}/runbooks":                 readDatabase(pathDB),
+	"GET /api/v1/databases/{db}/runbooks": readDatabase(pathDB),
+	// drill-01d: a database's restore drill history.
+	"GET /api/v1/databases/{db}/restore-drills": readDatabase(pathDB),
+	// review-01a: a database's latest grade, the previous one and the delta.
+	"GET /api/v1/databases/{db}/review/grade":             readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/runbooks/{id}":            readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/runbooks/{id}/runs":       readDatabase(pathDB),
 	"GET /api/v1/agent-classifications/{database}":        readDatabase(classDB),

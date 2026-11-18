@@ -24,6 +24,7 @@
 | `agents.control_database` | `restart` | `-` | `safety_critical` |
 | `agents.default_environment` | `restart` | `-` | `safety_critical` |
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
+| `agents.exposure.sweep_seconds` | `restart` | `-` | `operator_preference` |
 | `agents.kill_fallback_log` | `restart` | `-` | `operator_preference` |
 | `agents.kill_verify_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
@@ -118,8 +119,10 @@
 | `azure.resource_group` | `restart` | `-` | `safety_critical` |
 | `azure.server_name` | `restart` | `-` | `safety_critical` |
 | `azure.subscription_id` | `restart` | `-` | `safety_critical` |
+| `backup.external_source` | `restart` | `-` | `operator_preference` |
 | `backup.max_age_hours` | `restart` | `-` | `operator_preference` |
 | `backup.max_archive_gap_minutes` | `restart` | `-` | `operator_preference` |
+| `backup.min_pitr_hours` | `restart` | `-` | `operator_preference` |
 | `backup.min_retention_days` | `restart` | `-` | `operator_preference` |
 | `baseline.enabled` | `restart` | `-` | `operator_preference` |
 | `baseline.max_query_keys` | `restart` | `-` | `operator_preference` |
@@ -196,6 +199,10 @@
 | `defaults.execution_mode` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `defaults.max_connections` | `reconfigure` | `fleet_databases` | `safety_critical` |
 | `defaults.trust_level` | `reconfigure` | `fleet_databases` | `safety_critical` |
+| `drill.command.destroy_argv` | `restart` | `-` | `safety_critical` |
+| `drill.command.env_allow` | `restart` | `-` | `safety_critical` |
+| `drill.command.restore_argv` | `restart` | `-` | `safety_critical` |
+| `drill.max_concurrent_per_fleet` | `restart` | `-` | `operator_preference` |
 | `encryption_key` | `restart` | `-` | `safety_critical` |
 | `encryption_key_previous` | `restart` | `-` | `safety_critical` |
 | `explain.cache_ttl_minutes` | `restart` | `-` | `derivable` |
@@ -393,6 +400,10 @@
 | `retention.snapshots_days` | `restart` | `-` | `derivable` |
 | `retention.snapshots_max_pct` | `restart` | `-` | `derivable` |
 | `retention.workload_packs_days` | `restart` | `-` | `derivable` |
+| `review.enabled` | `restart` | `-` | `operator_preference` |
+| `review.grade_interval_hours` | `restart` | `-` | `operator_preference` |
+| `review.large_table_bytes` | `restart` | `-` | `operator_preference` |
+| `review.window_days` | `restart` | `-` | `operator_preference` |
 | `runaway.enabled` | `restart` | `-` | `safety_critical` |
 | `runaway.policies` | `restart` | `-` | `safety_critical` |
 | `runaway.safe_patterns` | `restart` | `-` | `safety_critical` |

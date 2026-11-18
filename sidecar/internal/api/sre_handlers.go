@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
@@ -25,11 +27,17 @@ const sreInvestigationsPath = "/api/v1/databases/{db}/investigations"
 // fleetInvestigationLimit bounds each database's page in the fleet list.
 const fleetInvestigationLimit = 100
 
-func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	ledgers *earned.Registry, cfg *config.Config, packKeys WorkloadPackKeys) {
+// registerSRERoutes registers the fleet and per-database SRE routes; rt
+// supplies the autonomy ledgers, the workload pack keys (with pool) and
+// where restore drill rows live (drill-01d).
+func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager, cfg *config.Config,
+	pool *pgxpool.Pool, rt RuntimeDeps) {
+	drills := drillReads{cfg: cfg, results: rt.RestoreDrillResults}
 	routeAggregate(mux, "GET /api/v1/investigations", gateViewer, mgr,
 		aggregateHandler(fleetInvestigationsHandler))
-	perDB := perDatabaseSREMux(mgr, ledgers, cfg, packKeys)
+	registerFleetRecoverabilityRoute(mux, mgr, drills)
+	perDB := perDatabaseSREMux(mgr, autonomyRegistry(rt.Autonomy), cfg,
+		workloadPackKeys(rt, pool), drills)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode
 	// "managed/{id}" routes overlap with neither more specific, which
@@ -44,7 +52,7 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 }
 
 func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
-	cfg *config.Config, packKeys WorkloadPackKeys) *http.ServeMux {
+	cfg *config.Config, packKeys WorkloadPackKeys, drills drillReads) *http.ServeMux {
 	base := sreInvestigationsPath
 	mux := http.NewServeMux()
 	route(mux, "GET "+base, gateViewer, investigationListHandler(mgr))
@@ -68,6 +76,8 @@ func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
 	registerReplayCaseRoute(mux, mgr)
 	registerTranscriptRoute(mux, mgr)
 	registerWorkloadPackRoutes(mux, mgr, cfg, packKeys)
+	registerRestoreDrillRoutes(mux, mgr, drills) // drill-01d
+	registerReviewRoutes(mux, mgr)               // review-01a
 	return mux
 }
 

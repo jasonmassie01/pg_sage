@@ -151,6 +151,9 @@ var excludedExactKeys = map[string]bool{
 	"backup.max_age_hours":           true,
 	"backup.max_archive_gap_minutes": true,
 	"backup.min_retention_days":      true,
+	// The backup isolation policy (drill-01b) likewise.
+	"backup.min_pitr_hours":  true,
+	"backup.external_source": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,

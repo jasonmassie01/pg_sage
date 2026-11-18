@@ -140,7 +140,11 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 		startFleetLearning(shutdownCtx, authPool, fleetMgr)
 		startAgentGovernance(shutdownCtx, authPool, fleetMgr)
 		startCloneReaper(shutdownCtx, cfg, fleetMgr, globalMetaState)
+		startCommandDrillReaper(shutdownCtx, cfg, fleetMgr, globalMetaState)
 		startAgentGate(cfg, fleetMgr, globalMetaState, agentEnvSvc)
+		// After the gate: a pass shortens the cadence when D7 needs a drill.
+		startRestoreDrills(shutdownCtx, cfg, fleetMgr, globalMetaState)
+		setReviewDrillPools(cfg, fleetMgr, globalMetaState)
 		startAuditJobs(shutdownCtx, authPool, fleetMgr)
 		startAgentKill(shutdownCtx, cfg, fleetMgr, globalMetaState)
 		startDecommissionReport(shutdownCtx, authPool, cfg.ConfigPath)

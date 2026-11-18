@@ -606,6 +606,8 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`propose_plan`](#propose_plan) | `propose` | always |
 | [`list_plans`](#list_plans) | `read` | always |
 | [`get_plan`](#get_plan) | `read` | always |
+| [`restore_drills`](#restore_drills) | `read` | always |
+| [`review_grade`](#review_grade) | `read` | always |
 
 ### `get_policy`
 
@@ -1390,5 +1392,25 @@ Scope: `read`
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `plan_id` | integer | yes | value >= 1 |
+
+### `restore_drills`
+
+Say whether each database can be restored: its newest restore drill (when, passed or failed, measured RPO and RTO, each invariant's evidence), its newest pass, and a status of passed (a pass in the last 35 days), failed, stale, never_drilled or unknown (no drill can run; advice says what to configure), plus the count and median RTO. Read-only: it never starts a drill. Without database it reads every database you may read.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases); without it, every database you may read. |
+
+### `review_grade`
+
+Grade the database against pg_sage's well-run Postgres rubric: the latest grade (overall A to F or unknown, each of eight dimensions with its score, coverage and every check's result, evidence and reason), the previous grade and what changed. A check that could not run is unknown and only lowers a grade. Read-only: it never starts a grade.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

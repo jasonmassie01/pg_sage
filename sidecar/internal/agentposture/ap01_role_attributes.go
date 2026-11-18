@@ -18,7 +18,7 @@ type ap01 struct{}
 
 func (ap01) Spec() Spec {
 	return Spec{ID: "AP-01", Title: "Agent roles with dangerous attributes",
-		Severity: Critical}
+		Severity: Critical, ReadsSessions: true}
 }
 
 // dangerousGroups are the predefined roles an agent role must not reach.

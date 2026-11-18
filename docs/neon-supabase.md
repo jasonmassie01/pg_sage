@@ -98,6 +98,36 @@ finding's case. A 401 is recorded as the source's error and leaves earlier advic
 Neon has no advisor API, so pg_sage's own index findings stand alone there. See
 [Provider advice](managed-clouds.md#provider-advice).
 
+## Data API exposure
+
+A table `anon` can read is reachable from the internet only when the project's Data API
+(PostgREST) serves its schema, and SQL can't see which schemas it serves. With
+`SAGE_SUPABASE_OBSERVABILITY_TOKEN` set, pg_sage reads it from the Management API
+(`GET /v1/projects/{ref}/postgrest`, its `db_schema` list) for the project the endpoint names:
+one read an hour, read only. The response also carries the project's JWT secret; pg_sage
+decodes only `db_schema` and never keeps, logs or shows anything else.
+
+AP-03 and AP-04 findings then carry `detail.data_api_exposed` for their schema:
+
+| Value | Meaning | Severity |
+| --- | --- | --- |
+| `true` | the Data API serves the schema | unchanged (AP-03 stays critical) |
+| `false` | the Data API does not serve the schema | critical drops to warning |
+| `unknown` | not read: no token, a custom domain that names no project, a 401 or 429, or a response without `db_schema` | unchanged, never inferred safe |
+
+- A 401 (or 403) and a 429 are each logged once until a read succeeds. Any failure waits an
+  hour before the next read.
+- A change of the served schemas re-runs the exposure detectors at the next exposure sweep,
+  even when the catalog did not change.
+- Projects created from 30 May 2026 no longer expose new tables in `public` to the Data API
+  automatically. Where that shows as missing grants to `anon` and `authenticated`, AP-03
+  already sees it. pg_sage reads no separate "expose new tables" setting: no such field was
+  verified against a real project.
+- Off Supabase the field is absent.
+- The share of AP-03 findings with a known state is
+  `count(*) FILTER (WHERE detail->>'data_api_exposed' IN ('true', 'false'))` over the open
+  `agent_posture:AP-03` rows of `sage.findings`.
+
 ## Verified limitations and remaining integrations
 
 The Free Supabase organization used for verification reported no branch entitlement and no managed

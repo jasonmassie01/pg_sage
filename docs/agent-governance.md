@@ -128,9 +128,21 @@ and the gate can only lower these.
 **Production writes (D7).** A write or DDL in `prod` needs point-in-time recovery: the
 provider's PITR flag from cloud telemetry, else WAL archiving that is on and has a command or
 library. Without it the request is refused (`agent_no_pitr`). L3 is earned only with a passed
-restore drill in the last 14 days; pg_sage does not run restore drills yet, so production
-writes and DDL stay at L2, where a person approves each one, even with PITR on. Whether PITR
-actually works is reported separately by `wal_archive_failing`, `wal_archive_stale` and
+restore drill in the last 14 days (a pass exactly 14 days old still counts; one second older
+caps at L2). The drill time D7 reads is the database's newest passed row of
+`sage.restore_drills`, on both PITR paths; a failed drill after a pass does not reset it, and
+with no passed drill (or none readable) production writes and DDL stay at L2, where a person
+approves each one, even with PITR on.
+
+pg_sage earns that drill itself: the fleet leader runs a restore drill on `clone.provider`
+([restore drills](managed-clouds.md#restore-drills)). Branch and copy-on-write kinds
+(`lakebase_branch`, `neon_branch`, `aurora_clone`) and `dle` drill every 30 days by default;
+when the agent gate is on for a production database the cadence of a cheap kind is shortened
+to 12 days (`require_restore_drill_days` - 2), so the monthly default does not keep D7 at L2.
+Full copies drill only when both `clone.allow_full_copy` and the policy document's
+`drill.kinds` include them. A failed drill opens the critical finding `restore_drill_failed`;
+without a provider the database gets `recoverability_unknown` and stays at L2. Whether PITR
+actually works is also reported by `wal_archive_failing`, `wal_archive_stale` and
 `backup_stale` (see [Backups and WAL archiving](findings.md#backups-and-wal-archiving)).
 
 **Environment ceiling.** The effective ceiling is the narrower of the agent's `env_ceiling`
@@ -410,7 +422,9 @@ and flags the grants, roles, policies and functions that let an agent do more th
 Posture is on by default and needs no configuration. It works on any PostgreSQL 14–18,
 self-managed or managed, and needs only pg_sage's usual `pg_monitor` role. Every fix it
 proposes is a SQL script for you to review and run. pg_sage never runs a posture fix
-itself: posture findings stop at autonomy level L1.
+itself: posture findings stop at autonomy level L1. The one exception is opt-in: with the
+policy document's `exposure.mode` set to `enforce`, AP-03 and AP-15 become typed
+remediations (see [Exposure remediation](#exposure-remediation)).
 
 Posture says how exposed a database is; it does not decide whether a change runs. Every
 change, an agent's included, passes the policy gate: see [Policy gate](policy-gate.md) for
@@ -436,6 +450,33 @@ its evaluation order and every verdict and reason it records.
     row limit isn't complete: see [Large catalogs](#large-catalogs).
   - The fix script is stored as `detail.manual_script`, with `detail.proposal_level = L1`.
   - The finding has no `recommended_sql`, so the executor never acts on it.
+- **Exposure sweep.** Between analyzer cycles, pg_sage reads the same catalog hash every
+  `agents.exposure.sweep_seconds` (default 60). When it changed, or the database was just
+  enrolled, the exposure detectors run at once: AP-01 to AP-05, AP-15 and AP-17. A table an
+  agent creates for `anon` without row-level security is then a finding within about a
+  minute, not at the next analyzer cycle (600 s by default).
+  - The sweep and the analyzer's posture run share one lock and one record of what ran on
+    which catalog: they never run together, and the next cycle doesn't repeat the sweep's
+    detectors on the same catalog. The daily run still runs every detector.
+  - Sweep findings take the analyzer's own path: the same identity, notifications,
+    suppressions and resolution. A sweep resolves only its own detectors' findings.
+    Confirmed facts, clone-schema families and disabled rules shape them as in a cycle.
+    Before the collector's first snapshot the sweep waits: the first cycle runs every
+    detector.
+  - The hash covers the catalog, not sessions. An agent that connects as an owner on an
+    unchanged catalog is reported by AP-17 at the next catalog change or the daily run.
+  - An unchanged catalog costs one hash query per sweep. Each sweep logs how many findings
+    it reported.
+  - Exposure findings (AP-03, AP-04, AP-05, AP-15, AP-17) carry `detail.mode = shadow`:
+    nothing acts on them yet. AP-03 and AP-15 also name the action that would close them
+    (`detail.would_be_action`: `enable_row_level_security` or `revoke_public_grant`).
+  - pg_sage reads SQL only. Whether the database is reachable from the network, and who
+    holds its keys or connection strings, can't be seen from there: `detail.not_visible`
+    says so on every exposure finding.
+  - On Supabase, AP-03 and AP-04 also carry `detail.data_api_exposed` (`true`, `false` or
+    `unknown`): whether the project's Data API serves the finding's schema, read from the
+    Management API. Known not served lowers a critical finding to warning. See
+    [Data API exposure](neon-supabase.md#data-api-exposure).
 
 Every posture statement carries the `/* pg_sage first_look */ /* agent_posture AP-NN */` tag,
 so its cost shows in `pg_stat_statements` and in pg_sage's performance gate.
@@ -502,13 +543,14 @@ pg_sage's own role is never counted as an agent.
 | AP-14 | pg_sage's own role is a superuser, holds `BYPASSRLS`, or has the privileges of an agent role | warning | `ALTER ROLE … NOBYPASSRLS`; `REVOKE <agent> FROM …` (PostgreSQL 14/15) or `REVOKE INHERIT OPTION FOR <agent> FROM …` (16+); a dedicated non-superuser role |
 | AP-15 | The `PUBLIC` baseline: tables, views and foreign tables granted to `PUBLIC` (one finding per schema), and default privileges that grant `PUBLIC` on new tables or sequences. Extension-owned objects are skipped | warning | `REVOKE ALL ON TABLE … FROM PUBLIC`; `ALTER DEFAULT PRIVILEGES FOR ROLE … REVOKE ALL ON TABLES FROM PUBLIC` |
 | AP-16 | Once any registered agent role exists, a login role seen with an agent-like `application_name` that isn't one (an agent outside agent governance) | warning | `ALTER ROLE … NOLOGIN` after the agent moves to its own credentials |
+| AP-17 | A session with an agent-like `application_name` connected as a role that owns tables or views in a user schema, holds `BYPASSRLS` or superuser, or is Supabase's `service_role`. Registered agent roles are left to AP-01 and AP-02 | critical; warning on a database verified as not production | `CREATE ROLE <role>_agent LOGIN NOINHERIT NOBYPASSRLS`, then move the agent to it |
 
 AP-03 and AP-06 skip tables and views an extension owns (pg_hint_plan's `hint_plan.hints`,
 for example): those grants come from the extension, not from you.
 AP-08 skips pg_sage's own role, reserved `pg_` roles and managed-service admin logins
 (`rdsadmin`, `cloudsqladmin`, `azure_superuser`, `alloydbadmin` and similar).
 
-Notes on AP-09 to AP-16:
+Notes on AP-09 to AP-17:
 - **AP-10.** The pgvector fix releases come from pg_sage's research of pgvector's changelog;
   no CVE id is cited because none is verified. End-of-life dates are from the PostgreSQL
   versioning policy (PostgreSQL 14: 2026-11-12). A major older than 13 counts as past end of
@@ -526,6 +568,13 @@ Notes on AP-09 to AP-16:
 - **AP-13** needs `pg_read_all_stats` (part of `pg_monitor`) to see other roles' client
   addresses. Without it, clients are counted by `application_name` only, and the finding's
   caveat says so.
+- **AP-17** names the role and the `application_name`, never the query text. It reads
+  sessions, so it sees an agent while it is connected: it runs with the other exposure
+  detectors on a catalog change, on enrollment and daily. Every database counts as
+  production for its severity until its environment is verified otherwise.
+- **Sessions unreadable.** When pg_sage's role may not read `pg_stat_activity`, the
+  detectors that need sessions or client hints (AP-01, AP-02, AP-08, AP-11, AP-13, AP-16,
+  AP-17) don't complete: their open findings stay open, and the other detectors still run.
 - **AP-14.** pg_sage also warns once at startup when it connects as a superuser: agent governance
   features need a non-superuser role. Posture still runs. Inheritance is read with
   `pg_has_role` on every version; the arms decide the fix (PostgreSQL 14/15 inherit per role,
@@ -539,7 +588,7 @@ PostgreSQL 15+".
 ### Large catalogs
 
 **Row limits.** Each catalog read is bounded: AP-01 to AP-08 read at most 50,000 rows, AP-09
-to AP-16 at most 5,000. A read that reaches its limit is *truncated*:
+to AP-17 at most 5,000. A read that reaches its limit is *truncated*:
 - the check's note says so, for example "relations: first 50,000 rows read, later rows not
   checked";
 - the analyzer logs a warning naming the detector;
@@ -571,6 +620,8 @@ agents:
   posture:
     memory_growth_gb_day: 5  # agent memory-store growth reported (AP-12)
     daily_at: "03:00"        # local HH:MM of the daily posture run
+  exposure:
+    sweep_seconds: 60        # seconds between exposure sweeps, 15-600
 ```
 
 | Key | Class | Notes |
@@ -579,8 +630,31 @@ agents:
 | `agents.client_patterns` | operator_preference | Each pattern must start with `^` |
 | `agents.posture.memory_growth_gb_day` | operator_preference | Greater than 0 |
 | `agents.posture.daily_at` | operator_preference | `H:MM` or `HH:MM`, 24-hour |
+| `agents.exposure.sweep_seconds` | operator_preference | 15 to 600; default 60 |
 
 The keys take effect on restart. The analyzer's posture run reads them each time it runs.
+
+## Exposure remediation
+
+Each AP-03 and AP-15 finding names the action that would close it in
+`detail.would_be_action`, and `detail.mode` says `shadow`. Nothing runs in shadow mode,
+the default. With `"exposure": {"mode": "enforce"}` in the standing policy document:
+
+- an AP-15 finding (relations granted to PUBLIC in one schema) becomes one
+  `revoke_public_grant` per table it lists. It revokes only what PUBLIC holds, stores the
+  exact re-GRANT as its rollback, and runs unattended where `moderate` is granted
+  (`trust.level: autonomous` with `trust.tier3_moderate`), otherwise it is proposed for
+  approval. A reader that relied on PUBLIC and stops after the revoke reverts it.
+- an AP-03 finding on a table becomes one `enable_row_level_security` proposal. It always
+  needs approval: with RLS on and no policy, every reader but the owner and `BYPASSRLS`
+  roles sees no rows. Its card lists the affected statements and the roles losing access,
+  with an optional `CREATE POLICY` template you write yourself.
+
+Views, foreign tables and sequences in AP-15's list, and tables pg_sage's action role does
+not own, are left to the finding's script. The proposal says who must run it. Network
+exposure and who holds a key are not visible from SQL, so a remediation closes the SQL
+side only. Contracts, verification and the approval card: [Policy
+gate](policy-gate.md#exposure-remediation).
 
 ## Kill switch, freeze and unfreeze
 

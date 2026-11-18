@@ -37,10 +37,17 @@ var forwardRollbackSamples = []rollbackSample{
 	{"create_statistics", "CREATE STATISTICS public.sage_stx_orders_ab " +
 		"(ndistinct, dependencies, mcv) ON a, b FROM public.orders",
 		"DROP STATISTICS IF EXISTS public.sage_stx_orders_ab"},
+	{ActionTypeSetColumnStatistics,
+		"ALTER TABLE public.orders ALTER COLUMN status SET STATISTICS 1000",
+		"ALTER TABLE public.orders ALTER COLUMN status SET STATISTICS -1"},
 	{"apply_query_hint", "INSERT INTO hint_plan.hints (query_id, application_name, hints) " +
 		"SELECT 42, '', $h$IndexScan(o)$h$ WHERE NOT EXISTS (SELECT 1 FROM " +
 		"hint_plan.hints WHERE query_id = 42 AND application_name = '')",
 		"DELETE FROM hint_plan.hints WHERE query_id = 42 AND application_name = ''"},
+	{ActionTypeRevokePublicGrant, "REVOKE SELECT, UPDATE ON TABLE public.leads FROM PUBLIC",
+		"GRANT SELECT, UPDATE ON TABLE public.leads TO PUBLIC"},
+	{ActionTypeEnableRLS, "ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE public.leads DISABLE ROW LEVEL SECURITY"},
 }
 
 // rollbackContractFor is the contract the automatic rollback of a forward
@@ -55,6 +62,9 @@ func rollbackContractFor(forwardSQL, rollbackSQL string) (ActionContract, bool) 
 			return ActionContract{}, false
 		}
 		return restoreDroppedIndexContract(), true
+	}
+	if exposureActionType(forwardSQL) != "" {
+		return exposureRollbackContract(forwardSQL, rollbackSQL)
 	}
 	return contractForFinding(analyzer.Finding{RecommendedSQL: rollbackSQL})
 }

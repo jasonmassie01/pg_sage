@@ -12,6 +12,8 @@ func ActionTypeForSQL(sql string) string {
 	switch {
 	case IsIndexReplaceSQL(sql):
 		return ActionTypeReplaceIndex
+	case exposureActionType(sql) != "":
+		return exposureActionType(sql)
 	case strings.HasPrefix(upper, "ANALYZE "):
 		return "analyze_table"
 	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY ") ||
@@ -36,6 +38,8 @@ func ActionTypeForSQL(sql string) string {
 		return "alter_database_guc"
 	case isSetTableAutovacuumSQL(upper):
 		return "set_table_autovacuum"
+	case isSetColumnStatisticsSQL(sql):
+		return ActionTypeSetColumnStatistics
 	case strings.HasPrefix(upper, "ALTER TABLE "):
 		return "alter_table"
 	case strings.HasPrefix(upper, "INSERT INTO HINT_PLAN.HINTS"):
@@ -107,4 +111,12 @@ func isVacuumFullSQL(upper string) bool {
 		}
 	}
 	return false
+}
+
+// isSetColumnStatisticsSQL is one ALTER COLUMN ... SET STATISTICS <int>
+// clause and nothing else (review-02c); any other ALTER TABLE, a list of
+// subcommands included, stays alter_table.
+func isSetColumnStatisticsSQL(sql string) bool {
+	_, ok := ParseSetColumnStatistics(sql)
+	return ok
 }

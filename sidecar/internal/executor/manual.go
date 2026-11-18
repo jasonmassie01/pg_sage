@@ -101,6 +101,8 @@ type manualRun struct {
 	claim *recommendation.Claim
 	// config is the captured prior state of a config change (G-P0-1).
 	config *configChange
+	// exposureReaders are a revoke's reader calls at its run (fleetpol-02b).
+	exposureReaders map[int64]int64
 }
 
 // execute claims the recommendation the operator's SQL applies (the
@@ -142,11 +144,16 @@ func (r *manualRun) run(
 	e.predictAction(ctx, r.sql, detailMap(r.detail), beforeState)
 	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision,
 		beforeState)
+	r.exposureReaders = takeExposureReaders(beforeState)
+	if rollback := exposureRollbackSQL(beforeState); rollback != "" {
+		r.rollbackSQL = rollback // the exact re-GRANT of what was revoked
+	}
 	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
 		beforeState, execErr, r.approvedBy, decisionID, r.claim)
 	if execErr != nil {
 		return 0, fmt.Errorf("executing SQL: %w", execErr)
 	}
+	e.recordExposureRemediation(ctx, actionID, beforeState)
 	e.recordPrediction(ctx, actionID, beforeState)
 	return actionID, nil
 }
@@ -162,6 +169,9 @@ func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 			return err
 		}
 		r.executor.verifyImmediate(ctx, actionID) // no performance measurement: no value/autonomy credit
+		return nil
+	}
+	if r.watchExposureRevoke(ctx, actionID) {
 		return nil
 	}
 	if r.executor.settleConfigChange(ctx, actionID, r.config) {
@@ -223,6 +233,10 @@ func (e *Executor) runManualSQL(
 		return e.execRoleBudget(ctx, sql, beforeState, e.ddlTimeoutFor(sql),
 			e.lockTimeoutMS(sql, decision))
 	}
+	if exposureActionType(sql) != "" {
+		return e.execExposureManual(ctx, findingID, sql, beforeState,
+			e.lockTimeoutMS(sql, decision))
+	}
 	return e.execManualSQLWithRetry(ctx, sql, beforeState, e.lockOption(sql, decision))
 }
 
@@ -278,6 +292,10 @@ func (e *Executor) verifyManualFinding(
 	findingID int,
 	sql string,
 ) (manualFinding, error) {
+	if exposureActionType(sql) != "" {
+		f, _, err := e.exposureManualFinding(ctx, findingID, sql)
+		return f, err
+	}
 	var recommendedSQL *string
 	var f manualFinding
 	err := e.pool.QueryRow(ctx,

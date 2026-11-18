@@ -259,6 +259,9 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_SUPERVISED` | (unset) | `1` or `true` declares a supervisor that relaunches the sidecar on exit code 42; only then does the dashboard's restart endpoint work (otherwise it answers 501) |
 | `SAGE_ENCRYPTION_KEY` / `_FILE` | (none) | Passphrase that encrypts stored secrets, including API-set config secrets ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_ENCRYPTION_KEY_PREVIOUS` / `_FILE` | (none) | The previous passphrase during a key rotation |
+| `SAGE_DRILL_ID` | (none) | Set by pg_sage, never read: the drill id a `drill.command.restore_argv` program restores under ([restore drills](restore-drills.md)) |
+| `SAGE_DRILL_DATABASE` | (none) | Set by pg_sage, never read: the pg_sage name of the database a `drill.command.restore_argv` program restores ([restore drills](restore-drills.md)) |
+| `SAGE_CLONE_ID` | (none) | Set by pg_sage, never read: the restore id a `drill.command.destroy_argv` program removes ([restore drills](restore-drills.md)) |
 | `SAGE_DATA_DIR` | (none) | Persistent directory; without an encryption key, pg_sage generates `encryption.key` there ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_BREAK_GLASS_PASSWORD_HASH` / `_FILE` | (none) | bcrypt hash of the [break-glass admin](security.md#break-glass-admin) password |
 | `SAGE_BOOTSTRAP_ADMIN_EMAIL` | (none) | Email of the first admin, created only when the users table is empty |
@@ -856,11 +859,29 @@ A build withheld because its index name exists is parked until that name is gone
 | `backup.max_age_hours` | `26` | Hours the provider's last good backup may age before `backup_stale` opens (critical at twice the age), `1`-`8760`. RDS and Aurora: the latest restorable time; Cloud SQL: the last successful backup run. Restart to apply |
 | `backup.max_archive_gap_minutes` | `15` | Minutes completed WAL may wait since the last successful archive before `wal_archive_stale` opens (critical at four times the gap), `1`-`10080`. Restart to apply |
 | `backup.min_retention_days` | `7` | Backup retention the provider must keep; less opens `backup_retention_below_policy`. `0` turns the check off; a negative value is refused at startup. `0`-`35`. Restart to apply |
+| `backup.min_pitr_hours` | `24` | Hours of point-in-time recovery window the provider must offer; less opens `pitr_window_below_policy` (24 h passes a 24 h policy). `0` turns the check off. `0`-`8760`. Restart to apply |
+| `backup.external_source` | empty | A backup kept outside the provider's delete path that pg_sage cannot read (an AWS Backup vault in another account, a dump in other storage). Set, it resolves `backup_shares_delete_path`: it is your statement, not evidence pg_sage checked. One line, at most 200 characters. Restart to apply |
 
 These keys only open and close findings (see
 [Backups and WAL archiving](findings.md#backups-and-wal-archiving)); they never change what
 pg_sage may do. They are YAML only. A self-managed server's backup tool leaves no evidence
 in the catalog, so there its backup freshness is unknown and only the WAL archiver is judged.
+
+### Restore drills
+
+| Parameter | Default | Description |
+|---|---|---|
+| `drill.max_concurrent_per_fleet` | `2` | Most restore drills the fleet leader runs at once, across every database, `1`-`10`. Each database runs one drill at a time, and every drill clone still counts against `clone.max_creates_per_hour`. Restart to apply |
+| `drill.command.restore_argv` | unset | Self-managed servers only: the program (an absolute path) and arguments that restore the database's own backups and print one JSON line `{"dsn", "id", "recovery_point"}`. Set, drills use it instead of `clone.provider`; it is a full copy, so it needs `clone.allow_full_copy` and `full_copy` in the policy's drill kinds. Refused at startup next to a managed `clone.provider` or a database whose `provider` is managed ("use the provider's clone kind"). Restart to apply |
+| `drill.command.destroy_argv` | unset | Required with `restore_argv`: the program and arguments that remove a restore, given `SAGE_CLONE_ID`. The clone reaper may run it again for the same id. Restart to apply |
+| `drill.command.env_allow` | `[]` | Names of sidecar environment variables passed to both programs besides `PATH`, for example a repository passphrase. `SAGE_` names are refused. Values are never logged. Restart to apply |
+
+Each database's drill is set in its standing policy document's `drill` block (cadence,
+clone kinds, time budget, marker query; see
+[restore drills](policy-gate.md#restore-drills)), and drills run on `clone.provider`
+([managed clouds](managed-clouds.md#restore-drills)) or, on a self-managed server, on
+`drill.command` ([restore drills on self-managed servers](restore-drills.md)), which needs
+`data_dir`: the programs run in `data_dir/restore-drills`. YAML only.
 
 ### HA role checks
 
@@ -2071,7 +2092,7 @@ Managed providers may hide slot detail. A holder whose age is unknown pins nothi
 so it is never read as proof that no holder exists. There is no configuration
 for this logic.
 
-The standing policy document also carries three safety fields, all enforced:
+The standing policy document also carries these safety fields, all enforced:
 
 - `refusal_set`: actions pg_sage never runs on its own. A refused action is
   queued for approval with reason `refused_by_policy` (the token is in the
@@ -2097,6 +2118,12 @@ The standing policy document also carries three safety fields, all enforced:
   window is `trust.maintenance_window` (when set) intersected with the
   policy's `maintenance_windows`. A document without the field keeps its
   meaning. Lowering or removing the margin widens the policy.
+- `exposure.mode` (optional, `shadow` or `enforce`, default `shadow`): whether
+  the exposure findings AP-03 and AP-15 become typed remediations
+  (`enable_row_level_security`, `revoke_public_grant`). `shadow` records the
+  would-be action on the finding only. A document without the key is `shadow`
+  and keeps its bytes. Setting `enforce` widens the policy. See [Exposure
+  remediation](policy-gate.md#exposure-remediation).
 - `serialize_mode`: what happens when another writer holds the DDL lease on
   the same object. `park` (both profiles): a self-initiated action is parked
   with reason `ddl_conflict` and retried next cycle. A park is not a failure:
@@ -3630,6 +3657,19 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
 | `ask.max_seconds_per_question` | `60` | Wall clock of one question (15-300; each model call at most 15 s). `POST /api/v1/databases/{db}/ask` gets this plus 5 s, every other API route 30 s; an MCP call keeps its own deadline. A run cut off by its caller after it acted is stored `incomplete` with stop `cancelled`; answers are counted in `pg_sage_ask_answers_total{database,status,stop}`. Restart to change |
 | `ask.max_concurrent_runs` | `4` | Asynchronous runs (the dashboard's questions, `POST /api/v1/databases/{db}/ask/runs`) at once per database on one sidecar (1-16). One more is refused with HTTP 429 and `Retry-After`; a second run on one conversation is 409. Each run is bounded by `ask.max_seconds_per_question` and the daily budgets; see [Ask Sage](ask-sage.md#asynchronous-runs). Restart to change |
+
+### Sage Review
+
+Sage Review grades each database against the versioned rubric `pg_sage-rubric/1`,
+deterministic and read-only; it writes only `sage.review_run` and `sage.review_grade`. See
+[Sage Review](review.md).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `review.enabled` | `true` | Grade each database once after its first look, then every `review.grade_interval_hours`. Restart to change |
+| `review.grade_interval_hours` | `24` | Hours between two grades of one database (1-720). Restart to change |
+| `review.window_days` | `90` | Days of history the review generators judge (14-100). The workload pack is the shorter of this and the retained rollups; a shorter pack is reported as partial coverage. Restart to change |
+| `review.large_table_bytes` | `10737418240` | Bytes (1 GiB-1 PiB, default 10 GiB) from which the schema-debt generator advises range-partitioning an unpartitioned table that a date or timestamp key orders in time. Advice only. Restart to change |
 
 ### Forecaster
 

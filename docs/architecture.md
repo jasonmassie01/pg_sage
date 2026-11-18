@@ -290,7 +290,8 @@ Each snapshot holds one row per category: `queries`, `tables`, `indexes`,
 200 groups, its 50 longest-running sessions with their sqlcommenter tags, and per-role
 statement time and cluster-wide session counts, which workload budgets read, and its
 client sessions by state and connection age: under 1 min, 1-10 min, 10-60 min, 1 h and
-over; snapshots written before carry no ages),
+over, and by application and whole minute of connection age, at most 500 rows, the
+biggest first, for Sage Review's recycle herds; snapshots written before carry no ages),
 `wait_events` (this database's active client sessions grouped by wait class and event, a
 session without a wait event counted as `CPU`: one aggregate of `pg_stat_activity` per
 cycle, with no query text and no pid, and without pg_sage's own sessions; it is sampled

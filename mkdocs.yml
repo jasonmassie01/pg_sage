@@ -38,6 +38,7 @@ nav:
       - "Walkthrough: fleet": walkthrough-fleet.md
       - Neon and Supabase: neon-supabase.md
       - "Managed clouds: RDS, Aurora and Cloud SQL": managed-clouds.md
+      - "Restore drills on self-managed servers": restore-drills.md
       - LLM costing: llm-costing.md
   - Configuration: configuration.md
   - HTTP API and inbox: api.md
@@ -52,6 +53,7 @@ nav:
   - Migration review in CI: migration-ci.md
   - Migration safety: migration-safety.md
   - Ask Sage: ask-sage.md
+  - "Sage Review: rubric and grade": review.md
   - Postgres Specialist for Other Agents: specialist.md
   - Hint Verification: hint-verification.md
   - "Verifying the verifier: the placebo back-test": verification.md

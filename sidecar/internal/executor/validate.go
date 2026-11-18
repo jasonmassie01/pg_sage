@@ -32,6 +32,8 @@ var allowedPrefixes = []string{
 	"CREATE STATISTICS",
 	"DROP STATISTICS",
 	"ALTER ROLE ",
+	"REVOKE ",
+	"GRANT ",
 }
 
 var backendSignalPattern = regexp.MustCompile(
@@ -126,7 +128,15 @@ func checkSecondary(upper, prefix string) error {
 	case "SELECT ":
 		return checkSelectPattern(upper)
 	case "ALTER TABLE":
+		if exposureActionType(upper) != "" {
+			return checkExposureSQL(upper)
+		}
+		if stmt, ok := ParseSetColumnStatistics(upper); ok {
+			return checkColumnStatisticsSQL(stmt)
+		}
 		return checkAlterTableSubcmd(upper)
+	case "REVOKE ", "GRANT ":
+		return checkExposureSQL(upper)
 	case "ALTER ROLE ":
 		return checkRoleBudgetSQL(upper)
 	}

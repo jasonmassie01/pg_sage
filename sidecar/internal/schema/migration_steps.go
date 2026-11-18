@@ -52,7 +52,8 @@ func migrationSteps() []migrationStep {
 	steps = append(steps, namedSteps(trancheTwoMigrations())...)
 	steps = append(steps, namedSteps(trancheThreeMigrations())...)
 	steps = append(steps, namedSteps(trancheFourMigrations())...)
-	return append(steps, namedSteps(trancheFiveMigrations())...)
+	steps = append(steps, namedSteps(trancheFiveMigrations())...)
+	return append(steps, namedSteps(trancheSixMigrations())...)
 }
 
 // namedStep pairs a constant's name with its SQL for laterMigrations.
@@ -255,5 +256,17 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlPlanCardDeliveries", ddlPlanCardDeliveries},                     // plan-03b
 		{"ddlBriefingsDigestHash", ddlBriefingsDigestHash},                   // ux-02b
 		{"ddlOnboardingSetupSteps", ddlOnboardingSetupSteps},                 // ux-04b
+	}
+}
+
+// trancheSixMigrations are the T6 steps, after trancheFiveMigrations.
+func trancheSixMigrations() []namedStep {
+	return []namedStep{
+		{"ddlRestoreDrills", ddlRestoreDrills},                     // drill-01a
+		{"ddlExposureRemediations", ddlExposureRemediations},       // fleetpol-02b
+		{"ddlReviewRuns", ddlReviewRuns},                           // review-01a
+		{"ddlReviewCandidates", ddlReviewCandidates},               // review-02a
+		{"ddlReviewCandidateOperator", ddlReviewCandidateOperator}, // review-02b
+		{"ddlReviewCapacityForecast", ddlReviewCapacityForecast},   // review-02f
 	}
 }

@@ -95,6 +95,9 @@ var runtimeFamilies = []Family{
 		Help: "Share of new installs this process monitors whose model (part=model) or " +
 			"notification channel (part=channel) was set within one hour of install",
 		Labels: []string{"part"}, Modes: AllModes, Since: "v2.8.0"},
+	{Name: "pg_sage_review_first_grade_seconds", Type: Gauge, Area: AreaHealth,
+		Help:   "Seconds from the database's registration to its first Sage Review grade",
+		Labels: []string{"database"}, Modes: AllModes, Unit: "seconds", Since: "v2.8.0"},
 	{Name: "pg_sage_trust_level", Type: Gauge, Area: AreaHealth,
 		Help:   "Effective trust level of the database (one-hot)",
 		Labels: []string{"database", "level"}, Modes: AllModes, Since: "v2.6.0"},
