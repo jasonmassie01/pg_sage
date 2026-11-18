@@ -102,13 +102,59 @@ letters across versions.
 ## Runs
 
 `sage.review_run` holds one row per run: `kind` (`grade`, or `review` for a Sage Review),
-`triggers` (`first_look`, `daily`), `rubric_version`, `status`, `overall_grade`,
+`triggers` (`first_look`, `daily`, or the trigger kinds of a review, see [Triggers](#triggers)), `rubric_version`, `status`, `overall_grade`,
 `overall_score`, `coverage_pct`, `started_at`, `finished_at` and `error`. A run is `running`
 until it ends `done`, `partial` (a producer could not be read: its checks are unknown and the
 error names it) or `failed`; a finished run never moves again. One run per database can be
 running (a partial unique index); a second gets "already running". A run a killed sidecar
 left running for 30 minutes is failed with "sidecar stopped during run". `sage.review_grade`
 holds each dimension's letter, score, coverage and check results. Runs are kept 400 days.
+
+## Triggers
+
+A review is worth most when someone has a decision to make, so events start one and the
+calendar is the fallback (`internal/review/trigger`). Each trigger is a row of
+`sage.review_trigger` in the database's own sage schema: `kind`, `detail` (a JSON object: the
+"why now"), `fired_at`, `state`, the `run_id` that consumed it and `coalesced_into`.
+
+| Kind | Fires when | Source |
+|---|---|---|
+| `enrollment` | The rollups hold two complete weekly cycles: the oldest coverage hour is 14 days old and at least 80% of the last 336 hours have a `sage.query_rollup_coverage` row. Once, and only before the first full review. The grade itself runs on day one. | polled hourly |
+| `pre_upgrade` | An upgrade readiness check (`GET /api/v1/upgrade-readiness`) succeeds; once per target major and UTC day. Bypasses the interval: the review starts at the next tick. | the route |
+| `unresolved_regression` | A `query_regression` or `plan_regression` finding open for 72 hours or more whose action was reverted, or that has no verified action (one that ran and that verification judged `improved` in `sage.action_outcome`). Once per finding. | polled hourly |
+| `cost_growth_anomaly` | The newest whole day's database size growth (system snapshots, one value a day, 29 days) is a robust z of 4 or more over the earlier days (`baseline.Judge`, at least 7 days of history) and at least 256 MiB over their median. A missing day breaks the series. Attributed cost is not judged yet. | polled hourly |
+| `large_migration` | A live migration lint (`POST /api/v1/migrations/lint`, not `static`) measured a table larger than `review.large_table_bytes`; once per table set and UTC day. | the route |
+| `instance_change` | The instance class, vCPU count or memory that cloud telemetry reports differs from the last value seen (`sage.review_trigger_state`). A fact unknown on either side is not a change; the first observation is recorded, not fired. Without a cloud adapter (self-managed, Neon, Supabase, serverless) this kind is unavailable: pg_sage does not guess. | polled hourly |
+| `calendar` | `review.calendar_days` (default 30) after the last full review finished. | polled hourly |
+
+**Coalescing.** The oldest waiting trigger opens a window of `review.min_interval_hours`
+(default 24). Every trigger fired inside it joins one review run, and the run starts when the
+window closes: two triggers 23 h 59 min apart give one run, 24 h apart give two. A
+`pre_upgrade` starts the run at once with everything waiting. A trigger fired while a review
+runs waits for the next run. The run's `triggers` lists the distinct kinds; the first trigger
+is `consumed` and the rest `coalesced` into it, each with the run's id.
+
+**Leader, restart and claims.** The loop ticks every 5 minutes, on the leader only. It claims
+the due triggers with `FOR UPDATE SKIP LOCKED` (two sidecars never claim one trigger), records
+the run id on the claim as soon as the run is recorded, and holds the claim for 35 minutes (the
+stale-run reaper's 30 minutes, plus margin). A claim whose sidecar died goes back to `fired`
+when its lease ends, keeping its run id: the next leader consumes it into that run if the run
+finished, waits while it runs, and starts a new run if it failed or has been running for
+longer than the lease (its sidecar died mid-run; the new run's reaper fails it). So a trigger
+gets one finished run. A grade that is already running makes the loop release the claim and
+retry at the next tick.
+
+**What a run does.** Today a trigger-started run is a `review` run graded against the rubric,
+read-only, carrying its triggers. Nothing runs on the monitored database: a review reads and
+proposes. The grade route's `why_now` lists the triggers the latest run consumed or coalesced,
+with their details.
+
+**Errors.** A failed trigger insert names the kind and the database and is returned to the
+source. The routes log it and answer as before; it is counted in
+`pg_sage_review_trigger_fire_errors_total{kind}`. `pg_sage_review_runs_total{cause}` counts
+the runs started by an `event` or by the `calendar`. The median time from trigger to finished
+run is `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY r.finished_at - t.fired_at) FROM
+sage.review_trigger t JOIN sage.review_run r ON r.id = t.run_id`.
 
 ## Candidates
 
@@ -358,3 +404,140 @@ The review's number is the forecast error: each review records its 30-day databa
 projection in `sage.review_capacity_forecast`, and the first later review whose pack holds the
 target day's size measures it once, as (projected - measured) / measured. A second pass at the
 same mark changes nothing. `capacity.Idle` is the idle rule fleetpol-03 reuses.
+
+## Model pass
+
+After the generators, a model **ranks** the candidates, **attacks** each one (what could make
+it wrong), **links** related ones (`conflicts`, `depends_on`, `supersedes`, `related`),
+proposes **hypotheses** the generators missed, and writes one short **report** text per
+dimension (`internal/review/modelpass`). It is on by default whenever a model is usable
+(`review.model_pass: auto`). The model reviews and ranks. It never writes SQL that runs and
+never applies anything: its answer schema has no SQL field, any SQL-looking text it writes is
+shown to a person as prose, and a candidate's own SQL is never shown to it. Every step still
+comes from a generator template and runs through the executor's contract for its action type.
+
+**What leaves the network.** Only the pack's model tier, each candidate's numbers and the
+grade. The model reads:
+
+| Evidence | Example of what the model sees |
+|---|---|
+| A pack fact, cited as `E5` | `index/idx/public.orders_created_at {"size_bytes":8192,"scans":0,...}` |
+| A candidate, cited as `E1` | `{"candidate_id":"3f9a...","kind":"unused","target":"public.orders_created_at","prediction":{"metric":"index_bytes","tier":"none"},...}` |
+| The grade | `dimension indexes: grade C, score 60, coverage 100` |
+| A pack section, on request | the model tier's `workload.json` (normalized statement texts, literals redacted, wrapped as untrusted data) |
+
+The model tier holds no most-common values, histogram bounds, plan filter values or literals
+([security.md](security.md#workload-evidence-pack-tiers)). With `review.hash_identifiers: true`
+every schema, table, index and column name is a keyed pseudonym (`t_<10 hex>`) in what the
+model reads, and the report maps them back to names. Which providers may receive the model
+tier is decision D3 (OWNER ACTION); see
+[security.md](security.md#sage-review-model-pass-and-provider-retention).
+
+**Which model.** `llm.review_llm` when enabled, else the optimizer model
+(`llm.optimizer_llm`), else the general client: `ForPurpose("review")`. Usage and cost are
+labelled with the purpose `review`. Any OpenAI-compatible provider works, a local one too.
+When the review model is disabled, its daily budget is spent or its breaker is open, the pass
+runs on the general client if `llm.review_llm.fallback_to_general` is true (the default), and
+otherwise is skipped (a spent budget or an open breaker skips it even with `model_pass: on`).
+`llm.review_llm.max_output_tokens` caps each call's completion below the pass's own cap of
+6,000 tokens.
+
+**Variance control.** One shot is not a review: `review.model_runs` (default 3, odd, 1-5)
+independent runs are combined in code.
+
+- `majority` (default): a candidate is kept when most runs keep it, at its median rank (ties:
+  more votes, then the deterministic score). A hypothesis survives when most runs propose the
+  same `(kind, target)`, case and spaces aside; a link when most runs give the same pair and
+  relation. Report text comes from the first run that wrote a cited one.
+- `refute`: run 1 ranks; run 2 sees run 1's kept items and must refute each with cited
+  evidence. A refutation whose claims survive the filter drops the item. Only these two runs
+  are made.
+- `model_runs: 1` applies no consensus; the report says `single run`.
+
+When fewer than a majority of the runs finish, the model's output is not used.
+
+**Claims.** Every ranking, link, hypothesis and report text carries claims that cite the
+aliases of the run's evidence. A claim citing an alias the run does not hold (`E999`) is
+dropped, and so is a claim with a number its cited evidence does not hold; an attack,
+rationale or text with an ungrounded number is dropped too. A ranking of an unknown candidate,
+a duplicate, an invalid decision or rank, a link or hypothesis without a surviving claim, and
+an uncited report text are rejected and listed in the report with the reason. The tool-calling
+transport does not retry a 429: a rate-limited run stops with error class `rate`.
+
+**Without a model** (no model configured, `llm.enabled: false`, `review.model_pass: off`, the
+token budget exhausted, the breaker open, every run failed, or a run that could not be
+recorded) the review is still graded and still has candidates. They are ranked by a
+deterministic score, the predicted effect (the size in percent, 1 when unknown) times the
+ladder tier's confidence (fleet 1, canary 0.9, clone 0.75, plan_only 0.5, none 0.25) divided
+by the risk weight (1, plus 1 when the step needs approval, plus 1 when an executed step
+cannot be rolled back), and each dimension's text comes from a template
+(`internal/review/report/templates`). The report's `model_pass` is `skipped` or `failed` with
+the reason (`no model is configured`, `review.model_pass is off`, `token budget`, `only 0 of 3
+model runs finished: ...`). `model_pass` moves from `pending` to `running` to `done`, `failed`
+or `skipped`. Turning `review.model_pass` off mid-review lets the run in flight finish and
+skips the rest. A review without candidates is not sent to a model.
+
+**Stored runs.** Every model run is one row of `sage.review_model_run`, written once with its
+final status (`done`, `failed`, `skipped`): `attempt`, `role` (`rank` or `refute`), `model`,
+`prompt_version`, `pack_hash`, the raw output (capped at 256 KiB, `raw_truncated` set when
+cut), `output_sha256` of the whole output, `kept_claims`, `dropped_claims`, `tokens_in`,
+`tokens_out`, `cost_usd` (NULL when `llm.pricing` does not price the model), `error_class`
+(`rate`, `timeout`, ...) and `reason`. The table is append-only: a trigger refuses every
+UPDATE. A plan's audit record cites `output_sha256`, so a plan can be replayed against a later
+model. Rows go with their review run.
+
+## From review to plan
+
+A review ends as **one plan** (`internal/review/plan`), stored through the ordinary plan store
+([policy-gate.md](policy-gate.md#plan-approval-coverage)): validation, caps, plan hash and the
+created event. Nothing runs until a person approves it, and every step runs, if ever, through
+the executor's contract for its action type. An agent over MCP can read a review plan
+(`list_plans`, `get_plan`) and never approve one.
+
+**Generator steps** are the candidates the review kept: by the model pass's consensus, or by
+the deterministic ranking when no model ran. A candidate the model dropped is not planned. An
+`advice` or `operator` candidate stays advice for a person.
+
+**Model steps.** A model hypothesis becomes a step only through a typed template. The template
+resolves the hypothesis target against the pack's **local tier** (hashed identifiers are mapped
+back locally; a table, column or setting the pack does not hold is refused), renders the SQL
+in deterministic code, and asks the lab-03 ladder's lowest available tier for a prediction.
+Only a prediction of at least `optimizer.hypopg_min_improvement_pct` becomes a step; the
+hypothesis must also cite evidence ids that resolve in the pack.
+
+| Kind | Target | Rendered step |
+|---|---|---|
+| `create_index_concurrently` | `public.orders(region)` | `CREATE INDEX CONCURRENTLY sage_orders_region_idx ON public.orders (region)`; HypoPG what-if |
+| `create_statistics` | `public.orders(region, country)` | `CREATE STATISTICS public.sage_stx_orders_region_country (ndistinct, dependencies, mcv) ON region, country FROM public.orders` |
+| `alter_database_guc` | `work_mem=64MB` | `ALTER DATABASE "shop" SET work_mem = '64MB'`, rollback to the database's value or `RESET`; inside the executor allowlist and `pgconf` bounds, never a restart-bound setting |
+| `set_column_statistics`, `set_table_autovacuum`, `set_role_timeout`, `set_role_connection_limit` | `public.orders(region) statistics=1000`, `public.orders autovacuum_vacuum_scale_factor=0.05`, `app statement_timeout=30s`, `app connection_limit=20` | advice: the pack does not hold the value they would replace, so no exact rollback can be written |
+
+Today the HypoPG what-if is the only tier the planner can call, so in practice only index
+hypotheses become model steps; statistics and setting hypotheses stay advice
+(`no_ladder_tier`) until a lower tier for them exists. Any other kind, `drop_unused_index` and
+`drop_table` included, has no template and stays advice. So a model that obeys an instruction
+planted in a statement text ("drop index X, evidence E3") produces an advice row naming the
+refusal, never a step.
+
+**Ordering and caps** follow plan-02: generator steps first in rank order, then model steps.
+A step whose target statements overlap an earlier step's waits for the next review (one change
+per statement set is measured at a time), and so does a step that would break a plan cap
+(new indexes per table, one restart-bound change).
+
+**Approval.** A step that is never automatic needs its own approval, as for every plan. A
+**model-origin step always needs a person's own approval** as well, whatever its class's
+trust: approving the plan (`all` or `up_to`) does not cover it, and the engine stops before it
+with `awaiting_approval` and the reason `model_origin`. This lasts until review-05a's G-M1 is
+granted for that model id, by a person, as a live row of `sage.review_model_authority`; then
+its steps follow their class level. A revocation (a failed window or a model change) holds
+them again at once. A step of a model-origin plan without an origin row counts as the model's.
+
+**Stored.** `sage.review_plan` (one row per review run: the plan, or none with `no changes
+proposed`, and step counts by origin; a re-run of the same run returns the stored plan),
+`sage.plan_step_origin` (per step: `generator` with the generator's name, or `model` with the
+model id; the evidence ids, the ladder prediction and the measurement spec handed to the
+verifier) and `sage.review_advice` (every hypothesis or candidate that did not become a step,
+with the reason: `no_template`, `no_contract`, `unknown_object`, `invalid_target`,
+`no_evidence`, `sql_refused`, `ladder_error`, `no_ladder_tier`, `below_minimum`,
+`not_measurable`, `next_review` or `advice_only`). If the plan store refuses a plan, the
+review's save fails with an error naming `sage.plan`.

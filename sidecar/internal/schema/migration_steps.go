@@ -252,6 +252,7 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlActionQueueLadder", ddlActionQueueLadder},                       // lab-03a
 		{"ddlCloneInstancesHolder", ddlCloneInstancesHolder},                 // lab-05a
 		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},               // lab-03b
+		{"ddlPlanCardDeliveries", ddlPlanCardDeliveries},                     // plan-03b
 	}
 }
 
@@ -264,6 +265,9 @@ func trancheSixMigrations() []namedStep {
 		{"ddlReviewCandidates", ddlReviewCandidates},               // review-02a
 		{"ddlReviewCandidateOperator", ddlReviewCandidateOperator}, // review-02b
 		{"ddlReviewCapacityForecast", ddlReviewCapacityForecast},   // review-02f
+		{"ddlReviewModelRuns", ddlReviewModelRuns},                 // review-03a
+		{"ddlReviewPlans", ddlReviewPlans},                         // review-03b
+		{"ddlReviewTriggers", ddlReviewTriggers},                   // review-04a
 		{"ddlPolicySets", ddlPolicySets},                           // fleetpol-01a
 	}
 }

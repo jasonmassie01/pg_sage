@@ -77,6 +77,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Autonomy: autonomyMCPBackend{registry: processAutonomy().registry, manager: fleetMgr},
 		// Binding facts: read, propose (stays proposed), decide (a person).
 		Facts: factsMCPBackend{manager: fleetMgr},
+		// Plans: read and propose (stays proposed); no MCP path approves.
+		Plans: plansMCPBackend{manager: fleetMgr},
 		// Fleet findings across the databases the caller may see.
 		FleetLearning: fleetFindingsMCP{},
 		// A workload pack's model tier, never its local tier (evid-02c).

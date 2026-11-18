@@ -36,11 +36,14 @@ func TestReviewCapacityForecastMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-// Later items append after this step; the single last-step pin lives in
-// TestMigrationStatements_AreTheStepsInOrder.
-func TestReviewCapacityForecastStep_IsAT6StepAndBounded(t *testing.T) {
-	if t6StepIndex("ddlReviewCapacityForecast") < 0 {
-		t.Fatalf("T6 steps %v lack ddlReviewCapacityForecast", trancheSixMigrations())
+// review-03a and review-03b appended steps after this one (merged after
+// review-02f), so the pin is its place: just after ddlReviewCandidateOperator.
+func TestReviewCapacityForecastStep_IsPlacedAndBounded(t *testing.T) {
+	steps := trancheSixMigrations()
+	at := stepIndex(steps, "ddlReviewCapacityForecast")
+	if at < 1 || steps[at-1][0] != "ddlReviewCandidateOperator" {
+		t.Fatalf("T6 steps %v, want ddlReviewCapacityForecast just after "+
+			"ddlReviewCandidateOperator", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_capacity_forecast",
@@ -59,14 +62,4 @@ func TestReviewCapacityForecastStep_IsAT6StepAndBounded(t *testing.T) {
 			t.Errorf("ddlReviewCapacityForecast runs %q", bad)
 		}
 	}
-}
-
-// t6StepIndex is the position of the named step in trancheSixMigrations, or -1.
-func t6StepIndex(name string) int {
-	for i, s := range trancheSixMigrations() {
-		if s[0] == name {
-			return i
-		}
-	}
-	return -1
 }

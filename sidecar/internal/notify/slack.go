@@ -58,6 +58,10 @@ func (s *SlackSender) Send(
 		return fmt.Errorf("build slack payload: %w", err)
 	}
 	switch {
+	case planToken(evt) != "" && CardInteractive(ch):
+		if payload, err = withPlanButtons(payload, evt); err != nil {
+			return fmt.Errorf("build slack payload: %w", err)
+		}
 	case factToken(evt) != "" && CardInteractive(ch):
 		if payload, err = withFactButtons(payload, factToken(evt)); err != nil {
 			return fmt.Errorf("build slack payload: %w", err)

@@ -63,6 +63,9 @@ type ProductionDependencies struct {
 	Autonomy AutonomyBackend
 	// Facts serves the binding-fact tools (roadmap 2.3); optional.
 	Facts FactBackend
+	// Plans serves propose_plan, list_plans and get_plan (plan-03b);
+	// optional.
+	Plans PlanBackend
 	// FleetLearning serves fleet_findings (fleet learning); optional.
 	FleetLearning FleetLearningBackend
 	// WorkloadPacks serves get_workload_pack (evid-02c); optional.

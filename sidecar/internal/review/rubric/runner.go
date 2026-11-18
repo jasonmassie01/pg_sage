@@ -28,6 +28,10 @@ type Runner struct {
 	Loader   Loader
 	Rubric   Rubric
 	Database string
+	// OnStart, when set, is called with the run's id once the run is
+	// recorded and before it is graded (review-04a: the trigger queue
+	// attaches its claim); an error fails the run.
+	OnStart func(ctx context.Context, runID int64) error
 }
 
 // Outcome is one finished run: its grade, the delta from the previous
@@ -60,6 +64,11 @@ func (r *Runner) Run(ctx context.Context, kind Kind, triggers []string) (Outcome
 		return Outcome{}, err
 	}
 	out := Outcome{RunID: id, Status: RunDone}
+	if r.OnStart != nil {
+		if err := r.OnStart(ctx, id); err != nil {
+			return out, r.fail(id, err)
+		}
+	}
 	in, loadErr := r.Loader.Load(ctx)
 	if ctx.Err() != nil {
 		return out, r.fail(id, ctx.Err())

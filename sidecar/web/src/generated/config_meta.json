@@ -2658,6 +2658,70 @@
     "class": "safety_critical",
     "lifecycle": "reconfigure"
   },
+  "llm.review_llm.api_key": {
+    "type": "string",
+    "default": null,
+    "doc": "API key of the review model. Prefer SAGE_REVIEW_LLM_API_KEY or its _FILE form over a literal value.",
+    "secret": true,
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.cooldown_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "As llm.cooldown_seconds, for the review client; 0 uses llm.cooldown_seconds.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Use a dedicated model for Sage Review's model pass. When false the review uses the optimizer model when enabled, else the general llm.* client. Default: false.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.endpoint": {
+    "type": "string",
+    "default": "",
+    "doc": "Base URL of the review model's provider; empty uses llm.endpoint. The general API key is sent only to the same origin.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.fallback_to_general": {
+    "type": "bool",
+    "default": true,
+    "doc": "Fall back to the general llm.* client when the review model is unavailable or over budget. Default: true.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.max_output_tokens": {
+    "type": "int",
+    "default": 0,
+    "doc": "Upper bound on output tokens accepted from the review model per call; 0 leaves the review's own step cap.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.model": {
+    "type": "string",
+    "default": "",
+    "doc": "Review model identifier; empty uses llm.model. Must support tool calls or JSON replies.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.timeout_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Per-request timeout of review model calls; 0 uses llm.timeout_seconds.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.token_budget_daily": {
+    "type": "int",
+    "default": 0,
+    "doc": "Daily token cap of the review model, separate from llm.token_budget_daily; 0 uses llm.token_budget_daily.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
   "llm.timeout_seconds": {
     "type": "int",
     "default": 30,
@@ -3498,6 +3562,20 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "review.calendar_days": {
+    "type": "int",
+    "default": 30,
+    "doc": "Days after the last full review at which the calendar trigger starts the next one; event triggers start one sooner. Range 1-365. Default: 30.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.consensus": {
+    "type": "string",
+    "default": "majority",
+    "doc": "How model runs combine: majority (keep what most runs keep, at the median rank) or refute (a second run must refute each kept item). Default: majority.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "review.enabled": {
     "type": "bool",
     "default": true,
@@ -3512,10 +3590,38 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "review.hash_identifiers": {
+    "type": "bool",
+    "default": false,
+    "doc": "Replace schema, table, index and column names with keyed pseudonyms in what the review model reads (needs encryption_key). Default: false.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "review.large_table_bytes": {
     "type": "int64",
     "default": 10737418240,
     "doc": "Bytes from which Sage Review advises partitioning an unpartitioned table with a time-ordered key. Range 1073741824-1125899906842624 (1 GiB-1 PiB). Default: 10737418240 (10 GiB).",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.min_interval_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours inside which review triggers join one review run, counted from the first trigger; pre_upgrade starts a run at once. Range 1-168. Default: 24.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.model_pass": {
+    "type": "string",
+    "default": "auto",
+    "doc": "Model pass that ranks, attacks and links the review's candidates: auto (when a model is usable), on (no model is a failed pass) or off (deterministic ranking only). Default: auto.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.model_runs": {
+    "type": "int",
+    "default": 3,
+    "doc": "Independent model runs per review whose results are combined by review.consensus. An odd number in 1-5; 1 applies no consensus. Default: 3.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },

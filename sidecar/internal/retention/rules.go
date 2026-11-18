@@ -179,6 +179,11 @@ var restoreDrillsRule = purgeRule{table: "restore_drills", timeCol: "finished_at
 var reviewRunRule = purgeRule{table: "review_run", timeCol: "started_at", days: 400,
 	extra: "AND status <> 'running'"}
 
+// reviewTriggerRule keeps 400 days of done review triggers (review-04a),
+// as long as their runs; a waiting or claimed trigger is never purged.
+var reviewTriggerRule = purgeRule{table: "review_trigger", timeCol: "fired_at", days: 400,
+	extra: "AND state IN ('consumed', 'coalesced')"}
+
 func purgeRules(cfg *config.Config) []purgeRule {
 	r := cfg.Retention
 	rules := []purgeRule{
@@ -241,6 +246,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "facts", timeCol: "updated_at", days: r.ActionsDays,
 			extra: "AND status = 'expired'"},
 		{table: "fact_card_deliveries", timeCol: "created_at", days: r.ActionsDays},
+		// Plan cards (plan-03b) age from creation like fact cards.
+		{table: "plan_card_deliveries", timeCol: "created_at", days: r.ActionsDays},
 		// Source-fix reports (MCP v2): a pending one is kept until its
 		// verdict is decided; decided ones age out like actions.
 		{table: "source_fix", timeCol: "updated_at", days: r.ActionsDays,
@@ -283,7 +290,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
 	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule,
-		restoreDrillsRule, reviewRunRule)
+		restoreDrillsRule, reviewRunRule, reviewTriggerRule)
 	return append(rules, planPurgeRule(r))
 }
 

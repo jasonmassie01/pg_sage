@@ -198,6 +198,7 @@ func defaultLLMConfig() LLMConfig {
 			MaxOutputTokens:   DefaultOptLLMMaxOutputTokens,
 			FallbackToGeneral: true,
 		},
+		ReviewLLM: ReviewLLMConfig{FallbackToGeneral: true},
 	}
 }
 

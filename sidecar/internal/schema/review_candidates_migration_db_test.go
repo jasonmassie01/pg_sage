@@ -84,12 +84,7 @@ func checkCandidateConstraints(t *testing.T, ctx context.Context, pool *pgxpool.
 // review_candidate, so ddlReviewCandidates is the step just before it.
 func TestReviewCandidatesStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	at := -1
-	for i, s := range steps {
-		if s[0] == "ddlReviewCandidates" {
-			at = i
-		}
-	}
+	at := stepIndex(steps, "ddlReviewCandidates")
 	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewCandidateOperator" {
 		t.Fatalf("T6 steps %v, want ddlReviewCandidates just before "+
 			"ddlReviewCandidateOperator", steps)

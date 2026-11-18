@@ -74,9 +74,4 @@ func (k *llmUsageKeys) nameOf(key string) (string, bool) {
 	return "", false
 }
 
-func llmUsageRole(role llmClientRole) string {
-	if role == llmRoleOptimizer {
-		return "optimizer"
-	}
-	return "general"
-}
+func llmUsageRole(role llmClientRole) string { return role.String() }
