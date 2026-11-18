@@ -1488,6 +1488,7 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="incident"></a><a id="incident_open"></a><a id="incident_resolved"></a>`incident` | RCA | Incident-class rows; `incident_open` and `incident_resolved` mark an incident's state. |
 | <a id="migration_safety"></a>`migration_safety` | Migration advisor | A migration safety rule's finding on a DDL statement. |
 | <a id="upgrade_readiness"></a>`upgrade_readiness` | Upgrade readiness | A major-version upgrade check (U1-U7) that does not pass; see [Upgrade Readiness](#upgrade-readiness). |
+| <a id="post_upgrade"></a>`post_upgrade` | Upgrade readiness | A step of the plan pg_sage proposes after a major version upgrade: an `ANALYZE` of a table, or a `REINDEX INDEX CONCURRENTLY` of an index whose collation version changed; see [After the upgrade](#after-the-upgrade). |
 | <a id="test_fixture_cleanup"></a>`test_fixture_cleanup` | Facts | A confirmed test-fixture fact's cleanup batch for an operator to review. pg_sage never drops a schema itself. |
 | <a id="schema_lint"></a>`schema_lint` | Schema lint | `schema_lint:<rule id>`: a schema lint rule's finding. |
 | <a id="agent_posture"></a>`agent_posture` | Agent posture | `agent_posture:<detector>`: an agent posture detector's finding (AP-01 to AP-17; AP-17 is an agent-like session connected as an owner or service role). The exposure detectors also run in a sweep between cycles; see [Agent governance](agent-governance.md#where-you-see-it). |
