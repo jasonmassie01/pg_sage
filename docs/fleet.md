@@ -361,8 +361,9 @@ sort the table (click again to reverse). Tick rows, or the header box for
 every shown row, to test their connections in one go; each row shows its
 own result, and changing the search, the tags or the sort clears the
 selection. Registrations the sidecar is not running (disabled ones, for
-example) are listed below the table. In YAML fleet mode the list is
-read-only: edit the YAML file to change a database.
+example) are listed below the table. In YAML fleet mode the table is
+searched, tag-filtered, sorted and paged the same way but is read-only:
+it has no row selection, and you edit the YAML file to change a database.
 
 From six databases the header scope picker adds a **Find database** box over
 the same names: typing narrows the list, and a unique exact name, or Enter
