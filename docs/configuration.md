@@ -3946,6 +3946,43 @@ approval card still arrives with its buttons. Two Asks at the same instant, even
 sidecars, make one message (the batch is decided under the outbox's advisory lock). With no
 channel, classes are computed and nothing is sent.
 
+### Quiet hours, mutes and the weekly line
+
+**Per-channel quiet hours.** A channel may have its own quiet hours, set in the channel's
+Edit dialog (Notifications, Channels): from and to as `HH:MM` and an IANA timezone (UTC when
+empty). Start and end must differ; an unknown timezone is refused and named
+(`PUT /api/v1/notifications/channels/{id}/quiet-hours`, admin; all three empty clears them).
+Inside the window the channel's Ask and Digest messages wait in the outbox and go out when
+it ends, counted in local wall time, so a daylight-saving night is held for its real length;
+a Page goes out at once. The daily digest, otherwise sent at once, waits too. An approval card
+with live buttons (an interactive Slack or Telegram channel) is not held, because the outbox
+cannot keep its token. A channel without its own window keeps the global
+`alerting.quiet_hours_*` pair, which holds non-critical finding alerts only, as before; a
+channel's own window replaces that pair for its finding alerts. A stored window that no
+longer parses is logged and holds nothing.
+
+**Mutes.** Mute database (the Notifications page, a database row's Mute link) and "Mute
+this class" (the link `#/notifications?mute=<db>&class=<class>` in the batched Ask footer)
+write `sage.notification_mutes`: one row per database and class (or every class). A mute
+needs an end at most 90 days away. While it lasts, that database's messages of that class are
+neither sent nor queued; the Log tab shows nothing for them and a digest outcome reads
+`muted`. A mute ends exactly at its end time, with no sweep. Two admins muting the same
+database at once leave one mute with the later end. Unmute removes it
+(`GET`, `POST`, `DELETE /api/v1/notifications/mutes`, admin). If the mute table cannot be
+read, the message is sent, the failure is logged, and the sidecar counts it.
+
+These Page messages ignore mutes and quiet hours: the emergency stop, a failed rollback
+(`action_failed` with `rollback_failed`) and a freeze red line (a failing emergency freeze
+VACUUM escalation), plus any event marked with `page_reason` `emergency_stop`,
+`rollback_failed` or `freeze_red_line`.
+
+**The weekly line.** The Notifications page and every digest show "N messages, M led to
+an action" for the last 7 days (`GET /api/v1/notifications/weekly-line`, operator). N counts
+the sent deliveries in `sage.notification_log`. M counts those followed within 24 hours,
+inclusive, by an approve, reject or snooze of an item the message carried (from any surface),
+or by a mute of the message's database. An empty week reads "No messages this week". An undo
+is not counted yet: no stored record tells a person's rollback from an automatic one.
+
 ### Notification delivery
 
 Notification rules (the Notifications page) are delivered through an outbox in the control
