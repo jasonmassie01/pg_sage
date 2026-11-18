@@ -4,7 +4,8 @@ import { DatabasePicker, PICKER_FILTER_FROM } from './DatabasePicker'
 
 // ux-10b: the header scope picker. A small fleet (one database included:
 // the plan said one hides it "as today", but today shows it and
-// ask_route.test.jsx pins that) keeps the plain select (the "Database scope" control every spec drives),
+// ask_route.test.jsx pins that) keeps the plain select (the "Database
+// scope" control every spec drives),
 // and from PICKER_FILTER_FROM up it is an ARIA 1.2 combobox served by the
 // fleet list's q and tag (ux-10a), 50 names a page, with recent databases,
 // tag scopes and "All databases". It replaces ux-05e's find box.

@@ -41,7 +41,9 @@ let fleet = { summary: {}, databases: names.map((name, i) => ({ id: i + 1, name,
 
 function mockFetch() {
   globalThis.fetch = vi.fn(async url => {
-    if (url === '/api/v1/auth/mode') return { ok: true, status: 200, json: async () => ({ mode: 'session' }) }
+    if (url === '/api/v1/auth/mode') {
+      return { ok: true, status: 200, json: async () => ({ mode: 'session' }) }
+    }
     if (url === '/api/v1/auth/me') {
       return { ok: true, status: 200,
         json: async () => ({ email: 'admin@example.com', role: me.role }) }

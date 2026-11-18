@@ -1,6 +1,7 @@
 // fleet-filter.spec.ts (ux-05e, wins 14 and 19): finding one database among
-// 500 in the header scope picker (a server-searched combobox since ux-10b), and the external agent request links to
-// the investigation and its approval. The Databases table's search moved
+// 500 in the header scope picker (a server-searched combobox since
+// ux-10b), and the external agent request links to the investigation and
+// its approval. The Databases table's search moved
 // to the server (ux-10a) and is tested in fleet-table.spec.ts.
 // Register routes AFTER mockAllAPIs: Playwright matches the newest first.
 // No concurrency tests: one admin drives one page.
