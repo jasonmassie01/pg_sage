@@ -40,7 +40,7 @@ export function FleetSearch({ query, onQuery, tags, onTags }) {
               style={chipStyle} data-testid="db-tag-chip">
               {tag}
               <button type="button" aria-label={`Remove tag filter ${tag}`}
-                onClick={() => onTags(tags.filter(t => t !== tag))}>Ã—</button>
+                onClick={() => onTags(tags.filter(t => t !== tag))}>Ãƒâ€”</button>
             </li>
           ))}
         </ul>
@@ -61,26 +61,53 @@ export function FleetCount({ shown, total, configFile }) {
   )
 }
 
-// BulkBar acts on the selected registrations through the per-row routes.
-export function BulkBar({ count, running, summary, onTest, onClear }) {
-  if (count === 0 && !summary) return null
+// BulkBar acts on the selected registrations through the per-row routes:
+// a connection test, and setting one key=value tag (tag.run).
+export function BulkBar({ count, running, summary, onTest, onClear, tag }) {
+  if (count === 0 && !summary && !tag.summary) return null
   return (
     <div role="region" aria-label="Bulk actions" data-testid="db-bulk-bar"
       className="flex flex-wrap items-center gap-3 mb-2 text-sm">
       {count > 0 && <span data-testid="db-bulk-count">{count} selected</span>}
       {count > 0 && (
-        <button type="button" onClick={onTest} disabled={running}
+        <button type="button" onClick={onTest} disabled={running || tag.tagging}
           data-testid="db-bulk-test" className="px-2 py-1 rounded text-xs"
           style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}>
-          {running ? 'Testingâ€¦' : 'Test connection'}
+          {running ? 'Testing…' : 'Test connection'}
         </button>
       )}
+      {count > 0 && <BulkTag tag={tag} disabled={running || tag.tagging} />}
       {count > 0 && (
         <button type="button" onClick={onClear} data-testid="db-bulk-clear"
           className="px-2 py-1 rounded text-xs" style={muted}>Clear selection</button>
       )}
       {summary && <span role="status" data-testid="db-bulk-summary" style={muted}>{summary}</span>}
+      {tag.summary && (
+        <span role="status" data-testid="db-bulk-tag-summary" style={muted}>{tag.summary}</span>
+      )}
     </div>
+  )
+}
+
+// BulkTag is the bulk tag box: key=value, then Set tag (or Enter).
+function BulkTag({ tag, disabled }) {
+  const [draft, setDraft] = useState('')
+  async function submit(e) {
+    e.preventDefault()
+    if (await tag.onRun(draft)) setDraft('')
+  }
+  return (
+    <form onSubmit={submit} className="flex items-center gap-2">
+      <input type="text" aria-label="Tag to set on the selected databases" value={draft}
+        data-testid="db-bulk-tag-input" placeholder="key=value"
+        onChange={e => setDraft(e.target.value)}
+        className="px-2 py-1 rounded text-xs w-36" style={inputStyle} />
+      <button type="submit" disabled={disabled} data-testid="db-bulk-tag"
+        className="px-2 py-1 rounded text-xs"
+        style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}>
+        {tag.tagging ? 'Tagging…' : 'Set tag'}
+      </button>
+    </form>
   )
 }
 
@@ -107,7 +134,7 @@ export function SortHeader({ label, sort, onSort }) {
     <th aria-sort={state} className="text-left px-4 py-2 text-xs whitespace-nowrap" style={muted}>
       <button type="button" data-testid={`db-sort-${label}`}
         onClick={() => onSort(nextSort(sort, label))}>
-        {label}{state === 'ascending' ? ' ▲' : state === 'descending' ? ' ▼' : ''}
+        {label}{state === 'ascending' ? ' â–²' : state === 'descending' ? ' â–¼' : ''}
       </button>
     </th>
   )

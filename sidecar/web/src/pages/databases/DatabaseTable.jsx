@@ -6,12 +6,13 @@ import { BulkBar, FleetCount, FleetSearch, NoMatch, SortHeader } from './FleetCo
 import { DatabaseRow } from './DatabaseRow'
 import { fleetRows } from './fleetList'
 import { useFleetView } from './fleetView'
+import { useBulkTag } from './bulkTag'
 import { RUNTIME_HEADERS } from './runtimeStatus'
 
 // DatabaseTable is the fleet table of the managed registrations (ux-10a):
 // the sidecar searches (name or host), filters by tag, sorts and pages it
 // (GET /api/v1/databases?q&tag&sort&order&limit), and rows can be selected
-// for a bulk connection test through the per-row route. databases are the
+// for a bulk connection test or tag through the per-row routes. databases are the
 // registrations; runtimeFor maps one to its row of the whole runtime
 // inventory, runtimeKnown is false when that inventory could not be read.
 
@@ -56,12 +57,13 @@ function useConnectionTests(onError) {
 
 export function DatabaseTable({
   databases, onEdit, onDelete, onError,
-  runtimeFor = () => undefined, runtimeKnown = true, onSelectDatabase,
+  runtimeFor = () => undefined, runtimeKnown = true, onSelectDatabase, onChanged = () => {},
 }) {
   const view = useFleetView()
   const list = useAPI(databases.length ? view.url : null, 30000)
   const paging = useCursorPages(list.data, view.url, 'databases', { idOf: row => row?.name })
   const tests = useConnectionTests(onError)
+  const bulkTag = useBulkTag(onError, onChanged)
   const rows = useMemo(() => fleetRows(databases, paging.rows), [databases, paging.rows])
 
   if (databases.length === 0) {
@@ -88,7 +90,8 @@ export function DatabaseTable({
         onTags={view.setTags} />
       <BulkBar count={selectedRegs.length} running={tests.testing !== null}
         summary={tests.summary} onTest={() => tests.run(selectedRegs)}
-        onClear={() => view.setSelected(new Set())} />
+        onClear={() => view.setSelected(new Set())}
+        tag={{ ...bulkTag, onRun: raw => bulkTag.run(selectedRegs, raw) }} />
       <FleetStatusLine list={list} listFailed={listFailed} shown={managedRows.length}
         configFile={rows.length - rows.filter(r => r.registration).length} />
       <FleetBody list={list} listFailed={listFailed} filtered={view.filtered}
@@ -119,7 +122,7 @@ function FleetStatusLine({ list, listFailed, shown, configFile }) {
 // list), the empty state of a filter with no match, or a loading line.
 function FleetBody({ list, listFailed, filtered, onClear, ...rest }) {
   if (!listFailed && !list.data) {
-    return <p data-testid="db-list-loading" className="text-sm" style={muted}>Loading databases…</p>
+    return <p data-testid="db-list-loading" className="text-sm" style={muted}>Loading databasesâ€¦</p>
   }
   if (!listFailed && list.data.total === 0 && filtered) return <NoMatch onClear={onClear} />
   return <FleetRows {...rest} />

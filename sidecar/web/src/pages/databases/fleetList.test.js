@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SORT, addTag, ariaSort, fleetListURL, fleetRows, nextSort } from './fleetList'
+import { DEFAULT_SORT, addTag, ariaSort, fleetListURL, fleetRows, nextSort, parseTagAssignment,
+  tagUpdateBody } from './fleetList'
 
 // ux-10a: the fleet table's URL, sort and join helpers. No concurrency
 // test: pure functions.
@@ -79,5 +80,39 @@ describe('addTag', () => {
     expect(addTag(tags, '=prod')).toBe(tags)
     expect(addTag(tags, ' = prod')).toBe(tags)
     expect(addTag(tags, 'team=')).toEqual(['tier=prod', 'team='])
+  })
+})
+
+describe('parseTagAssignment', () => {
+  it('reads a trimmed key=value, keeping an = inside the value', () => {
+    expect(parseTagAssignment(' tier = prod ')).toEqual({ key: 'tier', value: 'prod' })
+    expect(parseTagAssignment('url=a=b')).toEqual({ key: 'url', value: 'a=b' })
+  })
+
+  it('refuses a bare tag, a blank key or value, and nothing', () => {
+    for (const raw of ['prod', '=prod', 'tier=', ' = ', '', undefined, null]) {
+      expect(parseTagAssignment(raw)).toBeNull()
+    }
+  })
+})
+
+describe('tagUpdateBody', () => {
+  const rec = { id: 4, name: 'orders', host: 'h', port: 6432, database_name: 'app',
+    username: 'sage', sslmode: 'verify-full', max_connections: 5, enabled: true,
+    trust_level: 'advisory', execution_mode: 'manual', tags: { tier: 'dev', team: 'core' },
+    action_identity: { username: 'sage_exec' }, created_at: 'x' }
+
+  it('sends every stored field back with the tag set, and keeps the password', () => {
+    expect(tagUpdateBody(rec, { key: 'tier', value: 'prod' })).toEqual({
+      name: 'orders', host: 'h', port: 6432, database_name: 'app', username: 'sage',
+      password: '', sslmode: 'verify-full', max_connections: 5, trust_level: 'advisory',
+      execution_mode: 'manual', tags: { tier: 'prod', team: 'core' },
+    })
+    expect(rec.tags).toEqual({ tier: 'dev', team: 'core' })
+  })
+
+  it('adds the first tag to a record without tags', () => {
+    expect(tagUpdateBody({ ...rec, tags: null }, { key: 'k', value: 'v' }).tags)
+      .toEqual({ k: 'v' })
   })
 })

@@ -77,3 +77,24 @@ export function addTag(tags, raw) {
   if (tags.some(t => t.toLowerCase() === tag.toLowerCase())) return tags
   return [...tags, tag]
 }
+
+// parseTagAssignment reads a bulk tag as {key, value}: "key=value", both
+// trimmed and non-empty, else null (registrations hold key=value tags).
+export function parseTagAssignment(raw) {
+  const [key, ...rest] = String(raw ?? '').split('=')
+  const value = rest.join('=').trim()
+  return key.trim() && value ? { key: key.trim(), value } : null
+}
+
+// tagUpdateBody is the PUT /api/v1/databases/managed/{id} body that sets
+// one tag on rec, a fresh GET of the registration. The route replaces every
+// field, so each goes back as stored; an empty password and no action
+// identity keep the stored ones, as the edit form does.
+export function tagUpdateBody(rec, { key, value }) {
+  return {
+    name: rec.name, host: rec.host, port: rec.port, database_name: rec.database_name,
+    username: rec.username, password: '', sslmode: rec.sslmode,
+    max_connections: rec.max_connections, trust_level: rec.trust_level,
+    execution_mode: rec.execution_mode, tags: { ...(rec.tags || {}), [key]: value },
+  }
+}

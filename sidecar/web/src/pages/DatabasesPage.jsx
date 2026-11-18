@@ -70,6 +70,17 @@ export function DatabasesPage({ onSelectDatabase }) {
 
   useEffect(() => { fetchDatabases() }, [fetchDatabases])
 
+  // refreshManaged reloads the registrations in place after a bulk change
+  // (ux-10a), keeping the table, its selection and its result line.
+  const refreshManaged = useCallback(async () => {
+    try {
+      setDatabases(await fetchInventory('/api/v1/databases/managed',
+        'managed database registrations'))
+    } catch (err) {
+      setError(err.message)
+    }
+  }, [])
+
   function handleEdit(db) {
     setEditingDB(db)
     setShowForm(true)
@@ -225,7 +236,7 @@ export function DatabasesPage({ onSelectDatabase }) {
               onDelete={setDeleteTarget}
               onError={setError}
               runtimeFor={runtimeFor} runtimeKnown={runtimeAvailable}
-              onSelectDatabase={onSelectDatabase} />
+              onSelectDatabase={onSelectDatabase} onChanged={refreshManaged} />
           ) : null}
         </TabPanel>
       )}

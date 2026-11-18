@@ -358,8 +358,11 @@ character literally. A tag chip (type `tier=prod`, or a bare tag such as
 `critical`, and press Enter) keeps only databases that carry it; several
 chips must all match. The Name, Execution Mode, Findings and Health headers
 sort the table (click again to reverse). Tick rows, or the header box for
-every shown row, to test their connections in one go; each row shows its
-own result, and changing the search, the tags or the sort clears the
+every shown row, to test their connections in one go (each row shows its
+own result) or to set one `key=value` tag on all of them (**Set tag**: each
+registration is read and written back with the tag added, through its own
+`PUT /api/v1/databases/managed/{id}`, leaving its other fields and password
+as they were). Changing the search, the tags or the sort clears the
 selection. Registrations the sidecar is not running (disabled ones, for
 example) are listed below the table. In YAML fleet mode the table is
 searched, tag-filtered, sorted and paged the same way but is read-only:
