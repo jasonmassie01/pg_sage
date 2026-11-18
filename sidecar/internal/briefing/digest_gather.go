@@ -50,6 +50,7 @@ func (w *Worker) gatherDigest(ctx context.Context, win Window) DigestInput {
 		in.HeldBack, in.HeldBackErr = w.readHeldBack(ctx)
 	}
 	in.Inbox, in.InboxErr = w.readInbox(ctx)
+	in.GateNotes, in.GateNotesErr = w.readGate(ctx, win)
 	return in
 }
 

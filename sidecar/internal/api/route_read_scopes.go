@@ -51,7 +51,9 @@ var readRouteScopes = map[string]readScope{
 	// drill-01d: a database's restore drill history.
 	"GET /api/v1/databases/{db}/restore-drills": readDatabase(pathDB),
 	// review-01a: a database's latest grade, the previous one and the delta.
-	"GET /api/v1/databases/{db}/review/grade":             readDatabase(pathDB),
+	"GET /api/v1/databases/{db}/review/grade": readDatabase(pathDB),
+	// review-05a: a database's review scorecard and its model gate rows.
+	"GET /api/v1/databases/{db}/review/scorecard":         readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/runbooks/{id}":            readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/runbooks/{id}/runs":       readDatabase(pathDB),
 	"GET /api/v1/agent-classifications/{database}":        readDatabase(classDB),

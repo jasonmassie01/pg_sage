@@ -563,6 +563,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`get_outcomes`](#get_outcomes) | `read` | always |
 | [`restore_drills`](#restore_drills) | `read` | always |
 | [`review_grade`](#review_grade) | `read` | always |
+| [`review_scorecard`](#review_scorecard) | `read` | always |
 | [`propose_plan`](#propose_plan) | `propose` | always |
 | [`list_plans`](#list_plans) | `read` | always |
 | [`get_plan`](#get_plan) | `read` | always |
@@ -1336,6 +1337,17 @@ Scope: `read`
 | Argument | Type | Required | Notes |
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+
+### `review_scorecard`
+
+Sage Review's scorecard for the database: per review and overall, the plan steps each origin (generator, model, person) proposed and how many were accepted, verified improved, no change, inconclusive, regressed, reverted or unverifiable, by generator too, and the latest model gate evaluations (G-M1: may the model's steps run without their own approval; G-M2: does the model pass still add steps of its own). Read-only.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `since` | string | no | Start of the window (RFC 3339); default the last 90 days; format date-time |
 
 ### `propose_plan`
 

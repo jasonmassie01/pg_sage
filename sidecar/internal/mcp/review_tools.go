@@ -30,7 +30,7 @@ func reviewTools() []Tool {
 		"evidence and reason), the previous grade and what changed. A check that could " +
 		"not run is unknown and only lowers a grade. Read-only: it never starts a grade",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{},` +
-			`"additionalProperties":false}`)}}
+			`"additionalProperties":false}`)}, reviewScorecardTool()}
 }
 
 func (s *Server) callReviewTool(ctx context.Context, _ string,

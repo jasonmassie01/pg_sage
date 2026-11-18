@@ -1,0 +1,2106 @@
+{
+  "gate": [
+    {
+      "detail": {
+        "eligible": true,
+        "generator_interval": {
+          "hi": 1,
+          "lo": 0.9286499658256813
+        },
+        "generator_rate": 1,
+        "model_interval": {
+          "hi": 0.956524876008429,
+          "lo": 0.7863950966521162
+        },
+        "model_rate": 0.9,
+        "reason": "50 of 50 reviews; model 45/50 improved (90.0%) vs generators 50/50 (100.0%), gap 10.00 points \u003c= 10.00; reverts 0/50 (0.00%) \u003c= 2.00%",
+        "revert_interval": {
+          "hi": 0.07135003417431873,
+          "lo": 0
+        },
+        "revert_rate": 0,
+        "rule": "G-M1"
+      },
+      "evaluated_at": "\u003cevaluated_at\u003e",
+      "evidence": {
+        "generator_improved": {
+          "k": 50,
+          "n": 50
+        },
+        "model": "m1",
+        "model_improved": {
+          "k": 45,
+          "n": 50
+        },
+        "model_only_accepted": {
+          "k": 50,
+          "n": 50
+        },
+        "model_reverts": {
+          "k": 0,
+          "n": 50
+        },
+        "reviews": {
+          "k": 50,
+          "n": 50
+        }
+      },
+      "id": "\u003cid\u003e",
+      "model": "m1",
+      "reason": "G-M1: 50 of 50 reviews; model 45/50 improved (90.0%) vs generators 50/50 (100.0%), gap 10.00 points \u003c= 10.00; reverts 0/50 (0.00%) \u003c= 2.00%",
+      "rule": "G-M1",
+      "thresholds": {
+        "max_gap_points": 10,
+        "max_revert_pct": 2,
+        "min_reviews": 50
+      },
+      "tick": "\u003ctick\u003e",
+      "verdict": "pending_approval"
+    },
+    {
+      "detail": {
+        "eligible": false,
+        "reason": "50 accepted steps only the model proposed in 50 reviews; the model pass stays on",
+        "rule": "G-M2"
+      },
+      "evaluated_at": "\u003cevaluated_at\u003e",
+      "evidence": {
+        "generator_improved": {
+          "k": 50,
+          "n": 50
+        },
+        "model": "m1",
+        "model_improved": {
+          "k": 45,
+          "n": 50
+        },
+        "model_only_accepted": {
+          "k": 50,
+          "n": 50
+        },
+        "model_reverts": {
+          "k": 0,
+          "n": 50
+        },
+        "reviews": {
+          "k": 50,
+          "n": 50
+        }
+      },
+      "id": "\u003cid\u003e",
+      "model": "m1",
+      "reason": "G-M2: 50 accepted steps only the model proposed in 50 reviews; the model pass stays on",
+      "rule": "G-M2",
+      "thresholds": {
+        "max_gap_points": 10,
+        "max_revert_pct": 2,
+        "min_reviews": 50
+      },
+      "tick": "\u003ctick\u003e",
+      "verdict": "model_on"
+    }
+  ],
+  "scorecard": {
+    "by_generator": {
+      "indexes": {
+        "accepted": 50,
+        "decided": 50,
+        "inconclusive": 0,
+        "no_change": 0,
+        "pending": 0,
+        "proposed": 50,
+        "regressed": 0,
+        "reverted": 0,
+        "unverifiable": 0,
+        "verified_improved": 50
+      }
+    },
+    "by_origin": {
+      "generator": {
+        "accepted": 50,
+        "decided": 50,
+        "inconclusive": 0,
+        "no_change": 0,
+        "pending": 0,
+        "proposed": 50,
+        "regressed": 0,
+        "reverted": 0,
+        "unverifiable": 0,
+        "verified_improved": 50
+      },
+      "model": {
+        "accepted": 50,
+        "decided": 50,
+        "inconclusive": 0,
+        "no_change": 5,
+        "pending": 0,
+        "proposed": 50,
+        "regressed": 0,
+        "reverted": 0,
+        "unverifiable": 0,
+        "verified_improved": 45
+      }
+    },
+    "database": "orders",
+    "model_only_accepted": 50,
+    "per_review": [
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 1,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 0
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 1,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 0
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 1,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 0
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 1,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 0
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      },
+      {
+        "by_origin": {
+          "generator": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 0,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 1
+          },
+          "model": {
+            "accepted": 1,
+            "decided": 1,
+            "inconclusive": 0,
+            "no_change": 1,
+            "pending": 0,
+            "proposed": 1,
+            "regressed": 0,
+            "reverted": 0,
+            "unverifiable": 0,
+            "verified_improved": 0
+          }
+        },
+        "model_only_accepted": 1,
+        "run": {
+          "database": "orders",
+          "finished_at": "\u003cfinished_at\u003e",
+          "fixture": false,
+          "id": "\u003cid\u003e",
+          "models": [
+            "m1"
+          ],
+          "status": "done"
+        }
+      }
+    ],
+    "reviews": 50,
+    "since": "\u003csince\u003e"
+  },
+  "thresholds": {
+    "max_gap_points": 10,
+    "max_revert_pct": 2,
+    "min_reviews": 50
+  }
+}

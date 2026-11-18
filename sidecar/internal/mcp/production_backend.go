@@ -96,6 +96,8 @@ type ProductionDependencies struct {
 	RestoreDrills RestoreDrillsBackend
 	// ReviewGrade serves review_grade (review-01a); optional.
 	ReviewGrade ReviewGradeBackend
+	// ReviewScorecard serves review_scorecard (review-05a); optional.
+	ReviewScorecard ReviewScorecardBackend
 }
 
 type ProductionBackend struct {
