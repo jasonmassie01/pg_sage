@@ -150,9 +150,10 @@ func main() {
 	shutdownProcess(sig, promServer)
 }
 
-// runSubcommandAndExit handles the vector-lab, bench, history, evidence,
-// verifier-backtest, lint-migration, plan and healthcheck subcommands and
-// --version, which exit without starting the sidecar.
+// runSubcommandAndExit handles the vector-lab, bench, history, ledger,
+// publish, evidence, verifier-backtest, lint-migration, plan and
+// healthcheck subcommands and --version, which exit without starting the
+// sidecar.
 func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Args[2:], os.Stdout, os.Stderr))
@@ -163,7 +164,7 @@ func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "bench" {
 		os.Exit(runBenchCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
-	if len(os.Args) > 1 && (os.Args[1] == "history" || os.Args[1] == ledgerSubcommand) {
+	if len(os.Args) > 1 && telemetryDSNSubcommand(os.Args[1]) {
 		os.Exit(runTelemetryDSNSubcommand(os.Args[1], os.Args[2:]))
 	}
 	if len(os.Args) > 1 && os.Args[1] == lintMigrationSubcommand {
@@ -197,7 +198,13 @@ func runSubcommandAndExit() {
 	}
 }
 
-// runTelemetryDSNSubcommand runs history or ledger, which read the
+// telemetryDSNSubcommand reports the subcommands that read the monitored
+// and meta DSNs: history, ledger and publish.
+func telemetryDSNSubcommand(name string) bool {
+	return name == "history" || name == ledgerSubcommand || name == publishSubcommand
+}
+
+// runTelemetryDSNSubcommand runs history, ledger or publish, which read the
 // monitored and meta DSNs from SAGE_HISTORY_MONITORED_DSN and SAGE_META_DB.
 func runTelemetryDSNSubcommand(name string, args []string) int {
 	getenv, err := secretGetenv("SAGE_HISTORY_MONITORED_DSN", "SAGE_META_DB")
@@ -207,6 +214,10 @@ func runTelemetryDSNSubcommand(name string, args []string) int {
 	}
 	if name == ledgerSubcommand {
 		return runLedgerCommand(context.Background(), args, getenv, os.Stdout, os.Stderr)
+	}
+	if name == publishSubcommand {
+		return runPublishCommand(context.Background(), args, defaultPublishDeps(getenv),
+			os.Stdout, os.Stderr)
 	}
 	return runHistoryCommand(context.Background(), args, getenv, os.Stdout, os.Stderr)
 }

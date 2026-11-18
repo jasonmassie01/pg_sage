@@ -2,6 +2,7 @@ package outcomes
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/changeplan"
@@ -21,6 +22,16 @@ var labels = map[string]string{
 	"drop_unused_index":         "Remove an unused index",
 	"reindex":                   "Rebuild an index",
 	"reindex_concurrently":      "Rebuild an index",
+}
+
+// LabelledActionTypes lists the action types Label words itself, sorted.
+func LabelledActionTypes() []string {
+	out := make([]string, 0, len(labels))
+	for t := range labels {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Label is the action type in the dashboard's words.

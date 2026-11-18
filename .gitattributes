@@ -8,3 +8,7 @@ docs/mcp.md text eol=lf
 
 # pub-01: docs/rubric.md is compared with its generator.
 docs/rubric.md text eol=lf
+
+# pub-01: the sample outcome bundle is byte-exact (SHA256SUMS and the
+# signature cover these bytes).
+docs/outcomes-sample/** -text

@@ -1,0 +1,125 @@
+{
+  "format": "pg_sage-outcomes/1",
+  "sample": true,
+  "rubric_version": "pg_sage-rubric/1",
+  "generated_at": "2026-11-01T00:00:00Z",
+  "since": "90d",
+  "from": "2026-08-03T00:00:00Z",
+  "to": "2026-11-01T00:00:00Z",
+  "databases": 1,
+  "k_floor": 5,
+  "statement": "40 changes in the window: 21 verified improved, 12 no change, 3 regressed, 3 inconclusive, 1 not judged yet; 3 reverted",
+  "totals": {
+    "changes": 40,
+    "improved": 21,
+    "no_change": 12,
+    "regressed": 3,
+    "inconclusive": 3,
+    "pending": 1,
+    "reverted": 3,
+    "rollback_failed": 1
+  },
+  "by_class": [
+    {
+      "key": "create_index_concurrently",
+      "changes": 12,
+      "improved": 8,
+      "no_change": 2,
+      "regressed": 1,
+      "inconclusive": 1,
+      "pending": 0,
+      "reverted": 2,
+      "rollback_failed": 0
+    },
+    {
+      "key": "analyze_table",
+      "changes": 10,
+      "improved": 6,
+      "no_change": 3,
+      "regressed": 0,
+      "inconclusive": 0,
+      "pending": 1,
+      "reverted": 0,
+      "rollback_failed": 0
+    },
+    {
+      "key": "vacuum_table",
+      "changes": 7,
+      "improved": 3,
+      "no_change": 2,
+      "regressed": 0,
+      "inconclusive": 2,
+      "pending": 0,
+      "reverted": 0,
+      "rollback_failed": 0
+    },
+    {
+      "key": "drop_unused_index",
+      "changes": 5,
+      "improved": 0,
+      "no_change": 4,
+      "regressed": 1,
+      "inconclusive": 0,
+      "pending": 0,
+      "reverted": 1,
+      "rollback_failed": 0
+    },
+    {
+      "key": "other",
+      "changes": 6,
+      "improved": 4,
+      "no_change": 1,
+      "regressed": 1,
+      "inconclusive": 0,
+      "pending": 0,
+      "reverted": 0,
+      "rollback_failed": 1
+    }
+  ],
+  "by_origin": [
+    {
+      "key": "autonomous",
+      "changes": 24,
+      "improved": 15,
+      "no_change": 5,
+      "regressed": 1,
+      "inconclusive": 2,
+      "pending": 1,
+      "reverted": 1,
+      "rollback_failed": 0
+    },
+    {
+      "key": "approved",
+      "changes": 11,
+      "improved": 4,
+      "no_change": 6,
+      "regressed": 1,
+      "inconclusive": 0,
+      "pending": 0,
+      "reverted": 2,
+      "rollback_failed": 0
+    },
+    {
+      "key": "other",
+      "changes": 5,
+      "improved": 2,
+      "no_change": 1,
+      "regressed": 1,
+      "inconclusive": 1,
+      "pending": 0,
+      "reverted": 0,
+      "rollback_failed": 1
+    }
+  ],
+  "reverted_by_verdict": {
+    "improved": 1,
+    "regressed": 2
+  },
+  "verifier": {
+    "backtests": 1,
+    "usable_placebos": 288,
+    "false_positives": 9,
+    "fp_rate": 0.0313,
+    "fp_wilson_upper": 0.0583
+  }
+}
