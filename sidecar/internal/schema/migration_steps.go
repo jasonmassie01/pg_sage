@@ -270,10 +270,11 @@ func trancheSixMigrations() []namedStep {
 // trancheSevenMigrations are the T7 steps, after trancheSixMigrations.
 func trancheSevenMigrations() []namedStep {
 	return []namedStep{
-		{"ddlNotificationRuleClass", ddlNotificationRuleClass}, // ux-09a
-		{"ddlActionQueueLadder", ddlActionQueueLadder},         // lab-03a
-		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect}, // lab-03b
-		{"ddlGitopsManagedBy", ddlGitopsManagedBy},             // cli-02a
-		{"ddlSourceFixPROrigin", ddlSourceFixPROrigin},         // pr-01b
+		{"ddlNotificationRuleClass", ddlNotificationRuleClass},         // ux-09a
+		{"ddlNotificationQuietAndMutes", ddlNotificationQuietAndMutes}, // ux-09b
+		{"ddlActionQueueLadder", ddlActionQueueLadder},                 // lab-03a
+		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},         // lab-03b
+		{"ddlGitopsManagedBy", ddlGitopsManagedBy},                     // cli-02a
+		{"ddlSourceFixPROrigin", ddlSourceFixPROrigin},                 // pr-01b
 	}
 }

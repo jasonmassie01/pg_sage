@@ -7,6 +7,7 @@ import {
 import { ChannelForm } from './ChannelForm'
 import { CallbackInfo } from './CallbackInfo'
 import { ChatIdentities } from './ChatIdentities'
+import { QuietHoursForm } from './QuietHoursForm'
 import { CHANNELS_URL, needsCallback } from './channelConfig'
 import { formatTime } from '../../lib/time'
 
@@ -59,7 +60,7 @@ export function ChannelsTab() {
       <ChannelTable channels={channels} onEdit={setEditing} {...actions} />
       {editing && (
         <EditDialog channel={editing} onSaved={handleEdited}
-          onCancel={() => setEditing(null)} />
+          onCancel={() => setEditing(null)} onQuietSaved={fetchChannels} />
       )}
       <ChatIdentities />
     </div>
@@ -126,7 +127,7 @@ function useChannelActions({ fetchChannels, setError, setSuccess, askConfirm }) 
   return { onTest, onToggle, onDelete }
 }
 
-function EditDialog({ channel, onSaved, onCancel }) {
+function EditDialog({ channel, onSaved, onCancel, onQuietSaved }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={`Edit channel ${channel.name}`}
       onKeyDown={e => { if (e.key === 'Escape') onCancel() }}
@@ -137,6 +138,7 @@ function EditDialog({ channel, onSaved, onCancel }) {
           Edit channel {channel.name}
         </h2>
         <ChannelForm channel={channel} onSaved={onSaved} onCancel={onCancel} />
+        <QuietHoursForm channel={channel} onSaved={onQuietSaved} />
         <CallbackInfo channel={channel} />
       </div>
     </div>
@@ -177,7 +179,14 @@ function ChannelRow({ ch, onEdit, onTest, onToggle, onDelete }) {
       <td className="px-4 py-2" style={{ color: 'var(--text-primary)' }}>
         {ch.name}{managed && <ConfigBadge />}
       </td>
-      <td className="px-4 py-2" style={{ color: 'var(--text-secondary)' }}>{ch.type}</td>
+      <td className="px-4 py-2" style={{ color: 'var(--text-secondary)' }}>
+        {ch.type}
+        {ch.quiet_hours_start && (
+          <span data-testid="channel-quiet-hours" className="block text-xs">
+            quiet {ch.quiet_hours_start}-{ch.quiet_hours_end} {ch.quiet_hours_timezone || 'UTC'}
+          </span>
+        )}
+      </td>
       <td className="px-4 py-2">
         <button onClick={() => onToggle(ch)} data-testid="channel-toggle-button" {...locked}
           className="text-xs px-2 py-1 rounded"

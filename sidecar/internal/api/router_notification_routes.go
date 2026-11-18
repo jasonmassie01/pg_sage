@@ -40,6 +40,7 @@ func registerNotificationRoutes(
 
 	registerNotificationChannelRoutes(mux, ns)
 	registerNotificationRuleRoutes(mux, ns)
+	registerNotificationQuietMuteRoutes(mux, pool, ns)
 
 	// The log read is open to the roles the Alert log had (admins and
 	// operators), since /alerts now redirects to it (alerting-06c);

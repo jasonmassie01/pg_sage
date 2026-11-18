@@ -109,15 +109,18 @@ var syncOnlyData = []string{dataApprovalCard, dataFactCard, DataCardToken, DataF
 
 // queueable reports whether evt may wait in the outbox.
 func queueable(evt Event) bool {
-	if syncEvents[evt.Type] {
-		return false
-	}
+	return !syncEvents[evt.Type] && !carriesSyncData(evt)
+}
+
+// carriesSyncData reports whether evt holds a typed value the outbox
+// cannot keep (a card reference, a token, a reply id).
+func carriesSyncData(evt Event) bool {
 	for _, k := range syncOnlyData {
 		if _, ok := evt.Data[k]; ok {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 // eventDatabase is the database an event concerns, "" when none.

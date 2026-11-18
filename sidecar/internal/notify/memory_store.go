@@ -23,6 +23,7 @@ type MemoryStore struct {
 	channelSeq int
 	ruleSeq    int
 	hashes     map[string]string // "c<id>" / "r<id>" -> config_hash
+	mutes      map[muteKey]Mute
 
 	FailRules, FailSchedule, FailClaim error
 	// FailReconcile fails a reconcile write of channel FailReconcileAt.
