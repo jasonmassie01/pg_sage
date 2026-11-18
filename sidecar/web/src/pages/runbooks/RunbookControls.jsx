@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { Dialog } from '../../components/Dialog'
 import { describeChange, diffDefinitions } from './runbookDiff'
 import { canOperate } from './runbookStatus'
 
 // Runbook detail controls (playbooks-10): which version runs, the version
 // list, revising (a draft staged beside the signed version), signing after
 // a structural diff from the newest signed version, and retiring only
-// after the runbook's name is typed.
+// after the runbook's name is typed. Sign and retire confirm in the shared
+// modal Dialog (ux-12).
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
@@ -51,8 +53,8 @@ export function SignDialog({ rb, onSign, onCancel }) {
   const base = newestSigned(rb)
   const changes = base ? diffDefinitions(base.definition, v.definition) : []
   return (
-    <div data-testid="runbook-sign-dialog" role="dialog" aria-label="Sign runbook"
-      className="mt-2 space-y-1 rounded border p-2" style={box}>
+    <Dialog open title="Sign runbook" onClose={onCancel} testId="runbook-sign-dialog"
+      width={560}>
       <div style={strong}>Sign version {v.version}</div>
       {base ? (
         <div>
@@ -78,7 +80,7 @@ export function SignDialog({ rb, onSign, onCancel }) {
           Cancel
         </button>
       </div>
-    </div>
+    </Dialog>
   )
 }
 
@@ -86,8 +88,7 @@ export function RetireDialog({ name, onRetire, onCancel }) {
   const [typed, setTyped] = useState('')
   const matches = typed === name
   return (
-    <div data-testid="runbook-retire-dialog" role="dialog" aria-label="Retire runbook"
-      className="mt-2 space-y-1 rounded border p-2" style={box}>
+    <Dialog open title="Retire runbook" onClose={onCancel} testId="runbook-retire-dialog">
       <div style={strong}>
         Retiring stops every version of {name} for good; it cannot be undone.
       </div>
@@ -107,7 +108,7 @@ export function RetireDialog({ name, onRetire, onCancel }) {
           Cancel
         </button>
       </div>
-    </div>
+    </Dialog>
   )
 }
 

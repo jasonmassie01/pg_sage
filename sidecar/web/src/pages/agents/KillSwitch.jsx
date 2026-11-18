@@ -4,6 +4,7 @@
 // scope, and the report says, per database and replica, what was done and
 // whether it was verified.
 import { useState } from 'react'
+import { Dialog } from '../../components/Dialog'
 import { KILL_PHRASE, killAgents, killBody, killReady } from './agentsApi'
 import { Button, ErrorBox, TextInput, card, inputStyle, muted } from './ui'
 
@@ -113,9 +114,9 @@ function KillDialog({ agents, databases, onCancel, onDone }) {
   }
   const ready = killReady(form.phrase, form.reason, form.scope, form.target)
   return (
-    <div data-testid="agents-kill-dialog" role="dialog" aria-label="Kill agents"
-      className="rounded-lg p-4 mb-4" style={{ ...card, borderColor: '#dc2626' }}>
-      <p className="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>
+    <Dialog open title="Kill agents" onClose={onCancel} busy={busy}
+      testId="agents-kill-dialog" width={560}>
+      <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
         This freezes the agents in scope now: their roles stop logging in, their sessions end
         on every database and configured replica, their tokens are revoked and their
         pending approvals are cancelled. Unfreezing an agent, or releasing a fleet or
@@ -136,9 +137,11 @@ function KillDialog({ agents, databases, onCancel, onDone }) {
           disabled={busy || !ready}>
           {SCOPE_TEXT[form.scope][1]}
         </Button>
-        <Button testId="agents-kill-cancel" onClick={onCancel}>Cancel</Button>
+        <Button testId="agents-kill-cancel" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
       </div>
-    </div>
+    </Dialog>
   )
 }
 
@@ -153,8 +156,7 @@ export function KillSwitch({ agents = [], databases = [], onKilled }) {
   return (
     <div>
       <div className="flex justify-end mb-3">
-        <Button testId="agents-kill-open" danger onClick={() => setOpen(true)}
-          disabled={open}>
+        <Button testId="agents-kill-open" danger onClick={() => setOpen(true)}>
           Kill agents
         </Button>
       </div>
