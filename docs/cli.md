@@ -28,6 +28,10 @@ hold the approve scope). A token limited to some databases must name one
 with `--database`. In a Databricks App the platform owns the
 `Authorization` header, so these routes take a signed-in session only.
 
+With `--json`, stdout holds exactly one JSON document (the sidecar's
+answer), so a script can parse it; the approval card, the confirmation
+prompt and progress lines go to stderr. The exit codes do not change.
+
 ## plan
 
 With no command, `plan` answers "what needs a person now?" for a terminal

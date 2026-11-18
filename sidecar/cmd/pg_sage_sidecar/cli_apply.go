@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -47,7 +48,7 @@ func (s *cliSession) applyChange(ctx context.Context, a decisionArgs) int {
 		return s.fail(err, planExitAuth)
 	}
 	if a.json {
-		_, _ = fmt.Fprintln(s.env.stdout, s.api.redact(indentJSON(ans.raw)))
+		s.printJSON(ans.raw)
 	}
 	card, _ := ans.body["card"].(map[string]any)
 	status, _ := card["status"].(string)
@@ -64,7 +65,7 @@ func (s *cliSession) applyChange(ctx context.Context, a decisionArgs) int {
 			a.id, db, status)
 		return planExitRefused
 	}
-	_, _ = fmt.Fprintf(s.env.stdout, "change %d on %s is %s\n", a.id, db, status)
+	_, _ = fmt.Fprintf(s.human, "change %d on %s is %s\n", a.id, db, status)
 	return planExitOK
 }
 
@@ -75,11 +76,11 @@ func (s *cliSession) applyScheduled(ctx context.Context, id int64, card,
 	sched, _ := body["schedule"].(map[string]any)
 	db := fmt.Sprint(card["database"])
 	if sched["due"] == true {
-		_, _ = fmt.Fprintf(s.env.stdout, "change %d on %s is due: its window is open and the "+
+		_, _ = fmt.Fprintf(s.human, "change %d on %s is due: its window is open and the "+
 			"executor's scheduler runs it\n", id, db)
 		return planExitOK
 	}
-	_, _ = fmt.Fprintf(s.env.stdout, "change %d on %s is approved for its window and outside "+
+	_, _ = fmt.Fprintf(s.human, "change %d on %s is approved for its window and outside "+
 		"it: the next window opens %v (%v)\n", id, db, sched["run_after_label"],
 		sched["run_after"])
 	finding, _ := card["finding"].(map[string]any)
@@ -88,7 +89,7 @@ func (s *cliSession) applyScheduled(ctx context.Context, id int64, card,
 		if ans, err := s.api.send(ctx, http.MethodGet, "/api/v1/whynot", q, nil); err == nil {
 			for _, l := range listOf(ans.body["links"]) {
 				if l["name"] == "window" {
-					_, _ = fmt.Fprintf(s.env.stdout, "  why not: window (%v): %v\n", l["status"],
+					_, _ = fmt.Fprintf(s.human, "  why not: window (%v): %v\n", l["status"],
 						l["sentence"])
 				}
 			}
@@ -105,15 +106,19 @@ func (s *cliSession) applyPlan(ctx context.Context, a decisionArgs) int {
 	plan, _ := detail["plan"].(map[string]any)
 	status, _ := plan["status"].(string)
 	db := fmt.Sprint(detail["database"])
+	if a.json && status != "halted" {
+		raw, _ := json.Marshal(detail)
+		s.printJSON(raw)
+	}
 	switch status {
 	case "halted":
 		return s.resumePlan(ctx, a, detail)
 	case "approved", "running":
-		_, _ = fmt.Fprintf(s.env.stdout, "plan %d on %s is %s: the plan engine runs it step "+
+		_, _ = fmt.Fprintf(s.human, "plan %d on %s is %s: the plan engine runs it step "+
 			"by step\n", a.id, db, status)
 		return planExitOK
 	case "completed":
-		_, _ = fmt.Fprintf(s.env.stdout, "plan %d on %s completed\n", a.id, db)
+		_, _ = fmt.Fprintf(s.human, "plan %d on %s completed\n", a.id, db)
 		return planExitOK
 	case "draft", "proposed":
 		_, _ = fmt.Fprintf(s.env.stderr, "apply: plan %d on %s awaits approval: run approve "+
@@ -136,6 +141,10 @@ func (s *cliSession) resumePlan(ctx context.Context, a decisionArgs,
 		dbQuery(a.database), map[string]any{"plan_hash": detail["plan_hash"]})
 	if err != nil {
 		return s.fail(err, planExitAuth)
+	}
+	if a.json {
+		s.printJSON(ans.raw)
+		return planExitOK
 	}
 	printPlanDecision(s.env.stdout, "resume", planArgs{id: a.id}, ans.body)
 	return planExitOK

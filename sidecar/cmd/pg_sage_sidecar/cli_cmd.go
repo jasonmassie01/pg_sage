@@ -139,11 +139,14 @@ func positiveID(raw, what string) (int64, error) {
 	return id, nil
 }
 
-// cliSession is one command's connection to the sidecar.
+// cliSession is one command's connection to the sidecar. human is where
+// text for a person goes (the card, the prompt, progress): stdout, or
+// stderr with --json, so that stdout holds only the one JSON document.
 type cliSession struct {
-	name string
-	api  *apiClient
-	env  cliEnv
+	name  string
+	api   *apiClient
+	env   cliEnv
+	human io.Writer
 }
 
 // connect resolves the sidecar URL (--url, else SAGE_API_URL) and the
@@ -169,7 +172,17 @@ func connect(name string, f cliFlags, env cliEnv, authCode int) (*cliSession, in
 			"API token (read scope to read, approve scope to approve)\n", name)
 		return nil, authCode
 	}
-	return &cliSession{name: name, api: newAPIClient(base, token, env.client), env: env}, 0
+	human := env.stdout
+	if f.json {
+		human = env.stderr
+	}
+	return &cliSession{name: name, api: newAPIClient(base, token, env.client), env: env,
+		human: human}, 0
+}
+
+// printJSON prints raw, redacted and indented, as the command's stdout.
+func (s *cliSession) printJSON(raw []byte) {
+	_, _ = fmt.Fprintln(s.env.stdout, s.api.redact(indentJSON(raw)))
 }
 
 // fail prints err for a person and returns its exit code: authCode for a
@@ -211,12 +224,12 @@ func (s *cliSession) confirm(yes bool, database, what string) bool {
 	if yes {
 		return true
 	}
-	_, _ = fmt.Fprintf(s.env.stdout, "To %s, type the database name (%s): ", what, database)
+	_, _ = fmt.Fprintf(s.human, "To %s, type the database name (%s): ", what, database)
 	line := ""
 	if s.env.stdin != nil {
 		line, _ = bufio.NewReader(s.env.stdin).ReadString('\n')
 	}
-	_, _ = fmt.Fprintln(s.env.stdout)
+	_, _ = fmt.Fprintln(s.human)
 	if strings.TrimSpace(line) == database && database != "" {
 		return true
 	}

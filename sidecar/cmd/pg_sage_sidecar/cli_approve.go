@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -110,21 +111,23 @@ func (s *cliSession) approveChange(ctx context.Context, a decisionArgs) int {
 	card, _ := ans.body["card"].(map[string]any)
 	hash, _ := card["card_hash"].(string)
 	database, _ := card["database"].(string)
-	printCard(s.env, card)
-	if hash == "" {
-		_, _ = fmt.Fprintf(s.env.stderr, "approve: change %d has no card hash\n", a.id)
+	printCard(s.human, card)
+	if hash == "" || database == "" {
+		_, _ = fmt.Fprintf(s.env.stderr, "approve: change %d has no card hash or database\n",
+			a.id)
 		return planExitRefused
 	}
 	if !s.confirm(a.yes, database, fmt.Sprintf("approve change %d", a.id)) {
 		return planExitRefused
 	}
-	ans, err = s.api.send(ctx, http.MethodPost, path+"/approve", dbQuery(a.database),
+	// The approval names the database of the card printed, never a default.
+	ans, err = s.api.send(ctx, http.MethodPost, path+"/approve", dbQuery(database),
 		map[string]any{"card_hash": hash})
 	if err != nil {
 		return s.fail(err, planExitAuth)
 	}
 	if a.json {
-		_, _ = fmt.Fprintln(s.env.stdout, s.api.redact(indentJSON(ans.raw)))
+		s.printJSON(ans.raw)
 		return planExitOK
 	}
 	b := ans.body
@@ -143,9 +146,9 @@ func (s *cliSession) approveChange(ctx context.Context, a decisionArgs) int {
 	return planExitOK
 }
 
-func printCard(env cliEnv, card map[string]any) {
+func printCard(w io.Writer, card map[string]any) {
 	risk, _ := card["risk"].(map[string]any)
-	_, _ = fmt.Fprintf(env.stdout, "change %v on %v: %v\n  action: %v  risk: %v  status: %v\n"+
+	_, _ = fmt.Fprintf(w, "change %v on %v: %v\n  action: %v  risk: %v  status: %v\n"+
 		"  sql: %v\n  card hash: %v\n", card["queue_id"], card["database"], card["title"],
 		card["action_type"], risk["tier"], card["status"], card["sql"], card["card_hash"])
 }
@@ -170,6 +173,10 @@ func (s *cliSession) approvePlan(ctx context.Context, a decisionArgs) int {
 	if err != nil {
 		return s.fail(err, planExitAuth)
 	}
+	if a.json {
+		s.printJSON(ans.raw)
+		return planExitOK
+	}
 	printPlanDecision(s.env.stdout, "approve", planArgs{id: a.id, upTo: a.upTo}, ans.body)
 	return planExitOK
 }
@@ -181,7 +188,7 @@ func (s *cliSession) planDetail(ctx context.Context, a decisionArgs) (map[string
 	if err != nil {
 		return nil, s.fail(err, planExitAuth)
 	}
-	printPlanDetail(s.env.stdout, ans.body)
+	printPlanDetail(s.human, ans.body)
 	if hash, _ := ans.body["plan_hash"].(string); hash == "" {
 		_, _ = fmt.Fprintf(s.env.stderr, "%s: plan %d has no plan hash\n", s.name, a.id)
 		return nil, planExitRefused
