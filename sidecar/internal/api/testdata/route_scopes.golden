@@ -347,6 +347,7 @@ standalone POST /api/v1/config/validate-window gate:admin scope:-
 standalone GET /api/v1/config/global gate:admin scope:admin-only
 standalone PUT /api/v1/config/global gate:admin scope:-
 standalone DELETE /api/v1/config/global/{key} gate:admin scope:-
+standalone GET /api/v1/config/yaml gate:admin scope:admin-only
 standalone GET /api/v1/config/databases/{id} gate:admin scope:admin-only
 standalone PUT /api/v1/config/databases/{id} gate:admin scope:-
 standalone DELETE /api/v1/config/databases/{id}/{key} gate:admin scope:-
@@ -595,6 +596,7 @@ fleet-readonly POST /api/v1/config/validate-window gate:admin scope:-
 fleet-readonly GET /api/v1/config/global gate:admin scope:admin-only
 fleet-readonly PUT /api/v1/config/global gate:admin scope:-
 fleet-readonly DELETE /api/v1/config/global/{key} gate:admin scope:-
+fleet-readonly GET /api/v1/config/yaml gate:admin scope:admin-only
 fleet-readonly GET /api/v1/config/databases/{id} gate:admin scope:admin-only
 fleet-readonly PUT /api/v1/config/databases/{id} gate:admin scope:-
 fleet-readonly DELETE /api/v1/config/databases/{id}/{key} gate:admin scope:-
@@ -1062,6 +1064,7 @@ optional POST /api/v1/config/validate-window gate:admin scope:-
 optional GET /api/v1/config/global gate:admin scope:admin-only
 optional PUT /api/v1/config/global gate:admin scope:-
 optional DELETE /api/v1/config/global/{key} gate:admin scope:-
+optional GET /api/v1/config/yaml gate:admin scope:admin-only
 optional GET /api/v1/config/databases/{id} gate:admin scope:admin-only
 optional PUT /api/v1/config/databases/{id} gate:admin scope:-
 optional DELETE /api/v1/config/databases/{id}/{key} gate:admin scope:-
@@ -1283,6 +1286,7 @@ databricks-app POST /api/v1/config/validate-window gate:admin scope:-
 databricks-app GET /api/v1/config/global gate:admin scope:admin-only
 databricks-app PUT /api/v1/config/global gate:admin scope:-
 databricks-app DELETE /api/v1/config/global/{key} gate:admin scope:-
+databricks-app GET /api/v1/config/yaml gate:admin scope:admin-only
 databricks-app GET /api/v1/config/databases/{id} gate:admin scope:admin-only
 databricks-app PUT /api/v1/config/databases/{id} gate:admin scope:-
 databricks-app DELETE /api/v1/config/databases/{id}/{key} gate:admin scope:-

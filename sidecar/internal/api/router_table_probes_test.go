@@ -36,6 +36,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/config/audit"},
 	{"GET", "/api/v1/config/databases/7"},
 	{"GET", "/api/v1/config/global"},
+	{"GET", "/api/v1/config/yaml"}, // cli-01b
 	{"GET", "/api/v1/databases"},
 	{"GET", "/api/v1/databases/managed"},
 	{"GET", "/api/v1/databases/managed/7"},

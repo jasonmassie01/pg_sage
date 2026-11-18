@@ -30,22 +30,29 @@ import (
 
 // cliTokenRoute is one route the CLI calls: its method, its path segments
 // after /api/v1/ ("{id}" matches one positive id), the scope it needs,
-// and whether it is an approval card route (where an agent token's
-// refusal is approval_reserved_for_humans: the CLI reads the card it
-// approves first, so the read refuses it the same way).
+// whether it is an approval card route (where an agent token's refusal
+// is approval_reserved_for_humans: the CLI reads the card it approves
+// first, so the read refuses it the same way), and whether it reads
+// process-wide state no database narrows (cli-01b's config reads), which
+// a token limited to some databases may not read.
 type cliTokenRoute struct {
-	method   string
-	segments []string
-	scope    string
-	approval bool
+	method    string
+	segments  []string
+	scope     string
+	approval  bool
+	fleetWide bool
 }
 
 var cliTokenRoutes = []cliTokenRoute{
-	{http.MethodGet, []string{"inbox"}, mcptoken.ScopeRead, false},
-	{http.MethodGet, []string{"actions", "pending"}, mcptoken.ScopeRead, false},
-	{http.MethodGet, []string{"whynot"}, mcptoken.ScopeRead, false},
-	{http.MethodGet, []string{"approvals", "{id}"}, mcptoken.ScopeRead, true},
-	{http.MethodPost, []string{"approvals", "{id}", "approve"}, mcptoken.ScopeApprove, true},
+	{http.MethodGet, []string{"inbox"}, mcptoken.ScopeRead, false, false},
+	{http.MethodGet, []string{"actions", "pending"}, mcptoken.ScopeRead, false, false},
+	{http.MethodGet, []string{"whynot"}, mcptoken.ScopeRead, false, false},
+	{http.MethodGet, []string{"approvals", "{id}"}, mcptoken.ScopeRead, true, false},
+	{http.MethodPost, []string{"approvals", "{id}", "approve"}, mcptoken.ScopeApprove, true,
+		false},
+	// cli-01b: `config diff` and `config export`; the routes gate on admin.
+	{http.MethodGet, []string{"config", "global"}, mcptoken.ScopeRead, false, true},
+	{http.MethodGet, []string{"config", "yaml"}, mcptoken.ScopeRead, false, true},
 }
 
 // cliTokenRouteOf returns the CLI route r asks for, ignoring credentials.
@@ -109,7 +116,7 @@ func withCLIToken(tokens lintTokenValidator, next http.Handler) http.Handler {
 			return
 		}
 		user, p, ok := authenticateCLIToken(w, r, tokens, secret, route)
-		if !ok || !allowTokenDatabase(w, r, p) {
+		if !ok || !allowTokenScope(w, r, p, route) {
 			return
 		}
 		ctx := context.WithValue(r.Context(), userContextKey, user)
@@ -165,6 +172,18 @@ func refuseAgentToken(w http.ResponseWriter, approval bool) {
 	}
 	sreErrorCode(w, "an agent token cannot use the decision routes; use an operator token",
 		"agent_token", http.StatusForbidden)
+}
+
+// allowTokenScope refuses a database-limited token on a fleet-wide route
+// (403 fleet_token_required), else applies allowTokenDatabase.
+func allowTokenScope(w http.ResponseWriter, r *http.Request, p mcp.Principal,
+	route cliTokenRoute) bool {
+	if route.fleetWide && p.Databases != nil {
+		sreErrorCode(w, "this route reads process-wide settings; a token limited to some "+
+			"databases cannot read it", "fleet_token_required", http.StatusForbidden)
+		return false
+	}
+	return allowTokenDatabase(w, r, p)
 }
 
 // allowTokenDatabase refuses a database-limited token that names no
