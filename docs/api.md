@@ -188,7 +188,8 @@ unknown counts as `api`). The API access log records it as `decided_from`, and
 `pg_sage_inbox_decision_seconds` records how long the item had waited, by kind
 and surface. Today the action approve and reject, fact confirm and reject,
 runbook sign, agent request deny and autonomy approve and reject routes feed
-it, and each item a bulk approve approves or schedules. `pg_sage_inbox_items` is the waiting count by kind at the last complete
+it, and each item a bulk approve approves or schedules.
+`pg_sage_inbox_items` is the waiting count by kind at the last complete
 fleet-wide inbox read ([Metrics](metrics.md)).
 
 ## Outcome ledger
