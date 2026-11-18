@@ -43,7 +43,8 @@ func NewClusterSource(name, host string, port int, pool func() (Beginner, error)
 func (c *ClusterSource) Name() string { return c.name }
 
 // List returns every connectable non-template database except the
-// member's own.
+// member's own, with the creator and tags of its pg_sage comment
+// (fleetpol-01b: COMMENT ON DATABASE app IS 'pg_sage: creator=agent:x').
 func (c *ClusterSource) List(ctx context.Context) ([]Candidate, error) {
 	pool, err := c.pool()
 	if err != nil {
@@ -58,20 +59,27 @@ func (c *ClusterSource) List(ctx context.Context) ([]Candidate, error) {
 		SET LOCAL lock_timeout = '1s'`); err != nil {
 		return nil, fmt.Errorf("cluster source %s: set timeouts: %w", c.name, err)
 	}
-	rows, err := tx.Query(ctx, `/* pg_sage */ SELECT datname FROM pg_catalog.pg_database
+	rows, err := tx.Query(ctx, `/* pg_sage */ SELECT datname,
+		        COALESCE(pg_catalog.shobj_description(oid, 'pg_database'), '')
+		 FROM pg_catalog.pg_database
 		 WHERE NOT datistemplate AND datallowconn AND datname <> current_database()
 		 ORDER BY datname LIMIT $1`, c.cap)
 	if err != nil {
 		return nil, fmt.Errorf("cluster source %s: list pg_database: %w", c.name, err)
 	}
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	listed, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) ([2]string, error) {
+		var v [2]string
+		return v, row.Scan(&v[0], &v[1])
+	})
 	if err != nil {
 		return nil, fmt.Errorf("cluster source %s: read pg_database: %w", c.name, err)
 	}
-	out := make([]Candidate, 0, len(names))
-	for _, n := range names {
-		out = append(out, Candidate{ExternalID: c.host + ":" + strconv.Itoa(c.port) + "/" + n,
-			Host: c.host, Port: c.port, DBName: n})
+	out := make([]Candidate, 0, len(listed))
+	for _, l := range listed {
+		creator, tags, ignored := parseDatabaseComment(l[1])
+		out = append(out, Candidate{ExternalID: c.host + ":" + strconv.Itoa(c.port) + "/" + l[0],
+			Host: c.host, Port: c.port, DBName: l[0], Creator: creator, Tags: tags,
+			Ignored: ignored})
 	}
 	return out, nil
 }
@@ -126,7 +134,7 @@ func (l *LakebaseSource) List(ctx context.Context) ([]Candidate, error) {
 				return nil, fmt.Errorf("lakebase source %s: list endpoints of %s: %w",
 					l.name, b.Name, err)
 			}
-			if c, ok := lakebaseCandidate(ep); ok {
+			if c, ok := lakebaseCandidate(ep, b); ok {
 				out = append(out, c)
 			}
 		}
@@ -142,7 +150,9 @@ func isRehearsalBranch(name string) bool {
 	return strings.HasPrefix(id, lakebaseid.RehearsalBranchPrefix)
 }
 
-func lakebaseCandidate(ep postgres.Endpoint) (Candidate, bool) {
+// lakebaseCandidate is ep with its branch's creation time; the SDK's
+// Branch has no creator field, so a Lakebase candidate has none.
+func lakebaseCandidate(ep postgres.Endpoint, b postgres.Branch) (Candidate, bool) {
 	if ep.Status == nil || ep.Status.Hosts == nil || ep.Status.Hosts.Host == "" {
 		return Candidate{}, false
 	}
@@ -150,8 +160,12 @@ func lakebaseCandidate(ep postgres.Endpoint) (Candidate, bool) {
 	if id == "" {
 		id = ep.Name
 	}
-	return Candidate{ExternalID: id, Host: ep.Status.Hosts.Host, Port: 5432,
-		DBName: lakebaseDatabase}, true
+	c := Candidate{ExternalID: id, Host: ep.Status.Hosts.Host, Port: 5432,
+		DBName: lakebaseDatabase}
+	if b.CreateTime != nil {
+		c.CreatedAt = b.CreateTime.AsTime().UTC()
+	}
+	return c, true
 }
 
 // RDSAPI is the part of the RDS API discovery uses.
@@ -215,9 +229,24 @@ func (s *RDSSource) candidate(d rdstypes.DBInstance) (Candidate, bool) {
 	if db == "" {
 		db = "postgres"
 	}
-	return Candidate{ExternalID: aws.ToString(d.DbiResourceId),
+	c := Candidate{ExternalID: aws.ToString(d.DbiResourceId),
 		Host: aws.ToString(d.Endpoint.Address), Port: int(aws.ToInt32(d.Endpoint.Port)),
-		DBName: db}, aws.ToString(d.DbiResourceId) != ""
+		DBName: db, Tags: rdsTags(d.TagList)}
+	if d.InstanceCreateTime != nil {
+		c.CreatedAt = d.InstanceCreateTime.UTC()
+	}
+	return c, c.ExternalID != ""
+}
+
+// rdsTags is the instance's tags; the "creator" tag names its creator.
+func rdsTags(tags []rdstypes.Tag) map[string]string {
+	out := make(map[string]string, len(tags))
+	for _, t := range tags {
+		if k := aws.ToString(t.Key); k != "" {
+			out[k] = aws.ToString(t.Value)
+		}
+	}
+	return out
 }
 
 func (s *RDSSource) tagged(tags []rdstypes.Tag) bool {
@@ -237,10 +266,11 @@ type SourceDeps struct {
 	Member      func(member string) (host string, port int, err error)
 	Lakebase    func() (LakebaseAPI, error)
 	RDS         func(region string) (RDSAPI, error)
+	Neon        func() (NeonAPI, error)
 }
 
 // Bindings builds a binding per configured source. Only cluster sources
-// with reuse_credentials enrol; Lakebase and RDS candidates stay
+// with reuse_credentials enrol; Lakebase, RDS and Neon candidates stay
 // candidates (no credential path for them yet).
 func Bindings(cfg config.FleetDiscoveryConfig, deps SourceDeps) ([]Binding, error) {
 	if err := cfg.Validate(); err != nil {
@@ -277,6 +307,15 @@ func buildSource(sc config.DiscoverySourceConfig, deps SourceDeps) (Source, erro
 			return nil, err
 		}
 		return NewLakebaseSource(sc.Name, sc.Project, api, CycleCap), nil
+	case "neon":
+		if deps.Neon == nil {
+			return nil, fmt.Errorf("neon sources need the Neon API client")
+		}
+		api, err := deps.Neon()
+		if err != nil {
+			return nil, fmt.Errorf("neon client: %w", err)
+		}
+		return NewNeonSource(sc.Name, sc.Project, sc.Database, api, CycleCap), nil
 	default: // rds; Validate admits nothing else
 		api, err := deps.RDS(sc.Region)
 		if err != nil {

@@ -19,7 +19,7 @@ type FleetConfig struct {
 // until an owner adopts them.
 type FleetDiscoveryConfig struct {
 	Enabled     bool                    `yaml:"enabled" doc:"List the configured sources every 10 minutes and record the databases they report as candidates. Meta-db fleets only. Default: false."`
-	Sources     []DiscoverySourceConfig `yaml:"sources" doc:"Discovery sources: cluster (other databases on a member's server), lakebase (branch endpoints of a project) or rds (tagged instances). Each needs a name and an owner."`
+	Sources     []DiscoverySourceConfig `yaml:"sources" doc:"Discovery sources: cluster (other databases on a member's server), lakebase (branch endpoints of a project), rds (tagged instances) or neon (branches of Neon projects). Each needs a name and an owner."`
 	MaxEnrolled int                     `yaml:"max_enrolled" doc:"Most discovered members enrolled at once, adopted ones included. 0-50; 0 records candidates only. Default: 10."`
 	TTLHours    int                     `yaml:"ttl_hours" doc:"Hours an enrolled member runs before it is disabled unless an owner adopts it. 1-720. Default: 72."`
 }
@@ -27,11 +27,12 @@ type FleetDiscoveryConfig struct {
 // DiscoverySourceConfig is one discovery source.
 type DiscoverySourceConfig struct {
 	Name             string `yaml:"name" doc:"Source name: lower-case letters, digits, - and _, at most 32. Prefixes the names of the members it enrols."`
-	Type             string `yaml:"type" doc:"cluster, lakebase or rds."`
+	Type             string `yaml:"type" doc:"cluster, lakebase, rds or neon."`
 	Owner            string `yaml:"owner" doc:"Who answers for what this source finds (a team or person). Required; copied to every enrolled member."`
 	Member           string `yaml:"member" doc:"cluster: the existing member whose server is listed."`
 	ReuseCredentials bool   `yaml:"reuse_credentials" doc:"cluster: enrol candidates with the member's role and password. Off: candidates are only recorded. Default: false."`
-	Project          string `yaml:"project" doc:"lakebase: the project id whose branch endpoints are listed."`
+	Project          string `yaml:"project" doc:"lakebase: the project id whose branch endpoints are listed. neon: the project id whose branches are listed; empty lists every project the clone.neon.api_key key can see."`
+	Database         string `yaml:"database" doc:"neon: the database each branch candidate names. Default: neondb."`
 	Region           string `yaml:"region" doc:"rds: the AWS region listed."`
 	TagKey           string `yaml:"tag_key" doc:"rds: only instances carrying this tag are candidates."`
 	TagValue         string `yaml:"tag_value" doc:"rds: the tag's value; empty matches any value."`
@@ -92,10 +93,15 @@ func (s DiscoverySourceConfig) validate() error {
 		"cluster":  {{"member", s.Member}},
 		"lakebase": {{"project", s.Project}},
 		"rds":      {{"region", s.Region}, {"tag_key", s.TagKey}},
+		"neon":     {},
 	}
 	fields, ok := required[s.Type]
 	if !ok {
-		return fmt.Errorf("source %q: type %q must be cluster, lakebase or rds", s.Name, s.Type)
+		return fmt.Errorf("source %q: type %q must be cluster, lakebase, rds or neon",
+			s.Name, s.Type)
+	}
+	if s.Database != "" && s.Type != "neon" {
+		return fmt.Errorf("source %q: database applies to neon sources only", s.Name)
 	}
 	if s.ReuseCredentials && s.Type != "cluster" {
 		return fmt.Errorf("source %q: reuse_credentials applies to cluster sources only",

@@ -8,15 +8,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// fleetpol-01a: ddlPolicySets is the last T6 step, bounded and classified;
+// fleetpol-01a: ddlPolicySets is a T6 step after review-04a's, bounded and classified;
 // on a real server it bootstraps twice cleanly, seeds the three sets once
 // and records every per-database document of a v2.5.0 install as an
 // exception against default without touching the document. Concurrent
 // writers: none here, Bootstrap holds its advisory lock.
-func TestPolicySetsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// fleetpol-01b appended ddlDiscoveredAttributes after it, so the pin is
+// its place: just after ddlReviewTriggers.
+func TestPolicySetsStep_IsPlacedIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlPolicySets" {
-		t.Fatalf("T6 steps end with %v, want ddlPolicySets", steps[len(steps)-1])
+	if at := stepIndex(steps, "ddlPolicySets"); at < 1 || steps[at-1][0] != "ddlReviewTriggers" {
+		t.Fatalf("T6 steps %v, want ddlPolicySets just after ddlReviewTriggers", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ADD COLUMN IF NOT EXISTS set_name",

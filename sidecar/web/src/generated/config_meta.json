@@ -1990,6 +1990,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "fleet.discovery.sources[].database": {
+    "type": "string",
+    "default": "",
+    "doc": "neon: the database each branch candidate names. Default: neondb.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "fleet.discovery.sources[].member": {
     "type": "string",
     "default": "",
@@ -2014,7 +2021,7 @@
   "fleet.discovery.sources[].project": {
     "type": "string",
     "default": "",
-    "doc": "lakebase: the project id whose branch endpoints are listed.",
+    "doc": "lakebase: the project id whose branch endpoints are listed. neon: the project id whose branches are listed; empty lists every project the clone.neon.api_key key can see.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },
@@ -2049,7 +2056,7 @@
   "fleet.discovery.sources[].type": {
     "type": "string",
     "default": "",
-    "doc": "cluster, lakebase or rds.",
+    "doc": "cluster, lakebase, rds or neon.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

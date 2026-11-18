@@ -93,6 +93,8 @@ Fleet totals and the fleet LLM token budget per database.
 
 | Metric | Type | Labels | Unit | Modes | Since | Meaning |
 |---|---|---|---|---|---|---|
+| `pg_sage_fleet_enroll_seconds` | gauge | `set`, `quantile` | seconds | meta only | v2.8.0 | Seconds from a discovered database's creation (the provider's time, else first seen) to its enrollment, by policy set, at the 0.5 and 0.95 quantiles over the last 30 days |
+| `pg_sage_fleet_baseline_24h_ratio` | gauge | `set` | ratio | meta only | v2.8.0 | Share of a policy set's enrolled members, past their first 24 hours, that reached the set's grade baseline within 24 hours of enrollment |
 | `pg_sage_fleet_databases` | gauge | - | - | all | v0.8.3 | Total fleet databases |
 | `pg_sage_fleet_findings_critical` | gauge | - | - | all | v0.8.3 | Total critical findings |
 | `pg_sage_fleet_findings_open` | gauge | - | - | all | v2.7.0 | Open findings across every database |

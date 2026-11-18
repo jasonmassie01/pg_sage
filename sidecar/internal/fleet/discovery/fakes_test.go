@@ -61,6 +61,10 @@ type fakeStore struct {
 	goneRuns int
 	claimErr error
 	markErr  error
+	// fleetpol-01b: the members whose expiry DueForExpiry reads, and the
+	// scripted EnrollStats answer.
+	expiryFrom *fakeMembers
+	stats      []store.EnrollStat
 }
 
 func newFakeStore() *fakeStore {
@@ -79,12 +83,17 @@ func (s *fakeStore) Upsert(_ context.Context, source, owner string, cands []Cand
 		k := s.key(source, c.ExternalID)
 		if r, ok := s.rows[k]; ok {
 			r.LastSeen, r.Owner = now, owner
+			r.Tags, r.Creator = c.Tags, c.Creator
+			if r.Status == store.DiscoveryCandidate || r.Status == store.DiscoveryEnrolling {
+				r.SetName = c.SetName
+			}
 			continue
 		}
 		s.nextID++
 		s.rows[k] = &store.DiscoveredRow{ID: s.nextID, Source: source,
 			ExternalID: c.ExternalID, Host: c.Host, Port: c.Port, DBName: c.DBName,
-			Owner: owner, Status: store.DiscoveryCandidate, FirstSeen: now, LastSeen: now}
+			Owner: owner, Status: store.DiscoveryCandidate, FirstSeen: now, LastSeen: now,
+			Tags: c.Tags, Creator: c.Creator, SetName: c.SetName}
 		added++
 	}
 	return added, nil
@@ -170,8 +179,11 @@ func (s *fakeStore) DueForExpiry(_ context.Context, now time.Time) ([]store.Disc
 	defer s.mu.Unlock()
 	var out []store.DiscoveredRow
 	for _, r := range s.sorted() {
-		if r.Status == store.DiscoveryEnrolled && r.ExpiresAt != nil &&
-			!r.ExpiresAt.After(now) {
+		exp := r.ExpiresAt
+		if exp == nil && s.expiryFrom != nil && r.DatabaseID != nil {
+			exp = s.expiryFrom.expiryOf(*r.DatabaseID)
+		}
+		if r.Status == store.DiscoveryEnrolled && exp != nil && !exp.After(now) {
 			out = append(out, *r)
 		}
 	}
@@ -224,6 +236,7 @@ type fakeMembers struct {
 	disabled []int
 	enrolErr error
 	trust    map[int]string
+	rows     []store.DiscoveredRow // fleetpol-01b: each enrolled row as passed
 }
 
 func (m *fakeMembers) Enrol(_ context.Context, from string, row store.DiscoveredRow,
@@ -236,6 +249,7 @@ func (m *fakeMembers) Enrol(_ context.Context, from string, row store.Discovered
 	m.nextID++
 	m.enrolled = append(m.enrolled, from+"/"+row.ExternalID)
 	m.expires = append(m.expires, expiresAt)
+	m.rows = append(m.rows, row)
 	if m.trust == nil {
 		m.trust = map[int]string{}
 	}

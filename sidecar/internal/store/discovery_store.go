@@ -44,12 +44,22 @@ func (s *DiscoveryStore) beginLocked(ctx context.Context, what string) (pgx.Tx, 
 	return tx, nil
 }
 
-// DiscoveredCandidate is one database a source reported.
+// DiscoveredCandidate is one database a source reported, with what the
+// source knows of it (fleetpol-01b): tags, creator ("agent:..." or
+// "person:..."), the provider's creation time, and the policy set the
+// runner matched it to ("" when none or policy sets are off).
 type DiscoveredCandidate struct {
 	ExternalID string
 	Host       string
 	Port       int
 	DBName     string
+	Tags       map[string]string
+	Creator    string
+	CreatedAt  time.Time
+	SetName    string
+	// Ignored are the source's reasons for attributes it dropped (logged,
+	// never stored).
+	Ignored []string
 }
 
 // DiscoveredRow is a row of sage.discovered_databases, with the member's
@@ -69,6 +79,15 @@ type DiscoveredRow struct {
 	LastSeen       time.Time
 	ExpiresAt      *time.Time
 	AlreadyManaged bool
+	// fleetpol-01b: attributes, the matched set and the milestones.
+	Tags             map[string]string
+	Creator          string
+	CreatedAt        *time.Time
+	SetName          string
+	EnrolledAt       *time.Time
+	GradeRequestedAt *time.Time
+	FirstGradedAt    *time.Time
+	BaselineAt       *time.Time
 }
 
 // DiscoverySourceStatus is a source's last run.
@@ -97,7 +116,9 @@ const discoveredColumns = `d.id, d.source, d.external_id, d.host, d.port, d.dbna
 	(SELECT m.expires_at FROM sage.databases m WHERE m.id = d.database_id),
 	EXISTS (SELECT 1 FROM sage.databases m WHERE m.host = d.host
 	        AND m.port = d.port AND m.database_name = d.dbname
-	        AND (d.database_id IS NULL OR m.id <> d.database_id))`
+	        AND (d.database_id IS NULL OR m.id <> d.database_id)),
+	d.tags, d.creator, d.created_at, COALESCE(d.set_name, ''), d.enrolled_at,
+	d.grade_requested_at, d.first_graded_at, d.baseline_at`
 
 func scanDiscovered(rows pgx.Rows) ([]DiscoveredRow, error) {
 	defer rows.Close()
@@ -106,7 +127,9 @@ func scanDiscovered(rows pgx.Rows) ([]DiscoveredRow, error) {
 		var r DiscoveredRow
 		if err := rows.Scan(&r.ID, &r.Source, &r.ExternalID, &r.Host, &r.Port,
 			&r.DBName, &r.Owner, &r.Status, &r.DatabaseID, &r.LastError,
-			&r.FirstSeen, &r.LastSeen, &r.ExpiresAt, &r.AlreadyManaged); err != nil {
+			&r.FirstSeen, &r.LastSeen, &r.ExpiresAt, &r.AlreadyManaged, &r.Tags,
+			&r.Creator, &r.CreatedAt, &r.SetName, &r.EnrolledAt, &r.GradeRequestedAt,
+			&r.FirstGradedAt, &r.BaselineAt); err != nil {
 			return nil, fmt.Errorf("scanning discovered database: %w", err)
 		}
 		out = append(out, r)
@@ -115,7 +138,8 @@ func scanDiscovered(rows pgx.Rows) ([]DiscoveredRow, error) {
 }
 
 // Upsert records a listing: new candidates are inserted, known ones get
-// last_seen and owner refreshed. It returns how many rows were new. The
+// last_seen, owner and attributes refreshed, and their set while they
+// are not yet enrolled. It returns how many rows were new. The
 // unique (source, external_id) key keeps concurrent sidecars from making
 // duplicates.
 func (s *DiscoveryStore) Upsert(ctx context.Context, source, owner string,
@@ -129,15 +153,9 @@ func (s *DiscoveryStore) Upsert(ctx context.Context, source, owner string,
 	batch := &pgx.Batch{}
 	batch.Queue(`/* pg_sage */ SELECT pg_advisory_xact_lock($1)`, discoveryLock)
 	for _, c := range cands {
-		batch.Queue(`/* pg_sage */ INSERT INTO sage.discovered_databases
-			    (source, external_id, host, port, dbname, owner, first_seen, last_seen)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-			 ON CONFLICT (source, external_id) DO UPDATE SET
-			    host = EXCLUDED.host, port = EXCLUDED.port, dbname = EXCLUDED.dbname,
-			    owner = EXCLUDED.owner,
-			    last_seen = GREATEST(sage.discovered_databases.last_seen, EXCLUDED.last_seen)
-			 RETURNING (xmax = 0)`,
-			source, c.ExternalID, c.Host, c.Port, c.DBName, owner, now)
+		batch.Queue(upsertDiscoveredSQL, source, c.ExternalID, c.Host, c.Port, c.DBName,
+			owner, now, candidateTags(c.Tags), c.Creator, nullTime(c.CreatedAt),
+			nullString(c.SetName))
 	}
 	br := s.pool.SendBatch(qctx, batch)
 	defer func() { _ = br.Close() }()
@@ -156,6 +174,21 @@ func (s *DiscoveryStore) Upsert(ctx context.Context, source, owner string,
 	}
 	return added, br.Close()
 }
+
+// upsertDiscoveredSQL records one candidate; $1-$7 as before
+// fleetpol-01b, $8-$11 its tags, creator, creation time and set.
+const upsertDiscoveredSQL = `/* pg_sage */ INSERT INTO sage.discovered_databases AS d
+	    (source, external_id, host, port, dbname, owner, first_seen, last_seen,
+	     tags, creator, created_at, set_name)
+	 VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11)
+	 ON CONFLICT (source, external_id) DO UPDATE SET
+	    host = EXCLUDED.host, port = EXCLUDED.port, dbname = EXCLUDED.dbname,
+	    owner = EXCLUDED.owner, tags = EXCLUDED.tags, creator = EXCLUDED.creator,
+	    created_at = COALESCE(EXCLUDED.created_at, d.created_at),
+	    set_name = CASE WHEN d.status IN ('candidate', 'enrolling')
+	                    THEN EXCLUDED.set_name ELSE d.set_name END,
+	    last_seen = GREATEST(d.last_seen, EXCLUDED.last_seen)
+	 RETURNING (xmax = 0)`
 
 // MarkGone marks gone every listed row of source not seen since
 // seenBefore, ignored and gone rows aside, and returns them.
@@ -222,12 +255,14 @@ func (s *DiscoveryStore) RecordSourceRun(ctx context.Context, source string, cou
 
 // claimDiscoveredSQL moves up to $2 claimable candidates of source $1 to
 // enrolling at $3; an enrolling claim older than $4 is stale and claimable.
+// $5, when not NULL, keeps the claim to the candidates of that policy set.
 const claimDiscoveredSQL = `/* pg_sage */ WITH claimed AS (
 		    UPDATE sage.discovered_databases SET status = 'enrolling',
 		           status_changed_at = $3
 		     WHERE id IN (SELECT c.id FROM sage.discovered_databases c
 		                   WHERE c.source = $1 AND (c.status = 'candidate'
 		                      OR (c.status = 'enrolling' AND c.status_changed_at < $4))
+		                     AND ($5::text IS NULL OR c.set_name = $5)
 		                     AND NOT EXISTS (SELECT 1 FROM sage.databases m
 		                          WHERE m.host = c.host AND m.port = c.port
 		                            AND m.database_name = c.dbname)
@@ -245,6 +280,11 @@ const claimDiscoveredSQL = `/* pg_sage */ WITH claimed AS (
 // first, so a database the role cannot connect to never starves the rest.
 func (s *DiscoveryStore) Claim(ctx context.Context, source string, limit, maxLive int,
 	now time.Time) ([]DiscoveredRow, error) {
+	return s.claim(ctx, source, nil, limit, maxLive, now)
+}
+
+func (s *DiscoveryStore) claim(ctx context.Context, source string, set *string,
+	limit, maxLive int, now time.Time) ([]DiscoveredRow, error) {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	tx, err := s.beginLocked(qctx, "discovery claim")
@@ -264,7 +304,7 @@ func (s *DiscoveryStore) Claim(ctx context.Context, source string, limit, maxLiv
 	if room <= 0 {
 		return nil, nil
 	}
-	rows, err := tx.Query(qctx, claimDiscoveredSQL, source, room, now, stale)
+	rows, err := tx.Query(qctx, claimDiscoveredSQL, source, room, now, stale, set)
 	if err != nil {
 		return nil, fmt.Errorf("claim discovered databases of %s: %w", source, err)
 	}

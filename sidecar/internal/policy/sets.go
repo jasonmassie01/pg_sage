@@ -51,14 +51,17 @@ type GradeRequirement struct {
 	WithinHours int    `json:"within_hours"`
 }
 
-// SetRequirements are a set's rules beyond its document. They are
-// validated and stored here; enrollment (fleetpol-01b) enforces them.
+// SetRequirements are a set's rules beyond its document. Fleet discovery
+// (fleetpol-01b) enrolls by them: TTLHours (0 is fleet.discovery.ttl_hours),
+// EnrollmentDeadlineHours for the first grade, Grades as the baseline and
+// Enrollment's cycle, batch and owner rule.
 type SetRequirements struct {
 	Grades                  []GradeRequirement     `json:"grades,omitempty"`
 	OwnerRequired           bool                   `json:"owner_required,omitempty"`
 	TTLHours                int                    `json:"ttl_hours,omitempty"`
 	EnrollmentDeadlineHours int                    `json:"enrollment_deadline_hours,omitempty"`
 	TrustCeiling            map[ChangeClass]string `json:"trust_ceiling,omitempty"`
+	Enrollment              SetEnrollment          `json:"enrollment,omitzero"`
 }
 
 // PolicySet is a set's row in sage.policy_sets.

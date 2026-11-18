@@ -95,7 +95,7 @@ func (m *liveMembers) Enrol(ctx context.Context, from string, row store.Discover
 	expiresAt time.Time) (int, error) {
 	return m.env.ds.CreateDiscovered(ctx, m.env.memberID, store.DiscoveredMember{
 		Name: MemberName(row), DatabaseName: row.DBName, Source: row.Source,
-		Owner: row.Owner, ExpiresAt: expiresAt})
+		Owner: row.Owner, ExpiresAt: expiresAt, Tags: row.Tags})
 }
 
 func (m *liveMembers) Disable(ctx context.Context, databaseID int) error {

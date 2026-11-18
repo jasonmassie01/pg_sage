@@ -42,6 +42,10 @@ type DiscoveredMember struct {
 	Source       string
 	Owner        string
 	ExpiresAt    time.Time
+	// Tags are the source's tags for the database (fleetpol-01b), so the
+	// policy set the member follows sees what enrollment matched on.
+	// discovered_from is always the credential member's name.
+	Tags map[string]string
 }
 
 func (m DiscoveredMember) validate() error {
@@ -74,11 +78,15 @@ func (s *DatabaseStore) CreateDiscovered(
 	if err != nil {
 		return 0, err
 	}
+	tags := make(map[string]string, len(m.Tags)+1)
+	for k, v := range m.Tags {
+		tags[k] = v
+	}
+	tags["discovered_from"] = from.Name
 	input := DatabaseInput{Name: m.Name, Host: from.Host, Port: from.Port,
 		DatabaseName: m.DatabaseName, Username: from.Username, Password: password,
 		SSLMode: from.SSLMode, MaxConnections: discoveredMaxConnections,
-		Tags:       map[string]string{"discovered_from": from.Name},
-		TrustLevel: "observation", ExecutionMode: "approval"}
+		Tags: tags, TrustLevel: "observation", ExecutionMode: "approval"}
 	expires := m.ExpiresAt
 	id, err := s.insert(ctx, input, 0, discoveryColumns{
 		source: &m.Source, owner: &m.Owner, expiresAt: &expires})

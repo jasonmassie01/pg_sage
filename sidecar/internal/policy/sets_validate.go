@@ -116,6 +116,9 @@ func validateRequirements(req SetRequirements, dimensions []string) error {
 		return invalidSet("enrollment_deadline_hours %d must be 0-%d",
 			req.EnrollmentDeadlineHours, maxSetHours)
 	}
+	if err := validateEnrollment(req.Enrollment); err != nil {
+		return err
+	}
 	known := knownChangeClasses()
 	for class, level := range req.TrustCeiling {
 		if !known[class] {
