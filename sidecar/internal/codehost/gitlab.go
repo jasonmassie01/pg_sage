@@ -84,7 +84,7 @@ func (g *GitLab) GetFile(ctx context.Context, repo, path string) (File, error) {
 		return File{}, err
 	}
 	if len(raw) > MaxFileBytes {
-		return File{}, fmt.Errorf("%w: %s in %s is larger than %d bytes", ErrUnavailable,
+		return File{}, fmt.Errorf("%w: %s in %s is larger than %d bytes", ErrTooLarge,
 			path, repo, MaxFileBytes)
 	}
 	return File{Path: path, Content: string(raw)}, nil

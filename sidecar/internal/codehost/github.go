@@ -111,9 +111,13 @@ func (g *GitHub) GetFile(ctx context.Context, repo, path string) (File, error) {
 		return File{}, fmt.Errorf("%w: %s in %s is a %s, not a file", ErrNotFound, path,
 			repo, c.Type)
 	}
-	if c.Size > MaxFileBytes || c.Encoding != "base64" {
-		return File{}, fmt.Errorf("%w: %s in %s is larger than %d bytes", ErrUnavailable,
+	if c.Size > MaxFileBytes || c.Encoding == "none" {
+		return File{}, fmt.Errorf("%w: %s in %s is larger than %d bytes", ErrTooLarge,
 			path, repo, MaxFileBytes)
+	}
+	if c.Encoding != "base64" {
+		return File{}, fmt.Errorf("%w: %s in %s has unexpected encoding %q",
+			ErrUnavailable, path, repo, c.Encoding)
 	}
 	raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(c.Content, "\n", ""))
 	if err != nil {

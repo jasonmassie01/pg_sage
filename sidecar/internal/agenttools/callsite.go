@@ -190,6 +190,10 @@ func (f finder) byFileLine(ctx context.Context, ct callSiteTags,
 		return CallSite{}, fmt.Sprintf("The tagged file %s is not in %s.", ct.file, f.repo),
 			nil
 	}
+	if errors.Is(err, codehost.ErrTooLarge) {
+		return CallSite{}, fmt.Sprintf("The tagged file %s is larger than %d bytes.",
+			ct.file, codehost.MaxFileBytes), nil
+	}
 	if err != nil {
 		return CallSite{}, "", err
 	}
@@ -265,7 +269,8 @@ func (f finder) byLiteral(ctx context.Context, sql string) (CallSite, error) {
 }
 
 // eachHit searches query and reads up to maxCallSiteFiles hits; a hit
-// that vanished between search and read is skipped.
+// that vanished between search and read, or is too large to read, is
+// skipped.
 func (f finder) eachHit(ctx context.Context, query string, visit func(codehost.File)) error {
 	hits, err := f.host.SearchCode(ctx, f.repo, sqlast.ClipBytes(query, 256))
 	if err != nil {
@@ -276,7 +281,7 @@ func (f finder) eachHit(ctx context.Context, query string, visit func(codehost.F
 			break
 		}
 		file, err := f.host.GetFile(ctx, f.repo, hit.Path)
-		if errors.Is(err, codehost.ErrNotFound) {
+		if errors.Is(err, codehost.ErrNotFound) || errors.Is(err, codehost.ErrTooLarge) {
 			continue
 		}
 		if err != nil {

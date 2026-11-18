@@ -173,7 +173,7 @@ func (r *rest) do(ctx context.Context, c call) ([]byte, error) {
 	}
 	if len(body) > maxResponseBytes {
 		return nil, fmt.Errorf("%w: codehost %s: %s %s: answer larger than %d bytes",
-			ErrUnavailable, r.name(), c.method, c.path, maxResponseBytes)
+			ErrTooLarge, r.name(), c.method, c.path, maxResponseBytes)
 	}
 	if resp.StatusCode/100 == 2 {
 		return body, nil

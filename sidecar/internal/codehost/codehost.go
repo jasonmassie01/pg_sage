@@ -31,6 +31,9 @@ var (
 	ErrRateLimited = errors.New("codehost: rate limited")
 	// ErrUnavailable is a transport failure or a 5xx answer.
 	ErrUnavailable = errors.New("codehost: unavailable")
+	// ErrTooLarge is a file or answer larger than the client reads; it is
+	// also ErrUnavailable. A call-site search skips such a hit.
+	ErrTooLarge = fmt.Errorf("%w: too large", ErrUnavailable)
 )
 
 // RateLimitError is a rate-limit answer. RetryAfter is how long the client
