@@ -77,6 +77,7 @@ enrolls each discovered database under the set it matches:
 | `enrollment.interval_minutes` | how often the set enrolls (10 by default, 2 at least; 1 is refused) |
 | `enrollment.per_cycle` | most members the set enrolls per cycle (5 by default, 20 at most) |
 | `enrollment.owner` | the member's owner: the source's `owner`, the database's `owner` tag, or its creator; a missing tag or creator falls back to the source's owner |
+| `enrollment.tier` | `full` or `observe_only`: the tier members are enrolled at. Empty is `observe_only` for `agent-created` and `full` for any other set. Only an explicit `full` promotes an observe-only member the set matches (see [Observe-only members](walkthrough-fleet.md#observe-only-members)) |
 | `ttl_hours` | how long an unadopted member runs (0 is `fleet.discovery.ttl_hours`) |
 | `enrollment_deadline_hours` | the first grade is due within this many hours of enrollment (0: the shortest grade `within_hours`); a late one is logged |
 | `grades` | the set's baseline: the first grade meeting every `min_letter` is recorded as the member's baseline |

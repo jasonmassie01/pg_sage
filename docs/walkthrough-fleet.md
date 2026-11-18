@@ -347,6 +347,53 @@ expiry and gone is recorded in `sage.config_audit` under
 `fleet.discovery.*`. Standalone and YAML fleets ignore the setting and log
 that they do.
 
+### Observe-only members
+
+A meta-db fleet holds two tiers of member. A **full** member gets its own
+runtime (collector, analyzer, executor, pools). The 50-member cap of
+`sage.databases` applies to full members only. An **observe-only** member
+gets no runtime, no executor, no model calls and no goroutine of its own.
+A fleet can hold up to 2,000 observe-only members next to its 50 full ones.
+Agent-created fleets with hundreds of small databases enroll their members
+observe-only.
+
+- **Enrollment.** Each policy set's `enrollment.tier` decides the tier its
+  discovered members get. The seeded `agent-created` set is observe-only
+  unless it says otherwise, and every other set is full. An observe-only
+  set keeps enrolling past `fleet.discovery.max_enrolled`, which bounds full
+  members only. The store refuses the 2,001st observe-only member
+  ("maximum of 2000 observe-only databases reached").
+- **Sweeping.** One fleet-level sweeper visits the enabled observe-only
+  members in rounds, every 15 minutes and 4 at a time. Each visit opens one
+  connection and closes it at the end. The connection is read-only, has
+  `application_name` `pg_sage observe` and a 1 s `lock_timeout`, and gives
+  each statement 5 s. A visit runs the first look with only the exposure
+  detectors (AP-01..05, AP-15, AP-17) as its agent posture section, plus the
+  settings probe. It then grades the member with review-01's deterministic
+  rubric. Checks that need a runtime (findings, restore drills, schema lint)
+  grade `unknown`, never `pass`. The subset covers too little of the rubric
+  for an overall letter, so the per-dimension letters are what discovery's
+  baseline checks. Nothing is written to a swept member. The newest sweep of
+  each member is in `sage.observe_sweeps` (`ok`, `unreachable` or `failed`,
+  with the error). The rounds are in `sage.observe_rounds`: start, end,
+  counts and the most members visited at once, kept for 30 days. Each round
+  is also logged under `observe-only`. A member that cannot be reached is
+  marked `unreachable`, and the round goes on.
+- **Promotion.** A set that says `enrollment.tier: full` promotes the
+  observe-only members it matches. A promoted member counts against the 50
+  and gets its runtime on the next meta reconcile. At the cap it stays
+  observe-only, is still swept, and the refusal is logged. A failed policy
+  read never promotes. Demoting a member (setting `tier` back to
+  `observe_only`) removes its runtime on the next reconcile. Disabling it
+  stops its sweeps.
+- **No actions.** Only full members can have actions.
+  `POST /api/v1/actions/execute` refuses an observe-only member with 409
+  Conflict "observe-only member". It does so even while a runtime of that
+  name is still draining after a demotion.
+
+Census reads (fleetpol-03) and review-04b's fleet rollup do not cover
+observe-only members yet.
+
 ## 5. Verify the v1 UI
 
 | Screen | What to verify |
