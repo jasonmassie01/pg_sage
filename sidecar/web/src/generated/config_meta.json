@@ -3125,6 +3125,56 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "policy.approval_prs.base_branch": {
+    "type": "string",
+    "default": "",
+    "doc": "Branch approval PRs merge into. Empty means the repository's default branch. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.base_url": {
+    "type": "string",
+    "default": "",
+    "doc": "API root of the code host. Empty means https://api.github.com or https://gitlab.com/api/v4. https only, except a loopback relay. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.expiry_hours": {
+    "type": "int",
+    "default": 72,
+    "doc": "Hours an approval PR stays open before pg_sage closes it as expired (sooner when the change itself expires), 1 to 720. Default: 72.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.path": {
+    "type": "string",
+    "default": "approvals/",
+    "doc": "Directory of the repository the approval files are added under, as \u003cpath\u003e\u003cdatabase\u003e/\u003cqueue_id\u003e.yaml. Default: approvals/.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.provider": {
+    "type": "string",
+    "default": "github",
+    "doc": "Code host of the config repository: github or gitlab. Default: github.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.repo": {
+    "type": "string",
+    "default": "",
+    "doc": "Config repository approval PRs open on: owner/name (GitLab: group/sub/name). Empty: off. Needs policy.directory (principals/users.yaml). Token: SAGE_APPROVAL_PRS_TOKEN. Default: empty.",
+    "warning": "A merge of an approval PR by a mapped operator approves and runs that change. High-risk changes, and tiers above notification_policy.chat_approval_max_tier, are never opened as PRs.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.timeout_seconds": {
+    "type": "int",
+    "default": 15,
+    "doc": "Seconds one code-host request may take. 1 to 120. Default: 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "policy.directory": {
     "type": "string",
     "default": "",
@@ -3136,7 +3186,7 @@
   "policy.directory_mode": {
     "type": "string",
     "default": "dry_run",
-    "doc": "dry_run (log and show the diff in Settings, write nothing) or apply. Default: dry_run.",
+    "doc": "dry_run (show the diff, write nothing) or apply. Default: dry_run.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

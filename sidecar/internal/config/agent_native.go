@@ -11,6 +11,8 @@ type PolicyConfig struct {
 	// grants/ YAML files reconciled into pg_sage's own tables.
 	Directory     string `yaml:"directory" doc:"GitOps directory of policy-sets/, principals/ and grants/ YAML files reconciled into policy sets, agent principals and database grants; relative to the config file. Empty: off." warning:"In apply mode the files own the rows they name: the reconciler creates, changes and retires them, and an empty directory retires every row it made. A widening is only proposed and waits for a person."`
 	DirectoryMode string `yaml:"directory_mode" doc:"dry_run (show the diff, write nothing) or apply. Default: dry_run."`
+	// ApprovalPRs opens approval requests as pull requests (cli-02b).
+	ApprovalPRs PolicyApprovalPRsConfig `yaml:"approval_prs"`
 }
 
 // GitOps directory modes (policy.directory_mode).
@@ -20,7 +22,8 @@ const (
 )
 
 func defaultPolicyConfig() PolicyConfig {
-	return PolicyConfig{Profile: DefaultPolicyProfile, DirectoryMode: PolicyDirectoryDryRun}
+	return PolicyConfig{Profile: DefaultPolicyProfile, DirectoryMode: PolicyDirectoryDryRun,
+		ApprovalPRs: defaultApprovalPRs()}
 }
 
 func (c PolicyConfig) validate() error {
@@ -30,7 +33,7 @@ func (c PolicyConfig) validate() error {
 	if m := c.DirectoryMode; m != "" && m != PolicyDirectoryDryRun && m != PolicyDirectoryApply {
 		return fmt.Errorf("policy.directory_mode must be dry_run or apply, got %q", m)
 	}
-	return nil
+	return c.ApprovalPRs.validate(c.Directory)
 }
 
 // EffectiveDirectoryMode is policy.directory_mode, dry_run when unset.

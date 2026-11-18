@@ -514,7 +514,16 @@
   "Policy": {
     "Profile": "unattended",
     "Directory": "",
-    "DirectoryMode": "dry_run"
+    "DirectoryMode": "dry_run",
+    "ApprovalPRs": {
+      "Provider": "github",
+      "BaseURL": "",
+      "Repo": "",
+      "BaseBranch": "",
+      "Path": "approvals/",
+      "ExpiryHours": 72,
+      "TimeoutSeconds": 15
+    }
   },
   "Value": {
     "ToilModelVersion": 1

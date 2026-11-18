@@ -128,6 +128,8 @@ var runtimeEnvVars = []EnvVar{
 		Doc: "Active calibrated toil-model version (`value.toil_model_version`)"},
 	{Name: CodeHostTokenEnv, Default: envNone, File: true, Doc: "Read token for " +
 		"`agents.code_host` (call-site lookups); never logged"},
+	{Name: ApprovalPRsTokenEnv, Default: envNone, File: true, Doc: "Write token for " +
+		"`policy.approval_prs` (opens, comments on and closes approval PRs); never logged"},
 	{Name: "SAGE_LLM_API_KEY", Default: envNone, File: true,
 		Doc: "API key for Gemini or any OpenAI-compatible LLM"},
 	{Name: "SAGE_LLM_AUTH", Default: envCode("api_key"), Doc: "`databricks` uses SDK unified " +

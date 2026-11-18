@@ -351,6 +351,13 @@
 | `oauth.redirect_url` | `restart` | `-` | `safety_critical` |
 | `oauth.role_mapping` | `restart` | `-` | `safety_critical` |
 | `oauth.unmapped_users` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.base_branch` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.base_url` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.expiry_hours` | `restart` | `-` | `operator_preference` |
+| `policy.approval_prs.path` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.provider` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.repo` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.timeout_seconds` | `restart` | `-` | `operator_preference` |
 | `policy.directory` | `restart` | `-` | `safety_critical` |
 | `policy.directory_mode` | `restart` | `-` | `safety_critical` |
 | `policy.profile` | `restart` | `-` | `safety_critical` |

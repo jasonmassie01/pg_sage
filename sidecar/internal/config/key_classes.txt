@@ -79,6 +79,13 @@ safety_critical notification_policy.chat_approval_max_tier
 operator_preference notification_policy.ask_batch_minutes
 safety_critical policy.directory
 safety_critical policy.directory_mode
+safety_critical policy.approval_prs.provider
+safety_critical policy.approval_prs.base_url
+safety_critical policy.approval_prs.repo
+safety_critical policy.approval_prs.base_branch
+safety_critical policy.approval_prs.path
+operator_preference policy.approval_prs.expiry_hours
+operator_preference policy.approval_prs.timeout_seconds
 safety_critical policy.profile
 safety_critical self_config.enabled
 safety_critical self_config.soak_hours

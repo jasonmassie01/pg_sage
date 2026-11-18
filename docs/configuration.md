@@ -273,6 +273,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_POLICY_PROFILE` | `unattended` | Bootstrap standing-policy profile (`policy.profile`): `staffed` or `unattended` |
 | `SAGE_VALUE_TOIL_MODEL_VERSION` | `1` | Active calibrated toil-model version (`value.toil_model_version`) |
 | `SAGE_CODE_HOST_TOKEN` / `_FILE` | (none) | Read token for `agents.code_host` (call-site lookups); never logged |
+| `SAGE_APPROVAL_PRS_TOKEN` / `_FILE` | (none) | Write token for `policy.approval_prs` (opens, comments on and closes approval PRs); never logged |
 | `SAGE_LLM_API_KEY` / `_FILE` | (none) | API key for Gemini or any OpenAI-compatible LLM |
 | `SAGE_LLM_AUTH` | `api_key` | `databricks` uses SDK unified authentication with token refresh for Unity Gateway |
 | `SAGE_LLM_ENDPOINT` | (none) | LLM API endpoint (`llm.endpoint`) |
