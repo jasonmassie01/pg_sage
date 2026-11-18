@@ -49,7 +49,14 @@ var cliTokenRoutes = []cliTokenRoute{
 }
 
 // cliTokenRouteOf returns the CLI route r asks for, ignoring credentials.
+// A path with escapes that decode to a different spelling (RawPath set,
+// as "%2F" sets it) never matches: the mux splits the escaped path, so
+// "actions%2Fpending" would be read here as two segments but routed as
+// one, and the CLI sends none.
 func cliTokenRouteOf(r *http.Request) (cliTokenRoute, bool) {
+	if r.URL.RawPath != "" {
+		return cliTokenRoute{}, false
+	}
 	rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/")
 	if !ok {
 		return cliTokenRoute{}, false

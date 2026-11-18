@@ -55,6 +55,35 @@ func TestBearerApprove_RequestMatching(t *testing.T) {
 	if skipsSessionAuth(dotted) {
 		t.Fatal("a non-canonical path skipped session auth")
 	}
+	assertEscapedPathsAreSessionAuthenticated(t)
+}
+
+// Invalid input: an escaped "/" decodes to a CLI route's path but is one
+// segment to the mux, so it is never taken as a CLI token request.
+func assertEscapedPathsAreSessionAuthenticated(t *testing.T) {
+	t.Helper()
+	for _, c := range []struct{ method, raw string }{
+		{http.MethodGet, "/api/v1/actions%2Fpending"},
+		{http.MethodGet, "/api/v1/approvals%2F42"},
+		{http.MethodPost, "/api/v1/approvals/42%2Fapprove"},
+	} {
+		r := httptest.NewRequest(c.method, c.raw, nil)
+		r.Header.Set("Authorization", "Bearer "+lintSecret(1))
+		if r.URL.RawPath == "" {
+			t.Fatalf("%s: the test request has no RawPath", c.raw)
+		}
+		if isCLITokenRequest(r) || skipsSessionAuth(r) {
+			t.Errorf("%s %s (decoded %s) was taken as a CLI token request", c.method, c.raw,
+				r.URL.Path)
+		}
+		h, seen := cliTokenHandler(nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if seen.calls != 1 || seen.hasPrin {
+			t.Errorf("%s: withCLIToken did not pass it through untouched (calls %d, "+
+				"principal %v, status %d)", c.raw, seen.calls, seen.hasPrin, w.Code)
+		}
+	}
 }
 
 // cliSeen is what the next handler saw.
