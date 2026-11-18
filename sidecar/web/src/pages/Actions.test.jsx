@@ -251,3 +251,24 @@ describe('Actions landing tab', () => {
     expect(selected('executed')).toBe('true')
   })
 })
+
+// ux-06a: the tab bar speaks the glossary's words (Plan, Change, Decision);
+// keys and test ids stay. A viewer sees no tab that needs a reviewer.
+const tabNames = () => screen.getAllByRole('tab').map(t => t.textContent.replace(/\s*\(.*\)$/, ''))
+
+describe('Actions tab labels', () => {
+  afterEach(() => { api.overrides = {} })
+
+  it('renders the glossary labels in order for a reviewer', () => {
+    render(<Actions database="all" user={{ role: 'admin' }} />)
+    expect(tabNames()).toEqual(['Plans', 'Proposed changes', 'Waiting on you',
+      'In progress', 'History', 'Held back'])
+    expect(screen.getByTestId('actions-tab-pending')).toHaveTextContent(/^Waiting on you/)
+    expect(screen.queryByRole('tab', { name: /Needs your review/ })).toBeNull()
+  })
+
+  it('drops the reviewer tabs for a viewer and keeps the order', () => {
+    render(<Actions database="all" user={{ role: 'viewer' }} />)
+    expect(tabNames()).toEqual(['Plans', 'Proposed changes', 'In progress', 'History'])
+  })
+})
