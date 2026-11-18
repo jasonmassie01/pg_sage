@@ -141,3 +141,40 @@ describe('TabList and TabPanel', () => {
     expect(tab('Beta')).toHaveStyle({ color: 'rgb(4, 5, 6)' })
   })
 })
+
+// ux-12: a panel with nothing focusable inside (an empty Plans list, say)
+// is itself the Tab stop after the bar, as the WAI-ARIA tabs pattern asks;
+// a panel with a control inside is not, so Tab goes straight to it.
+describe('TabPanel tab stop', () => {
+  function Panel({ children }) {
+    return <TabPanel id="p" active="a">{children}</TabPanel>
+  }
+
+  it('is a tab stop when it holds nothing focusable', async () => {
+    render(<Panel><p>No plans yet.</p></Panel>)
+    const panel = screen.getByRole('tabpanel')
+    await vi.waitFor(() => expect(panel).toHaveAttribute('tabindex', '0'))
+  })
+
+  it('is not a tab stop when it holds a control', async () => {
+    render(<Panel><button type="button">Approve</button></Panel>)
+    const panel = screen.getByRole('tabpanel')
+    await vi.waitFor(() => expect(panel).not.toHaveAttribute('tabindex'))
+  })
+
+  it('follows its content as it loads and empties', async () => {
+    const { rerender } = render(<Panel><p>Loading</p></Panel>)
+    const panel = screen.getByRole('tabpanel')
+    await vi.waitFor(() => expect(panel).toHaveAttribute('tabindex', '0'))
+    rerender(<Panel><a href="#/x">Open plan 7</a></Panel>)
+    await vi.waitFor(() => expect(panel).not.toHaveAttribute('tabindex'))
+    rerender(<Panel>{null}</Panel>)
+    await vi.waitFor(() => expect(panel).toHaveAttribute('tabindex', '0'))
+  })
+
+  it('does not count a disabled control as focusable', async () => {
+    render(<Panel><button type="button" disabled>Approve</button></Panel>)
+    await vi.waitFor(() => expect(screen.getByRole('tabpanel'))
+      .toHaveAttribute('tabindex', '0'))
+  })
+})

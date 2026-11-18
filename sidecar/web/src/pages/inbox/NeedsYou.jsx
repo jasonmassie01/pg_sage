@@ -176,6 +176,11 @@ function itemStyle(selected, keyed) {
     ? { ...style, outline: '2px solid var(--accent)', outlineOffset: '2px' } : style
 }
 
+// The item's decision row is the phone's sticky action bar (ux-12), except
+// while its review is open: then the approval card's own bar is the one.
+const BAR = 'approval-action-bar '
+const ROW = 'flex flex-wrap items-center gap-2'
+
 function InboxItem({ item, onDecided, verbsRef, selected, keyed, checked, onToggle }) {
   const [reviewing, setReviewing] = useState(false)
   const verbs = useItemVerbs(item, setReviewing)
@@ -191,7 +196,7 @@ function InboxItem({ item, onDecided, verbsRef, selected, keyed, checked, onTogg
       </div>
       <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
       {item.why && <p className="text-sm" style={muted}>{item.why}</p>}
-      <div className="flex flex-wrap items-center gap-2">
+      <div data-testid="inbox-decision-bar" className={`${reviewing ? '' : BAR}${ROW}`}>
         <Decision item={item} onDecided={onDecided} reviewing={reviewing}
           onReview={() => setReviewing(open => !open)} />
         {href && <a href={href} className="text-sm underline" style={{ color: 'var(--accent)' }}>
