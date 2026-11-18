@@ -70,4 +70,11 @@ describe('addTag', () => {
     expect(addTag(tags, '  ')).toBe(tags)
     expect(addTag(tags, undefined)).toBe(tags)
   })
+
+  it('refuses a tag with no key, which the server answers with a 400', () => {
+    const tags = ['tier=prod']
+    expect(addTag(tags, '=prod')).toBe(tags)
+    expect(addTag(tags, ' = prod')).toBe(tags)
+    expect(addTag(tags, 'team=')).toEqual(['tier=prod', 'team='])
+  })
 })

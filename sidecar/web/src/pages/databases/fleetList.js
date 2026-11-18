@@ -67,10 +67,11 @@ export function fleetRows(registrations, runtimeRows) {
   }))
 }
 
-// addTag is tags with one more filter, trimmed; a blank or repeated tag
-// changes nothing.
+// addTag is tags with one more filter, trimmed; a blank or repeated tag,
+// or one with no key ("=prod", which the server refuses), changes nothing.
 export function addTag(tags, raw) {
   const tag = String(raw ?? '').trim()
-  if (!tag || tags.some(t => t.toLowerCase() === tag.toLowerCase())) return tags
+  if (!tag.split('=')[0].trim()) return tags
+  if (tags.some(t => t.toLowerCase() === tag.toLowerCase())) return tags
   return [...tags, tag]
 }
