@@ -75,6 +75,8 @@ safety_critical mcp.oauth.task_claim
 safety_critical mcp.stdio_principal
 safety_critical mcp.call_timeout_seconds
 safety_critical notification_policy.allow_private_targets
+safety_critical notification_policy.chat_approval_max_tier
+operator_preference notification_policy.ask_batch_minutes
 safety_critical policy.profile
 safety_critical self_config.enabled
 safety_critical self_config.soak_hours
@@ -378,8 +380,10 @@ operator_preference alerting.routes
 safety_critical alerting.slack_webhook_url
 operator_preference alerting.timezone
 safety_critical alerting.webhooks
+operator_preference briefing.dba_hour_rate_usd
 operator_preference briefing.channels
 operator_preference briefing.fleet_mode
+operator_preference briefing.only_when_changed
 operator_preference briefing.schedule
 safety_critical briefing.slack_webhook_url
 

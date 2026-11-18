@@ -79,11 +79,14 @@ func refuse(code, format string, args ...any) error {
 
 // Decision is what an approver chose: the plan hash they were shown, the
 // mode, the last covered ordinal for up_to, and where they decided.
+// ProposedOnly refuses a plan that is no longer proposed, so the decision
+// never supersedes another approval (a chat card, plan-03b).
 type Decision struct {
-	PlanHash string
-	Mode     Mode
-	UpTo     int
-	Via      Via
+	PlanHash     string
+	Mode         Mode
+	UpTo         int
+	Via          Via
+	ProposedOnly bool
 }
 
 // Check refuses a decision that is malformed on its own (no plan needed).

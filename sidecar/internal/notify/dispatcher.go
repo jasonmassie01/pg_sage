@@ -24,12 +24,17 @@ type Dispatcher struct {
 	cards CardTokenIssuer
 	// factCards mints fact-card tokens (roadmap 2.3); nil: no buttons.
 	factCards FactTokenIssuer
+	// plans mints plan-card tokens (plan-03b); nil: no buttons.
+	plans PlanTokenIssuer
 	// outbox queues rule deliveries for DrainOutbox; nil delivers at
 	// once (alerting-06). policy governs finding alerts in the outbox.
 	outbox   OutboxStore
 	policyMu sync.RWMutex
 	policy   *AlertPolicy
-	now      func() time.Time
+	// askWindow batches Ask-class deliveries per database (ux-09a); 0
+	// sends each alone. Guarded by policyMu.
+	askWindow time.Duration
+	now       func() time.Time
 }
 
 // NewDispatcher creates a Dispatcher that reads rules and channels from
@@ -73,38 +78,64 @@ func (d *Dispatcher) Dispatch(
 // each: queued in the outbox (when UseOutbox was called and the event
 // can wait), delivered at once, refused or suppressed by the alert state.
 func (d *Dispatcher) Submit(ctx context.Context, event Event) (DispatchResult, error) {
+	res, _, err := d.SubmitWithOutcomes(ctx, event)
+	return res, err
+}
+
+// SubmitWithOutcomes is Submit that also says what each matching rule's
+// channel did (ux-02b), so a caller can record which channel failed.
+func (d *Dispatcher) SubmitWithOutcomes(
+	ctx context.Context, event Event,
+) (DispatchResult, []ChannelOutcome, error) {
 	var res DispatchResult
-	rules, err := d.loadMatchingRules(ctx, event.Type)
+	rules, err := d.matchingRules(ctx, event)
 	if err != nil {
-		return res, fmt.Errorf("loading rules: %w", err)
+		return res, nil, fmt.Errorf("loading rules: %w", err)
 	}
+	outs := make([]ChannelOutcome, 0, len(rules))
 	for _, rule := range rules {
-		d.submitRule(ctx, rule, event, &res)
+		d.submitRule(ctx, rule, event, &res, &outs)
 	}
-	return res, nil
+	return res, outs, nil
 }
 
 func (d *Dispatcher) submitRule(
 	ctx context.Context, rule Rule, event Event, res *DispatchResult,
+	outs *[]ChannelOutcome,
 ) {
 	ch, sender, err := d.ruleTarget(ctx, rule, event)
 	switch {
 	case err != nil:
 		d.logFn("ERROR", "rule %d dispatch: %v", rule.ID, err)
 		res.Refused++
+		*outs = append(*outs, ChannelOutcome{ChannelID: rule.ChannelID,
+			Channel: fmt.Sprintf("channel %d", rule.ChannelID), Status: OutcomeRefused,
+			Error: RedactError(err).Error()})
 		return
 	case ch == nil:
 		return
+	case d.batchesAsk(rule, *ch):
+		before := *res
+		d.enqueueAsk(ctx, *ch, event, res)
+		*outs = append(*outs, ChannelOutcome{ChannelID: ch.ID,
+			Channel: ch.Name, Status: queuedOutcome(before, *res)})
+		return
 	case d.outbox != nil && queueable(event):
+		before := *res
 		d.enqueue(ctx, *ch, event, res)
+		*outs = append(*outs, ChannelOutcome{ChannelID: ch.ID,
+			Channel: ch.Name, Status: queuedOutcome(before, *res)})
 		return
 	}
+	out := ChannelOutcome{ChannelID: ch.ID, Channel: ch.Name, Status: OutcomeSent}
 	if err := d.deliver(ctx, sender, *ch, event); err != nil {
 		d.logFn("ERROR", "rule %d dispatch: %v", rule.ID, err)
 		res.Failed++
-		return
+		out.Status, out.Error = OutcomeError, err.Error()
+	} else {
+		res.Delivered++
 	}
-	res.Delivered++
+	*outs = append(*outs, out)
 }
 
 func (d *Dispatcher) processRule(
@@ -151,6 +182,7 @@ func (d *Dispatcher) deliver(
 ) error {
 	event, revoke := d.withCardToken(ctx, ch, event)
 	event, revokeFact := d.withFactToken(ctx, ch, event)
+	event, revokePlan := d.withPlanToken(ctx, ch, event)
 	messageID, sendErr := send(ctx, sender, ch, event)
 	sendErr = RedactError(sendErr)
 	rec := Delivery{ChannelID: ch.ID, Event: event, Status: "sent",
@@ -158,6 +190,7 @@ func (d *Dispatcher) deliver(
 	if sendErr != nil {
 		revoke()
 		revokeFact()
+		revokePlan()
 		rec.Status, rec.Error, rec.ProviderMessageID = "error", sendErr.Error(), ""
 	}
 	return d.recordDelivery(ctx, rec)

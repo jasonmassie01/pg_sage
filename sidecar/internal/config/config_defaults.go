@@ -219,9 +219,10 @@ func defaultAdvisorConfig() AdvisorConfig {
 // defaultBriefingConfig returns the briefing defaults.
 func defaultBriefingConfig() BriefingConfig {
 	return BriefingConfig{
-		Schedule:  DefaultBriefingSchedule,
-		Channels:  []string{"stdout"},
-		FleetMode: BriefingFleetRollup,
+		Schedule:        DefaultBriefingSchedule,
+		Channels:        []string{"stdout"},
+		FleetMode:       BriefingFleetRollup,
+		OnlyWhenChanged: true,
 	}
 }
 
@@ -393,6 +394,8 @@ func defaultRetentionConfig() RetentionConfig {
 func defaultNotificationPolicyConfig() NotificationPolicyConfig {
 	return NotificationPolicyConfig{
 		AllowPrivateTargets: DefaultNotificationPolicyAllowPrivateTargets,
+		ChatApprovalMaxTier: ChatApprovalCapModerate,
+		AskBatchMinutes:     DefaultNotificationPolicyAskBatchMinutes,
 	}
 }
 

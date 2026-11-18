@@ -36,7 +36,8 @@ func (s *Store) ApproveWith(ctx context.Context, planID int64, d Decision,
 		if err != nil {
 			return err
 		}
-		if p.Status != StatusProposed && p.Status != StatusApproved {
+		if (p.Status != StatusProposed && p.Status != StatusApproved) ||
+			(d.ProposedOnly && p.Status != StatusProposed) {
 			return fmt.Errorf("%w: plan %d is %s", ErrNotApprovable, planID, p.Status)
 		}
 		current := PlanHash(p)

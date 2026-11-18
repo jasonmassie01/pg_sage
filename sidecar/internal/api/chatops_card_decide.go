@@ -87,7 +87,8 @@ func (d *chatopsDeps) decideCard(w http.ResponseWriter, r *http.Request, ch noti
 }
 
 // checkCard verifies the card a token names: issued to this channel,
-// unused, unexpired, and unchanged since it was sent.
+// unused, unexpired, and unchanged since it was sent; an Approve must also
+// be within the chat approval cap (ux-09a, D7), whatever else changed.
 func (d *chatopsDeps) checkCard(w http.ResponseWriter, r *http.Request, ch notify.Channel,
 	a chatops.Action) (chatops.CardDelivery, *fleet.DatabaseInstance, *store.QueuedAction,
 	bool) {
@@ -109,16 +110,11 @@ func (d *chatopsDeps) checkCard(w http.ResponseWriter, r *http.Request, ch notif
 		writeCardError(w, r, chatops.ErrCardExpired)
 		return card, nil, nil, false
 	}
-	inst := d.mgr.GetInstance(card.Database)
-	if inst == nil || inst.Pool == nil || inst.Executor == nil {
-		sreErrorCode(w, "the card's database is not monitored", "not_found",
-			http.StatusNotFound)
+	inst, current, ok := d.cardItem(w, r, card)
+	if !ok {
 		return card, nil, nil, false
 	}
-	current, err := store.NewActionStore(inst.Pool).GetByID(r.Context(), card.QueueID)
-	if err != nil {
-		sreErrorCode(w, "the card's action no longer exists", "not_found",
-			http.StatusNotFound)
+	if a.Decision == chatops.DecisionApprove && d.refuseAboveChatCap(w, ch, a, *current) {
 		return card, nil, nil, false
 	}
 	hash, err := approvalcard.CurrentHash(r.Context(), inst.Pool, *current)
@@ -136,6 +132,24 @@ func (d *chatopsDeps) checkCard(w http.ResponseWriter, r *http.Request, ch notif
 		return card, nil, nil, false
 	}
 	return card, inst, current, true
+}
+
+// cardItem loads the monitored database and queue item a card names.
+func (d *chatopsDeps) cardItem(w http.ResponseWriter, r *http.Request,
+	card chatops.CardDelivery) (*fleet.DatabaseInstance, *store.QueuedAction, bool) {
+	inst := d.mgr.GetInstance(card.Database)
+	if inst == nil || inst.Pool == nil || inst.Executor == nil {
+		sreErrorCode(w, "the card's database is not monitored", "not_found",
+			http.StatusNotFound)
+		return nil, nil, false
+	}
+	current, err := store.NewActionStore(inst.Pool).GetByID(r.Context(), card.QueueID)
+	if err != nil {
+		sreErrorCode(w, "the card's action no longer exists", "not_found",
+			http.StatusNotFound)
+		return nil, nil, false
+	}
+	return inst, current, true
 }
 
 func writeCardError(w http.ResponseWriter, r *http.Request, err error) {
@@ -215,6 +229,25 @@ func snoozeCardFromChat(r *http.Request, as *store.ActionStore, card chatops.Car
 		"status": "snoozed", "snoozed_until": until}, status: http.StatusOK,
 		text: fmt.Sprintf("Snoozed by %s until %s; pg_sage will ask again then.",
 			user.Email, until.Format("2006-01-02 15:04 UTC"))}
+}
+
+// refuseAboveChatCap refuses an Approve of a change above the chat
+// approval cap (ux-09a, D7) before the token is consumed: nothing runs, the
+// card still takes Reject, and the reply sends the person to pg_sage. It
+// writes the refusal and reports true.
+func (d *chatopsDeps) refuseAboveChatCap(w http.ResponseWriter, ch notify.Channel,
+	a chatops.Action, current store.QueuedAction) bool {
+	ok, reason := approvalcard.RemoteApprovalAllowed(approvalcard.ActionTier(current),
+		d.chatCap)
+	if ok {
+		return false
+	}
+	slog.Info("chat approval refused above the chat approval cap", "queue_id", current.ID,
+		"reason", reason)
+	reply(ch, a, approvalcard.RemoteApprovalRefusal(reason, current.ID))
+	sreErrorCode(w, "approve this change in pg_sage: "+reason, "tier_cap",
+		http.StatusForbidden)
+	return true
 }
 
 // approvalRefusedBeforeConsume refuses an Approve the gate would refuse for

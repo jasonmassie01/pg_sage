@@ -5,6 +5,8 @@ type BriefingConfig struct {
 	Channels        []string `yaml:"channels"`
 	SlackWebhookURL string   `yaml:"slack_webhook_url"`
 	FleetMode       string   `yaml:"fleet_mode" doc:"Fleet and meta-db modes: rollup (default) posts one briefing message covering every database; per_database posts one per database. Each database still stores its own briefing. Restart to change."`
+	OnlyWhenChanged bool     `yaml:"only_when_changed" doc:"Send the digest only when it differs from the last one delivered (and never an empty one); it is still stored. false sends every scheduled digest, \"Nothing changed\" included. Default: true."`
+	DBAHourRateUSD  float64  `yaml:"dba_hour_rate_usd" doc:"Operator-supplied cost of one DBA hour in US dollars; the digest's Saved line shows dollars beside hours when set. 0 (default) shows hours only: pg_sage ships no rates."`
 }
 
 type AlertingConfig struct {
@@ -204,6 +206,10 @@ type RetentionConfig struct {
 // senders at startup, so it is deliberately not an API override.
 type NotificationPolicyConfig struct {
 	AllowPrivateTargets bool `yaml:"allow_private_targets" doc:"Allow webhook and SMTP channels to target loopback, RFC 1918, ULA or CGNAT hosts and plain http (e.g. an internal SMTP relay). Metadata and link-local stay blocked. Requires restart."`
+	// ChatApprovalMaxTier: see notification_classes.go (ux-09a, decision D7).
+	ChatApprovalMaxTier string `yaml:"chat_approval_max_tier" doc:"Highest risk tier a chat card may approve: safe, moderate or none. High is always approved in pg_sage. Requires restart. Default moderate."`
+	// AskBatchMinutes: see notification_classes.go (ux-09a).
+	AskBatchMinutes int `yaml:"ask_batch_minutes" doc:"Minutes Ask-class notifications of one database are batched into one message (at most 10 items). 0 sends each alone. Range 0-1440. Requires restart. Default 15."`
 }
 
 // OAuthConfig holds OAuth2/OIDC SSO settings.

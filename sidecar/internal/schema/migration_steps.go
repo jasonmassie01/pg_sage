@@ -52,7 +52,8 @@ func migrationSteps() []migrationStep {
 	steps = append(steps, namedSteps(trancheTwoMigrations())...)
 	steps = append(steps, namedSteps(trancheThreeMigrations())...)
 	steps = append(steps, namedSteps(trancheFourMigrations())...)
-	return append(steps, namedSteps(trancheFiveMigrations())...)
+	steps = append(steps, namedSteps(trancheFiveMigrations())...)
+	return append(steps, namedSteps(trancheSevenMigrations())...)
 }
 
 // namedStep pairs a constant's name with its SQL for laterMigrations.
@@ -248,8 +249,17 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlPlanOperatorSteps", ddlPlanOperatorSteps},                       // plan-02d
 		{"ddlPlanApprovalModes", ddlPlanApprovalModes},                       // plan-03a
 		{"ddlWorkloadPseudonymKey", ddlWorkloadPseudonymKey},                 // evid-02c
+		{"ddlBriefingsDigestHash", ddlBriefingsDigestHash},                   // ux-02b
 		{"ddlUserInboxSeenAt", ddlUserInboxSeenAt},                           // ux-01b
-		{"ddlActionQueueLadder", ddlActionQueueLadder},                       // lab-03a
-		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},               // lab-03b
+		{"ddlPlanCardDeliveries", ddlPlanCardDeliveries},                     // plan-03b
+	}
+}
+
+// trancheSevenMigrations are the T7 steps, after trancheFiveMigrations.
+func trancheSevenMigrations() []namedStep {
+	return []namedStep{
+		{"ddlNotificationRuleClass", ddlNotificationRuleClass}, // ux-09a
+		{"ddlActionQueueLadder", ddlActionQueueLadder},         // lab-03a
+		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect}, // lab-03b
 	}
 }

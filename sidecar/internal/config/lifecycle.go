@@ -146,7 +146,8 @@ func reconfigurationOwner(path string) string {
 		return LLMRedactionOwner // llm-09: process-wide, registered in every mode
 	}
 	switch path {
-	case "briefing.schedule", "briefing.channels", "briefing.slack_webhook_url":
+	case "briefing.schedule", "briefing.channels", "briefing.slack_webhook_url",
+		"briefing.only_when_changed", "briefing.dba_hour_rate_usd": // ux-02b
 		return BriefingOwner // llm-06: briefing.fleet_mode stays restart-bound
 	case "alerting.cooldown_minutes", "alerting.quiet_hours_start",
 		"alerting.quiet_hours_end", "alerting.timezone", "alerting.repeat_minutes":

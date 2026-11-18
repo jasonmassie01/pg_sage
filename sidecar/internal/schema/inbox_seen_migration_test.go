@@ -11,22 +11,17 @@ import (
 // constant string run under the bootstrap lock; the GREATEST race is
 // api.TestInboxSeenDB_ConcurrentMarksKeepTheLaterTime.
 
-// lab-03a's and lab-03b's steps follow it, so its place is pinned rather
-// than "last".
-func TestUserInboxSeenAtStep_IsInPlaceBoundedAndIdempotent(t *testing.T) {
+func TestUserInboxSeenAtStep_IsLastBoundedAndIdempotent(t *testing.T) {
+	// The T5 merge ordered ux-02b's step before this one and plan-03b's
+	// after it, so its place is pinned by its predecessor.
 	steps := trancheFiveMigrations()
-	idx := -1
-	for i, step := range steps {
-		if step[0] == "ddlUserInboxSeenAt" {
-			idx = i
-		}
+	at := t5StepIndex(steps, "ddlUserInboxSeenAt")
+	if at < 1 || steps[at][1] != ddlUserInboxSeenAt {
+		t.Fatalf("T5 steps = %v, want ddlUserInboxSeenAt with its DDL", steps)
 	}
-	if idx < 1 || steps[idx][1] != ddlUserInboxSeenAt {
-		t.Fatalf("T5 steps = %v, want ddlUserInboxSeenAt", steps)
-	}
-	if steps[idx-1][0] != "ddlWorkloadPseudonymKey" {
-		t.Fatalf("ddlUserInboxSeenAt follows %s, want ddlWorkloadPseudonymKey",
-			steps[idx-1][0])
+	if steps[at-1][0] != "ddlBriefingsDigestHash" {
+		t.Fatalf("ddlUserInboxSeenAt follows %s, want ddlBriefingsDigestHash",
+			steps[at-1][0])
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ALTER TABLE sage.users", "ADD COLUMN IF NOT EXISTS inbox_seen_at timestamptz"} {

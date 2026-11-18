@@ -55,14 +55,20 @@ func (w *Worker) GenerateBriefing(ctx context.Context) (res Result, err error) {
 	structured := w.buildStructured(findings, totalOpen, system, actions)
 
 	// If LLM enabled, rewrite in natural language, grounded in the payload.
+	// The digest is built after it: a model that just failed the rewrite is
+	// not asked for the digest headline in the same run.
 	if w.llm != nil && w.llm.IsEnabled() && !w.llm.IsCircuitOpen() {
 		stored, plain, tokens, err := w.briefWithLLM(ctx, payload)
 		if err != nil {
 			w.logFn("WARN", "briefing: LLM enhancement failed: %v, using structured", err)
+			payload.Digest = w.buildDigest(ctx, w.window, false)
 		} else {
+			payload.Digest = w.buildDigest(ctx, w.window, true)
 			id := w.storeBriefing(ctx, stored, true, tokens, payload)
 			return Result{ID: id, Text: plain, Payload: payload}, nil
 		}
+	} else {
+		payload.Digest = w.buildDigest(ctx, w.window, true)
 	}
 	id := w.storeBriefing(ctx, structured, false, 0, payload)
 	return Result{ID: id, Text: structured, Payload: payload}, nil
@@ -81,13 +87,17 @@ func (w *Worker) storeBriefing(
 	}
 	win := payload.Window
 	var id int64
+	var hash any
+	if payload.Digest != nil {
+		hash = payload.Digest.Hash
+	}
 	err = w.pool.QueryRow(ctx, `/* pg_sage */
 		INSERT INTO sage.briefings (generated_at, period_start, period_end, mode,
-			content_text, content_json, llm_used, token_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			content_text, content_json, llm_used, token_count, digest_hash)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id
 	`, win.End, win.Start, win.End, "executive", content,
-		json.RawMessage(contentJSON), llmUsed, tokens).Scan(&id)
+		json.RawMessage(contentJSON), llmUsed, tokens, hash).Scan(&id)
 	if err != nil {
 		w.logFn("WARN", "briefing: failed to store briefing: %v", err)
 		return 0
@@ -96,18 +106,35 @@ func (w *Worker) storeBriefing(
 	return id
 }
 
-// Run generates, stores and dispatches one briefing, records each channel's
-// outcome on the stored row, and marks the worker as run. A failed delivery
-// is recorded, not retried, so a broken webhook never re-sends every cycle.
+// Run generates and stores one briefing, sends its digest (ux-02b) unless
+// it is unchanged, records each channel's outcome on the stored row, and
+// marks the worker as run. A failed delivery is recorded, not retried, so
+// a broken webhook never re-sends every cycle.
 func (w *Worker) Run(ctx context.Context) error {
 	r, err := w.GenerateBriefing(ctx)
 	if err != nil {
 		return err
 	}
-	status := w.Dispatch(ctx, r.Text)
+	status := w.deliverDigest(ctx, w.digestSendOf(r))
 	w.recordDelivery(ctx, r.ID, status)
 	w.MarkRan()
 	return nil
+}
+
+// digestOf is r's digest; GenerateBriefing always builds one, so the
+// empty digest stands in only for a Result made elsewhere.
+func digestOf(r Result, database string) Digest {
+	if r.Payload.Digest != nil {
+		return *r.Payload.Digest
+	}
+	return BuildDigest(DigestInput{Database: database, Window: r.Payload.Window})
+}
+
+// digestSendOf is the message of one database's stored briefing r.
+func (w *Worker) digestSendOf(r Result) digestSend {
+	d := digestOf(r, w.database)
+	return digestSend{scope: w.digestScope(), database: w.database, hash: d.Hash,
+		empty: d.Empty(), briefingID: r.ID, headline: d.Headline, text: d.Text()}
 }
 
 // recordDelivery stores status on row id, logging a failure.

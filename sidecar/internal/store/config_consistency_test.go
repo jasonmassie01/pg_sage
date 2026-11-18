@@ -172,6 +172,9 @@ var excludedExactKeys = map[string]bool{
 	// API admin must not be able to open SSRF to private networks, so it
 	// is YAML-only and restart-bound.
 	"notification_policy.allow_private_targets": true,
+	// ux-09a: the chat approval cap is a safety boundary; YAML only.
+	"notification_policy.chat_approval_max_tier": true,
+	"notification_policy.ask_batch_minutes":      true,
 
 	// LLM sub-struct fields not (yet) exposed as overrides.
 	"llm.cooldown_seconds":                      true,
