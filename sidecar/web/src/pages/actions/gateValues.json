@@ -43,6 +43,7 @@
     "drop_restore_bypass",
     "emergency_stop",
     "executor_disabled",
+    "exposure_shadow",
     "facts_unavailable",
     "narrowing",
     "narrowing_during_stop",
