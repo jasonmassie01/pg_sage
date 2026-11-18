@@ -73,7 +73,7 @@ const DataRollbackFailed = "rollback_failed"
 
 // ClassOf is evt's delivery class.
 func ClassOf(evt Event) Class {
-	if evt.Severity == "critical" {
+	if evt.Severity == "critical" || NeverMuted(evt) {
 		return ClassPage
 	}
 	if evt.Type == "action_failed" {

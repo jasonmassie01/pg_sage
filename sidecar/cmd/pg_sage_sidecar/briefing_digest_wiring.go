@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/inbox"
@@ -34,7 +35,20 @@ func (n digestNotifier) EnsureDefaultRule(ctx context.Context, event string) (bo
 func (rt *databaseRuntime) newBriefingWorker() *briefing.Worker {
 	return briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper).
 		WithDatabaseName(rt.spec.Name).WithNotifier(rt.briefingNotifier()).
-		WithInboxCounter(digestInboxCounts)
+		WithInboxCounter(digestInboxCounts).WithWeeklyLine(rt.weeklyLine())
+}
+
+// weeklyLine reads the digest's weekly line (ux-09b) from the control
+// database's notification log, or nil when Notifications is not wired.
+func (rt *databaseRuntime) weeklyLine() briefing.WeeklyLineFunc {
+	store := sharedNotifyStore(rt.spec.ControlPool)
+	if store == nil {
+		return nil
+	}
+	return func(ctx context.Context) (string, error) {
+		line, err := store.WeeklyLine(ctx, time.Now())
+		return line.Text, err
+	}
 }
 
 // briefingNotifier is the database runtime's digest notifier, or nil when

@@ -258,6 +258,7 @@ func trancheFiveMigrations() []namedStep {
 // trancheSevenMigrations are the T7 steps, after trancheFiveMigrations.
 func trancheSevenMigrations() []namedStep {
 	return []namedStep{
-		{"ddlNotificationRuleClass", ddlNotificationRuleClass}, // ux-09a
+		{"ddlNotificationRuleClass", ddlNotificationRuleClass},         // ux-09a
+		{"ddlNotificationQuietAndMutes", ddlNotificationQuietAndMutes}, // ux-09b
 	}
 }

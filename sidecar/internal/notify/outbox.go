@@ -84,7 +84,8 @@ func (d *Dispatcher) enqueue(ctx context.Context, ch Channel, evt Event, res *Di
 		return
 	}
 	entry := OutboxEntry{Database: key.Database, DedupKey: key.DedupKey, ChannelID: ch.ID,
-		Event: evt.Type, Payload: payload, NextAttemptAt: now, Status: "pending"}
+		Event: evt.Type, Payload: payload, NextAttemptAt: d.quietHold(ch, evt, now),
+		Status: "pending"}
 	if !Throttled(evt.Type) {
 		if err := d.outbox.Enqueue(ctx, entry); err != nil {
 			d.logFn("ERROR", "channel %d: queue %s: %v", ch.ID, evt.Type, err)
@@ -95,7 +96,7 @@ func (d *Dispatcher) enqueue(ctx context.Context, ch Channel, evt Event, res *Di
 		return
 	}
 	var dec Decision
-	policy := d.alertPolicy()
+	policy := d.policyFor(ch)
 	queued, err := d.outbox.Schedule(ctx, key, func(cur *NotifyState) ScheduleStep {
 		dec = policy.Decide(cur, evt, now)
 		return scheduleStep(policy, cur, evt, dec, key, entry)

@@ -61,6 +61,9 @@ func (d *Dispatcher) enqueueAsk(ctx context.Context, ch Channel, evt Event,
 	var stepErr error
 	queued, err := d.outbox.Schedule(ctx, key, func(cur *NotifyState) ScheduleStep {
 		step, err := askBatchStep(cur, key, plainEvent(evt), now, window)
+		if step.Entry != nil {
+			step.Entry.NextAttemptAt = d.quietHold(ch, evt, step.Entry.NextAttemptAt)
+		}
 		stepErr = err
 		return step
 	})
@@ -130,17 +133,19 @@ func (b askBatch) message(db, dedupKey string) Event {
 			Body: it.Body, Data: it.Data, DedupKey: it.DedupKey}
 	}
 	lines := make([]string, 0, len(b.Items)+3)
+	var refs []string
 	for _, it := range b.Items {
 		lines = append(lines, "- "+it.Subject)
+		refs = append(refs, eventItemRefs(Event{Data: it.Data})...)
 	}
 	if more := b.Count - len(b.Items); more > 0 {
 		lines = append(lines, fmt.Sprintf("%d more in pg_sage", more))
 	}
 	lines = append(lines, "", "Open them in pg_sage: #/inbox?database="+url.QueryEscape(db),
-		"Approve, reject or snooze each in pg_sage, or mute this class on the "+
-			"Notifications page.")
+		"Approve, reject or snooze each in pg_sage.",
+		"Mute this class: "+MuteLink(db, ClassAsk))
 	return Event{Type: "approval_needed", Severity: "warning",
 		Subject: fmt.Sprintf("%d decisions waiting on %s", b.Count, db),
 		Body:    strings.Join(lines, "\n"), DedupKey: dedupKey,
-		Data: map[string]any{"database": db, "ask_batch": b.Count}}
+		Data: map[string]any{"database": db, "ask_batch": b.Count, DataItemRefs: refs}}
 }

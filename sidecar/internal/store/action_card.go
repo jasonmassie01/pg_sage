@@ -38,7 +38,7 @@ func (s *ActionStore) Snooze(
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tag, err := s.pool.Exec(qctx, `/* pg_sage */ UPDATE sage.action_queue
-		SET snoozed_until = $2, snoozed_by = $3, snooze_reason = $4
+		SET snoozed_until = $2, snoozed_by = $3, snooze_reason = $4, snoozed_at = now()
 		WHERE id = $1 AND status = 'pending' AND expires_at > now()`,
 		queueID, until, userID, strings.TrimSpace(reason))
 	if err != nil {

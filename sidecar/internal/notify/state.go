@@ -111,22 +111,7 @@ func (p AlertPolicy) quietUntil(t time.Time) time.Time {
 	if p.quietStart < 0 || p.loc == nil {
 		return t
 	}
-	local := t.In(p.loc)
-	minute := local.Hour()*60 + local.Minute()
-	inside := minute >= p.quietStart && minute < p.quietEnd
-	if p.quietStart > p.quietEnd {
-		inside = minute >= p.quietStart || minute < p.quietEnd
-	}
-	if !inside {
-		return t
-	}
-	end := time.Date(local.Year(), local.Month(), local.Day(),
-		p.quietEnd/60, p.quietEnd%60, 0, 0, p.loc)
-	if !end.After(local) {
-		end = time.Date(local.Year(), local.Month(), local.Day()+1,
-			p.quietEnd/60, p.quietEnd%60, 0, 0, p.loc)
-	}
-	return end.UTC()
+	return quietWindowEnd(t, p.quietStart, p.quietEnd, p.loc)
 }
 
 // reminderCutoffs maps each severity that reminds to the latest last

@@ -10,6 +10,11 @@ type Channel struct {
 	// ManagedBy is "config" for a channel the alerting reconciler owns
 	// (alerting-06b), else "api" (or empty where not read).
 	ManagedBy string `json:"managed_by,omitempty"`
+	// QuietStart, QuietEnd (HH:MM) and QuietTZ are the channel's own
+	// quiet hours (ux-09b); empty keeps the global alerting pair.
+	QuietStart string `json:"quiet_hours_start,omitempty"`
+	QuietEnd   string `json:"quiet_hours_end,omitempty"`
+	QuietTZ    string `json:"quiet_hours_timezone,omitempty"`
 }
 
 // Rule maps events to channels with severity filtering.

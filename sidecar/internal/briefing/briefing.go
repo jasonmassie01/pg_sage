@@ -145,6 +145,9 @@ type Worker struct {
 	// its Needs you section (ux-02b); nil when not wired.
 	notifier Notifier
 	inbox    InboxCounter
+	// weeklyLine is the digest's "N messages, M led to an action" line
+	// (ux-09b); nil leaves it out.
+	weeklyLine WeeklyLineFunc
 }
 
 // WithDatabaseName sets the fleet database the worker briefs, so the

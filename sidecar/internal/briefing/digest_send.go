@@ -138,7 +138,7 @@ func (w *Worker) notifyDigest(
 		w.logFn("INFO", "briefing: added a digest_ready rule on the first notification "+
 			"channel that suits a digest; disable it to stop digests there")
 	}
-	_, outs, err := w.notifier.SubmitWithOutcomes(ctx, digestEvent(s))
+	_, outs, err := w.notifier.SubmitWithOutcomes(ctx, w.digestEventFor(ctx, s))
 	if err != nil {
 		w.logFn("WARN", "briefing: send digest through notifications: %v", err)
 		out[deliveryKeyNotifications] = delivered(DeliveryError,
@@ -184,4 +184,30 @@ func digestEvent(s digestSend) notify.Event {
 		Data: map[string]any{"database": s.database, "digest_hash": s.hash,
 			"scope": s.scope},
 		DedupKey: "digest:" + s.scope + ":" + s.hash}
+}
+
+// WeeklyLineFunc returns the weekly notification line, "N messages, M led
+// to an action" over the last 7 days (ux-09b).
+type WeeklyLineFunc func(ctx context.Context) (string, error)
+
+// WithWeeklyLine adds fn's line to every digest.
+func (w *Worker) WithWeeklyLine(fn WeeklyLineFunc) *Worker {
+	w.weeklyLine = fn
+	return w
+}
+
+// digestEventFor is s's digest event with the weekly line appended; a
+// failed read is logged and the digest goes without it.
+func (w *Worker) digestEventFor(ctx context.Context, s digestSend) notify.Event {
+	evt := digestEvent(s)
+	if w.weeklyLine == nil {
+		return evt
+	}
+	line, err := w.weeklyLine(ctx)
+	if err != nil {
+		w.logFn("WARN", "briefing: digest sent without the weekly line: %v", err)
+		return evt
+	}
+	evt.Body += "\n\nLast 7 days: " + line
+	return evt
 }
