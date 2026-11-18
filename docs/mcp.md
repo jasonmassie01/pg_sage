@@ -206,7 +206,7 @@ an `agent_request_capability` waiting for an operator. Each adds:
 | Key | Value |
 |---|---|
 | `approval_url` | the dashboard page where a person decides (kept as the tool returned it when it already has one) |
-| `status` | `{"tool": ..., "arguments": {...}}`, a read-only call to poll: `get_inbox` for the item's kind while it waits on a person, `get_ledger` for a change held back |
+| `status` | `{"tool": ..., "arguments": {...}}`, a read-only call to poll: `get_inbox` for the item's kind while it waits on a person, `get_ledger` for a queued or parked change (the intent path records the decision in the ledger and creates no approval item) |
 | `handle` | the item, `<kind>:<id>`: the inbox kind and id (`policy_exception:42`, `change_approval:7`, `agent_request:4`) or `change:<evidence_id>` |
 
 None of these approve anything: a person decides on the page `approval_url` names.

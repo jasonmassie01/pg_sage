@@ -81,23 +81,19 @@ func boundDatabase(arguments json.RawMessage) string {
 	return call.Database
 }
 
-// changeHeld: a change the policy check queued for approval waits in the
-// inbox; one it parked is held back, and its decision is in the ledger.
+// changeHeld: a change the policy check queued for approval or parked is
+// a withheld decision in the ledger. The intent path creates no approval
+// item, so the agent polls get_ledger, never the inbox's change
+// approvals, and a person sees the decision on the Actions decisions tab.
 func changeHeld(content map[string]any, database string) (heldItem, bool) {
-	evidence := text(content["evidence_id"])
-	item := heldItem{handle: prefixed("change", evidence)}
 	switch text(content["decision"]) {
-	case "queued":
-		item.approvalURL = page("actions", "tab", "pending", "database", database)
-		item.statusTool = toolGetInbox
-		item.statusArgs = inboxStatus(database, "change_approval")
-	case "parked":
-		item.approvalURL = page("actions", "tab", "decisions", "database", database)
-		item.statusTool, item.statusArgs = "get_ledger", databaseArgs(database)
+	case "queued", "parked":
 	default:
 		return heldItem{}, false
 	}
-	return item, true
+	return heldItem{handle: prefixed("change", text(content["evidence_id"])),
+		approvalURL: page("actions", "tab", "decisions", "database", database),
+		statusTool:  "get_ledger", statusArgs: databaseArgs(database)}, true
 }
 
 // policyHeld: a policy proposal waits for an admin's ratification.

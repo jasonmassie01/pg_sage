@@ -37,6 +37,8 @@ func (b *intentRecorder) RequestIntent(_ context.Context, _ string,
 	return b.changeResult, nil
 }
 
+// A queued change creates no action-queue item on the intent path, so its
+// status polls the ledger that records it, never the change approvals.
 func TestHeldChangeCarriesApprovalURLStatusAndHandle(t *testing.T) {
 	for _, tool := range []string{"request_change", "optimize_query"} {
 		backend := &recordingBackend{changeResult: ChangeResult{Decision: "queued",
@@ -45,15 +47,19 @@ func TestHeldChangeCarriesApprovalURLStatusAndHandle(t *testing.T) {
 		args := map[string]string{
 			"request_change": `{"intent":{"kind":"optimize_query","query_id":7}}`,
 			"optimize_query": `{"goal":"latency","query_id":7}`}[tool]
-		content := heldContent(t, NewServer(backendWithIntents).WithDirectory(fleetOf("orders")),
-			operatorContext(context.Background()), tool, args)
+		server := NewServer(backendWithIntents).WithDirectory(fleetOf("orders"))
+		content := heldContent(t, server, operatorContext(context.Background()), tool, args)
 		require.Equal(t, "queued", content["decision"], tool)
-		require.Equal(t, "#/actions?tab=pending&database=orders", content["approval_url"], tool)
+		require.Equal(t, "#/actions?tab=decisions&database=orders", content["approval_url"],
+			tool)
 		require.Equal(t, "change:ev-9", content["handle"], tool)
 		status := objectMap(t, content["status"])
-		require.Equal(t, toolGetInbox, status["tool"], tool)
-		require.Equal(t, map[string]any{"database": "orders",
-			"kinds": []any{"change_approval"}}, status["arguments"], tool)
+		require.Equal(t, "get_ledger", status["tool"], tool)
+		require.Equal(t, map[string]any{"database": "orders"}, status["arguments"], tool)
+		polled := invoke(t, server, operatorContext(context.Background()),
+			toolCall("get_ledger", mustJSON(t, status["arguments"])))
+		require.Zero(t, polled.Error.Code, polled.Error.Message)
+		require.Equal(t, 1, backend.ledgerCalls, "%s: the status call reads the ledger", tool)
 	}
 }
 
