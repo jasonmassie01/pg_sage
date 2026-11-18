@@ -27,7 +27,9 @@ async function loadRequests() {
   }
   if (!res.ok) {
     const msg = typeof body?.error === 'string' ? body.error : `status ${res.status}`
-    throw new Error(msg)
+    const err = new Error(msg)
+    err.code = typeof body?.code === 'string' ? body.code : ''
+    throw err
   }
   return Array.isArray(body?.items) ? body.items : []
 }
@@ -94,13 +96,24 @@ function RequestRow({ rec }) {
   )
 }
 
+// SCOPE_REFUSED is the API's answer to a reader scoped by database grants:
+// the audit spans databases (readFleetOnly).
+const SCOPE_REFUSED = 'fleet_scope_required'
+
 function useRequests() {
-  const [state, setState] = useState({ items: [], loaded: false, error: null })
+  const [state, setState] = useState(
+    { items: [], loaded: false, error: null, scopeRefused: false })
   useEffect(() => {
     let live = true
     loadRequests()
-      .then(items => { if (live) setState({ items, loaded: true, error: null }) })
-      .catch(err => { if (live) setState({ items: [], loaded: true, error: err.message }) })
+      .then(items => {
+        if (live) setState({ items, loaded: true, error: null, scopeRefused: false })
+      })
+      .catch(err => {
+        if (!live) return
+        setState({ items: [], loaded: true, error: err.message,
+          scopeRefused: err.code === SCOPE_REFUSED })
+      })
     return () => { live = false }
   }, [])
   return state
@@ -126,7 +139,11 @@ export function ExternalAgentRequests({ mode = 'all', waiting }) {
   const state = useRequests()
   const view = VIEWS[mode] || VIEWS.all
   const items = mode === 'waiting' ? waitingRequests(state.items, waiting) : state.items
-  if (mode === 'waiting' && !state.error && items.length === 0) return null
+  // A reader scoped by grants cannot read the fleet-wide audit; on their
+  // Inbox that expected refusal is no error (Needs you lists the approvals).
+  if (mode === 'waiting' && (state.scopeRefused || (!state.error && items.length === 0))) {
+    return null
+  }
   return (
     <div className="rounded-lg p-4 mt-6 text-sm" style={card}
       data-testid={mode === 'waiting' ? 'specialist-requests-waiting' : 'specialist-requests'}>

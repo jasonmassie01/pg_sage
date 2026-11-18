@@ -95,6 +95,27 @@ describe('ExternalAgentRequests in the Inbox', () => {
     expect(await screen.findByTestId('specialist-requests-error'))
       .toHaveTextContent('request audit unavailable')
   })
+
+  // An operator scoped by database grants may not read the fleet-wide
+  // audit (readFleetOnly). The Inbox is their home page, so that expected
+  // refusal is not an error there; the approvals still show in Needs you.
+  const scopeRefusal = { error: 'this view spans databases', code: 'fleet_scope_required' }
+
+  it('renders nothing for a reader the fleet-wide audit refuses by scope', async () => {
+    const mock = stub(403, scopeRefusal)
+    const { container } = render(<ExternalAgentRequests mode="waiting" waiting={at('91')} />)
+    await waitFor(() => expect(mock).toHaveBeenCalled())
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByTestId('specialist-requests-error')).toBeNull()
+  })
+
+  it('still names any other refusal', async () => {
+    stub(403, { error: 'operator role required', code: 'forbidden' })
+    render(<ExternalAgentRequests mode="waiting" waiting={at('91')} />)
+    expect(await screen.findByTestId('specialist-requests-error'))
+      .toHaveTextContent('operator role required')
+  })
 })
 
 describe('ExternalAgentRequests in the ledger', () => {
@@ -112,5 +133,12 @@ describe('ExternalAgentRequests in the ledger', () => {
     stub(200, { items: [] })
     render(<ExternalAgentRequests />)
     expect(await screen.findByTestId('specialist-requests-empty')).toBeInTheDocument()
+  })
+
+  it('names a scope refusal in the record view', async () => {
+    stub(403, { error: 'this view spans databases', code: 'fleet_scope_required' })
+    render(<ExternalAgentRequests />)
+    expect(await screen.findByTestId('specialist-requests-error'))
+      .toHaveTextContent('this view spans databases')
   })
 })
