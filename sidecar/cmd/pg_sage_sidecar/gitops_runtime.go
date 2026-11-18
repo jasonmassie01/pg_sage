@@ -54,6 +54,8 @@ type gitopsLoop struct {
 	lastHash  string
 	lastLog   string
 	failed    bool
+	// wasLeader is the leadership the last reconcile ran with.
+	wasLeader bool
 	polls     int
 }
 
@@ -98,7 +100,7 @@ func monitoredNames(mgr *fleet.DatabaseManager) []string {
 }
 
 // tick loads the directory and reconciles it when it changed, the last
-// run failed, or a resync is due.
+// run failed, this replica gained or lost leadership, or a resync is due.
 func (g *gitopsLoop) tick(ctx context.Context) {
 	g.polls++
 	dir, err := gitops.Load(g.dir)
@@ -106,11 +108,14 @@ func (g *gitopsLoop) tick(ctx context.Context) {
 		g.fail(gitops.Result{Mode: g.mode}, err)
 		return
 	}
-	if dir.Hash == g.lastHash && !g.failed && g.polls%gitopsResyncPolls != 0 {
+	leader := g.leader()
+	if dir.Hash == g.lastHash && !g.failed && leader == g.wasLeader &&
+		g.polls%gitopsResyncPolls != 0 {
 		return
 	}
+	g.wasLeader = leader
 	res, err := gitops.Reconcile(ctx, g.pool, dir, gitops.Options{Mode: g.mode,
-		Databases: g.databases(), Leader: g.leader()})
+		Databases: g.databases(), Leader: leader})
 	if err != nil {
 		g.fail(res, err)
 		return

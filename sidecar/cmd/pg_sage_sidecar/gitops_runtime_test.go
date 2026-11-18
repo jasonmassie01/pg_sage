@@ -71,3 +71,26 @@ func TestGitopsLoop_MissingInvalidAndUnreachable(t *testing.T) {
 		t.Fatalf("unreachable control database report = %+v", r)
 	}
 }
+
+// A follower that becomes the leader reconciles at its next poll, not at
+// the next resync: as a follower it wrote nothing for the same hash.
+func TestGitopsLoop_LeadershipGainedReconcilesAtOnce(t *testing.T) {
+	root := t.TempDir()
+	dir, err := gitops.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leader := false
+	g := &gitopsLoop{dir: root, mode: gitops.ModeApply, lastHash: dir.Hash,
+		databases: func() []string { return nil }, leader: func() bool { return leader }}
+	g.tick(context.Background()) // follower, unchanged files: nothing to do
+	if g.failed {
+		t.Fatal("an unchanged directory was reconciled on a follower")
+	}
+	leader = true
+	g.tick(context.Background()) // reconciles; no control database here
+	if r := gitopsStatus.Report(); !g.failed || r.Error == "" || r.Directory != root {
+		t.Fatalf("leadership gained: failed=%v report=%+v, want a reconcile attempt",
+			g.failed, gitopsStatus.Report())
+	}
+}
