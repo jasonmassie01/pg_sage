@@ -1,6 +1,7 @@
 // cases-explain.spec.ts (dashboard-13): the Explain panel opened from a
 // query case (tuning-10 CHECK-23) and one click from a query-hint case to
-// its query page with history and plan (market-01 CHECK-04), in the real
+// its query page with history and plan (market-01 CHECK-04) and its call
+// site (pr-01a), in the real
 // bundle with real routing and clicks. Payloads: e2e/mocks/cases.ts and
 // e2e/mocks/queries.ts.
 // No concurrency tests: one page reads its own mocked responses.
@@ -9,7 +10,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { mockAllAPIs } from './fixtures'
 import { HINT_QUERYID, queryHintCase, routeCases, routeFleet } from './mocks/cases'
 import {
-  explainFailure, explainRulesOnly, routeExplain, routeQueryDetail,
+  callSiteExact, explainFailure, explainRulesOnly, routeExplain, routeQueryDetail,
 } from './mocks/queries'
 
 test.beforeEach(async ({ page }) => {
@@ -100,4 +101,17 @@ test('a non-numeric query id gives no query link and no Explain button', async (
   await expect(evidence.getByTestId('case-query-link')).toHaveCount(0)
   await expect(evidence.getByRole('button', { name: 'Explain this query' })).toHaveCount(0)
   expect(requests).toHaveLength(0)
+})
+
+test('pr-01a: the query page names the call site, or says lookups are off', async ({ page }) => {
+  await routeQueryDetail(page, callSiteExact)
+  await page.goto(`/#/query?queryid=${HINT_QUERYID}&database=orders`)
+  await expect(page.getByTestId('query-call-site'))
+    .toContainText('Called from app/models/order.rb:3 (exact)')
+  await page.unrouteAll()
+  await mockAllAPIs(page)
+  await routeFleet(page)
+  await routeQueryDetail(page)
+  await page.reload()
+  await expect(page.getByTestId('query-call-site-off')).toContainText('agents.code_host')
 })

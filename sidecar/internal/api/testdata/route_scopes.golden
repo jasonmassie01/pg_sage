@@ -105,6 +105,7 @@ bare POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:quer
 bare POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 bare GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 bare GET /api/v1/provider-advice gate:viewer scope:aggregate
+bare GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 bare GET /api/v1/value gate:viewer scope:aggregate
 bare GET /api/v1/briefings gate:viewer scope:aggregate
 bare GET /api/v1/briefings/latest gate:viewer scope:aggregate
@@ -299,6 +300,7 @@ standalone POST /api/v1/managed-changes/{id}/reject gate:operator scope:database
 standalone GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 standalone GET /api/v1/provider-advice gate:viewer scope:aggregate
 standalone GET /api/v1/model-lift gate:viewer scope:fleet-only
+standalone GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 standalone POST /api/v1/mcp gate:self-auth scope:-
 standalone POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
 standalone GET /api/v1/value gate:viewer scope:aggregate
@@ -561,6 +563,7 @@ fleet-readonly POST /api/v1/managed-changes/{id}/approve gate:operator scope:dat
 fleet-readonly POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 fleet-readonly GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/provider-advice gate:viewer scope:aggregate
+fleet-readonly GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/value gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/briefings gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/briefings/latest gate:viewer scope:aggregate
@@ -827,6 +830,7 @@ store-only-actions POST /api/v1/managed-changes/{id}/approve gate:operator scope
 store-only-actions POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 store-only-actions GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 store-only-actions GET /api/v1/provider-advice gate:viewer scope:aggregate
+store-only-actions GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 store-only-actions GET /api/v1/value gate:viewer scope:aggregate
 store-only-actions GET /api/v1/briefings gate:viewer scope:aggregate
 store-only-actions GET /api/v1/briefings/latest gate:viewer scope:aggregate
@@ -1041,6 +1045,7 @@ optional GET /api/v1/debug/pprof/{$} gate:admin scope:admin-only
 optional GET /api/v1/debug/pprof/{name} gate:admin scope:admin-only
 optional /api/v1/specialist/ gate:self-auth scope:-
 optional GET /api/v1/specialist-requests gate:operator scope:fleet-only
+optional GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 optional POST /api/v1/mcp gate:self-auth scope:-
 optional POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
 optional GET /api/v1/value gate:viewer scope:aggregate
@@ -1293,6 +1298,7 @@ databricks-app POST /api/v1/managed-changes/{id}/approve gate:operator scope:dat
 databricks-app POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 databricks-app GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 databricks-app GET /api/v1/provider-advice gate:viewer scope:aggregate
+databricks-app GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 databricks-app GET /api/v1/value gate:viewer scope:aggregate
 databricks-app GET /api/v1/briefings gate:viewer scope:aggregate
 databricks-app GET /api/v1/briefings/latest gate:viewer scope:aggregate

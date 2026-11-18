@@ -5,13 +5,18 @@ import (
 	"testing"
 )
 
-// cli-02a's step is the last T7 step, bounded and idempotent in its text.
-// No concurrent-writer test: Bootstrap holds its advisory lock.
-func TestGitopsManagedByStep_IsTheLastT7StepBoundedAndIdempotent(t *testing.T) {
+// cli-02a's step is a T7 step after lab-03b's, bounded and idempotent in its
+// text. No concurrent-writer test: Bootstrap holds its advisory lock.
+func TestGitopsManagedByStep_IsAT7StepBoundedAndIdempotent(t *testing.T) {
 	steps := trancheSevenMigrations()
-	last := steps[len(steps)-1]
-	if last[0] != "ddlGitopsManagedBy" || last[1] != ddlGitopsManagedBy {
-		t.Fatalf("tranche seven ends %v, want ddlGitopsManagedBy", last[0])
+	at := -1
+	for i, s := range steps {
+		if s[0] == "ddlGitopsManagedBy" && s[1] == ddlGitopsManagedBy {
+			at = i
+		}
+	}
+	if at < 1 || steps[at-1][0] != "ddlRolloutInstanceEffect" {
+		t.Fatalf("ddlGitopsManagedBy at %d in %v, want after ddlRolloutInstanceEffect", at, steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ALTER TABLE sage.guard_principals\n    ADD COLUMN IF NOT EXISTS managed_by",

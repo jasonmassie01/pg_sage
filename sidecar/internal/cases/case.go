@@ -125,6 +125,9 @@ type ActionCandidate struct {
 	// RetryingAfter is when a failed attempt of this content is retried,
 	// while its recommendation is in backoff (cases-10).
 	RetryingAfter *time.Time `json:"retrying_after,omitempty"`
+	// PRNote is what PR mode did with the change (pr-01b): "opened as
+	// <repo>#<n>", "declined in <repo>#<n>" or "PR not opened: <reason>".
+	PRNote string `json:"pr_note,omitempty"`
 	// Source is the finding the candidate was projected from, so its
 	// policy verdict is explained as the executor would authorize that
 	// finding (cases-04). Nil for incident and query-hint candidates.

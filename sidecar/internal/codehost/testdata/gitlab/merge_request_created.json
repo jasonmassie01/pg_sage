@@ -1,0 +1,3 @@
+{"id": 2, "iid": 13, "project_id": 3, "title": "pg_sage: add index", "description": "body",
+ "state": "opened", "web_url": "https://gitlab.example.com/acme/backend/shop/-/merge_requests/13",
+ "labels": ["pg_sage"], "merged_at": null}

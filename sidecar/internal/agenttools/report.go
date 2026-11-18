@@ -176,10 +176,15 @@ func scanReport(row pgx.Row) (reportRow, error) {
 	return r, err
 }
 
+// prOpenedSQL records a PR: $8..$11 are its origin (agent or pg_sage, pr-01b),
+// repository, number and state, null for an agent's report.
 const prOpenedSQL = `/* pg_sage */ INSERT INTO sage.source_fix AS s (finding_id, packet_hash,
-    stage, pr_url, commit_sha, reported_by, prediction, target_queryids)
-VALUES ($1, $2, 'pr_opened', $3, $4, $5, $6, $7)
+    stage, pr_url, commit_sha, reported_by, prediction, target_queryids, origin, repo,
+    pr_number, pr_state)
+VALUES ($1, $2, 'pr_opened', $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (finding_id) DO UPDATE SET pr_url = EXCLUDED.pr_url,
+    origin = EXCLUDED.origin, repo = EXCLUDED.repo, pr_number = EXCLUDED.pr_number,
+    pr_state = EXCLUDED.pr_state,
     commit_sha = COALESCE(EXCLUDED.commit_sha, s.commit_sha),
     packet_hash = EXCLUDED.packet_hash, reported_by = EXCLUDED.reported_by,
     prediction = EXCLUDED.prediction, target_queryids = EXCLUDED.target_queryids,
@@ -195,6 +200,25 @@ func (t *Tools) reportPROpened(ctx context.Context, req ReportRequest, actor str
 	if err := validCommit(req.Commit); err != nil {
 		return Report{}, err
 	}
+	return t.writePROpened(ctx, req, actor, prOrigin{name: originAgent})
+}
+
+// prOrigin is who opened a recorded PR; repo, number and state are set
+// only for PR mode's own PRs.
+type prOrigin struct {
+	name, repo, state string
+	number            int
+}
+
+func (o prOrigin) args() []any {
+	if o.name == originAgent {
+		return []any{o.name, nil, nil, nil}
+	}
+	return []any{o.name, o.repo, o.number, o.state}
+}
+
+func (t *Tools) writePROpened(ctx context.Context, req ReportRequest, actor string,
+	origin prOrigin) (Report, error) {
 	p, err := t.reportPacket(ctx, req)
 	if err != nil {
 		return Report{}, err
@@ -203,8 +227,9 @@ func (t *Tools) reportPROpened(ctx context.Context, req ReportRequest, actor str
 	if err != nil {
 		return Report{}, fmt.Errorf("encode prediction: %w", err)
 	}
-	row, err := scanReport(t.pool.QueryRow(ctx, prOpenedSQL, req.FindingID, p.Hash,
-		req.PRURL, nullable(req.Commit), actor, pred, toInt64s(p.Targets.QueryIDs)))
+	args := append([]any{req.FindingID, p.Hash, req.PRURL, nullable(req.Commit), actor, pred,
+		toInt64s(p.Targets.QueryIDs)}, origin.args()...)
+	row, err := scanReport(t.pool.QueryRow(ctx, prOpenedSQL, args...))
 	return t.writtenReport(row, err, req)
 }
 

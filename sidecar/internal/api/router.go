@@ -111,6 +111,9 @@ type RuntimeDeps struct {
 	// wait-load chart's preferred source after Performance Insights
 	// (market-01b); nil keeps the activity samples alone.
 	LakebaseWaitLoad LakebaseWaitLoadFunc
+	// CallSites is the code host the query page's call site is read from
+	// (pr-01a); nil answers that call-site lookups are off.
+	CallSites *CallSiteSource
 	// LakebaseCredentials lists each Lakebase endpoint's credential refresh
 	// state for the admin deployment status; nil reports no endpoints.
 	LakebaseCredentials func() []databricksauth.EndpointCredential
@@ -305,6 +308,7 @@ func registerFleetScopedRoutes(
 	registerAskRoutes(apiMux, rt.Ask)
 	registerPprofRoutes(apiMux, cfg != nil && cfg.Debug.PprofEnabled)
 	registerSpecialistRoutes(apiMux, rt)
+	registerCallSiteRoutes(apiMux, mgr, rt.CallSites) // call_site.go (pr-01a)
 	if !rt.DatabricksAppAuth && cfg != nil && cfg.MCP.Enabled && cfg.MCP.Transport == "http" &&
 		rt.MCPHandler != nil {
 		registerMCPRoutes(apiMux, rt.MCPHandler, mcpTokenStore(pool), rt.MCPOAuth,

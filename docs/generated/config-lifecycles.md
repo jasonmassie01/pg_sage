@@ -21,6 +21,10 @@
 | `agents.broker.rotation_days` | `restart` | `-` | `safety_critical` |
 | `agents.capabilities.max_duration_minutes` | `restart` | `-` | `safety_critical` |
 | `agents.client_patterns` | `restart` | `-` | `operator_preference` |
+| `agents.code_host.base_url` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.provider` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.repo` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.timeout_seconds` | `restart` | `-` | `operator_preference` |
 | `agents.control_database` | `restart` | `-` | `safety_critical` |
 | `agents.default_environment` | `restart` | `-` | `safety_critical` |
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
@@ -29,6 +33,10 @@
 | `agents.kill_verify_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
 | `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
+| `agents.pr_mode.enabled` | `restart` | `-` | `safety_critical` |
+| `agents.pr_mode.label` | `restart` | `-` | `operator_preference` |
+| `agents.pr_mode.migrations_path` | `restart` | `-` | `safety_critical` |
+| `agents.pr_mode.repo` | `restart` | `-` | `safety_critical` |
 | `agents.query.audit_retention_days` | `restart` | `-` | `operator_preference` |
 | `agents.query.max_bytes` | `restart` | `-` | `safety_critical` |
 | `agents.query.max_rows` | `restart` | `-` | `safety_critical` |

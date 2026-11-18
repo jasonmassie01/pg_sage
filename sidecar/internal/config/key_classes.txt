@@ -665,6 +665,14 @@ safety_critical agents.control_database
 safety_critical agents.default_environment
 operator_preference agents.client_patterns
 operator_preference agents.posture.daily_at
+safety_critical agents.code_host.provider
+safety_critical agents.code_host.base_url
+safety_critical agents.code_host.repo
+operator_preference agents.code_host.timeout_seconds
+safety_critical agents.pr_mode.enabled
+safety_critical agents.pr_mode.repo
+safety_critical agents.pr_mode.migrations_path
+operator_preference agents.pr_mode.label
 operator_preference agents.posture.memory_growth_gb_day
 operator_preference agents.exposure.sweep_seconds
 

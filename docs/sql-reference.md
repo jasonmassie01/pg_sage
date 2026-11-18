@@ -65,7 +65,10 @@ statements of a window come from `sage.query_store` through
 the window), and one statement's history, plan changes, latest plan and links through
 `GET /api/v1/queries/<queryid>?database=<name>`. That page is a viewer read, so the
 captured plan's string literals are redacted to `'?'` (an `auto_explain` plan carries the
-logged statement's real parameter values).
+logged statement's real parameter values). With `agents.code_host` configured,
+`GET /api/v1/queries/<queryid>/call-site?database=<name>` names the line of application
+code that sends the statement ("Called from <path:line>" with its confidence); see
+[MCP for coding agents](mcp.md#call-site-in-application-code).
 
 ---
 
