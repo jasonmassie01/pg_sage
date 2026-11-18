@@ -48,3 +48,32 @@ func reviewtestReview(steps int) reviewtest.Review {
 	}
 	return r
 }
+
+// Only a done model run makes a review's model pass finished, and a step of
+// a model plan with no origin row counts as the model's (fail closed).
+func TestStoreDB_FailedModelRunsAndMissingOriginsFailClosed(t *testing.T) {
+	pool, ctx := livePool(t)
+	run := seed(t, ctx, pool, reviewtest.Review{Database: "shop", Steps: []reviewtest.Outcome{
+		{Origin: "model", Ref: "m1", Verdict: "improved", Accepted: true}}})
+	if _, err := pool.Exec(ctx, `INSERT INTO sage.review_model_run (run_id, attempt, role,
+		model, prompt_version, pack_hash, output_sha256, status) VALUES ($1, 1, 'rank', 'm1',
+		'review-03a/1', $2, $2, 'failed')`, run, reviewtest.Hex64); err != nil {
+		t.Fatalf("seed a failed model run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM sage.plan_step_origin WHERE run_id = $1`,
+		run); err != nil {
+		t.Fatalf("drop the step's origin: %v", err)
+	}
+	sc, err := NewStore(pool).Read(ctx, "shop", time.Time{}, nil)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if sc.Reviews != 1 || len(sc.PerReview[0].Run.Models) != 0 {
+		t.Fatalf("review = %+v, want one review whose model pass did not finish", sc)
+	}
+	if m := sc.ByOrigin[OriginModel]; m.Proposed != 1 || m.Improved != 1 ||
+		len(sc.ByOrigin) != 1 {
+		t.Fatalf("by origin = %+v, want the origin-less step counted as the model's",
+			sc.ByOrigin)
+	}
+}
