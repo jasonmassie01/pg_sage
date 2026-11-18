@@ -8,6 +8,8 @@ import { TrustTable } from './trust/TrustTable'
 import { ModelLift } from './trust/ModelLift'
 import { TuningCalibration } from './trust/TuningCalibration'
 import { formatTime } from '../lib/time'
+import { summarizes } from '../lib/fleetScope'
+import { TrustSummary } from './trust/TrustSummary'
 
 // One trust system (roadmap 1.2): database x family x class. Each class
 // pg_sage runs on its own initiative has one level per database, earned
@@ -47,7 +49,9 @@ const approve = (database, id) => postAutonomy(`proposals/${id}/approve`, databa
 const revalidate = (database, family, cls) => postAutonomy('revalidate', database,
   { family, class: cls, note: 're-approved on the Trust page' })
 
-export function TrustPage({ database, user }) {
+// In the "all" scope of a fleet of FLEET_SUMMARY_FROM or more the page
+// shows level counts per class instead of one ledger per database (ux-10b).
+export function TrustPage({ database, user, onSelectDatabase }) {
   const query = database && database !== 'all'
     ? `?database=${encodeURIComponent(database)}` : ''
   const trust = useAPI(`/api/v1/trust${query}`, 30000)
@@ -93,11 +97,13 @@ export function TrustPage({ database, user }) {
           executor starts.
         </div>
       )}
-      {databases.map(view => (
-        <DatabaseTrust key={view.database} view={view}
-          isAdmin={user?.role === 'admin'} onApprove={onApprove}
-          onRevalidate={onRevalidate} />
-      ))}
+      {summarizes(database, databases.length)
+        ? <TrustSummary views={databases} onSelectDatabase={onSelectDatabase} />
+        : databases.map(view => (
+          <DatabaseTrust key={view.database} view={view}
+            isAdmin={user?.role === 'admin'} onApprove={onApprove}
+            onRevalidate={onRevalidate} />
+        ))}
       <ModelLift database={database} />
       <TuningCalibration database={database} />
     </section></QueryState>

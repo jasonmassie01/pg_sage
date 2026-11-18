@@ -1,6 +1,7 @@
 import {
   fleetAutonomy, normalizeTrustLevel, rowAutoFamilies, unreportedNote,
 } from '../lib/autonomy'
+import { FLEET_SUMMARY_FROM } from '../lib/fleetScope'
 import { formatTime } from '../lib/time'
 
 const muted = { color: 'var(--text-secondary)' }
@@ -26,17 +27,25 @@ function selectedPolicy(row) {
     + ' Everything else queues for approval or is blocked by policy.'
 }
 
+// onWhich names the databases that run a family, or from FLEET_SUMMARY_FROM
+// databases up counts them, so the strip does not grow with the fleet
+// (ux-10b).
+function onWhich(names, fleetSize) {
+  if (fleetSize < FLEET_SUMMARY_FROM) return names.join(', ')
+  return `${names.length} database${names.length === 1 ? '' : 's'}`
+}
+
 // fleetAutoClaim states what the fleet may run without approval now. While
 // some databases have not reported, the claim covers only those that did
 // and says how many are missing, since an unreported one may still execute.
 function fleetAutoClaim(autonomy) {
-  const { autoByFamily, reported } = autonomy
+  const { autoByFamily, reported, total } = autonomy
   const missing = unreportedNote(autonomy)
   const families = Object.keys(autoByFamily).sort()
   const parts = []
   if (families.length > 0) {
     parts.push('Can run without approval now: ' + families
-      .map(f => `${f} on ${autoByFamily[f].join(', ')}`).join('; ') + '.')
+      .map(f => `${f} on ${onWhich(autoByFamily[f], total)}`).join('; ') + '.')
   } else if (missing) {
     parts.push('Of the databases that reported their action policy,'
       + ' none runs anything without approval right now.')

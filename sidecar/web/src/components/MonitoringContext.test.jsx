@@ -162,3 +162,49 @@ describe('MonitoringContext partial fleet reports', () => {
     expect(strip()).toHaveTextContent('Database changes are disabled in Observation mode')
   })
 })
+
+// ux-10b: from FLEET_SUMMARY_FROM databases up the fleet strip counts the
+// databases per family instead of naming every one, so its length does not
+// grow with the fleet. No concurrent access tests: a pure render of props.
+describe('MonitoringContext fleet counts', () => {
+  const strip = () => screen.getByTestId('monitoring-context')
+  const name = i => `db-${String(i).padStart(3, '0')}`
+  const fleetOf = (n, familiesOf) => Array.from({ length: n }, (_, i) =>
+    withFamilies(name(i), 'autonomous', familiesOf(i)))
+
+  it('counts the databases that run each family unattended', () => {
+    const rows = fleetOf(500, i => [
+      fam('analyze', i < 41 ? 'execute' : 'queue'),
+      fam('create_index', i === 7 ? 'execute' : 'queue'),
+    ])
+    render(<MonitoringContext database="all" fleetData={{ databases: rows }} />)
+    expect(strip()).toHaveTextContent('Can run without approval now:'
+      + ' analyze on 41 databases; create_index on 1 database.')
+    expect(strip()).not.toHaveTextContent(name(0))
+    expect(strip()).not.toHaveTextContent(name(7))
+    expect(strip()).toHaveTextContent('0 of 500 databases use Observation mode.')
+  })
+
+  it('keeps the strip the same length at 50 and at 500 databases', () => {
+    const families = i => [fam('analyze', i % 2 === 0 ? 'execute' : 'queue')]
+    const { unmount } = render(<MonitoringContext database="all"
+      fleetData={{ databases: fleetOf(50, families) }} />)
+    const small = strip().textContent.length
+    unmount()
+    render(<MonitoringContext database="all" fleetData={{ databases: fleetOf(500, families) }} />)
+    // Only the counts' digits differ ("25" -> "250", "50" -> "500").
+    expect(strip().textContent.length - small).toBeLessThanOrEqual(4)
+  })
+
+  it('still names the databases below the threshold', () => {
+    const rows = fleetOf(5, i => [fam('analyze', i < 2 ? 'execute' : 'queue')])
+    render(<MonitoringContext database="all" fleetData={{ databases: rows }} />)
+    expect(strip()).toHaveTextContent('analyze on db-000, db-001.')
+  })
+
+  it('counts from exactly the threshold', () => {
+    const rows = fleetOf(6, i => [fam('analyze', i < 2 ? 'execute' : 'queue')])
+    render(<MonitoringContext database="all" fleetData={{ databases: rows }} />)
+    expect(strip()).toHaveTextContent('analyze on 2 databases.')
+  })
+})
