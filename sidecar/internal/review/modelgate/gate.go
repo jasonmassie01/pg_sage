@@ -212,8 +212,21 @@ func writeM1(ctx context.Context, tx pgx.Tx, cur State, row newRow, by string,
 	case row.verdict == StateRevoked:
 		row.verdict = StateNotEligible
 	}
-	if _, err := insert(ctx, tx, row); err != nil {
+	inserted, err := insert(ctx, tx, row)
+	if err != nil {
 		return "", err
+	}
+	if !inserted && row.revoked {
+		// The model already has a row of this tick (its grant was approved
+		// in it). A revocation is still its own audit row, at the moment it
+		// happens; the gate lock keeps it to one.
+		row.tick = time.Now()
+		if inserted, err = insert(ctx, tx, row); err == nil && !inserted {
+			err = fmt.Errorf("model gate: the revocation of %s was not recorded", row.model)
+		}
+		if err != nil {
+			return "", err
+		}
 	}
 	return row.verdict, nil
 }
