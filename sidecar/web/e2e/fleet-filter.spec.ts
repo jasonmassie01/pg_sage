@@ -1,6 +1,7 @@
 // fleet-filter.spec.ts (ux-05e, wins 14 and 19): finding one database among
-// 500 on the Databases page and in the header scope picker, and the
-// external agent request links to the investigation and its approval.
+// 500 in the header scope picker, and the external agent request links to
+// the investigation and its approval. The Databases table's search moved
+// to the server (ux-10a) and is tested in fleet-table.spec.ts.
 // Register routes AFTER mockAllAPIs: Playwright matches the newest first.
 // No concurrency tests: one admin drives one page.
 
@@ -36,23 +37,6 @@ async function routeFleet(page: Page) {
 test.beforeEach(async ({ page }) => {
   await mockAllAPIs(page)
   await routeFleet(page)
-})
-
-test('ux-05e: the Databases page filters 500 registrations', async ({ page }) => {
-  await page.goto('/#/manage-databases')
-  const rows = page.getByTestId('db-row')
-  await expect(page.getByTestId('db-filter-count')).toContainText('of 500')
-  const box = page.getByRole('searchbox', { name: 'Filter databases' })
-  await box.fill('ord')
-  // The name and the tag both match: orders, and db-0007 tagged orders-prod.
-  await expect(rows).toHaveCount(2)
-  await expect(rows.first()).toContainText('db-0007')
-  await expect(rows.nth(1)).toContainText('orders')
-  await box.fill('.*')
-  await expect(rows).toHaveCount(0)
-  await expect(page.getByTestId('db-filter-empty')).toContainText('No database matches')
-  await box.fill('')
-  await expect(page.getByTestId('db-filter-count')).toContainText('of 500')
 })
 
 test('ux-05e: the scope picker finds a database in at most its name length',
