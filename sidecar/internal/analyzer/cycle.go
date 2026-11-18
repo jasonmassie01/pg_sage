@@ -186,19 +186,22 @@ func (a *Analyzer) runDatabaseRules(
 	out = append(out, a.checkConnectionLeaks(ctx)...)
 	a.eval.evaluated("xid_wraparound", "connection_leak")
 	if skipQueryRules {
-		a.eval.fail("query_regression", "sort_without_index", "plan_regression")
+		a.eval.fail("query_regression", "sort_without_index", "plan_regression",
+			categoryPlanFlip)
 		return out
 	}
 	out = append(out, a.runQueryRegression(ctx, current, previous)...)
 	out = append(out, a.checkSortWithoutIndex(ctx)...)
-	planDiff := a.checkPlanRegression(ctx)
+	pairs, pairsRead := a.loadPlanPairs(ctx)
+	planDiff := rulePlanRegression(pairs)
+	flips := a.checkPlanFlips(ctx, pairs, pairsRead)
 	// Enrich plan regressions with a plain-English "why did the plan
 	// change" narrative when the LLM narrator is attached (C6).
 	if a.planNarrator != nil && len(planDiff) > 0 {
 		planDiff = a.planNarrator.Narrate(ctx, planDiff)
 	}
 	a.eval.evaluated("query_regression", "sort_without_index", "plan_regression")
-	return append(out, planDiff...)
+	return append(append(out, planDiff...), flips...)
 }
 
 // runSeqScanWatchdog skips tables already flagged by the missing-FK rule

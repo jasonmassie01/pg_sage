@@ -79,6 +79,8 @@ type Analyzer struct {
 	lockObs      *LockChainObserver // nil records no lock-chain observation
 	detectors    []SupplementalDetector
 	planNarrator PlanNarrator
+	// flipDB reads the plan-flip rule's evidence; nil reads the pool.
+	flipDB       planFlipDB
 	logFn        func(string, string, ...any)
 	dispatcher   EventDispatcher
 	databaseName string

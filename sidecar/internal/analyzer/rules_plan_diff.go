@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/planhash"
 )
@@ -18,6 +19,8 @@ type planPair struct {
 	PreviousPlan []byte
 	PreviousCost float64
 	PreviousTime float64
+	// CurrentAt and PreviousAt are the two plans' capture times.
+	CurrentAt, PreviousAt time.Time
 	// Roots resolves both plans' partitions; nil hashes them unresolved.
 	Roots planhash.RootResolver
 }
@@ -40,19 +43,20 @@ type nodeEntry struct {
 func rulePlanRegression(pairs []planPair) []Finding {
 	var findings []Finding
 	for _, p := range pairs {
-		result := diffPlans(
-			p.CurrentPlan, p.PreviousPlan,
-			p.CurrentCost, p.PreviousCost,
-		)
-		if result == nil {
-			continue
-		}
-		f := buildPlanRegressionFinding(p, result)
-		if f != nil {
+		if f := regressionOf(p); f != nil {
 			findings = append(findings, *f)
 		}
 	}
 	return findings
+}
+
+// regressionOf is the pair's plan_regression finding, or nil.
+func regressionOf(p planPair) *Finding {
+	result := diffPlans(p.CurrentPlan, p.PreviousPlan, p.CurrentCost, p.PreviousCost)
+	if result == nil {
+		return nil
+	}
+	return buildPlanRegressionFinding(p, result)
 }
 
 // buildPlanRegressionFinding constructs a Finding from a detected

@@ -129,6 +129,8 @@ var analyzerEntries = []Category{
 		"An installed extension whose version lags its default version."),
 	a("plan_regression", sevIWC, nil, nil,
 		"A statement whose plan changed and whose estimated cost rose."),
+	a("plan_flip_after_analyze", sevWC, nil, act("analyze_table"),
+		"A plan regression that followed an ANALYZE of a relation the new plan reads."),
 	a("wraparound_freeze", sevWC, k("analyzer.wraparound_freeze_share"), act("vacuum_table"),
 		"A leaf table whose freeze age is near autovacuum_freeze_max_age."),
 	a("autovacuum_tuning", sevW, k("analyzer.autovacuum_tune_min_rows"),

@@ -19,17 +19,19 @@ WITH q AS (
 )
 SELECT q.queryid, COALESCE(c.query_text, ''), c.plan_json,
        COALESCE(c.total_cost, 0), COALESCE(c.execution_time, 0),
-       p.plan_json, COALESCE(p.total_cost, 0), COALESCE(p.execution_time, 0)
+       p.plan_json, COALESCE(p.total_cost, 0), COALESCE(p.execution_time, 0),
+       c.captured_at, p.captured_at
   FROM q
  CROSS JOIN LATERAL (
-       SELECT e.id, e.query_text, e.plan_json, e.total_cost, e.execution_time, e.source,
+       SELECT e.id, e.captured_at, e.query_text, e.plan_json, e.total_cost,
+              e.execution_time, e.source,
               e.provider_scope_hash, e.provider_compute_id, e.analyze_enabled,
               e.buffers_enabled, e.timing_enabled, e.comparison_key
          FROM sage.explain_cache e
         WHERE e.source <> 'lakebase_plan_history' AND e.queryid = q.queryid AND e.captured_at > now() - interval '7 days'
         ORDER BY e.captured_at DESC, e.id DESC LIMIT 1) c
  CROSS JOIN LATERAL (
-       SELECT e.plan_json, e.total_cost, e.execution_time
+       SELECT e.plan_json, e.total_cost, e.execution_time, e.captured_at
          FROM sage.explain_cache e
         WHERE e.source <> 'lakebase_plan_history' AND e.queryid = q.queryid AND e.captured_at > now() - interval '7 days'
           AND e.source = c.source
@@ -46,11 +48,19 @@ SELECT q.queryid, COALESCE(c.query_text, ''), c.plan_json,
 // checkPlanRegression loads the two most recent plans per query
 // from explain_cache and runs plan regression detection.
 func (a *Analyzer) checkPlanRegression(ctx context.Context) []Finding {
+	pairs, _ := a.loadPlanPairs(ctx)
+	return rulePlanRegression(pairs)
+}
+
+// loadPlanPairs reads the newest two plans of each query with their roots
+// resolved. It reports false when the read failed or stopped early (the
+// pairs read before an iteration error are still returned).
+func (a *Analyzer) loadPlanPairs(ctx context.Context) ([]planPair, bool) {
 	rows, err := a.pool.Query(ctx, planPairsSQL)
 	if err != nil {
 		a.evalFail("plan_regression")
 		a.logFn("ERROR", "analyzer: plan_regression query: %v", err)
-		return nil
+		return nil, false
 	}
 	defer rows.Close()
 	var pairs []planPair
@@ -58,19 +68,22 @@ func (a *Analyzer) checkPlanRegression(ctx context.Context) []Finding {
 		var p planPair
 		if err := rows.Scan(&p.QueryID, &p.QueryText,
 			&p.CurrentPlan, &p.CurrentCost, &p.CurrentTime,
-			&p.PreviousPlan, &p.PreviousCost, &p.PreviousTime); err != nil {
+			&p.PreviousPlan, &p.PreviousCost, &p.PreviousTime,
+			&p.CurrentAt, &p.PreviousAt); err != nil {
 			a.logFn("WARN", "analyzer: scan plan pair: %v", err)
 			continue
 		}
 		pairs = append(pairs, p)
 	}
+	complete := true
 	if err := rows.Err(); err != nil {
 		a.evalFail("plan_regression")
 		a.logFn("ERROR", "analyzer: iterate plan pairs: %v", err)
+		complete = false
 	}
 	// Release the pair read's connection before the root reads need one.
 	rows.Close()
-	return rulePlanRegression(a.resolvePlanRoots(ctx, pairs))
+	return a.resolvePlanRoots(ctx, pairs), complete
 }
 
 // resolvePlanRoots resolves both plans of each pair with one catalog read,
