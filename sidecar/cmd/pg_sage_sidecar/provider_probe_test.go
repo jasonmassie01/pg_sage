@@ -37,7 +37,7 @@ func (q *scriptedProbeQuerier) QueryRow(ctx context.Context, sql string, _ ...an
 		}
 	}
 	q.mu.Unlock()
-	return probeRow{ctx: ctx, answer: answer}
+	return probeRow{ctx: ctx, answer: answer, answerAt: time.Now().Add(answer.delay)}
 }
 
 func (q *scriptedProbeQuerier) callCount() int {
@@ -46,17 +46,29 @@ func (q *scriptedProbeQuerier) callCount() int {
 	return len(q.calls)
 }
 
+// probeRow answers at answerAt unless the caller's deadline comes first.
+// The order is decided by the times, not by which timer a loaded scheduler
+// happens to run first: a late goroutine sees both timers ready at once.
 type probeRow struct {
-	ctx    context.Context
-	answer probeAnswer
+	ctx      context.Context
+	answer   probeAnswer
+	answerAt time.Time
 }
 
 func (r probeRow) Scan(dest ...any) error {
 	if r.answer.delay > 0 {
-		select {
-		case <-time.After(r.answer.delay):
-		case <-r.ctx.Done():
+		if deadline, ok := r.ctx.Deadline(); ok && deadline.Before(r.answerAt) {
+			<-r.ctx.Done()
 			return r.ctx.Err()
+		}
+		timer := time.NewTimer(time.Until(r.answerAt))
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-r.ctx.Done():
+			if time.Now().Before(r.answerAt) {
+				return r.ctx.Err()
+			}
 		}
 	}
 	if r.answer.err != nil {
