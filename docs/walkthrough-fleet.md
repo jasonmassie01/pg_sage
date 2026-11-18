@@ -370,7 +370,9 @@ observe-only.
   each statement 5 s. A visit runs the first look with only the exposure
   detectors (AP-01..05, AP-15, AP-17) as its agent posture section, plus the
   settings probe. It then grades the member with review-01's deterministic
-  rubric. Checks that need a runtime (findings, restore drills, schema lint)
+  rubric, and takes the sprawl census's reading: one `pg_stat_statements`
+  read of the calls by roles other than pg_sage's, and the database size.
+  Checks that need a runtime (findings, restore drills, schema lint)
   grade `unknown`, never `pass`. The subset covers too little of the rubric
   for an overall letter, so the per-dimension letters are what discovery's
   baseline checks. Nothing is written to a swept member. The newest sweep of
@@ -391,8 +393,44 @@ observe-only.
   Conflict "observe-only member". It does so even while a runtime of that
   name is still draining after a demotion.
 
-Census reads (fleetpol-03) and review-04b's fleet rollup do not cover
-observe-only members yet.
+review-04b's fleet rollup does not cover observe-only members yet.
+
+### Sprawl census
+
+Once a month the fleet leader of a meta-db fleet takes a census of every
+database: full members, observe-only members, and discovered databases
+that were never enrolled. Each row in `sage.sprawl_census` has the owner,
+the creator (`agent:...` or `person:...`, from discovery), the creation
+time, the last real activity, the size and the monthly storage cost.
+
+- **Real activity** is review-02f's idle-database rule: workload calls,
+  with pg_sage's own statements left out. A full member is read from its
+  query rollups (evid-01) by day. An observe-only member is read from the
+  sweeper's per-round readings of `pg_stat_statements`, counting only the
+  calls by roles other than pg_sage's. Their newest reading is in
+  `sage.sprawl_activity`. `pg_stat_database.xact_commit` is not used,
+  because pg_sage's own reads raise it. Without `pg_stat_statements` the
+  row is `unmeasured`.
+- **Cost** is the size at the `cost.rates` storage rate for the member, in
+  the entry's currency. With no rate the row reads `unpriced` and says why.
+  pg_sage ships no price tables.
+- **The number.** Each run in `sage.sprawl_census_runs` stores the reuse
+  share. It is the share of agent-created databases, at least 7 days old,
+  with any real activity 7 or more days after creation. A database whose
+  7th day pg_sage did not observe is left out of the share, as unknown.
+  The run also counts its TTL proposals, and it is logged under `census`.
+- **TTL proposals.** A discovered member that no owner has adopted, and
+  that had no real activity in 30 days, gets the proposal "no real activity
+  in N days: propose TTL 7 days". The proposal is an inbox item of kind
+  `advice`, decided by an operator. Adopting the member withdraws it. A
+  person's database is listed but never proposed. pg_sage deletes nothing,
+  and there is no delete action.
+- **Runs.** The leader checks every hour. One run is kept per UTC month,
+  so a leader change never writes two. A run left unfinished for an hour is
+  taken over. Runs older than 400 days are pruned with their rows.
+- **Limits.** A database discovered but never enrolled has no connection,
+  so its activity and size are unknown unless a cloud adapter reports them.
+  An unreachable member is listed `unreachable`, and the run goes on.
 
 ## 5. Verify the v1 UI
 

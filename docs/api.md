@@ -8,7 +8,7 @@ pg_sage's features. Each feature's own page documents its routes.
 ## Inbox
 
 A person who must decide something finds every waiting decision in one list:
-the inbox. It reads seven sources across every database the caller may read:
+the inbox. It reads eight sources across every database the caller may read:
 
 | Kind | What waits | Decided on (Href) | Who decides |
 |---|---|---|---|
@@ -19,6 +19,7 @@ the inbox. It reads seven sources across every database the caller may read:
 | `runbook_signature` | A runbook whose latest version is an unsigned draft | `#/advanced/runbooks?database=<db>&runbook=<id>` | admin |
 | `agent_request` | An agent's unexpired pending capability request | `#/agents?agent=<id>&request=<id>&database=<db>` | operator |
 | `policy_exception` | A policy proposal waiting for ratification, an agent's `propose_policy_change` among them | `#/agents?tab=policy&proposal=<id>&database=<db>` | admin |
+| `advice` | A sprawl census TTL proposal for an unadopted discovered member with no real activity in 30 days (fleetpol-03); read once for the whole fleet, observe-only members included, and kept to the databases the caller may read | `#/manage-databases?database=<db>` | operator |
 
 The inbox only reads. Every decision still goes through the item's own route
 and the executor, ledger or store behind it, with the same approvals,
