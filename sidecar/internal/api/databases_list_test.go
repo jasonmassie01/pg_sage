@@ -254,6 +254,15 @@ func TestDatabasesList_InvalidInputIs400(t *testing.T) {
 		"tag=%3Dprod":                      "tag",
 		"sort=health&cursor=" + nameCursor: "cursor",
 	}
+	forged := map[string]listCursor{
+		"non-numeric health key": {Sort: "health", Order: "asc", Keys: []string{"abc", "db-001"}},
+		"one key":                {Sort: "name", Order: "asc", Keys: []string{"db-001"}},
+		"empty name":             {Sort: "name", Order: "asc", Keys: []string{"db-001", ""}},
+	}
+	for label, c := range forged {
+		sortOrder := "sort=" + c.Sort + "&order=" + c.Order
+		cases[sortOrder+"&cursor="+encodeListCursor(c)+"&x="+url.QueryEscape(label)] = "cursor"
+	}
 	for query, word := range cases {
 		code, b := listGet(t, h, query)
 		if code != http.StatusBadRequest {
