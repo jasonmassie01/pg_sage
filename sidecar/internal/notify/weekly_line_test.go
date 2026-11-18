@@ -152,3 +152,26 @@ func TestMuteLink(t *testing.T) {
 		t.Fatalf("batch footer %q lacks the mute link", body)
 	}
 }
+
+// Review (ux-09b): one item decided several times, listed out of order,
+// counts when any decision falls in its 24 h; decisions on either side of
+// the window do not. A mute of another database never counts.
+func TestWeeklyLine_UnsortedDecisionsOnOneItem(t *testing.T) {
+	d := sentAt(72*time.Hour, "orders", "queue:5")
+	at := func(off time.Duration, verb string) LineDecision {
+		return LineDecision{At: d.SentAt.Add(off), Item: "queue:5", Verb: verb}
+	}
+	outside := []LineDecision{at(30*time.Hour, "reject"), at(-time.Hour, "approve"),
+		{At: d.SentAt.Add(time.Hour), Database: "billing", Verb: "mute"},
+		{At: d.SentAt.Add(time.Hour), Item: "queue:6", Verb: "snooze"},
+		{At: d.SentAt.Add(time.Hour), Verb: "mute"}}
+	if got := ComputeWeeklyLine([]LineDelivery{d}, outside, lineNow); got.LedToAction != 0 {
+		t.Fatalf("decisions outside the window led %d, want 0", got.LedToAction)
+	}
+	inside := append([]LineDecision{at(30*time.Hour, "snooze")}, outside...)
+	inside = append(inside, at(23*time.Hour, "approve"), at(-2*time.Hour, "snooze"))
+	got := ComputeWeeklyLine([]LineDelivery{d, d}, inside, lineNow)
+	if got.Messages != 2 || got.LedToAction != 2 {
+		t.Fatalf("got %+v, want 2 messages, both led to an action", got)
+	}
+}

@@ -56,14 +56,16 @@ type WeeklyLine struct {
 // ComputeWeeklyLine is the line at now over deliveries sent in [now-7d,
 // now]. A message led to an action when a decision on one of its items
 // (or a mute of its database) came at or after it and at most 24 h later.
+// The decisions are indexed once, so the line stays linear in its rows.
 func ComputeWeeklyLine(ds []LineDelivery, decs []LineDecision, now time.Time) WeeklyLine {
 	line := WeeklyLine{Since: now.Add(-weeklyWindow), Until: now}
+	idx := indexDecisions(decs)
 	for _, d := range ds {
 		if d.SentAt.Before(line.Since) || d.SentAt.After(now) {
 			continue
 		}
 		line.Messages++
-		if ledToAction(d, decs) {
+		if idx.ledToAction(d) {
 			line.LedToAction++
 		}
 	}
@@ -71,22 +73,44 @@ func ComputeWeeklyLine(ds []LineDelivery, decs []LineDecision, now time.Time) We
 	return line
 }
 
-func ledToAction(d LineDelivery, decs []LineDecision) bool {
+// decisionIndex holds each item's decision times and each database's
+// mute times, sorted.
+type decisionIndex struct{ items, mutes map[string][]time.Time }
+
+func indexDecisions(decs []LineDecision) decisionIndex {
+	idx := decisionIndex{items: map[string][]time.Time{}, mutes: map[string][]time.Time{}}
 	for _, dec := range decs {
-		if dec.At.Before(d.SentAt) || dec.At.After(d.SentAt.Add(actionWindow)) {
-			continue
+		switch {
+		case dec.Verb == "mute" && dec.Database != "":
+			idx.mutes[dec.Database] = append(idx.mutes[dec.Database], dec.At)
+		case dec.Verb != "mute" && dec.Item != "":
+			idx.items[dec.Item] = append(idx.items[dec.Item], dec.At)
 		}
-		if dec.Verb == "mute" {
-			if dec.Database != "" && dec.Database == d.Database {
-				return true
-			}
-			continue
+	}
+	for _, m := range []map[string][]time.Time{idx.items, idx.mutes} {
+		for _, ts := range m {
+			slices.SortFunc(ts, time.Time.Compare)
 		}
-		if dec.Item != "" && slices.Contains(d.Items, dec.Item) {
+	}
+	return idx
+}
+
+func (idx decisionIndex) ledToAction(d LineDelivery) bool {
+	if d.Database != "" && within(idx.mutes[d.Database], d.SentAt) {
+		return true
+	}
+	for _, item := range d.Items {
+		if within(idx.items[item], d.SentAt) {
 			return true
 		}
 	}
 	return false
+}
+
+// within reports whether a sorted time in ts falls in [at, at+24h].
+func within(ts []time.Time, at time.Time) bool {
+	i, _ := slices.BinarySearchFunc(ts, at, time.Time.Compare)
+	return i < len(ts) && !ts[i].After(at.Add(actionWindow))
 }
 
 func weeklyText(n, m int) string {
