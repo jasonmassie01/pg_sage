@@ -3583,6 +3583,13 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "review.fleet_deep_max": {
+    "type": "int",
+    "default": 30,
+    "doc": "Most deep reviews a fleet schedules for its triage outliers per calendar month (UTC); the rest wait for the next month. 0 schedules none. Range 0-1000. Default: 30.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "review.grade_interval_hours": {
     "type": "int",
     "default": 24,
@@ -3622,6 +3629,13 @@
     "type": "int",
     "default": 3,
     "doc": "Independent model runs per review whose results are combined by review.consensus. An odd number in 1-5; 1 applies no consensus. Default: 3.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.triage_model": {
+    "type": "string",
+    "default": "",
+    "doc": "Model id, served by the general llm endpoint, that triages a fleet's rollup (fleet and meta mode only). Empty uses the general client's model. Default: empty (the general client).",
     "class": "operator_preference",
     "lifecycle": "restart"
   },

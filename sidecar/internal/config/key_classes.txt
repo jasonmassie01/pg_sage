@@ -575,6 +575,8 @@ operator_preference review.min_interval_hours
 operator_preference review.model_pass
 operator_preference review.model_runs
 operator_preference review.consensus
+operator_preference review.triage_model
+operator_preference review.fleet_deep_max
 safety_critical review.hash_identifiers
 operator_preference facts.confirmed_absence_days
 

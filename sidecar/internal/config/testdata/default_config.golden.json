@@ -630,7 +630,9 @@
     "Consensus": "majority",
     "CalendarDays": 30,
     "MinIntervalHours": 24,
-    "HashIdentifiers": false
+    "HashIdentifiers": false,
+    "TriageModel": "",
+    "FleetDeepMax": 30
   },
   "Facts": {
     "ConfirmedAbsenceDays": 7
