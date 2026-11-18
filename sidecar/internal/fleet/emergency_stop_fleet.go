@@ -232,3 +232,14 @@ func (m *DatabaseManager) cancelOne(inst *DatabaseInstance) ([]int64, error) {
 	}
 	return ids, err
 }
+
+// FleetStopped reports whether a stop of the whole fleet holds (the
+// fleet-wide latch); a nil manager is never stopped.
+func (m *DatabaseManager) FleetStopped() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.fleetStop.Stopped
+}

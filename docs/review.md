@@ -126,6 +126,7 @@ calendar is the fallback (`internal/review/trigger`). Each trigger is a row of
 | `large_migration` | A live migration lint (`POST /api/v1/migrations/lint`, not `static`) measured a table larger than `review.large_table_bytes`; once per table set and UTC day. | the route |
 | `instance_change` | The instance class, vCPU count or memory that cloud telemetry reports differs from the last value seen (`sage.review_trigger_state`). A fact unknown on either side is not a change; the first observation is recorded, not fired. Without a cloud adapter (self-managed, Neon, Supabase, serverless) this kind is unavailable: pg_sage does not guess. | polled hourly |
 | `calendar` | `review.calendar_days` (default 30) after the last full review finished. | polled hourly |
+| `fleet_outlier` | The fleet triage picked the database for a deep review ([fleet tiering](#fleet-tiering)); once per calendar month (key `fleet:YYYY-MM`). | the fleet pass |
 
 **Coalescing.** The oldest waiting trigger opens a window of `review.min_interval_hours`
 (default 24). Every trigger fired inside it joins one review run, and the run starts when the
@@ -155,6 +156,50 @@ source. The routes log it and answer as before; it is counted in
 the runs started by an `event` or by the `calendar`. The median time from trigger to finished
 run is `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY r.finished_at - t.fired_at) FROM
 sage.review_trigger t JOIN sage.review_run r ON r.id = t.run_id`.
+
+## Fleet tiering
+
+A full agentic review of every member of a large fleet costs more than the databases do: an
+estimated $3,000 to $18,000 a month for 1,000 small agent-created databases, against $100 to
+$300 for a tiered pass. In fleet and meta mode, with `review.enabled`, the leader runs one
+tiered pass of the fleet a calendar month (UTC) on the control database
+(`internal/review/fleet`). Single-database installs never run it.
+
+1. **Rollup**, deterministic, for every member, read-only from its own sage schema: the newest
+   grade and the one before it, coverage, the newest run's candidates by generator and their
+   best deterministic score, the idle rule (no workload calls for 14 days, pg_sage's own
+   excluded), the database size and, only with operator rates in `cost.rates`, its monthly
+   cost. Eight members are read at a time.
+2. **Triage**, a low-cost model over the rollup (`review.triage_model`, default the general
+   client's model), 200 members a call, each call's prompt under about 50K tokens, purpose
+   `review_triage`. The model names outliers by rollup id (`R1`..) and cites the rollup ids its
+   reason rests on. An item naming an unknown member, citing an unknown id, citing nothing or
+   naming a member twice is dropped with its reason. A batch whose call fails (the error class
+   is stored: `timeout`, `rate`, ...), whose reply is empty, or whose reply is not JSON
+   (markdown fences are fine) is triaged deterministically instead: a grade drop of 5 points or
+   more, an F, a candidate scoring 10 or more, or a cost of 3 times the fleet median, ranked in
+   that order. With llm disabled the whole triage is deterministic.
+3. **Fleet review**, once over the rollup, its answers computed in code: the abandoned members
+   (the idle rule), the anti-patterns shared by two or more members with the same candidate
+   kind (`generator/kind`) and the same schema fingerprint (fleet learning's table shapes),
+   and what retiring the idle members would save a month (only priced members carry dollars;
+   the rest are counted as unpriced). The general client writes a short summary over those
+   facts (purpose `review_fleet`); without it the summary is a template. A fleet of one skips
+   this tier and the model triage.
+4. **Deep reviews** only for the top outliers, at most `review.fleet_deep_max` (default 30) a
+   calendar month; members waiting from an earlier month go first, then by need. The month's
+   tokens (200,000 a review on average) are split by need with `fleet.AllocateByNeed` (each
+   between half and three times the even share). A deep review is a `fleet_outlier` trigger in
+   the member's own queue, with its tokens in `detail`; the member's trigger loop runs it. The
+   31st outlier waits for the next month. A member gets one fleet deep review a month.
+
+Each member moves `rollup` -> `triaged` -> `deep_scheduled` -> `reviewed` in
+`sage.review_fleet_member`; `reviewed` comes when a run consumed its trigger. A fleet-wide
+emergency stop halts scheduling: the outliers stay `triaged` and are scheduled at the next
+hourly tick after the release. The pass row (`sage.review_fleet_pass`) keeps the triage mode,
+its reasons and error class, the fleet review and the per-tier tokens and cost (`tier_tokens`,
+priced from `llm.pricing`); `sage.llm_usage` attributes the tiers' spend by purpose
+(`review_triage`, `review_fleet`, `review`). Nothing here changes a monitored database.
 
 ## Candidates
 
