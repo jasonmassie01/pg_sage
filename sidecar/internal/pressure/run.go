@@ -12,9 +12,9 @@ import (
 )
 
 // Runner runs an approved enforcement item (executor.ApprovedActionRunner).
-// It fails closed: the job must still be registered, the pressure must
-// still read stop and the backend incarnation must still be writing under
-// the job's name, or nothing is signalled. Then it hands exactly one
+// It fails closed: the job must still be registered with enforce, the
+// pressure must still read stop and the backend incarnation must still be
+// writing under the job's name, or nothing is signalled. Then it hands exactly one
 // cancel to the executor, which authorizes it at the standing policy gate
 // as an operator-approved backend signal and rechecks the identity in the
 // signalling statement.
@@ -25,6 +25,9 @@ var (
 	// ErrPressureEased is an approval that came after the pressure eased
 	// (or could no longer be read): the cancel is refused.
 	ErrPressureEased = errors.New("pressure no longer reads stop")
+	// ErrJobNotEnforced is an approval that came after the job registered
+	// again without enforce: the operator withdrew the cancel.
+	ErrJobNotEnforced = errors.New("pressure job no longer allows enforcement")
 )
 
 // Canceller is the executor half of an approved cancel.
@@ -100,6 +103,10 @@ func (r *Runner) RunApproved(ctx context.Context, a store.QueuedAction,
 	if !j.Active(r.o.Now()) {
 		return executor.ApprovedRun{}, fmt.Errorf("%w: job %q (%d) ended %s; nothing was "+
 			"cancelled", ErrJobExpired, j.ApplicationName, j.ID, j.ExpiresAt.Format(time.RFC3339))
+	}
+	if !j.Enforce {
+		return executor.ApprovedRun{}, fmt.Errorf("%w: job %q (%d) registered again without "+
+			"enforce; nothing was cancelled", ErrJobNotEnforced, j.ApplicationName, j.ID)
 	}
 	v, err := r.stillStopped(ctx, j)
 	if err != nil {

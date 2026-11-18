@@ -124,6 +124,9 @@ func TestPressureJobRunner_RefusesWhenAPreconditionChanged(t *testing.T) {
 		"job expired": {func(r *runnerRig, _ *store.QueuedAction) {
 			r.now = fixtureStart.Add(2 * time.Hour)
 		}, ErrJobExpired},
+		"enforce withdrawn": {func(r *runnerRig, _ *store.QueuedAction) {
+			r.jobs.jobs[0].Enforce = false
+		}, ErrJobNotEnforced},
 		"pressure eased": {func(r *runnerRig, _ *store.QueuedAction) {
 			r.verdicts.next = []Kind{Slow}
 		}, ErrPressureEased},
