@@ -357,3 +357,33 @@ func TestGateDB_ErrorsAreNeverEligible(t *testing.T) {
 		}
 	}
 }
+
+// A grant made outside the gate (no approved G-M1 row behind it) is revoked
+// at the next evaluation, for the running model and for any other model.
+func TestGateDB_UnbackedGrantsAreRevoked(t *testing.T) {
+	pool, ctx := livePool(t)
+	seedReviews(t, ctx, pool, mix{n: 50, genImproved: 45, modelImproved: 45,
+		modelOnly: true, model: "m1"})
+	for _, m := range []string{"m1", "m9"} {
+		if err := plan.GrantModelAuthority(ctx, pool, m, "someone", "by hand"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res := evaluate(t, ctx, newGate(pool), "m1", tick0)
+	if len(res.Revoked) != 1 || res.Revoked[0] != "m9" || res.M1State != StateRevoked {
+		t.Fatalf("result = %+v, want m9 revoked as another model and m1 revoked as unbacked",
+			res)
+	}
+	if authority(t, ctx, pool, "m1") || authority(t, ctx, pool, "m9") {
+		t.Fatal("an unbacked grant survived the evaluation")
+	}
+	// Both rows were revocations; the authority rows stay as history, so
+	// CHECK-39's orphan check is scoped to this test's hand grants here.
+	if _, err := pool.Exec(ctx, `DELETE FROM sage.review_model_authority`); err != nil {
+		t.Fatal(err)
+	}
+	if res := evaluate(t, ctx, newGate(pool), "m1", tick0.Add(time.Hour)); res.M1State !=
+		StatePending {
+		t.Fatalf("after the revocation a passing window = %+v, want a new pending item", res)
+	}
+}
