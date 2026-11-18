@@ -52,8 +52,8 @@ const fleet = mode => ({ databases: [{ name: 'prod', status: { trust_level: mode
 describe('Actions task workflow', () => {
   it('starts with contextual proposals, exact risk and recovery limits', () => {
     render(<Actions database="prod" user={{ role: 'admin' }} fleetData={fleet('observation')} />)
-    // ux-05a: one approval waits, so the page lands on Needs your review.
-    expect(screen.getByRole('tab', { name: /Needs your review/ }))
+    // ux-05a: one approval waits, so the page lands on Waiting on you.
+    expect(screen.getByRole('tab', { name: /Waiting on you/ }))
       .toHaveAttribute('aria-selected', 'true')
     fireEvent.click(screen.getByRole('tab', { name: /Proposed changes/ }))
     expect(screen.getByRole('tab', { name: /Proposed changes/ })).toHaveAttribute('aria-selected', 'true')
@@ -62,7 +62,7 @@ describe('Actions task workflow', () => {
     expect(proposal).toHaveTextContent('user impact is unknown')
     expect(proposal).toHaveTextContent('Original index definition has not been captured.')
     expect(proposal).toHaveTextContent('Compare query timings')
-    expect(within(proposal).getByRole('link', { name: /Review case/ }))
+    expect(within(proposal).getByRole('link', { name: /Review issue/ }))
       .toHaveAttribute('href', '#/cases?case=case-one&database=prod')
     expect(screen.getByTestId('actions-observation')).toHaveTextContent('no database changes will run in this mode')
     expect(screen.getByTestId('actions-safety-details')).toHaveTextContent(
@@ -76,9 +76,9 @@ describe('Actions task workflow', () => {
     expect(screen.getAllByTestId('proposed-change')).toHaveLength(1)
     const proposal = screen.getByTestId('proposed-change')
     expect(screen.queryByTestId('stored-proposal-identity')).toBeNull()
-    expect(proposal).toHaveTextContent('Saved proposal risk: Low')
+    expect(proposal).toHaveTextContent('Saved change risk: Low')
     expect(within(proposal).getByTestId('current-proposal-context')).toHaveTextContent('Risk: High')
-    expect(proposal).toHaveTextContent('This guidance may differ from the saved proposal. Review the exact SQL and recovery before deciding.')
+    expect(proposal).toHaveTextContent('This guidance may differ from the saved change. Review the exact SQL and recovery before deciding.')
   })
 
   it('withholds old stored recovery SQL when the current case recovery is unknown', async () => {
@@ -94,7 +94,7 @@ describe('Actions task workflow', () => {
     expect(screen.getByTestId('current-proposal-context')).toHaveTextContent('The created index identity is not established.')
     expect(screen.queryByText('DROP INDEX CONCURRENTLY ON;')).toBeNull()
     expect(screen.queryByTestId('stored-recovery-sql')).toBeNull()
-    expect(screen.getByTestId('stored-proposal-sql')).toHaveTextContent('Stored recommendation r1: proposed SQL')
+    expect(screen.getByTestId('stored-proposal-sql')).toHaveTextContent('Saved change r1: proposed SQL')
   })
 
   it('withholds a saved server-setting procedure that current provider guidance has rejected', async () => {
@@ -122,11 +122,11 @@ describe('Actions task workflow', () => {
     responses['/api/v1/cases'] = { cases: [] }
     render(<Actions database="prod" user={{ role: 'viewer' }} />)
     const proposal = screen.getByTestId('proposed-change')
-    expect(proposal).toHaveTextContent('Case relation unavailable')
-    expect(proposal).toHaveTextContent('Saved proposal risk: Unknown')
+    expect(proposal).toHaveTextContent('Issue link unavailable')
+    expect(proposal).toHaveTextContent('Saved change risk: Unknown')
     expect(proposal).toHaveTextContent('Execution availability has not been confirmed')
     expect(within(proposal).getByRole('link')).toHaveAttribute('href', '#/cases?database=prod')
-    expect(screen.queryByRole('tab', { name: /Needs your review/ })).toBeNull()
+    expect(screen.queryByRole('tab', { name: /Waiting on you/ })).toBeNull()
   })
 
   it('filters by the linked case without borrowing a finding from another database', () => {
@@ -164,7 +164,7 @@ describe('Actions task workflow', () => {
     responses['/api/v1/actions/pending'].pending = [{ ...request,
       eligible: false, defer_reason: 'outside maintenance window' }]
     render(<Actions database="prod" user={{ role: 'admin' }} fleetData={fleet('observation')} />)
-    fireEvent.click(screen.getByRole('tab', { name: /Needs your review/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Waiting on you/ }))
     expect(screen.getByTestId('approval-approve')).toHaveTextContent('Approve and run')
     expect(screen.getByTestId('approval-approve')).toBeDisabled()
     expect(screen.getByTestId('approval-blocker')).toHaveTextContent('Observation mode')
@@ -178,7 +178,7 @@ describe('Actions task workflow', () => {
       json: async () => ({ ok: true }) })
     vi.stubGlobal('fetch', fetch)
     render(<Actions database="prod" user={{ role: 'admin' }} fleetData={fleet('advisory')} />)
-    fireEvent.click(screen.getByRole('tab', { name: /Needs your review/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Waiting on you/ }))
     fireEvent.click(screen.getByTestId('approve-button'))
     await waitFor(() => expect(toast.success).toHaveBeenCalled())
     expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('Execution has not been confirmed'))
@@ -187,7 +187,7 @@ describe('Actions task workflow', () => {
 
   it('opens the rejection reason beside the request without requiring row expansion', () => {
     render(<Actions database="prod" user={{ role: 'admin' }} />)
-    fireEvent.click(screen.getByRole('tab', { name: /Needs your review/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Waiting on you/ }))
     fireEvent.click(screen.getByTestId('reject-button'))
     expect(screen.getByRole('textbox', { name: 'Reason for rejection' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Confirm Reject' })).toBeDisabled()

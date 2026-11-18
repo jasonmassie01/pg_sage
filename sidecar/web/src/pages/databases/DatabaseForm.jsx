@@ -173,7 +173,7 @@ export function DatabaseForm({ db, onClose, onError }) {
 		{isEdit && (
 		  <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
 		    Change policy in Settings; connection edits preserve the current
-		    trust level and execution mode.
+		    autonomy and execution policy.
 		  </p>
 		)}
         <ActionIdentityFields form={form} set={set} isEdit={isEdit}

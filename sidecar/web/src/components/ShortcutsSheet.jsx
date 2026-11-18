@@ -23,6 +23,10 @@ function ShortcutsRows({ entries, testId }) {
   )
 }
 
+// GLOSSARY_DOC defines the words the dashboard uses (ux-06a).
+export const GLOSSARY_DOC =
+  'https://github.com/jasonmassie01/pg_sage/blob/master/docs/glossary.md'
+
 // ShortcutsSheet lists the keyboard shortcuts from the keymaps the key
 // handlers use (dashboard-06): the global keys, then the approval list's
 // verbs (ux-05a). `?` opens it; Escape, the Close button or a click outside
@@ -58,10 +62,15 @@ export function ShortcutsSheet({ onClose }) {
         <div data-testid="approval-shortcuts" className="mt-3 pt-3"
           style={{ borderTop: '1px solid var(--border)' }}>
           <h3 className="text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-            On the Needs your review cards
+            On the Waiting on you cards
           </h3>
           <ShortcutsRows entries={APPROVAL_KEYMAP} testId="approval-shortcut-row" />
         </div>
+        <p className="mt-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+          The words pg_sage uses, such as Issue, Change and Autonomy, are defined in
+          the <a href={GLOSSARY_DOC} data-testid="shortcuts-glossary" className="underline"
+            target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>glossary</a>.
+        </p>
       </div>
     </div>
   )

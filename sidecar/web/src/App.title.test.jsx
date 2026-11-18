@@ -60,7 +60,7 @@ describe('App: document title follows the route', () => {
   it('titles the first page and each route it moves to', async () => {
     render(<App />)
     await screen.findByTestId('app-loaded')
-    expect(document.title).toBe('Cases · pg_sage')
+    expect(document.title).toBe('Issues · pg_sage')
     await navigate('#/actions')
     expect(document.title).toBe('Actions · pg_sage')
     await navigate('#/advanced/autonomy')

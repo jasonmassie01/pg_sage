@@ -59,7 +59,7 @@ export function ExecutedList({ data, paging, refetch, user, view, cases, databas
       <div className="text-xs" data-testid="executed-actions-count"
         style={{ color: 'var(--text-secondary)' }}>
         {actions.length} loaded {view === 'progress' ? 'in-progress' : 'history'} records
-        {' · '}{formatTotal(data)} total change records across all cases in the selected time range
+        {' · '}{formatTotal(data)} total change records across all issues in the selected time range
       </div>
     </div>
   )

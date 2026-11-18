@@ -70,7 +70,7 @@ function ActionItem({ action }) {
 function ProposalDetail({ action }) {
   return (
     <div className="space-y-1 text-xs" style={muted}>
-      {action.verdict && <div>Verdict: {action.verdict}</div>}
+      {action.verdict && <div>Decision: {action.verdict}</div>}
       {action.sql && <SQL label="SQL" text={action.sql} />}
       {action.rollback_sql && <SQL label="Rollback SQL" text={action.rollback_sql} />}
       {action.rollback_class && <div>Rollback class: {action.rollback_class}</div>}

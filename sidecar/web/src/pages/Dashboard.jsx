@@ -45,9 +45,9 @@ const OVERVIEW_TABS = [
   },
   {
     key: 'top-cases',
-    label: 'Top Cases',
+    label: 'Top issues',
     description:
-      'The highest-ranked open cases: severity first, then time to impact.',
+      'The highest-ranked open issues: severity first, then time to impact.',
   },
 ]
 
@@ -143,7 +143,7 @@ function OnboardingWelcome() {
             <ListChecks size={16}
               style={{ color: 'var(--text-secondary)' }} />
             <span style={{ color: 'var(--text-secondary)' }}>
-              Review recommendations as they come in
+              Review proposed changes as they come in
             </span>
           </div>
         </div>

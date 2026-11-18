@@ -25,9 +25,9 @@ const GATE_REASONS = {
   rollback_mitigation: 'Allowed: it undoes an earlier change.',
   drop_restore_bypass: 'Allowed: it restores an index pg_sage dropped.',
   autonomy_l3: 'Allowed by the autonomy level.',
-  approval_required: "This change needs a person's approval. Review it under Needs your review.",
+  approval_required: "This change needs a person's approval. Review it under Waiting on you.",
   refused_by_policy: 'The standing policy hands this change to a person. ' +
-    'Review it under Needs your review.',
+    'Review it under Waiting on you.',
   sql_validation_degraded: 'The SQL could not be fully checked, so a person must approve it.',
   autonomy_handoff: 'The autonomy level hands this change to a person.',
   no_typed_contract: 'pg_sage has no safe procedure for this kind of change, ' +

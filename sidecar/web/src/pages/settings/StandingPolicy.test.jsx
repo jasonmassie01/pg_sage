@@ -37,7 +37,7 @@ describe('StandingPolicy', () => {
     expect(history).toHaveLength(2)
     expect(history[1]).toHaveTextContent('system-bootstrap')
     expect(screen.queryByRole('button')).toBeNull()
-    expect(screen.getByRole('link', { name: /policy gate reference/i }).getAttribute('href'))
+    expect(screen.getByRole('link', { name: /policy check reference/i }).getAttribute('href'))
       .toContain('docs/policy-gate.md')
   })
 

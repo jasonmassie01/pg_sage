@@ -38,7 +38,7 @@ const plainKey = (event, key) => event.key === key
   && !event.ctrlKey && !event.metaKey && !event.altKey
 
 // APPROVAL_KEYMAP holds the approval list's verbs (ux-05a). They act only on
-// the Needs your review cards, never while typing; approve and reject still
+// the Waiting on you cards, never while typing; approve and reject still
 // ask (a confirm, a reason) before anything is sent.
 export const APPROVAL_KEYMAP = Object.freeze([
   { id: 'next', keys: ['j'], description: 'Select the next approval card',

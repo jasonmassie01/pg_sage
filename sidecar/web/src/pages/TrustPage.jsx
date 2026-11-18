@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Term } from '../components/Term'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { QueryState } from '../components/QueryState'
@@ -128,7 +129,8 @@ function Floor({ floor }) {
   }
   return (
     <span className="text-xs" style={muted}>
-      Observed {floor.observed} (promotion floor: L2 after {floor.required_l2}, L3
+      Observed {floor.observed} (<Term id="minimum-evidence">minimum evidence</Term>:
+      L2 after {floor.required_l2}, L3
       after {floor.required_l3})
     </span>
   )

@@ -34,7 +34,7 @@ function RecommendationList({ database, items, onReview, modeForDatabase, view }
         : view === 'progress' ? 'No recommendation is currently being applied or verified.'
           : 'No recommendation outcomes are recorded in this view.'} />
       <a href={caseHref(null, database)} className="text-sm underline"
-        style={{ color: 'var(--accent)' }}>Review Cases</a>
+        style={{ color: 'var(--accent)' }}>Review issues</a>
     </div>
   )
   return (
@@ -72,37 +72,37 @@ function RecommendationCard({ row, database, mode, onReview }) {
       </div>
       <p className="text-sm" style={muted} data-testid="proposal-risk">
         {db || 'Database unknown'}{row.target ? <> · <code>{row.target}</code></> : ''}
-        {' · '}{row.storedRecommendation ? 'Saved proposal risk' : 'Risk'}: {riskLabel(row.risk_tier || row.action_risk)}
-        {row.contract_tier && <>{' · '}<span data-testid="proposal-contract">Contract tier: {
+        {' · '}{row.storedRecommendation ? 'Saved change risk' : 'Risk'}: {riskLabel(row.risk_tier || row.action_risk)}
+        {row.contract_tier && <>{' · '}<span data-testid="proposal-contract">Specialist limit: {
           row.contract_tier === 'none' ? 'none (advisory only)' : riskLabel(row.contract_tier)}</span></>}
       </p>
       {needsApproval && <p className="text-sm" data-testid="proposal-approval"
         style={{ color: 'var(--yellow)' }}>Needs approval: {row.approval_reason
           || 'an operator must approve this change before it runs.'}</p>}
       <p className="text-sm" style={muted}>
-        {linked?.why ? `Case context: ${linked.why}` : row.reason
-          || 'The reason and expected effect have not been supplied in this summary. Review the case evidence before choosing a change.'}
+        {linked?.why ? `Issue context: ${linked.why}` : row.reason
+          || 'The reason and expected effect have not been supplied in this summary. Review the issue evidence before choosing a change.'}
       </p>
       {current ? <section className="rounded border p-2 space-y-1" data-testid="current-proposal-context"
         style={{ borderColor: 'var(--border)' }}>
-        <h4 className="text-xs font-medium">Current case guidance</h4>
+        <h4 className="text-xs font-medium">Current issue guidance</h4>
         <p className="text-xs" style={muted}>Risk: {riskLabel(current.risk_tier || current.action_risk)}</p>
         <ProposalPlan row={current} />
         <p className="text-xs" style={muted}>
-          This guidance may differ from the saved proposal. Review the exact SQL and recovery before deciding.
+          This guidance may differ from the saved change. Review the exact SQL and recovery before deciding.
         </p>
       </section> : <ProposalPlan row={row} /> }
       {blocked && <p className="text-sm" data-testid="proposal-blocker"
-        style={{ color: 'var(--yellow)' }}>{current ? 'Current case proposal: ' : ''}{blocked}</p>}
+        style={{ color: 'var(--yellow)' }}>{current ? 'Current proposed change: ' : ''}{blocked}</p>}
       {!blocked && row.state === 'proposed' && <p className="text-sm" style={muted}>
         {row.pendingAction ? 'A request is waiting for review. Approval rechecks current safety conditions before running SQL.'
-          : 'This is a proposal, not a scheduled change. Execution availability has not been confirmed.'}
+          : 'This change is proposed, not scheduled. Execution availability has not been confirmed.'}
       </p>}
       <div className="flex flex-wrap gap-3 items-center text-sm">
         {linked ? <a href={caseHref(linked, db)} className="underline"
-          style={{ color: 'var(--accent)' }}>Review case: {linked.title}</a>
-          : <span style={muted}>Case relation unavailable. <a href={caseHref(null, db)}
-            className="underline" style={{ color: 'var(--accent)' }}>View Cases for this database</a></span>}
+          style={{ color: 'var(--accent)' }}>Review issue: {linked.title}</a>
+          : <span style={muted}>Issue link unavailable. <a href={caseHref(null, db)}
+            className="underline" style={{ color: 'var(--accent)' }}>View issues for this database</a></span>}
         {row.pendingAction && onReview && <button type="button" onClick={onReview}
           className="underline" style={{ color: 'var(--accent)' }}>Review request</button>}
       </div>
@@ -140,37 +140,37 @@ function RecommendationDetails({ row, database }) {
     <details onToggle={e => setOpen(e.currentTarget.open)} className="text-xs">
       <summary className="cursor-pointer" style={muted}>Technical details and history</summary>
       <div className="mt-2 space-y-2" style={muted}>
-        {row.id && <p>Recommendation #{row.id} · r{row.revision} · Category: {row.category}</p>}
+        {row.id && <p>Change #{row.id} · r{row.revision} · Category: {row.category}</p>}
         {row.approved_by && <p>Approved by {row.approved_by} (r{row.approved_revision})</p>}
         {row.attempt_count != null && <p>Attempts: {row.attempt_count}/{Number(row.retry_budget || 0) + 1}</p>}
-        {row.verdict && <p>Verification verdict: {row.verdict}</p>}
+        {row.verdict && <p>Verification result: {row.verdict}</p>}
         {row.updated_at && <p>Updated <LiveTimeAgo timestamp={row.updated_at} /></p>}
-        {detail.loading && <p>Loading exact proposal…</p>}
+        {detail.loading && <p>Loading the exact change…</p>}
         {detail.error && <ErrorBanner message={detail.error} onRetry={detail.refetch} />}
-        {revision?.recommendation && <p>Stored revision explanation: {revision.recommendation}</p>}
-        {revision?.action_risk && <p>Stored revision risk: {riskLabel(revision.action_risk)}</p>}
+        {revision?.recommendation && <p>Saved change explanation: {revision.recommendation}</p>}
+        {revision?.action_risk && <p>Saved change risk: {riskLabel(revision.action_risk)}</p>}
         {revision?.forward_sql && restriction && <p data-testid="stored-procedure-withheld"
           style={{ color: 'var(--yellow)' }}>{restriction}</p>}
         {revision?.forward_sql && !restriction && <div data-testid="stored-proposal-sql">
-          <p>Stored recommendation r{row.revision}: proposed SQL</p>
+          <p>Saved change r{row.revision}: proposed SQL</p>
           <SQLBlock sql={revision.forward_sql} />
         </div>}
-        {sameForward && !restriction && <p>The stored SQL text matches the current case proposal. Current context does not validate the stored revision's risk, recovery or eligibility.</p>}
+        {sameForward && !restriction && <p>The saved SQL text matches the current proposed change. Current context does not validate the saved change's risk, recovery or eligibility.</p>}
         {current?.proposed_sql && !sameForward && !restriction && <div data-testid="current-proposal-sql">
-          <p>Current case proposal: SQL</p><SQLBlock sql={current.proposed_sql} />
+          <p>Current proposed change: SQL</p><SQLBlock sql={current.proposed_sql} />
         </div>}
-        {current?.recovery_detail && <p>Current proposal recovery limits: {current.recovery_detail}</p>}
-        {current?.rollback_class && <p>Current proposal recovery classification: {current.rollback_class.replaceAll('_', ' ')}</p>}
+        {current?.recovery_detail && <p>Current proposed change recovery limits: {current.recovery_detail}</p>}
+        {current?.rollback_class && <p>Current proposed change recovery classification: {current.rollback_class.replaceAll('_', ' ')}</p>}
         {recovery.reason && <p data-testid="stored-recovery-withheld" style={{ color: 'var(--yellow)' }}>{recovery.reason}</p>}
         {recovery.sql && <div data-testid="stored-recovery-sql">
           <p>Stored recovery SQL matches the current reversible procedure — review before use</p>
           <SQLBlock sql={recovery.sql} />
         </div>}
         {current?.rollback_class === 'reversible' && current.script_output?.rollback_sql && !recovery.sql && !restriction && <div>
-          <p>Current case proposal: recovery SQL — does not validate a different stored revision</p>
+          <p>Current proposed change: recovery SQL — does not validate a different saved change</p>
           <SQLBlock sql={current.script_output.rollback_sql} />
         </div>}
-        {current?.verification_plan?.length > 0 && <p>Current proposal verification: {current.verification_plan.join('; ')}</p>}
+        {current?.verification_plan?.length > 0 && <p>Current proposed change verification: {current.verification_plan.join('; ')}</p>}
         {detail.data?.transitions?.map(t => <p key={t.id}>{t.from_state || 'New'} → {t.to_state}: {t.reason}</p>)}
       </div>
     </details>

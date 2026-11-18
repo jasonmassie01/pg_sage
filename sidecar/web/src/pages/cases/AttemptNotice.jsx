@@ -44,7 +44,7 @@ export function AttemptNotice({ investigation, onOpen }) {
       {exhausted && (
         <div data-testid="investigation-attempts-exhausted" style={strong}>
           This was attempt {attempt} of {MAX_ATTEMPTS}. No further attempt starts
-          automatically; an operator can start a new investigation of the case.
+          automatically; an operator can start a new investigation of the issue.
         </div>
       )}
     </>

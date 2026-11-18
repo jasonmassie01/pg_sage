@@ -101,8 +101,8 @@ export function DatabasesPage({ onSelectDatabase }) {
         <p className="text-sm" data-testid="fleet-page-description"
           style={{ color: 'var(--text-secondary)' }}>
           Your monitored Postgres databases, connection health, and registration sources.
-          Analyzer findings identify tuning opportunities. SRE investigations produce
-          durable cases; supported actions follow the configured approval policy.
+          Analyzer checks find tuning opportunities. SRE investigations produce
+          durable issues; supported actions follow the configured approval policy.
         </p>
       </div>
 

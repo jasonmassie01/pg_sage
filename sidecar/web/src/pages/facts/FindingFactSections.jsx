@@ -184,7 +184,7 @@ function Verdict({ report }) {
   const due = formatUTC(report.verify_after)
   return (
     <div data-testid="source-fix-verdict" className="text-xs" style={label}>
-      <span style={strong}>Verdict: {pending ? 'pending' : report.verdict}</span>
+      <span style={strong}>Result: {pending ? 'pending' : report.verdict}</span>
       {pending && due && ` · due after ${due}`}
       {!pending && predicted && ` · predicted ${predicted}`}
       {!pending && observed && ` · observed ${observed}`}

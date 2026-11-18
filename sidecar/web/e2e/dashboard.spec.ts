@@ -20,7 +20,7 @@ test.describe('Dashboard page', () => {
       const hero = page.locator('[data-testid="health-hero"]')
       await expect(hero).toBeVisible()
       await expect(hero).toContainText('1 warning finding')
-      await expect(hero).not.toContainText('No open critical or warning cases')
+      await expect(hero).not.toContainText('No open critical or warning issues')
       await expect(page.getByTestId('health-hero-cases-link'))
         .toHaveAttribute('href', '#/cases')
     })
@@ -41,7 +41,7 @@ test.describe('Dashboard page', () => {
       await page.goto('/#/advanced')
 
       const hero = page.locator('[data-testid="health-hero"]')
-      await expect(hero).toContainText('No open critical or warning cases')
+      await expect(hero).toContainText('No open critical or warning issues')
     })
 
   test('stat cards display correct counts', async ({ page }) => {
@@ -106,7 +106,7 @@ test.describe('Dashboard page', () => {
 
     const topCases = page.locator('[data-testid="top-cases"]')
     await expect(topCases).toBeVisible()
-    await expect(topCases).toContainText('Top Cases')
+    await expect(topCases).toContainText('Top issues')
     await expect(topCases).toContainText('Stats are stale')
     await expect(topCases.locator('[data-testid="top-case-link"]').first())
       .toHaveAttribute('href', /^#\/cases\?case=/)

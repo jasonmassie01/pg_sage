@@ -51,7 +51,7 @@ export function RunbooksPage({ database, user }) {
       <p style={muted}>
         A runbook runs inside matching investigations only after an admin signs its
         exact version. An edit stages a draft: the signed version keeps running until
-        an admin signs the draft. Its proposals are never executed.
+        an admin signs the draft. The changes it proposes are never executed.
       </p>
       <RunbookList items={items} onSelect={setSelected} />
       {selected && (

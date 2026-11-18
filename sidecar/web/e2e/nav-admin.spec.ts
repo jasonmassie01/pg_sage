@@ -7,7 +7,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mockAllAPIs, mockAuthMe } from './fixtures'
 
-const OPERATE = ['Inbox', 'Cases', 'Actions', 'Ledger', 'Workload', 'SLOs', 'Trust', 'Facts',
+const OPERATE = ['Inbox', 'Issues', 'Actions', 'Ledger', 'Workload', 'SLOs', 'Trust', 'Facts',
   'Ask Sage']
 const ADMIN = ['Fleet', 'Users', 'Notifications', 'Alert log', 'Settings', 'MCP tokens',
   'Agents']

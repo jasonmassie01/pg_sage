@@ -68,7 +68,7 @@ describe('Cases first-time-user workflow', () => {
   it('opens a focused case and scopes explanation and action links to its database', () => {
     render(<CasesPage database="all" user={{ role: 'viewer' }} />)
     const card = screen.getByRole('heading', { name: 'A query used temporary disk space' }).closest('article')
-    fireEvent.click(within(card).getByRole('link', { name: 'Review case' }))
+    fireEvent.click(within(card).getByRole('link', { name: 'Review issue' }))
     expect(screen.getAllByRole('article')).toHaveLength(1)
     for (const [name, route] of [['Explain this', 'ask'], ['Review proposed changes', 'actions']]) {
       const href = screen.getByRole('link', { name }).getAttribute('href')
@@ -79,7 +79,7 @@ describe('Cases first-time-user workflow', () => {
     }
     expect(screen.getByText(/pg_sage cannot run this proposed action/)).toBeVisible()
     expect(screen.getByText(/Recovery: The created object cannot be identified safely/)).not.toBeVisible()
-    fireEvent.click(screen.getByRole('link', { name: 'Back to all cases' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Back to all issues' }))
     expect(screen.getAllByRole('article')).toHaveLength(2)
   })
 
@@ -93,7 +93,7 @@ describe('Cases first-time-user workflow', () => {
       window.dispatchEvent(new Event('hashchange'))
     })
     expect(screen.queryByRole('article')).toBeNull()
-    expect(screen.getByText(/This case is unavailable in the selected database/)).toBeVisible()
+    expect(screen.getByText(/This issue is unavailable in the selected database/)).toBeVisible()
   })
 
   it('focuses a case_id-only response and explains a first-use term on demand', () => {
@@ -111,11 +111,11 @@ describe('Cases first-time-user workflow', () => {
   it('keeps suppression secondary and explains that it does not fix the condition', () => {
     render(<CasesPage database="prod" user={{ role: 'operator' }} />)
     const card = screen.getByRole('heading', { name: 'An ID counter is nearly full' }).closest('article')
-    expect(within(card).getByRole('link', { name: 'Review case' })).toBeVisible()
+    expect(within(card).getByRole('link', { name: 'Review issue' })).toBeVisible()
     expect(within(card).getByTestId('case-suppress')).not.toBeVisible()
-    fireEvent.click(within(card).getByText('More case options'))
+    fireEvent.click(within(card).getByText('More issue options'))
     expect(within(card).getByText(/It does not repair the database condition/)).toBeVisible()
-    expect(within(card).getByRole('button', { name: 'Suppress finding' })).toBeVisible()
+    expect(within(card).getByRole('button', { name: 'Suppress issue' })).toBeVisible()
   })
 
   it('does not treat absent cases as proof of health', () => {

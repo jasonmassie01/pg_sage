@@ -66,7 +66,7 @@ function TopQueries({ rows, currency }) {
             </th>
             <td className="py-2">
               <a className="underline" href={casesLink(row.database)}
-                title={`Findings of ${row.database}`}>{row.database}</a>
+                title={`Issues on ${row.database}`}>{row.database}</a>
             </td>
             <td className="py-2 text-right">{formatShare(row.share)}</td>
             <td className="py-2 text-right">

@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Actions } from './Actions'
 
-// ux-01b: #/actions?tab=pending&queue=<id> opens Needs your review with the
+// ux-01b: #/actions?tab=pending&queue=<id> opens Waiting on you with the
 // queued proposal's card scrolled to and outlined. A hostile queue= or an
 // unknown tab= changes nothing. No concurrent access tests: one render.
 
@@ -74,7 +74,7 @@ describe('Actions exact links', () => {
     expect(screen.getByTestId('actions-tab-pending')).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByTestId('approval-card-focused')).toBeNull()
     expect(screen.getByTestId('approval-queue-missing')).toHaveTextContent(
-      'Approval request #77 is no longer waiting for review')
+      'Request #77 is no longer waiting on you')
     expect(screen.getByTestId('approval-cards')).toHaveTextContent('Card 41')
     expect(screen.getByTestId('approval-cards')).toHaveTextContent('Card 42')
   })
@@ -86,7 +86,7 @@ describe('Actions exact links', () => {
     renderAt('#/actions?tab=pending&queue=77&database=orders')
     const notice = screen.getByTestId('approval-queue-missing')
     expect(notice).toHaveTextContent(
-      'Approval request #77 is not in this list: it was decided or expired, or its')
+      'Request #77 is not in this list: it was decided or expired, or its')
     expect(notice).toHaveTextContent('database could not be read')
     expect(notice).not.toHaveTextContent('no longer waiting')
   })

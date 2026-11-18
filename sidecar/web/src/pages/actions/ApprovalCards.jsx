@@ -88,9 +88,9 @@ export function PendingCardsView({ cards, errors, onShowTable, onDecided, pendin
           selected={i === keys.selected} keyed={keys.used}>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {linked ? <a href={caseHref(linked, database)} className="underline"
-              style={{ color: 'var(--accent)' }}>Review case: {linked.title}</a>
-              : <>Case relation unavailable. <a href={caseHref(null, card.database)} className="underline"
-                style={{ color: 'var(--accent)' }}>View Cases for this database</a></>}
+              style={{ color: 'var(--accent)' }}>Review issue: {linked.title}</a>
+              : <>Issue link unavailable. <a href={caseHref(null, card.database)} className="underline"
+                style={{ color: 'var(--accent)' }}>View issues for this database</a></>}
           </p>
           <ApprovalCard card={card} onDecided={onDecided} eligible={readiness?.eligible}
             blockedReason={readiness?.defer_reason || readiness?.blocked_reason}

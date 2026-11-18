@@ -6,7 +6,7 @@ import { useAPI } from '../hooks/useAPI'
 // earned-04: Shadow Mode reads the shadow ledger (/api/v1/shadow-decisions)
 // and the trust ledger (/api/v1/trust, for why nothing was recorded). It
 // shows each class's counts and its potential minutes, labelled potential,
-// and never a heuristic over open cases.
+// and never a heuristic over open issues.
 // No concurrent access tests: pure renders over mocked queries.
 
 let responses

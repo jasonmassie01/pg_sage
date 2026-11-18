@@ -36,7 +36,7 @@ describe('trustConfirmPhrase', () => {
 describe('TrustLevelConfirm', () => {
   it('is a native modal dialog named by its title', () => {
     renderConfirm()
-    const dialog = screen.getByRole('dialog', { name: /confirm trust level change/i })
+    const dialog = screen.getByRole('dialog', { name: /confirm autonomy change/i })
     expect(dialog.tagName).toBe('DIALOG')
     expect(dialog).toHaveAttribute('open')
     expect(dialog).toHaveAttribute('data-testid', 'trust-level-confirm')
@@ -53,7 +53,7 @@ describe('TrustLevelConfirm', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
 
-  it('links the policy gate rules', () => {
+  it('links the policy check rules', () => {
     renderConfirm()
     expect(screen.getByTestId('trust-level-policy-doc')).toHaveAttribute('href')
   })

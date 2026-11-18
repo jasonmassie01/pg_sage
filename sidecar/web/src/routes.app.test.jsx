@@ -107,7 +107,7 @@ describe('App routes from the registry', () => {
   it('renders Cases for the old findings explorer URL', async () => {
     await open('#/advanced/findings')
     expect(screen.getByTestId('cases-page')).toHaveTextContent('all')
-    expect(title()).toHaveTextContent('Cases')
+    expect(title()).toHaveTextContent('Issues')
     expect(screen.getByTestId('nav-cases')).toHaveAttribute('aria-current', 'page')
   })
 

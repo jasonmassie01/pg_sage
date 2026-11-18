@@ -10,7 +10,7 @@ import { LifecycleDetails } from './LifecycleDetails'
 import { SqlSection } from './SqlSection'
 
 // The columns and expanded detail of one queued action in the table view of
-// Needs your review (split out of Actions.jsx by dashboard-31).
+// Waiting on you (split out of Actions.jsx by dashboard-31).
 
 const PENDING_RISKS = new Map([
   ['safe', { label: 'Low Risk', color: 'var(--green)' }],
@@ -79,7 +79,7 @@ function DecisionCell({ row, database, modeForDatabase, decision }) {
 export function pendingColumns({ actions, database, modeForDatabase, decision }) {
   const optional = []
   if (actions.some(r => r.recommendation_id)) {
-    optional.push({ key: 'recommendation_id', label: 'Recommendation', render: revisionPin })
+    optional.push({ key: 'recommendation_id', label: 'Saved change', render: revisionPin })
   }
   if (actions.some(r => r.policy_decision)) {
     optional.push({ key: 'policy_decision', label: 'Policy' })
@@ -90,7 +90,7 @@ export function pendingColumns({ actions, database, modeForDatabase, decision })
   return [
     { key: 'action_risk', label: 'Risk', render: r => <PendingRisk row={r} /> },
     { key: 'database_name', label: 'Database' },
-    { key: 'finding_id', label: 'Finding' },
+    { key: 'finding_id', label: 'Issue' },
     ...optional,
     { key: 'availability', label: 'Availability', render: r =>
       <Availability row={r} database={database} modeForDatabase={modeForDatabase} /> },

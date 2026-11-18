@@ -40,7 +40,7 @@ export function FleetFindings({ onSelectDatabase }) {
       {error && (
         <p className="text-sm" data-testid="fleet-findings-error"
           style={{ color: 'var(--red)' }}>
-          Could not load fleet findings: {error}
+          Could not load fleet issues: {error}
         </p>
       )}
       {!error && data && findings.length === 0 && (
@@ -58,7 +58,7 @@ export function FleetFindings({ onSelectDatabase }) {
       {truncated.length > 0 && (
         <p className="text-xs mb-2" data-testid="fleet-findings-truncated"
           style={{ color: 'var(--text-secondary)' }}>
-          More open findings than read; counts may be low for:{' '}
+          More open issues than read; counts may be low for:{' '}
           {truncated.join(', ')}
         </p>
       )}
@@ -117,7 +117,7 @@ function FleetFindingRow({ finding, index, open, onToggle, onSelectDatabase }) {
                   onClick={() => onSelectDatabase?.(o.database)}>
                   <span>{o.database}</span>
                   {o.severity ? ` · ${o.severity}` : ''}
-                  {` · finding ${o.id}`}
+                  {` · issue ${o.id}`}
                 </a>
               ) : (
                 <>

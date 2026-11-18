@@ -89,7 +89,7 @@ describe('Dashboard', () => {
 
     fireEvent.click(screen.getByTestId('overview-tab-top-cases'))
     expect(screen.getByTestId('overview-tab-description'))
-      .toHaveTextContent(/highest-ranked open cases/i)
+      .toHaveTextContent(/highest-ranked open issues/i)
     expect(screen.getByTestId('top-cases')).toBeInTheDocument()
   })
 })

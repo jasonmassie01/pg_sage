@@ -60,16 +60,16 @@ export function CaseControls({ caseRow, user, onDone }) {
   if (FINDING_SOURCES.has(caseRow.source_type)) {
     return (
       <details className="mt-3 text-xs" data-testid="case-secondary-options">
-        <summary className="cursor-pointer" style={{ color: 'var(--text-secondary)' }}>More case options</summary>
+        <summary className="cursor-pointer" style={{ color: 'var(--text-secondary)' }}>More issue options</summary>
         <p className="mt-2" style={{ color: 'var(--text-secondary)' }}>
-          Suppression hides this finding from the active list. It does not repair
-          the database condition. You can restore it from suppressed findings.
+          Suppression hides this issue from the active list. It does not repair
+          the database condition. You can restore it from suppressed issues.
         </p>
       <button type="button" data-testid="case-suppress" disabled={busy}
         className="mt-3 rounded px-2 py-1 text-xs" style={buttonStyle}
         onClick={() => run(`/api/v1/findings/${id}/suppress${db}`, {},
-          'Finding suppressed')}>
-        Suppress finding
+          'Issue suppressed')}>
+        Suppress issue
       </button>
       </details>
     )
@@ -77,7 +77,7 @@ export function CaseControls({ caseRow, user, onDone }) {
   if (caseRow.source_type === 'incident') {
     return (
       <details className="mt-3 text-xs" data-testid="case-secondary-options">
-        <summary className="cursor-pointer" style={{ color: 'var(--text-secondary)' }}>More case options</summary>
+        <summary className="cursor-pointer" style={{ color: 'var(--text-secondary)' }}>More issue options</summary>
         <p className="mt-2" style={{ color: 'var(--text-secondary)' }}>
           Marking this incident resolved updates its record. It does not itself
           repair the cause or verify recovery.
@@ -107,11 +107,11 @@ export function SuppressedFindings({ database, user, onDone }) {
   const findings = data?.findings || []
   if (findings.length === 0) {
     return <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-      No suppressed findings.
+      No suppressed issues.
     </p>
   }
   return (
-    <ul className="space-y-1" aria-label="Suppressed findings">
+    <ul className="space-y-1" aria-label="Suppressed issues">
       {findings.map(f => (
         <li key={`${f.database_name || ''}:${f.id}`}
           className="flex items-center gap-2 text-xs">

@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
 
 test('Cases page loads and old findings route aliases to cases', async ({ page }) => {
   await page.goto('/#/cases')
-  await expect(page.locator('header h1')).toContainText('Cases')
+  await expect(page.locator('header h1')).toContainText('Issues')
   await expect(page.getByTestId('cases-page')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Stats are stale', exact: true })).toBeVisible()
   await expect(page.getByText(/Policy: execute/)).not.toBeVisible()
@@ -21,6 +21,6 @@ test('Cases page loads and old findings route aliases to cases', async ({ page }
     .getByText('action is in cooldown')).toBeVisible()
 
   await page.goto('/#/findings')
-  await expect(page.locator('header h1')).toContainText('Cases')
+  await expect(page.locator('header h1')).toContainText('Issues')
   await expect(page.getByTestId('cases-page')).toBeVisible()
 })

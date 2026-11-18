@@ -83,23 +83,23 @@ function AskSession({ database, user, caseId }) {
         onSelect={s.load} />
       <div className="space-y-4 min-w-0">
         {caseId && <aside data-testid="ask-case-context" className="rounded p-3 text-sm space-y-2" style={card}>
-          <strong>Explain a case</strong>
-          {caseRow ? <><p>{friendlyTitle}</p><p style={muted}>Case context: {database}. Questions are sent only when you press Ask. Review the prepared question before sending.</p>
-            <p data-testid="ask-case-read-only" style={muted}>Questions here are answer only: Ask Sage will not queue a proposal, open an investigation or propose a fact.</p>
+          <strong>Explain an issue</strong>
+          {caseRow ? <><p>{friendlyTitle}</p><p style={muted}>Issue context: {database}. Questions are sent only when you press Ask. Review the prepared question before sending.</p>
+            <p data-testid="ask-case-read-only" style={muted}>Questions here are answer only: Ask Sage will not queue a change, open an investigation or propose a fact.</p>
             {friendlyTitle !== caseRow.title && <details><summary>Reported condition</summary><p className="break-all">{caseRow.title}</p></details>}
-            <a className="underline" href={`#/cases?case=${encodeURIComponent(caseId)}&database=${encodeURIComponent(database)}`}>Back to this case</a></>
-            : context.error ? <ErrorBanner message="Case context could not be loaded. You can retry or return to Cases; evidence availability is unknown." onRetry={context.refetch} />
-              : <p style={muted}>{context.loading ? 'Loading case context…' : 'This case could not be found in the selected database. Return to Cases to select a current case; you can still ask a general question.'}</p>}
-          {!caseRow && <a className="underline" href="#/cases">Back to Cases</a>}
+            <a className="underline" href={`#/cases?case=${encodeURIComponent(caseId)}&database=${encodeURIComponent(database)}`}>Back to this issue</a></>
+            : context.error ? <ErrorBanner message="Issue context could not be loaded. You can retry or return to Issues; evidence availability is unknown." onRetry={context.refetch} />
+              : <p style={muted}>{context.loading ? 'Loading issue context…' : 'This issue could not be found in the selected database. Return to Issues to select a current issue; you can still ask a general question.'}</p>}
+          {!caseRow && <a className="underline" href="#/cases">Back to Issues</a>}
         </aside>}
         <p className="text-sm" style={muted}>
           Answers use only cited evidence from {database}. Ask Sage never executes or
-          approves anything; proposals wait for a person on the Actions page.
+          approves anything; proposed changes wait for a person on the Actions page.
         </p>
         {user?.role === 'viewer' && (
           <p data-testid="ask-viewer-note" className="text-xs" style={muted}>
             You are signed in as a viewer: Ask Sage can answer your questions, but
-            queuing a proposal needs the operator role.
+            queuing a change needs the operator role.
           </p>
         )}
         <BudgetMeter budget={s.budget.data} />

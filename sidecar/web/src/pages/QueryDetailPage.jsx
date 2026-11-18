@@ -103,7 +103,7 @@ function Links({ data, database }) {
         ))}
       </ul>
       {!data.cases?.length && !data.hints?.length && !data.actions?.length && (
-        <p style={muted}>No cases, hints or actions about this query.</p>
+        <p style={muted}>No issues, hints or actions about this query.</p>
       )}
     </div>
   )
@@ -133,7 +133,7 @@ export function QueryDetailPage({ route, database }) {
           <Section title="Latest captured plan" testId="query-plan">
             <Plan plan={data.plan} />
           </Section>
-          <Section title="Cases, hints and actions"><Links data={data} database={db} /></Section>
+          <Section title="Issues, hints and actions"><Links data={data} database={db} /></Section>
         </div>
       )}
     </QueryState>

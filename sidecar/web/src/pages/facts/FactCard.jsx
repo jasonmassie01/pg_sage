@@ -65,7 +65,7 @@ function FactMeta({ fact }) {
       <span>Source: {fact.source}</span>
       {fact.proposed_by && <span>Proposed by: {fact.proposed_by}</span>}
       <span data-testid={`fact-proposals-${fact.id}`}>
-        Proposals: {fact.proposals ?? 0}
+        Times proposed: {fact.proposals ?? 0}
       </span>
     </div>
   )

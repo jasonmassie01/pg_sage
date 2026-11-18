@@ -137,7 +137,7 @@ function ReasonBox({ title, color, tone, children }) {
 function DetailFooter({ row }) {
   return (
     <div className="flex gap-4 text-xs" style={{ color: 'var(--text-secondary)' }}>
-      {row.finding_id && <span>Finding #{row.finding_id}</span>}
+      {row.finding_id && <span>Issue #{row.finding_id}</span>}
       {row.database_name && <span>Database: {row.database_name}</span>}
       {row.measured_at && <span>Verified: <LiveTimeAgo timestamp={row.measured_at} /></span>}
     </div>

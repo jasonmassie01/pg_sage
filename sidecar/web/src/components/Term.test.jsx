@@ -32,7 +32,7 @@ describe('Term', () => {
     const user = userEvent.setup()
     render(<Term id="issue">Issue</Term>)
     await user.tab()
-    expect(screen.getByText('Issue')).toHaveFocus()
+    expect(document.querySelector('[data-term="issue"]')).toHaveFocus()
     expect((await screen.findAllByText(glossary.issue.definition)).length)
       .toBeGreaterThan(0)
   })

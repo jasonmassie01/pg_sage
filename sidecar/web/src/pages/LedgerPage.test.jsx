@@ -57,13 +57,13 @@ describe('LedgerPage', () => {
     expect(first).toHaveTextContent('Can roll back')
     expect(within(first).getByRole('link', { name: /open action 12/i }))
       .toHaveAttribute('href', '#/actions?action=12')
-    expect(within(first).getByRole('link', { name: /open case/i }))
+    expect(within(first).getByRole('link', { name: /open issue/i }))
       .toHaveAttribute('href', '#/cases?finding=9&database=orders')
     const second = screen.getByTestId('ledger-row-orders-13')
     expect(second).toHaveTextContent('Cannot be verified')
     expect(second).toHaveTextContent('Not measured: suspend epoch break')
     expect(second).toHaveTextContent('Not reversible')
-    expect(within(second).queryByRole('link', { name: /open case/i })).toBeNull()
+    expect(within(second).queryByRole('link', { name: /open issue/i })).toBeNull()
   })
 
   it('summarizes the window from the API counts', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { landingTab } from './landingTab'
 
-// ux-05a win 1: Actions opens on Needs your review when the role can
+// ux-05a win 1: Actions opens on Waiting on you when the role can
 // review and approvals wait, else on Proposed changes; it waits while the
 // count loads and names a count error instead of guessing.
 // No concurrent access tests: a pure function of one snapshot.
@@ -9,11 +9,11 @@ import { landingTab } from './landingTab'
 const reviewer = { canReview: true, pendingCount: 0, loading: false, error: null }
 
 describe('landingTab', () => {
-  it('opens on Needs your review when approvals wait', () => {
+  it('opens on Waiting on you when approvals wait', () => {
     expect(landingTab({ ...reviewer, pendingCount: 3 })).toEqual({ tab: 'pending', error: null })
   })
 
-  it('opens on Needs your review at exactly one waiting approval', () => {
+  it('opens on Waiting on you at exactly one waiting approval', () => {
     expect(landingTab({ ...reviewer, pendingCount: 1 }).tab).toBe('pending')
   })
 
@@ -21,7 +21,7 @@ describe('landingTab', () => {
     expect(landingTab(reviewer)).toEqual({ tab: 'recommendations', error: null })
   })
 
-  it('never opens a viewer on Needs your review', () => {
+  it('never opens a viewer on Waiting on you', () => {
     expect(landingTab({ ...reviewer, canReview: false, pendingCount: 5 }))
       .toEqual({ tab: 'recommendations', error: null })
   })

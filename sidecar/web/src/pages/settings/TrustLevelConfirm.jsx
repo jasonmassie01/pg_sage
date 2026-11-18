@@ -44,7 +44,7 @@ function Title() {
   return (
     <span className="flex items-center gap-2">
       <ShieldAlert size={20} aria-hidden="true" style={{ color: 'var(--yellow)' }} />
-      Confirm Trust Level Change
+      Confirm Autonomy Change
     </span>
   )
 }
@@ -81,9 +81,9 @@ export function TrustLevelConfirm({ from, to, database, onConfirm, onCancel }) {
         Changing trust from <b>{from || 'unknown'}</b> to <b>{to}</b>.
       </p>
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-        {TRUST_LEVEL_EXPLAIN[to] || 'Unknown trust level.'}
+        {TRUST_LEVEL_EXPLAIN[to] || 'Unknown autonomy setting.'}
         {' '}<a href={POLICY_GATE_DOC} className="underline" data-testid="trust-level-policy-doc"
-          style={{ color: 'var(--accent)' }}>How the policy gate decides</a>
+          style={{ color: 'var(--accent)' }}>How the policy check decides</a>
       </p>
       {phrase !== null && (
         <PhraseInput phrase={phrase} value={typed} onChange={setTyped}

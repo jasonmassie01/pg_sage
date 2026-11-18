@@ -1,14 +1,14 @@
 // approvalOutcomeMessage turns an approve response into a truthful
 // message: executed, approved but not run, or refused (and why). A
 // scheduled approval names where it is cancelled: the "Approved, waiting
-// for the maintenance window" list inside Needs your review (ux-05a win 4).
+// for the maintenance window" list inside Waiting on you (ux-05a win 4).
 export function approvalOutcomeMessage(status, json) {
   const body = json || {}
   const ok = status >= 200 && status < 300
   if (ok && body.status === 'scheduled') {
     return { ok: true, text: 'Approved. Scheduled for the window opening ' +
       (body.run_after_label || 'of the next maintenance window') +
-      '; pg_sage checks the policy again then. Cancel it under Needs your review > ' +
+      '; pg_sage checks the policy again then. Cancel it under Waiting on you > ' +
       'Approved, waiting for the maintenance window.' }
   }
   if (ok && body.executed) {

@@ -87,7 +87,7 @@ describe('Actions', () => {
     expect(screen.getByTestId('actions-page-description'))
       .toHaveTextContent('Review proposed database changes')
     expect(screen.getByTestId('actions-page-description'))
-      .toHaveTextContent('Cases explain the evidence')
+      .toHaveTextContent('Issues explain the evidence')
     expect(screen.getByTestId('actions-page-description'))
       .toHaveTextContent('Approval, execution, and a verified improvement are separate steps')
   })
@@ -152,7 +152,7 @@ describe('Actions', () => {
   })
 })
 
-// ux-05a win 1: Actions opens on Needs your review when approvals wait and
+// ux-05a win 1: Actions opens on Waiting on you when approvals wait and
 // the role can review them; otherwise on Proposed changes. A link's tab
 // wins, and once open the tab never jumps when the count changes.
 const pendingRow = id => ({ id, action_type: 'analyze_table', action_risk: 'safe',
@@ -168,7 +168,7 @@ describe('Actions landing tab', () => {
     window.location.hash = ''
   })
 
-  it('opens on Needs your review when three approvals wait', () => {
+  it('opens on Waiting on you when three approvals wait', () => {
     api.overrides = { '/api/v1/actions/pending': pendingOf(3) }
     render(<Actions database="all" user={{ role: 'operator' }} />)
     expect(selected('pending')).toBe('true')
@@ -184,7 +184,7 @@ describe('Actions landing tab', () => {
     expect(screen.queryByTestId('actions-landing-error')).toBeNull()
   })
 
-  it('never opens a viewer on Needs your review', () => {
+  it('never opens a viewer on Waiting on you', () => {
     api.overrides = { '/api/v1/actions/pending': pendingOf(3) }
     render(<Actions database="all" user={{ role: 'viewer' }} />)
     expect(selected('recommendations')).toBe('true')
@@ -211,7 +211,7 @@ describe('Actions landing tab', () => {
     expect(screen.getByTestId('actions-landing-error')).toHaveTextContent('staging (query failed)')
   })
 
-  it('keeps Needs your review when the count drops from 1 to 0', () => {
+  it('keeps Waiting on you when the count drops from 1 to 0', () => {
     api.overrides = { '/api/v1/actions/pending': pendingOf(1) }
     const { rerender } = render(<Actions database="all" user={{ role: 'admin' }} />)
     expect(selected('pending')).toBe('true')
@@ -221,7 +221,7 @@ describe('Actions landing tab', () => {
     expect(screen.queryAllByTestId('approve-button')).toHaveLength(0)
   })
 
-  it('moves to Needs your review once a loading count arrives', () => {
+  it('moves to Waiting on you once a loading count arrives', () => {
     api.overrides = { '/api/v1/actions/pending': { data: null, loading: true, error: null,
       refetch: vi.fn() } }
     const { rerender } = render(<Actions database="all" user={{ role: 'admin' }} />)
@@ -254,7 +254,8 @@ describe('Actions landing tab', () => {
 
 // ux-06a: the tab bar speaks the glossary's words (Plan, Change, Decision);
 // keys and test ids stay. A viewer sees no tab that needs a reviewer.
-const tabNames = () => screen.getAllByRole('tab').map(t => t.textContent.replace(/\s*\(.*\)$/, ''))
+const tabNames = () => screen.getAllByRole('tab')
+  .map(t => t.textContent.replace(/\s*\(.*\)$/, '').trim())
 
 describe('Actions tab labels', () => {
   afterEach(() => { api.overrides = {} })

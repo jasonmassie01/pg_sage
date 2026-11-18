@@ -63,7 +63,7 @@ export function InvestigationReview({ database, investigation, user }) {
     <div data-testid="investigation-review" className="space-y-1">
       <div className="font-medium" style={strong}>Review this diagnosis</div>
       <div style={muted}>
-        Your verdict is the shadow evidence pg_sage needs before it may act on this
+        Your decision is the shadow evidence pg_sage needs before it may act on this
         family by itself; an admin still approves every promotion.
       </div>
       <div className="flex flex-wrap items-center gap-2">

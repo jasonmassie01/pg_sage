@@ -71,7 +71,7 @@ export function MonitoringContext({ database, fleetData, error, user }) {
   const mode = status?.trust_level
   const collected = collectionTime(status?.collector_last_run)
   return (
-    <aside data-testid="monitoring-context" aria-label="Monitoring scope and execution mode"
+    <aside data-testid="monitoring-context" aria-label="Monitoring scope and autonomy"
       className="rounded border p-3 mb-4 text-sm space-y-1"
       style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
       <p><strong>{database && database !== 'all' ? database : 'All databases'}</strong>
@@ -80,7 +80,7 @@ export function MonitoringContext({ database, fleetData, error, user }) {
         {selected?.emergency_stopped
           ? 'The emergency stop blocks database changes. Review evidence and execution settings in Trust.'
           : normalizeTrustLevel(mode) === 'observation'
-            ? 'Database changes are disabled in Observation mode. Review Cases and proposed changes; no database changes will run in this mode.'
+            ? 'Database changes are disabled in Observation mode. Review issues and proposed changes; no database changes will run in this mode.'
             : mode
               ? selectedPolicy(selected)
               : selected
@@ -97,7 +97,7 @@ export function MonitoringContext({ database, fleetData, error, user }) {
       </p>}
       {(error || status?.error || (selected && status?.connected !== true)) && (
         <p role="status" className="text-xs" style={{ color: 'var(--amber, #f0a54a)' }}>
-          Monitoring status is incomplete or could not be refreshed. Existing cases do not establish current health.
+          Monitoring status is incomplete or could not be refreshed. Existing issues do not establish current health.
           {' '}{user?.role === 'admin'
             ? <a href="#/manage-databases" className="underline">Review Fleet</a>
             : 'Ask an admin to review the database’s collection status in Fleet.'}

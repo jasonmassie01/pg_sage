@@ -25,6 +25,8 @@ const TEXT_PROPS = new Set(['label', 'title'])
 // Route fields that are not read by a person: ids, hash paths, test ids.
 const ROUTE_KEYS = new Set(['id', 'path', 'aliases', 'testId', 'navGroup', 'roles'])
 const FIVE = ['issue', 'plan', 'change', 'decision', 'autonomy']
+// WALK_TIMEOUT: parsing every shipped file can pass 5 s on a loaded machine.
+const WALK_TIMEOUT = 30000
 
 // ALLOWLIST: proper nouns and quoted API values the scan cannot tell apart
 // from text. Each entry names the file, the word and why it stays.
@@ -129,9 +131,17 @@ export function retiredHits(name, texts, avoid, allow = ALLOWLIST) {
 
 const rel = file => relative(SRC, file).split('\\').join('/')
 
+// textsByFile caches each file's texts: the walk parses 200+ files and the
+// suite runs it in three tests.
+const textsByFile = new Map()
+function textsOf(file) {
+  if (!textsByFile.has(file)) textsByFile.set(file, jsxTexts(readFileSync(file, 'utf8')))
+  return textsByFile.get(file)
+}
+
 function allHits(avoid, allow = ALLOWLIST) {
   const jsx = shippedSources(SRC).flatMap(file =>
-    retiredHits(rel(file), jsxTexts(readFileSync(file, 'utf8')), avoid, allow))
+    retiredHits(rel(file), textsOf(file), avoid, allow))
   const routes = retiredHits('routes.js',
     routeTexts(readFileSync(join(SRC, 'routes.js'), 'utf8')), avoid, allow)
   return [...routes, ...jsx]
@@ -172,7 +182,7 @@ describe('retired terms', () => {
   it('finds none in the shipped source', () => {
     expect(shippedSources(SRC).length).toBeGreaterThan(100)
     expect(allHits(avoid)).toEqual([])
-  })
+  }, WALK_TIMEOUT)
 
   it('keeps nav labels and headings to the five nouns (CHECK-03)', () => {
     const nav = ROUTES.filter(r => r.navGroup).map(routeLabel)
@@ -182,7 +192,7 @@ describe('retired terms', () => {
       + nouns.join(', '))
     expect(nouns.filter(n => !FIVE.includes(n))).toEqual([])
     expect(nouns.length).toBeLessThanOrEqual(5)
-  })
+  }, WALK_TIMEOUT)
 
   it('keeps the allowlist short and every entry live', () => {
     expect(ALLOWLIST.length).toBeLessThanOrEqual(10)
@@ -191,7 +201,7 @@ describe('retired terms', () => {
       expect(a.reason).toBeTruthy()
       expect(raw.some(h => h.startsWith(`${a.file}:`) && h.includes(`"${a.word}"`))).toBe(true)
     })
-  })
+  }, WALK_TIMEOUT)
 })
 
 describe('retired-term scanner', () => {
