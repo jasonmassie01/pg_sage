@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // `pg_sage_sidecar pressure --database D [--table T] [--job J] [--batch N]
@@ -65,8 +67,8 @@ type pressureAnswer struct {
 var pressureExits = map[string]int{"proceed": pressureExitProceed,
 	"slow": pressureExitSlow, "stop": pressureExitStop}
 
-// runPressureCommand runs `pressure args...`; client nil uses a 20 s
-// HTTP client (the route's own budget is 15 s).
+// runPressureCommand runs `pressure args...`; client nil uses a 20 s egress
+// client (the route's own budget is 15 s).
 func runPressureCommand(ctx context.Context, args []string, getenv func(string) string,
 	client *http.Client, stdout, stderr io.Writer) int {
 	a, err := parsePressureArgs(args)
@@ -86,7 +88,9 @@ func runPressureCommand(ctx context.Context, args []string, getenv func(string) 
 		return pressureExitUsage
 	}
 	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second}
+		// The egress floor refuses metadata and link-local destinations
+		// on every dial and redirect.
+		client = egress.HTTPClient(20 * time.Second)
 	}
 	raw, ans, err := askPressure(ctx, client, base, token, a)
 	if err != nil {
