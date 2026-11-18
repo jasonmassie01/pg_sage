@@ -104,7 +104,9 @@ func (s *Store) runs(ctx context.Context, database string, since time.Time,
 }
 
 // A step of a model plan without an origin row counts as the model's, as
-// changeplan's origin hold does (fail closed).
+// changeplan's origin hold does (fail closed). Any rollback the executor
+// started counts as a revert, whether it finished, is still running or
+// failed: a failed rollback is the worst outcome, never a better one.
 const stepsSQL = `/* pg_sage */ SELECT rp.run_id,
 	COALESCE(o.origin, CASE p.origin WHEN 'generator' THEN 'generator'
 		WHEN 'person' THEN 'person' ELSE 'model' END),
@@ -115,7 +117,8 @@ const stepsSQL = `/* pg_sage */ SELECT rp.run_id,
 		FROM sage.plan_step_approval a WHERE a.step_id = s.id AND a.voided_at IS NULL)),
 	COALESCE(s.verdict, ''),
 	(s.state IN ('reverting', 'reverted') OR EXISTS (SELECT 1 FROM sage.action_log al
-		WHERE al.id = s.action_log_id AND al.outcome IN ('rolled_back', 'reverted')))
+		WHERE al.id = s.action_log_id AND al.outcome IN ('rolling_back', 'rolled_back',
+			'rollback_failed', 'reverted')))
 	FROM sage.review_plan rp
 	JOIN sage.plan p ON p.id = rp.plan_id
 	JOIN sage.plan_step s ON s.plan_id = rp.plan_id
