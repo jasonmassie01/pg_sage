@@ -489,7 +489,7 @@ func structFieldPaths(t reflect.Type, prefix string) []string {
 // isExcluded returns true if a field path should not be expected
 // in api-tagged keys.
 func isExcluded(path string) bool {
-	if excludedExactKeys[path] || trancheFiveExcludedKeys[path] {
+	if excludedExactKeys[path] || trancheFiveExcludedKeys[path] || trancheSixExcludedKeys[path] {
 		return true
 	}
 	for _, prefix := range excludedPrefixes {
