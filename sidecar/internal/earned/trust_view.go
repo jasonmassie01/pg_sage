@@ -64,6 +64,10 @@ type TrustRow struct {
 	// because the server now runs another (earned-07).
 	ServerMajor *int      `json:"server_major,omitempty"`
 	MajorCap    *MajorCap `json:"major_cap,omitempty"`
+	// Mode and ModeBecause, set by AnnotateMode, are the class's step on
+	// the autonomy scale and why (ux-06b); empty until annotated.
+	Mode        ModeName `json:"mode,omitempty"`
+	ModeBecause []string `json:"mode_because,omitempty"`
 }
 
 // TrustView is one database's Trust page. Floor is the observation floor
