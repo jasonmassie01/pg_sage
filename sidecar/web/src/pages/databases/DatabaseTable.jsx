@@ -140,7 +140,7 @@ function SelectAll({ rows, selected, onToggle }) {
 }
 
 const HEADERS = ['Name', 'Host', 'Trust Level', 'Execution Mode', 'Registration',
-  ...RUNTIME_HEADERS, '']
+  ...RUNTIME_HEADERS]
 
 function FleetRows({ rows, sort, onSort, ...rest }) {
   return (
@@ -148,9 +148,10 @@ function FleetRows({ rows, sort, onSort, ...rest }) {
       <table className="w-full text-sm" data-testid="databases-table">
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
-            <th className="px-2 py-2"><SelectAll rows={rows} selected={rest.selected}
+            <th scope="col" className="px-2 py-2"><SelectAll rows={rows} selected={rest.selected}
               onToggle={rest.onToggle} /></th>
             {HEADERS.map(h => <SortHeader key={h} label={h} sort={sort} onSort={onSort} />)}
+            <th scope="col"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>

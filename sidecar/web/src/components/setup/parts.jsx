@@ -43,7 +43,7 @@ export function PrimaryButton({ testId, disabled, onClick, children }) {
   return (
     <button type="button" data-testid={testId} disabled={disabled} onClick={onClick}
       className="px-4 py-1.5 rounded text-sm font-medium disabled:opacity-50"
-      style={{ background: 'var(--accent)', color: '#fff' }}>
+      style={{ background: 'var(--accent-solid)', color: '#fff' }}>
       {children}
     </button>
   )

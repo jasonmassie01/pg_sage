@@ -116,10 +116,10 @@ export function TuningCalibration({ database }) {
         <table className="w-full text-left">
           <thead>
             <tr style={muted}>
-              <th className="pr-3 font-normal">action</th>
-              <th className="pr-3 font-normal">prediction</th>
-              <th className="pr-3 font-normal">outcomes</th>
-              <th className="font-normal">by predicted improvement</th>
+              <th scope="col" className="pr-3 font-normal">action</th>
+              <th scope="col" className="pr-3 font-normal">prediction</th>
+              <th scope="col" className="pr-3 font-normal">outcomes</th>
+              <th scope="col" className="font-normal">by predicted improvement</th>
             </tr>
           </thead>
           <tbody>

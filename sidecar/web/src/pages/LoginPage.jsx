@@ -125,7 +125,7 @@ export function LoginPage({ onLogin }) {
               role="alert"
               style={{
                 background: 'rgba(239,68,68,0.1)',
-                color: '#ef4444',
+                color: 'var(--red)',
                 border: '1px solid rgba(239,68,68,0.3)',
               }}>
               {ssoError}
@@ -136,7 +136,7 @@ export function LoginPage({ onLogin }) {
               data-testid="login-error"
               style={{
                 background: 'rgba(239,68,68,0.1)',
-                color: '#ef4444',
+                color: 'var(--red)',
                 border: '1px solid rgba(239,68,68,0.3)',
               }}>
               {error}
@@ -188,7 +188,7 @@ export function LoginPage({ onLogin }) {
             disabled={loading}
             className="w-full py-2 rounded text-sm font-medium"
             style={{
-              background: 'var(--accent)',
+              background: 'var(--accent-solid)',
               color: '#fff',
               opacity: loading ? 0.6 : 1,
             }}>

@@ -101,7 +101,7 @@ function DatabaseChecklist({ entry, onGrant, platformManaged, user }) {
           {grantStep && !grantStep.done && (
             <button type="button" onClick={() => onGrant(entry.database)}
               className="rounded px-3 py-1.5 text-sm"
-              style={{ background: 'var(--accent)', color: '#fff' }}>
+              style={{ background: 'var(--accent-solid)', color: '#fff' }}>
               Grant more
             </button>
           )}

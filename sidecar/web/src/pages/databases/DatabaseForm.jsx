@@ -198,7 +198,7 @@ export function DatabaseForm({ db, initial, onClose, onSaved, onError }) {
           <button type="submit" disabled={saving}
             data-testid="db-save-button"
             className="px-4 py-1.5 rounded text-sm font-medium"
-            style={{ background: 'var(--accent)', color: '#fff' }}>
+            style={{ background: 'var(--accent-solid)', color: '#fff' }}>
             {saving ? 'Saving...' : 'Save'}
           </button>
           <button type="button" onClick={handleTest}

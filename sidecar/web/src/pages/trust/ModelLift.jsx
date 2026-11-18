@@ -135,11 +135,11 @@ export function ModelLift({ database }) {
         <table className="w-full text-left">
           <thead>
             <tr style={muted}>
-              <th className="pr-3 font-normal">family</th>
-              <th className="pr-3 font-normal">Safe Pass (model vs graph)</th>
-              <th className="pr-3 font-normal">override precision</th>
-              <th className="pr-3 font-normal">inconclusive lift</th>
-              <th className="font-normal">root authority</th>
+              <th scope="col" className="pr-3 font-normal">family</th>
+              <th scope="col" className="pr-3 font-normal">Safe Pass (model vs graph)</th>
+              <th scope="col" className="pr-3 font-normal">override precision</th>
+              <th scope="col" className="pr-3 font-normal">inconclusive lift</th>
+              <th scope="col" className="font-normal">root authority</th>
             </tr>
           </thead>
           <tbody>

@@ -162,7 +162,7 @@ function TabBar({ tab, setTab, counts, canReview }) {
       aria-label={`${counts[t.key]} loaded items`}>({counts[t.key]})</span>}</> }))
   return <TabList id="actions" label="Change tasks" tabs={labelled} active={tab}
     onSelect={setTab} tabStyle={selected => ({
-      background: selected ? 'var(--accent)' : 'var(--bg-card)',
+      background: selected ? 'var(--accent-solid)' : 'var(--bg-card)',
       color: selected ? '#fff' : 'var(--text-secondary)',
       border: '1px solid var(--border)' })} />
 }

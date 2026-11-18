@@ -123,15 +123,18 @@ export function NoMatch({ onClear }) {
   )
 }
 
+const HEAD = 'text-left px-4 py-2 text-xs whitespace-nowrap'
+
 // SortHeader is a column title: a button that sorts the server list, with
 // aria-sort, for the columns in FLEET_SORTS, plain text for the others.
+
 export function SortHeader({ label, sort, onSort }) {
   const state = ariaSort(sort, label)
   if (!state) {
-    return <th className="text-left px-4 py-2 text-xs whitespace-nowrap" style={muted}>{label}</th>
+    return <th scope="col" className={HEAD} style={muted}>{label}</th>
   }
   return (
-    <th aria-sort={state} className="text-left px-4 py-2 text-xs whitespace-nowrap" style={muted}>
+    <th scope="col" aria-sort={state} className={HEAD} style={muted}>
       <button type="button" data-testid={`db-sort-${label}`}
         onClick={() => onSort(nextSort(sort, label))}>
         {label}{state === 'ascending' ? ' â–²' : state === 'descending' ? ' â–¼' : ''}

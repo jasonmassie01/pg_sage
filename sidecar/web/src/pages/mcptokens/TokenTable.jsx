@@ -100,7 +100,7 @@ export function TokenTable({ tokens, now, owners, revokingIds, onRevoke }) {
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
             {HEADERS.map(h => (
-              <th key={h} className="text-left px-4 py-2 text-xs"
+              <th scope="col" key={h} className="text-left px-4 py-2 text-xs"
                 style={{ color: 'var(--text-secondary)' }}>{h}</th>
             ))}
           </tr>

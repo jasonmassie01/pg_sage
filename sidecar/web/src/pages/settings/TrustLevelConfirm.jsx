@@ -63,7 +63,7 @@ function Buttons({ canConfirm, onCancel, onConfirm }) {
       <button type="button" onClick={onConfirm} disabled={!canConfirm}
         data-testid="trust-level-confirm-btn"
         className="px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Confirm
       </button>
     </div>

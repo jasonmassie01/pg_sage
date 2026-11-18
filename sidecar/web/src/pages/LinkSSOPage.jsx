@@ -53,7 +53,7 @@ export function LinkSSOPage({ navigate = redirectTo }) {
         <button data-testid="link-sso-grant-continue"
           onClick={handleContinue} disabled={!grant || busy}
           className="w-full px-4 py-2 rounded text-sm font-medium"
-          style={{ background: 'var(--accent)', color: '#fff',
+          style={{ background: 'var(--accent-solid)', color: '#fff',
             opacity: !grant || busy ? 0.6 : 1 }}>
           {busy ? 'Redirecting...' : 'Continue with SSO'}
         </button>

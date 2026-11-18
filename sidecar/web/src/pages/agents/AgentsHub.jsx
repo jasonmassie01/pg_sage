@@ -22,7 +22,7 @@ export function AgentsHub({ user, databases, initialTab }) {
       <TabList id="agents" label="Agents sections" tabs={TABS} active={tab} onSelect={setTab}
         className="flex gap-2" tabClassName="px-3 py-1 rounded text-sm"
         tabStyle={selected => ({
-          background: selected ? 'var(--accent)' : 'var(--bg-card)',
+          background: selected ? 'var(--accent-solid)' : 'var(--bg-card)',
           color: selected ? '#fff' : 'var(--text-primary)',
           border: '1px solid var(--border)',
         })} />

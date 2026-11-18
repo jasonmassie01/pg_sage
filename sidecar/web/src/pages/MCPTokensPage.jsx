@@ -14,7 +14,7 @@ import { useOwners } from './mcptokens/useOwners'
 const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
 const errorStyle = {
   background: 'rgba(239,68,68,0.1)',
-  color: '#ef4444',
+  color: 'var(--red)',
   border: '1px solid rgba(239,68,68,0.3)',
 }
 

@@ -170,7 +170,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
         <div className="text-sm p-3 rounded mb-4"
           style={{
             background: 'rgba(239,68,68,0.1)',
-            color: '#ef4444',
+            color: 'var(--red)',
             border: '1px solid rgba(239,68,68,0.3)',
           }}>
           {error}
@@ -249,7 +249,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
             data-testid="add-user-submit"
             className="px-4 py-1.5 rounded text-sm font-medium"
             style={{
-              background: 'var(--accent)',
+              background: 'var(--accent-solid)',
               color: '#fff',
             }}>
             {creating ? 'Adding...' : 'Add User'}
@@ -268,7 +268,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
               {['Email', 'Role', platformManaged ? 'Sign-in' : 'SSO', 'Created', 'Last Login',
                 ...(!platformManaged ? [''] : [])].map(
                 h => (
-                  <th key={h} className="text-left px-4 py-2 text-xs"
+                  <th scope="col" key={h} className="text-left px-4 py-2 text-xs"
                     style={{ color: 'var(--text-secondary)' }}>
                     {h}
                   </th>

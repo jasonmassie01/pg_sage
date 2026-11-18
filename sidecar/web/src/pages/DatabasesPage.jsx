@@ -130,7 +130,7 @@ export function DatabasesPage({
         <div role="alert" data-testid="fleet-load-error" className="text-sm p-3 rounded"
           style={{
             background: 'rgba(239,68,68,0.1)',
-            color: '#ef4444',
+            color: 'var(--red)',
             border: '1px solid rgba(239,68,68,0.3)',
           }}>
           {error}
@@ -181,7 +181,7 @@ export function DatabasesPage({
         <button onClick={() => { setEditingDB(null); setShowForm(true) }}
           data-testid="add-database-button"
           className="px-4 py-1.5 rounded text-sm font-medium"
-          style={{ background: 'var(--accent)', color: '#fff' }}>
+          style={{ background: 'var(--accent-solid)', color: '#fff' }}>
           Add Database
         </button>
         <button onClick={() => setShowImport(true)}
@@ -312,7 +312,7 @@ function FleetTabs({ tab, onChange, readOnly }) {
     <TabList id="fleet" label="Fleet sections" tabs={tabs} active={tab} onSelect={onChange}
       className="flex gap-2" data-testid="fleet-tabs" tabClassName="px-3 py-1 rounded text-sm"
       tabStyle={selected => ({
-        background: selected ? 'var(--accent)' : 'var(--bg-card)',
+        background: selected ? 'var(--accent-solid)' : 'var(--bg-card)',
         color: selected ? '#fff' : 'var(--text-primary)',
         border: '1px solid var(--border)',
       })} />

@@ -35,8 +35,11 @@ function History({ data }) {
   return (
     <table className="w-full text-xs">
       <thead style={muted}>
-        <tr className="text-left"><th>Bucket</th><th className="text-right">Calls</th>
-          <th className="text-right">Mean</th><th className="text-right">Rows</th><th /></tr>
+        <tr className="text-left"><th scope="col">Bucket</th>
+          <th scope="col" className="text-right">Calls</th>
+          <th scope="col" className="text-right">Mean</th>
+          <th scope="col" className="text-right">Rows</th>
+          <th scope="col" /></tr>
       </thead>
       <tbody>
         {data.buckets.map(b => (

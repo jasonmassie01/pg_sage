@@ -39,7 +39,7 @@ function SSOSection({ status, busy, onLink }) {
       </p>
       <button data-testid="link-sso-button" onClick={onLink} disabled={busy}
         className="px-4 py-1.5 rounded text-sm font-medium"
-        style={{ background: 'var(--accent)', color: '#fff',
+        style={{ background: 'var(--accent-solid)', color: '#fff',
           opacity: busy ? 0.6 : 1 }}>
         {busy ? 'Redirecting...' : 'Link SSO'}
       </button>

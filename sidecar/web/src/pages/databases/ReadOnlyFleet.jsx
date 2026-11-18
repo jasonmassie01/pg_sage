@@ -23,7 +23,7 @@ export function ReadOnlyFleet({ databases, testId = 'yaml-fleet-list', onSelectD
         <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
           {HEADERS.map(label => (onSort
             ? <SortHeader key={label} label={label} sort={sort} onSort={onSort} />
-            : <th key={label} className="text-left px-4 py-3 text-xs whitespace-nowrap"
+            : <th scope="col" key={label} className="text-left px-4 py-3 text-xs whitespace-nowrap"
               style={muted}>{label}</th>))}
         </tr></thead>
         <tbody>{databases.map(database => (

@@ -92,7 +92,7 @@ function OverviewSections({ activeTab, setActiveTab }) {
             <button key={tab.key} type="button" data-testid={`overview-tab-${tab.key}`}
               aria-pressed={selected} onClick={() => setActiveTab(tab.key)}
               className="px-3 py-1 rounded text-sm" style={{
-                background: selected ? 'var(--accent)' : 'var(--bg-card)',
+                background: selected ? 'var(--accent-solid)' : 'var(--bg-card)',
                 color: selected ? '#fff' : 'var(--text-secondary)',
                 border: '1px solid var(--border)',
               }}>

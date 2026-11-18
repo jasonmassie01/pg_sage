@@ -107,7 +107,7 @@ function AddGrantForm({ onAdd }) {
         <option value="operator">operator</option>
       </select>
       <button type="submit" data-testid="user-grant-add" className="px-3 py-1 rounded text-xs"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Grant
       </button>
     </form>

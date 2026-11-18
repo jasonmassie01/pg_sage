@@ -52,7 +52,7 @@ function Buttons({ action, danger, canConfirm, busy, onCancel, onConfirm, testId
       <button type="button" data-testid={`${testId}-confirm`}
         disabled={!canConfirm || busy} onClick={onConfirm}
         className="px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50"
-        style={{ background: danger ? 'var(--red-solid)' : 'var(--accent)', color: '#fff' }}>
+        style={{ background: danger ? 'var(--red-solid)' : 'var(--accent-solid)', color: '#fff' }}>
         {busy ? 'Working…' : action}
       </button>
     </div>

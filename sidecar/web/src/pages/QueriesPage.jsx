@@ -60,11 +60,13 @@ function TopTable({ data, fleet }) {
     <table data-testid="top-queries" className="w-full text-sm">
       <thead style={{ color: 'var(--text-secondary)' }}>
         <tr className="text-left">
-          {fleet && <th className="pr-3">Database</th>}
-          <th className="pr-3">Query ID</th><th className="pr-3">Statement</th>
-          <th className="pr-3 text-right" title="Execution seconds per second">Load</th>
-          <th className="pr-3 text-right">Calls</th>
-          <th className="pr-3 text-right">Mean</th><th className="text-right">Rows</th>
+          {fleet && <th scope="col" className="pr-3">Database</th>}
+          <th scope="col" className="pr-3">Query ID</th>
+          <th scope="col" className="pr-3">Statement</th>
+          <th scope="col" className="pr-3 text-right" title="Execution seconds per second">Load</th>
+          <th scope="col" className="pr-3 text-right">Calls</th>
+          <th scope="col" className="pr-3 text-right">Mean</th>
+          <th scope="col" className="text-right">Rows</th>
         </tr>
       </thead>
       <tbody>

@@ -136,7 +136,7 @@ export function SaveBar({ save, onDiscard }) {
       <button onClick={save.requestSave} disabled={save.saving}
         data-testid="settings-save"
         className="flex items-center gap-2 px-4 py-2 rounded text-sm font-medium"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         <Save size={16} />
         {save.saving ? 'Saving...' : 'Review & Save'}
       </button>

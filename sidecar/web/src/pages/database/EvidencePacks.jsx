@@ -58,7 +58,7 @@ function BuildButton({ database, onBuilt }) {
     <span className="flex items-center gap-2">
       <button type="button" onClick={build} disabled={busy} data-testid="pack-build"
         className="px-3 py-1.5 rounded text-sm"
-        style={{ background: 'var(--accent)', color: '#fff', opacity: busy ? 0.6 : 1 }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff', opacity: busy ? 0.6 : 1 }}>
         {busy ? 'Building...' : 'Build pack (last 28 days)'}
       </button>
       {error && (

@@ -37,7 +37,7 @@ function ErrorState({ error, onRetry }) {
       <p className="mt-1 text-sm">{error}</p>
       <button type="button" onClick={onRetry}
         className="mt-3 rounded px-3 py-1.5 text-sm"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Retry
       </button>
     </div>

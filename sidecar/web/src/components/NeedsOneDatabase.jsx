@@ -15,7 +15,7 @@ export function NeedsOneDatabase({ tag, onShowAll, isAdmin }) {
       </p>
       <div className="flex flex-wrap gap-3 text-sm">
         <button type="button" onClick={onShowAll} className="rounded px-3 py-1.5"
-          style={{ background: 'var(--accent)', color: '#fff' }}>
+          style={{ background: 'var(--accent-solid)', color: '#fff' }}>
           Show all databases
         </button>
         {isAdmin && (

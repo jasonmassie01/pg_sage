@@ -112,7 +112,7 @@ function GrantAction({ guide, choice, onGranted, busy, setBusy }) {
         {error}</p>}
       <button type="button" onClick={grant} disabled={busy}
         className="rounded px-3 py-1.5 text-sm"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Grant {choice}
       </button>
     </div>

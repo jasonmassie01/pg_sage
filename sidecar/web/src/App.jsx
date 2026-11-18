@@ -41,7 +41,7 @@ function PlatformSignInError({ mode, onReload }) {
           : 'Sign-in could not be verified. Reload to try again.'}
       </p>
       <button type="button" onClick={onReload} className="px-4 py-2 rounded"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Reload
       </button>
       <PostgresMeme route="#/login" compact />

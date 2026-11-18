@@ -23,7 +23,7 @@ export function AuthStoreRetry({ onRetry }) {
         signed out.
       </p>
       <button type="button" onClick={onRetry} className="px-4 py-2 rounded"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Retry now
       </button>
     </div>

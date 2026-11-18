@@ -13,7 +13,7 @@ export const REQUESTS_URL = '/api/v1/specialist-requests'
 const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
 const errorStyle = {
   background: 'rgba(239,68,68,0.1)',
-  color: '#ef4444',
+  color: 'var(--red)',
   border: '1px solid rgba(239,68,68,0.3)',
 }
 
@@ -162,9 +162,15 @@ function RequestTable({ items }) {
       <table className="w-full text-left">
         <thead>
           <tr style={{ color: 'var(--text-secondary)' }}>
-            <th>When</th><th>Agent</th><th>Kind</th><th>Database</th>
-            <th>Investigation</th><th>What</th><th>Approval</th><th>Reference</th>
-            <th>Result post</th>
+            <th scope="col">When</th>
+            <th scope="col">Agent</th>
+            <th scope="col">Kind</th>
+            <th scope="col">Database</th>
+            <th scope="col">Investigation</th>
+            <th scope="col">What</th>
+            <th scope="col">Approval</th>
+            <th scope="col">Reference</th>
+            <th scope="col">Result post</th>
           </tr>
         </thead>
         <tbody>

@@ -125,7 +125,7 @@ function Buttons({ count, saving, onConfirm, onCancel }) {
       </button>
       <button type="button" onClick={onConfirm} disabled={blocked}
         data-testid="config-diff-confirm" className="px-3 py-1.5 rounded text-sm font-medium"
-        style={{ background: 'var(--accent)', color: '#fff', opacity: blocked ? 0.6 : 1 }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff', opacity: blocked ? 0.6 : 1 }}>
         {saving ? 'Saving...' : `Apply ${count} Change${count === 1 ? '' : 's'}`}
       </button>
     </div>

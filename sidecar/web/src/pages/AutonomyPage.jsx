@@ -222,8 +222,14 @@ function FamilyTable({ family, canAct, onDowngrade }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs" style={muted}>
-            <th>Class</th><th>Reversibility</th><th>Cap</th><th>Granted</th>
-            <th>Evidence</th><th>Effective</th><th>Next level</th><th />
+            <th scope="col">Class</th>
+            <th scope="col">Reversibility</th>
+            <th scope="col">Cap</th>
+            <th scope="col">Granted</th>
+            <th scope="col">Evidence</th>
+            <th scope="col">Effective</th>
+            <th scope="col">Next level</th>
+            <th scope="col" />
           </tr>
         </thead>
         <tbody>

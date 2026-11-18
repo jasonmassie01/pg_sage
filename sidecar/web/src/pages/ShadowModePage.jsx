@@ -58,11 +58,11 @@ function DatabaseLedger({ db }) {
       <table className="w-full text-left">
         <thead>
           <tr className="text-xs" style={muted}>
-            <th className="pr-3 font-normal">Class</th>
+            <th scope="col" className="pr-3 font-normal">Class</th>
             {COLUMNS.map(([key, label]) => (
-              <th key={key} className="pr-3 font-normal">{label}</th>
+              <th scope="col" key={key} className="pr-3 font-normal">{label}</th>
             ))}
-            <th className="font-normal">Potential minutes</th>
+            <th scope="col" className="font-normal">Potential minutes</th>
           </tr>
         </thead>
         <tbody>

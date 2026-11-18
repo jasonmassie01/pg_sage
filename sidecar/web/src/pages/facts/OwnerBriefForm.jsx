@@ -223,7 +223,7 @@ function BriefFooter({ busy, disabled, error, saved }) {
     <div className="space-y-1">
       <button type="submit" data-testid="brief-save" disabled={disabled}
         className="px-3 py-1 rounded text-sm"
-        style={{ background: 'var(--accent)', color: '#fff', opacity: disabled ? 0.5 : 1 }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff', opacity: disabled ? 0.5 : 1 }}>
         {busy ? 'Saving...' : 'Save owner brief'}
       </button>
       {error && (

@@ -38,12 +38,12 @@ export function TrustTable({ database, kind, rows, isAdmin, onRevalidate, shadow
         <table className="w-full text-left">
           <thead>
             <tr className="text-xs" style={muted}>
-              <th className={cell}>Family / class</th>
-              {hasMode && <th className={cell}>What pg_sage may do</th>}
-              <th className={cell}>Level</th>
-              <th className={cell}>Evidence</th>
-              <th className={cell}>Last change</th>
-              <th className={cell}>Path to next level</th>
+              <th scope="col" className={cell}>Family / class</th>
+              {hasMode && <th scope="col" className={cell}>What pg_sage may do</th>}
+              <th scope="col" className={cell}>Level</th>
+              <th scope="col" className={cell}>Evidence</th>
+              <th scope="col" className={cell}>Last change</th>
+              <th scope="col" className={cell}>Path to next level</th>
             </tr>
           </thead>
           <tbody>
