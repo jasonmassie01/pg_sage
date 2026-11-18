@@ -63,7 +63,8 @@ func (s *NotificationStore) ListRules(
 	defer cancel()
 
 	rows, err := s.pool.Query(qctx,
-		`/* pg_sage */ SELECT id, channel_id, event, min_severity, enabled, managed_by
+		`/* pg_sage */ SELECT id, channel_id, event, min_severity, enabled, managed_by,
+		        COALESCE(delivery_class, '')
 		 FROM sage.notification_rules ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("listing rules: %w", err)
@@ -75,7 +76,7 @@ func (s *NotificationStore) ListRules(
 		var r notify.Rule
 		if err := rows.Scan(
 			&r.ID, &r.ChannelID, &r.Event,
-			&r.MinSeverity, &r.Enabled, &r.ManagedBy,
+			&r.MinSeverity, &r.Enabled, &r.ManagedBy, &r.DeliveryClass,
 		); err != nil {
 			return nil, fmt.Errorf("scanning rule: %w", err)
 		}
