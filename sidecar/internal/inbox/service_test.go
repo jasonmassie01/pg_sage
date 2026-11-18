@@ -36,8 +36,8 @@ func allFixed() map[Kind]Source {
 func TestService_ListsEveryKindAndCountsIt(t *testing.T) {
 	s := &Service{Sources: allFixed()}
 	res := s.List(context.Background(), Request{Databases: []string{"a", "b"}})
-	if res.Total != 14 || len(res.Items) != 14 || res.LowerBound || len(res.Errors) != 0 {
-		t.Fatalf("total %d items %d lower %v errors %v, want 14 exact",
+	if res.Total != 16 || len(res.Items) != 16 || res.LowerBound || len(res.Errors) != 0 {
+		t.Fatalf("total %d items %d lower %v errors %v, want 16 exact",
 			res.Total, len(res.Items), res.LowerBound, res.Errors)
 	}
 	for _, k := range Kinds() {
@@ -46,8 +46,8 @@ func TestService_ListsEveryKindAndCountsIt(t *testing.T) {
 		}
 	}
 	// Same risk: oldest first, so the last kind (oldest) leads, then a before b.
-	if res.Items[0].Kind != KindPolicyException || res.Items[0].Database != "a" ||
-		res.Items[1].Database != "b" || res.Items[13].Kind != KindChangeApproval {
+	if res.Items[0].Kind != KindAdvice || res.Items[0].Database != "a" ||
+		res.Items[1].Database != "b" || res.Items[15].Kind != KindChangeApproval {
 		t.Fatalf("order = %+v", res.Items)
 	}
 }
@@ -80,8 +80,8 @@ func TestService_EmptyIsEmptyNotNull(t *testing.T) {
 	res := (&Service{Sources: empty}).List(context.Background(),
 		Request{Databases: []string{"a"}})
 	if res.Items == nil || res.Errors == nil || res.CountsByKind == nil ||
-		res.Total != 0 || res.LowerBound || len(res.CountsByKind) != 7 {
-		t.Fatalf("empty result %+v, want [] [] and seven zero counts", res)
+		res.Total != 0 || res.LowerBound || len(res.CountsByKind) != 8 {
+		t.Fatalf("empty result %+v, want [] [] and eight zero counts", res)
 	}
 	// No databases at all (a scoped user with no grants): still exact zero.
 	res = (&Service{Sources: empty}).List(context.Background(), Request{})
@@ -96,8 +96,8 @@ func TestService_NilSourceIsNamedNotConfigured(t *testing.T) {
 	delete(src, KindFact)
 	res := (&Service{Sources: src}).List(context.Background(),
 		Request{Databases: []string{"a"}})
-	if res.Total != 5 || !res.LowerBound || len(res.Errors) != 2 {
-		t.Fatalf("result %+v, want 5 items as a lower bound and two errors", res)
+	if res.Total != 6 || !res.LowerBound || len(res.Errors) != 2 {
+		t.Fatalf("result %+v, want 6 items as a lower bound and two errors", res)
 	}
 	want := []SourceError{{Source: "fact", Error: "source not configured"},
 		{Source: "runbook_signature", Error: "source not configured"}}
@@ -112,8 +112,8 @@ func TestService_TimeoutIsNamedAndOthersStillList(t *testing.T) {
 		fmt.Errorf("read ledger: %w", context.DeadlineExceeded))
 	res := (&Service{Sources: src}).List(context.Background(),
 		Request{Databases: []string{"orders"}})
-	if res.Total != 6 || !res.LowerBound || res.CountsByKind[KindAutonomyPromotion] != 0 {
-		t.Fatalf("result %+v, want the six other kinds as a lower bound", res)
+	if res.Total != 7 || !res.LowerBound || res.CountsByKind[KindAutonomyPromotion] != 0 {
+		t.Fatalf("result %+v, want the seven other kinds as a lower bound", res)
 	}
 	want := SourceError{Source: "autonomy_promotion", Database: "orders",
 		Error: "timed out after 2s"}
@@ -182,13 +182,13 @@ func TestService_LimitTruncatesButCountsEverything(t *testing.T) {
 	s := &Service{Sources: allFixed()}
 	res := s.List(context.Background(), Request{Databases: []string{"a", "b", "c"},
 		Limit: 4})
-	if len(res.Items) != 4 || res.Total != 21 || !res.Truncated ||
+	if len(res.Items) != 4 || res.Total != 24 || !res.Truncated ||
 		res.CountsByKind[KindFact] != 3 {
-		t.Fatalf("items %d total %d truncated %v, want 4 of 21", len(res.Items),
+		t.Fatalf("items %d total %d truncated %v, want 4 of 24", len(res.Items),
 			res.Total, res.Truncated)
 	}
-	res = s.List(context.Background(), Request{Databases: []string{"a"}, Limit: 7})
-	if len(res.Items) != 7 || res.Truncated {
+	res = s.List(context.Background(), Request{Databases: []string{"a"}, Limit: 8})
+	if len(res.Items) != 8 || res.Truncated {
 		t.Fatalf("exactly at the limit: %d items, truncated %v", len(res.Items),
 			res.Truncated)
 	}

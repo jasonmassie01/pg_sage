@@ -1,6 +1,7 @@
 // Package inbox is the one list of everything waiting on a person
 // (ux-01a): change approvals, plans, autonomy promotions, proposed facts,
-// unsigned runbooks, agent capability requests and policy proposals. It
+// unsigned runbooks, agent capability requests, policy proposals and the
+// sprawl census's TTL advice (fleetpol-03). It
 // only reads: every decision still goes through the existing route of
 // the item's own kind (the executor, the ledger, the fact store), which
 // Href points at. An agent reading it decides nothing (plan-03b).
@@ -16,7 +17,7 @@ import (
 // Kind is what a person is asked to decide.
 type Kind string
 
-// The seven kinds, in their fixed order.
+// The eight kinds, in their fixed order.
 const (
 	KindChangeApproval    Kind = "change_approval"
 	KindPlanApproval      Kind = "plan_approval"
@@ -25,12 +26,15 @@ const (
 	KindRunbookSignature  Kind = "runbook_signature"
 	KindAgentRequest      Kind = "agent_request"
 	KindPolicyException   Kind = "policy_exception"
+	// KindAdvice is advice a person may act on (fleetpol-03: a TTL proposal
+	// for an unused database); pg_sage takes no action on it.
+	KindAdvice Kind = "advice"
 )
 
 // Kinds returns every kind in its fixed order.
 func Kinds() []Kind {
 	return []Kind{KindChangeApproval, KindPlanApproval, KindAutonomyPromotion, KindFact,
-		KindRunbookSignature, KindAgentRequest, KindPolicyException}
+		KindRunbookSignature, KindAgentRequest, KindPolicyException, KindAdvice}
 }
 
 // ParseKinds reads a comma-separated kind list; "" is every kind. An
@@ -69,7 +73,7 @@ func KindsOf(names []string) ([]Kind, error) {
 	return out, nil
 }
 
-// Valid reports one of the seven kinds.
+// Valid reports one of the eight kinds.
 func (k Kind) Valid() bool {
 	for _, known := range Kinds() {
 		if k == known {
@@ -80,7 +84,7 @@ func (k Kind) Valid() bool {
 }
 
 func kindList() string {
-	names := make([]string, 0, 7)
+	names := make([]string, 0, 8)
 	for _, k := range Kinds() {
 		names = append(names, string(k))
 	}

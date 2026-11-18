@@ -13,7 +13,7 @@ import (
 
 func TestParseKinds(t *testing.T) {
 	all, err := ParseKinds(" ")
-	if err != nil || len(all) != 7 {
+	if err != nil || len(all) != 8 {
 		t.Fatalf("empty: %v %v, want every kind", all, err)
 	}
 	got, err := ParseKinds("fact, change_approval,fact")
@@ -26,7 +26,7 @@ func TestParseKinds(t *testing.T) {
 			t.Fatalf("ParseKinds(%q) = %v, want an error naming the known kinds", bad, err)
 		}
 	}
-	if got, err := KindsOf(nil); err != nil || len(got) != 7 {
+	if got, err := KindsOf(nil); err != nil || len(got) != 8 {
 		t.Fatalf("KindsOf(nil) = %v %v", got, err)
 	}
 }

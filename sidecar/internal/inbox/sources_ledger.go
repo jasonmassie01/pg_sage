@@ -77,12 +77,12 @@ func Runbooks(in Instances) Source {
 }
 
 // FleetSources is every kind's source over a fleet (or a read view of
-// it) and the trust ledgers.
+// it), the trust ledgers and, when the fleet has one, its sprawl census.
 func FleetSources(in Instances, ledgers *earned.Registry) map[Kind]Source {
 	return map[Kind]Source{
 		KindChangeApproval: ChangeApprovals(in), KindPlanApproval: Plans(in),
 		KindAutonomyPromotion: Promotions(ledgers), KindFact: Facts(in),
 		KindRunbookSignature: Runbooks(in), KindAgentRequest: AgentRequests(in),
-		KindPolicyException: PolicyProposals(in),
+		KindPolicyException: PolicyProposals(in), KindAdvice: CensusAdvice(censusOf(in)),
 	}
 }

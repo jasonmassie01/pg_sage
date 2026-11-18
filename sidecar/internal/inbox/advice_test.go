@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -68,7 +69,7 @@ func TestCensusAdvice_ItemsAreAdviceForAPerson(t *testing.T) {
 
 func TestService_FleetSourceIsReadOnceAndScopedToTheRequest(t *testing.T) {
 	census := &fakeCensus{props: censusProps()}
-	s := &Service{Fleet: map[Kind]Source{KindAdvice: CensusAdvice(census)}}
+	s := &Service{Sources: map[Kind]Source{KindAdvice: CensusAdvice(census)}}
 	res := s.List(context.Background(), Request{Databases: []string{"a", "b"},
 		Kinds: []Kind{KindAdvice}})
 	if census.calls.Load() != 1 || res.Total != 1 || res.Items[0].Database != "a" ||
@@ -84,7 +85,7 @@ func TestService_FleetSourceIsReadOnceAndScopedToTheRequest(t *testing.T) {
 	if res := s.List(context.Background(), Request{Kinds: []Kind{KindAdvice}}); res.Total != 0 {
 		t.Fatalf("no databases: %+v", res)
 	}
-	failing := &Service{Fleet: map[Kind]Source{KindAdvice: CensusAdvice(
+	failing := &Service{Sources: map[Kind]Source{KindAdvice: CensusAdvice(
 		&fakeCensus{err: errors.New("meta down")})}}
 	res = failing.List(context.Background(), Request{Databases: []string{"a"},
 		Kinds: []Kind{KindAdvice}})
@@ -94,13 +95,34 @@ func TestService_FleetSourceIsReadOnceAndScopedToTheRequest(t *testing.T) {
 	}
 }
 
-func TestService_PerDatabaseSourceWinsOverAFleetSource(t *testing.T) {
+// censusFleet is a fleet whose instances read a census.
+type censusFleet struct{ *fakeCensus }
+
+func (censusFleet) GetInstance(string) *fleet.DatabaseInstance { return nil }
+
+func TestFleetSources_ListTheFleetsCensusAdvice(t *testing.T) {
 	census := &fakeCensus{props: censusProps()}
-	s := &Service{Sources: map[Kind]Source{KindAdvice: fixed(KindAdvice, RiskSafe, 0, nil)},
-		Fleet: map[Kind]Source{KindAdvice: CensusAdvice(census)}}
-	res := s.List(context.Background(), Request{Databases: []string{"a"},
+	s := &Service{Sources: FleetSources(censusFleet{census}, nil)}
+	res := s.List(context.Background(), Request{Databases: []string{"a", "b", "c"},
 		Kinds: []Kind{KindAdvice}})
-	if census.calls.Load() != 0 || res.Total != 1 || res.Items[0].ID != "advice-a" {
-		t.Fatalf("result %+v calls %d", res, census.calls.Load())
+	if census.calls.Load() != 1 || res.Total != 1 || res.Items[0].ID != "census-4-a" {
+		t.Fatalf("result %+v calls %d, want one read and a's advice", res,
+			census.calls.Load())
+	}
+	// A fleet without a census (or no fleet) lists no advice and no error.
+	for _, in := range []Instances{nil, fleet.NewManager(config.DefaultConfig())} {
+		res := (&Service{Sources: FleetSources(in, nil)}).List(context.Background(),
+			Request{Databases: []string{"a"}, Kinds: []Kind{KindAdvice}, AllDatabases: true})
+		if res.Total != 0 || len(res.Errors) != 0 || res.LowerBound {
+			t.Fatalf("no census (%T): %+v", in, res)
+		}
+	}
+	// The manager reads the census it was given.
+	mgr := fleet.NewManager(config.DefaultConfig())
+	mgr.SetCensus(census)
+	res = (&Service{Sources: FleetSources(mgr, nil)}).List(context.Background(),
+		Request{Kinds: []Kind{KindAdvice}, AllDatabases: true})
+	if res.Total != 2 {
+		t.Fatalf("manager census: %+v, want both proposals", res)
 	}
 }

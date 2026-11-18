@@ -38,11 +38,32 @@ func (f SourceFunc) List(ctx context.Context, database string) ([]Item, error) {
 	return f(ctx, database)
 }
 
+// fleetWide marks a source read once per listing, not once per database.
+type fleetWide interface {
+	Source
+	fleetWide()
+}
+
+// FleetWide is a source read once per listing for the whole fleet (with
+// database ""): for items of databases with no runtime, which no
+// per-database source can read. Each item names its own database.
+type FleetWide func(ctx context.Context, database string) ([]Item, error)
+
+// List calls f.
+func (f FleetWide) List(ctx context.Context, database string) ([]Item, error) {
+	return f(ctx, database)
+}
+
+func (FleetWide) fleetWide() {}
+
 // Service fans a listing out to one source per kind and database. It
 // holds no mutable state, so concurrent List calls share nothing.
 type Service struct {
 	// Sources maps each kind to its source; a kind missing or mapped to
 	// nil is reported as "source not configured", never as empty.
+	// A fleet-wide source (FleetWide) is read once per listing, with
+	// database ""; its items name their own database and are kept when
+	// the request may read it.
 	Sources map[Kind]Source
 	Timeout time.Duration // per source and database; 0 is DefaultTimeout
 	Workers int           // concurrent reads; 0 is 16
@@ -53,6 +74,10 @@ type Request struct {
 	Databases []string // the databases the caller may read
 	Kinds     []Kind   // nil: every kind
 	Limit     int      // items returned; <= 0 is DefaultLimit
+	// AllDatabases: the caller may read every database, including the
+	// ones with no runtime (observe-only members), so a fleet-wide
+	// source's items are not narrowed to Databases.
+	AllDatabases bool
 }
 
 // SourceError names a source (its kind) and database it could not read.
@@ -79,6 +104,7 @@ type job struct {
 	kind     Kind
 	database string
 	src      Source
+	fleet    bool // a fleet-wide read: its items are narrowed to the request
 }
 
 type outcome struct {
@@ -98,21 +124,32 @@ func (s *Service) List(ctx context.Context, req Request) Result {
 	for _, k := range kinds {
 		res.CountsByKind[k] = 0
 		src := s.Sources[k]
-		if src == nil {
+		switch _, wide := src.(fleetWide); {
+		case src == nil:
 			res.Errors = append(res.Errors, SourceError{Source: string(k),
 				Error: "source not configured"})
-			continue
-		}
-		for _, db := range req.Databases {
-			jobs = append(jobs, job{kind: k, database: db, src: src})
+		case wide:
+			jobs = append(jobs, job{kind: k, src: src, fleet: true})
+		default:
+			for _, db := range req.Databases {
+				jobs = append(jobs, job{kind: k, database: db, src: src})
+			}
 		}
 	}
-	for _, o := range s.run(ctx, jobs) {
+	readable := map[string]bool{}
+	for _, db := range req.Databases {
+		readable[db] = true
+	}
+	for i, o := range s.run(ctx, jobs) {
 		if o.fail != nil {
 			res.Errors = append(res.Errors, *o.fail)
 			continue
 		}
-		res.Items = append(res.Items, o.items...)
+		for _, it := range o.items {
+			if !jobs[i].fleet || req.AllDatabases || readable[it.Database] {
+				res.Items = append(res.Items, it)
+			}
+		}
 	}
 	finish(&res, req.Limit)
 	return res
