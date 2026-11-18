@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -112,9 +113,11 @@ func (m measurer) measureStatement(ctx context.Context, text string) (measured, 
 	if err := apppath.Pin(ctx, tx); err != nil {
 		return measured{}, err
 	}
-	if _, err := tx.Exec(ctx, "SELECT set_config('statement_timeout', $1, true)",
-		fmt.Sprintf("%dms", m.opts.AnalyzeTimeout.Milliseconds())); err != nil {
-		return measured{}, fmt.Errorf("set the statement timeout on the clone: %w", err)
+	// The proof's catalog reads get at least DefaultAnalyzeTimeout each; the
+	// analyze timeout is the executed statement's budget alone.
+	if err := setStatementTimeout(ctx, tx, max(m.opts.AnalyzeTimeout,
+		DefaultAnalyzeTimeout)); err != nil {
+		return measured{}, err
 	}
 	refusal, err := explain.ProveRead(ctx, tx, body, m.opts.Inspect, explain.ReadProofOptions{})
 	if err != nil {
@@ -125,7 +128,19 @@ func (m measurer) measureStatement(ctx context.Context, text string) (measured, 
 		got.notExecuted = "not executed: it " + refusal
 		return got, err
 	}
+	if err := setStatementTimeout(ctx, tx, m.opts.AnalyzeTimeout); err != nil {
+		return measured{}, err
+	}
 	return analyze(ctx, tx, body)
+}
+
+// setStatementTimeout bounds each later statement of tx by d.
+func setStatementTimeout(ctx context.Context, tx pgx.Tx, d time.Duration) error {
+	if _, err := tx.Exec(ctx, "SELECT set_config('statement_timeout', $1, true)",
+		fmt.Sprintf("%dms", d.Milliseconds())); err != nil {
+		return fmt.Errorf("set the statement timeout on the clone: %w", err)
+	}
+	return nil
 }
 
 // planCost is the total cost of a statement's plan (planOutside).
