@@ -102,18 +102,24 @@ func (m *PRMode) openRevert(ctx context.Context, c PRCandidate, ref string, out 
 	if err != nil {
 		return out, err
 	}
+	var openErr error
 	if !found {
-		if pr, err = m.openRevertPR(ctx, c, ref, key); err != nil {
-			out.Note += "; revert PR not opened: " + err.Error()
-			return out, err
+		// A revert opened but not labelled (openErr with a number) is
+		// still recorded: the marker search would never find it again.
+		if pr, openErr = m.openRevertPR(ctx, c, ref, key); openErr != nil && pr.Number <= 0 {
+			out.Note += "; revert PR not opened: " + openErr.Error()
+			return out, openErr
 		}
 	}
 	out.Status = PRReverting
 	out.Note += "; revert opened as " + prRef(m.cfg.Repo, pr.Number)
+	if openErr != nil {
+		out.Note += "; " + openErr.Error()
+	}
 	if err := m.deps.Store.SetPRState(ctx, c.FindingID, "revert_opened"); err != nil {
 		return out, fmt.Errorf("record the revert of %s: %w", ref, err)
 	}
-	return out, nil
+	return out, openErr
 }
 
 func (m *PRMode) openRevertPR(ctx context.Context, c PRCandidate, ref, key string,

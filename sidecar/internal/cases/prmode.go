@@ -46,7 +46,6 @@ const (
 
 var (
 	prLabelPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,50}$`)
-	prKeyPattern   = regexp.MustCompile(`^f[0-9]+-[a-z_]+-[0-9a-f]{12}(-revert)?$`)
 	// errNoPR is a candidate PR mode will not open a PR for; the case keeps
 	// the change as text and says why.
 	errNoPR = errors.New("PR not opened")

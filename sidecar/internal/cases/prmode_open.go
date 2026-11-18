@@ -101,18 +101,21 @@ func (m *PRMode) open(ctx context.Context, c PRCandidate) (PROutcome, error) {
 		Base: m.cfg.Base, CommitMessage: prTitle(c.Title) + "\n\n" + prMarker(key),
 		Labels: []string{m.cfg.Label}, Files: change.files,
 		Body: m.description(ctx, c, change, key)}
-	pr, err := m.deps.Host.OpenPR(ctx, m.cfg.Repo, req)
-	if err != nil {
-		return refusal(err) // the host's error names the host
+	pr, openErr := m.deps.Host.OpenPR(ctx, m.cfg.Repo, req)
+	if openErr != nil && pr.Number <= 0 {
+		return refusal(openErr) // the host's error names the host
 	}
 	ref := prRef(m.cfg.Repo, pr.Number)
 	out := PROutcome{Status: PROpened, Repo: m.cfg.Repo, Number: pr.Number, URL: pr.URL,
 		Note: "opened as " + ref}
+	if openErr != nil { // opened, then a later step failed (labels): record it anyway
+		out.Note += "; " + openErr.Error()
+	}
 	if err := m.deps.Recorder.RecordOpened(ctx, c.FindingID, m.cfg.Repo, pr); err != nil {
 		out.Note += "; recording it failed and is retried next cycle"
 		return out, fmt.Errorf("record %s for finding %d: %w", ref, c.FindingID, err)
 	}
-	return out, nil
+	return out, openErr
 }
 
 // prTitle is the PR's title, at most 200 characters.
