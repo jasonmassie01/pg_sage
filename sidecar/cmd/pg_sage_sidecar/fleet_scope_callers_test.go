@@ -14,9 +14,11 @@ import (
 // its lease. A caller that recomputes it later reads a live config that a
 // reload may have changed, and fences against a scope with no lease row
 // (fleet-02). Every other job takes the scope from the elector's token.
+// startReviewFleet (review-04b) is a startup site too: api_server calls it
+// once, right after startFleetLearning, and its stores keep that scope.
 func TestFleetLearningScopeIsUsedOnlyAtStartup(t *testing.T) {
 	got := identifierUsers(t, "fleetLearningScope")
-	want := []string{"agentGovernanceLeader", "startFleetLearning"}
+	want := []string{"agentGovernanceLeader", "startFleetLearning", "startReviewFleet"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("fleetLearningScope is used by %v, want only %v", got, want)
 	}
