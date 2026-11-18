@@ -17,6 +17,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/inbox"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/review/modelgate"
 	"github.com/pg-sage/sidecar/internal/review/plan"
@@ -131,6 +132,7 @@ func TestReviewGateApproveRouteDB_AdminGrantsOnceAndErrorsAreDistinct(t *testing
 	if live, _ := plan.ModelAuthority(context.Background(), pool, "m1"); live {
 		t.Fatal("a refused approval granted authority")
 	}
+	before := inboxDecisions(inbox.KindAutonomyPromotion, "api")
 	code, body := gatePost(t, h, path, testAdminUser())
 	var row modelgate.Row
 	if code != http.StatusOK || json.Unmarshal(body, &row) != nil ||
@@ -139,6 +141,10 @@ func TestReviewGateApproveRouteDB_AdminGrantsOnceAndErrorsAreDistinct(t *testing
 	}
 	if live, _ := plan.ModelAuthority(context.Background(), pool, "m1"); !live {
 		t.Fatal("the approval did not set the authority flag")
+	}
+	if got := inboxDecisions(inbox.KindAutonomyPromotion, "api"); got != before+1 {
+		t.Fatalf("inbox decisions = %d, want %d: the approval is one timed decision",
+			got, before+1)
 	}
 	for name, c := range map[string]struct {
 		path string

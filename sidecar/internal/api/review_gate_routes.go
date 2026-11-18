@@ -11,6 +11,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/inbox"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/review/modelgate"
 	"github.com/pg-sage/sidecar/internal/review/scorecard"
@@ -125,6 +126,7 @@ func reviewGateApproveHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 		}
 		slog.Info("review model gate approved", "database", inst.Name, "model", row.Model,
 			"gate_id", row.ID, "approved_by", by)
+		recordDecision(r, inbox.KindAutonomyPromotion, row.EvaluatedAt)
 		jsonResponse(w, row)
 	}
 }
