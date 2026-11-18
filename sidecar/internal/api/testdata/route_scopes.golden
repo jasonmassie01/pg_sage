@@ -114,6 +114,7 @@ bare GET /api/v1/onboarding gate:viewer scope:fleet-only
 bare GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 bare GET /api/v1/first-look gate:viewer scope:fleet-only
 bare POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
+bare GET /api/v1/doctor gate:admin scope:admin-only
 bare GET /api/v1/approvals gate:operator scope:aggregate
 bare GET /api/v1/approvals/{id} gate:operator scope:aggregate
 bare POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
@@ -306,6 +307,7 @@ standalone GET /api/v1/onboarding gate:viewer scope:fleet-only
 standalone GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 standalone GET /api/v1/first-look gate:viewer scope:fleet-only
 standalone POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
+standalone GET /api/v1/doctor gate:admin scope:admin-only
 standalone POST /api/v1/auth/login gate:public scope:-
 standalone POST /api/v1/auth/logout gate:viewer-write scope:-
 standalone GET /api/v1/auth/me gate:viewer scope:global
@@ -553,6 +555,7 @@ fleet-readonly GET /api/v1/onboarding gate:viewer scope:fleet-only
 fleet-readonly GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 fleet-readonly GET /api/v1/first-look gate:viewer scope:fleet-only
 fleet-readonly POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
+fleet-readonly GET /api/v1/doctor gate:admin scope:admin-only
 fleet-readonly POST /api/v1/auth/login gate:public scope:-
 fleet-readonly POST /api/v1/auth/logout gate:viewer-write scope:-
 fleet-readonly GET /api/v1/auth/me gate:viewer scope:global
@@ -806,6 +809,7 @@ store-only-actions GET /api/v1/onboarding gate:viewer scope:fleet-only
 store-only-actions GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 store-only-actions GET /api/v1/first-look gate:viewer scope:fleet-only
 store-only-actions POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
+store-only-actions GET /api/v1/doctor gate:admin scope:admin-only
 store-only-actions GET /api/v1/actions/pending gate:operator scope:fleet-only
 store-only-actions GET /api/v1/actions/pending/count gate:operator scope:fleet-only
 store-only-actions GET /api/v1/findings/{id}/pending-actions gate:operator scope:fleet-only
@@ -1018,6 +1022,7 @@ optional GET /api/v1/onboarding gate:viewer scope:fleet-only
 optional GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 optional GET /api/v1/first-look gate:viewer scope:fleet-only
 optional POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
+optional GET /api/v1/doctor gate:admin scope:admin-only
 optional POST /api/v1/auth/login gate:public scope:-
 optional POST /api/v1/auth/logout gate:viewer-write scope:-
 optional GET /api/v1/auth/me gate:viewer scope:global
@@ -1255,6 +1260,7 @@ databricks-app GET /api/v1/onboarding gate:viewer scope:fleet-only
 databricks-app GET /api/v1/onboarding/trust gate:viewer scope:fleet-only
 databricks-app GET /api/v1/first-look gate:viewer scope:fleet-only
 databricks-app POST /api/v1/first-look/recheck gate:operator scope:fleet-wide
+databricks-app GET /api/v1/doctor gate:admin scope:admin-only
 databricks-app GET /api/v1/auth/me gate:viewer scope:global
 databricks-app GET /api/v1/users gate:admin scope:admin-only
 databricks-app PUT /api/v1/users/{id}/role gate:admin scope:-

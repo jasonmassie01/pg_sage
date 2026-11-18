@@ -28,6 +28,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/auth/sso"},
 	{"GET", "/api/v1/briefings"},
 	{"GET", "/api/v1/case-tickets"},
+	{"GET", "/api/v1/doctor"}, // ux-04a
 	{"GET", "/api/v1/briefings/latest"},
 	{"GET", "/api/v1/cases"},
 	{"GET", "/api/v1/chatops/identities"},

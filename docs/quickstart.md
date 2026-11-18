@@ -39,6 +39,27 @@ That is all a read-only install needs. The privileges that changes need (table o
 CREATE on the schemas that hold your tables, `pg_signal_backend`, parameter changes) come
 later, from the **"Grant more"** step.
 
+### Run pg_sage doctor first
+
+Before you start pg_sage (and any time after), `doctor` checks the role you just made. It
+runs read-only checks on one connection, executes nothing, and prints each result with a
+fix you can copy:
+
+```bash
+docker run --rm ghcr.io/jasonmassie01/pg_sage:latest doctor --pg-url "postgres://sage_agent:YOUR_PASSWORD@db.example.com:5432/mydb"
+```
+
+With the binary it is `pg_sage doctor --pg-url "..."`. It checks the connection, the
+PostgreSQL version (14 to 18), the role's grants (each missing one with its exact
+`GRANT`), `pg_stat_statements` and HypoPG, the provider, query text visibility, the
+meta database's schema and the clock skew between this host and the server. Add
+`--config sage.yaml` to also probe the model key, `--send-test` to send one test alert
+through each channel in the `alerting:` block (PagerDuty included), and `--json` for the
+report as JSON. It exits 0 when nothing failed, 1 when a check failed and 2 on a usage
+error. The connection string is never printed, and passwords are masked. An admin can
+read the same report for a monitored database from `GET /api/v1/doctor`
+(`?database=<name>` in a fleet; `?probe_model=true` sends the model probe).
+
 ## 2. Start pg_sage
 
 With Docker, in one line:
