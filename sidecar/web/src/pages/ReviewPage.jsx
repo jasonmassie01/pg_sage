@@ -9,12 +9,15 @@ import { GradeCard } from '../components/review/GradeCard'
 import { DimensionTable } from '../components/review/DimensionTable'
 import { ReviewDelta } from '../components/review/ReviewDelta'
 import { ReviewReport } from '../components/review/ReviewReport'
+import { ReviewScorecard } from '../components/review/ReviewScorecard'
+import { useReviewScorecard } from '../hooks/useReviewScorecard'
 
 // ReviewPage (review-01b) is one database's Sage Review: the latest grade,
 // its dimensions, what changed since the previous grade and the report.
 // The database comes from ?db= (the grade chips link there), else the
 // picker. While a run is in progress the page polls every 5 s and shows a
-// banner; the next poll after it finishes shows the new report.
+// banner; the next poll after it finishes shows the new report. Under the
+// report is the scorecard and the model gate (review-05b), read on its own.
 //
 // Opening a finished review sends its read receipt once (POST
 // .../review/runs/{id}/viewed), unless the server says this person already
@@ -24,9 +27,10 @@ const RUNNING_POLL_MS = 5000
 const IDLE_POLL_MS = 60000
 const VIEW_RETRY_MS = 1000
 
-export function ReviewPage({ route, database }) {
+export function ReviewPage({ route, database, user }) {
   const db = reviewParams(route, database)
   const [interval, setPollInterval] = useState(IDLE_POLL_MS)
+  const scorecard = useReviewScorecard(db)
   const query = useAPI(db ? gradeURL(db) : null, interval)
   // Adjusted during render (not in an effect): the next poll uses it.
   const wanted = query.data?.running ? RUNNING_POLL_MS : IDLE_POLL_MS
@@ -35,12 +39,12 @@ export function ReviewPage({ route, database }) {
   if (!db) return <EmptyState message="Select a database to see its review." />
   return (
     <QueryState query={query}>
-      {data => <ReviewBody data={data} database={db} />}
+      {data => <ReviewBody data={data} database={db} user={user} scorecard={scorecard} />}
     </QueryState>
   )
 }
 
-function ReviewBody({ data, database }) {
+function ReviewBody({ data, database, user, scorecard }) {
   const latest = data?.latest
   return (
     <div className="space-y-4">
@@ -60,6 +64,7 @@ function ReviewBody({ data, database }) {
           <DimensionTable dimensions={latest.grade?.dimensions} />
           <ReviewDelta delta={data.delta} previous={data.previous} />
           <ReviewReport report={data.report} database={database} />
+          <ReviewScorecard query={scorecard} database={database} user={user} />
         </>
       )}
     </div>

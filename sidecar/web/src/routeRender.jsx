@@ -114,11 +114,11 @@ export const RENDERERS = Object.freeze({
       <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
     </div>
   ),
-  value: ctx => <ValuePage database={ctx.database} />,
+  value: ctx => <ValuePage database={ctx.database} user={ctx.user} />,
   cases: ctx => cases(ctx),
   actions,
   ledger: ctx => <LedgerPage key={ctx.route} database={ctx.database} />,
-  review: ctx => <ReviewPage route={ctx.route} database={ctx.database} />,
+  review: ctx => <ReviewPage route={ctx.route} database={ctx.database} user={ctx.user} />,
   queries: ctx => <QueriesPage database={ctx.database} />,
   query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
   slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,
