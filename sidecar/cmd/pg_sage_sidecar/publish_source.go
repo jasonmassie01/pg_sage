@@ -12,8 +12,17 @@ import (
 	"github.com/pg-sage/sidecar/internal/verify/backtest"
 )
 
-// publishStatementTimeout bounds each read of the publish command.
-const publishStatementTimeout = "60s"
+// publishStatementTimeout bounds each read of the publish command, and
+// publishLockTimeout how long a read waits behind a lock (a migration's,
+// say) before it fails instead of queueing other sessions behind it.
+const (
+	publishStatementTimeout = "60s"
+	publishLockTimeout      = "5s"
+)
+
+// publishBoundsSQL sets both bounds for the snapshot's transaction only.
+const publishBoundsSQL = `SELECT set_config('statement_timeout', $1, true),
+ set_config('lock_timeout', $2, true)`
 
 // pgPublishSource reads one database in a single read-only, repeatable
 // read transaction, so the ledger and the back-test come from one
@@ -35,8 +44,8 @@ func openPublishSource(ctx context.Context, dsn string) (publishSource, error) {
 		pool.Close()
 		return nil, fmt.Errorf("begin a read-only snapshot: %w", err)
 	}
-	if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = '"+
-		publishStatementTimeout+"'"); err != nil {
+	if _, err := tx.Exec(ctx, publishBoundsSQL, publishStatementTimeout,
+		publishLockTimeout); err != nil {
 		_ = tx.Rollback(ctx)
 		pool.Close()
 		return nil, fmt.Errorf("bound the snapshot's statements: %w", err)

@@ -38,7 +38,8 @@ bundle and the install's evidence packs share one public key
 leaves it, so it cannot sign a bundle.
 
 The command only reads. Each database is read in one read-only, repeatable-read transaction
-with a 60 s `statement_timeout`, so the ledger and the back-test come from the same snapshot.
+with a 60 s `statement_timeout` and a 5 s `lock_timeout`, so the ledger and the
+back-test come from the same snapshot.
 A window with more than 10,000 changes on one database exits 1: shorten `--since` so every
 change is counted.
 
