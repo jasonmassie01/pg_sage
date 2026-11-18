@@ -58,11 +58,32 @@ requirements:
   enrollment_deadline_hours: 24
   trust_ceiling:                # per change class: observation, advisory or autonomous
     index: advisory
+  enrollment:                   # how fleet discovery enrolls this set's databases
+    interval_minutes: 2         # 0 = 10; otherwise 2-1440
+    per_cycle: 5                # 0 = 5; otherwise 1-20
+    owner: creator              # source (default), tag (the "owner" tag) or creator
 ```
 
 Requirements are validated when you save the set: an unknown rubric dimension, grade letter,
-change class or trust level is refused. They aren't enforced yet. Enrollment by policy set
-will enforce them when it ships.
+change class or trust level, or an enrollment key out of range, is refused.
+
+### Enrollment
+
+Fleet discovery ([walkthrough](walkthrough-fleet.md#discover-databases-automatically))
+enrolls each discovered database under the set it matches:
+
+| Key | Effect |
+|---|---|
+| `enrollment.interval_minutes` | how often the set enrolls (10 by default, 2 at least; 1 is refused) |
+| `enrollment.per_cycle` | most members the set enrolls per cycle (5 by default, 20 at most) |
+| `enrollment.owner` | the member's owner: the source's `owner`, the database's `owner` tag, or its creator; a missing tag or creator falls back to the source's owner |
+| `ttl_hours` | how long an unadopted member runs (0 is `fleet.discovery.ttl_hours`) |
+| `enrollment_deadline_hours` | the first grade is due within this many hours of enrollment (0: the shortest grade `within_hours`); a late one is logged |
+| `grades` | the set's baseline: the first grade meeting every `min_letter` is recorded as the member's baseline |
+
+Enrollment never raises trust: a member starts at `observation` with `approval` execution
+whatever its set, and only an owner's adoption lets trust rise. `owner_required` and
+`trust_ceiling` are stored and validated but not enforced yet.
 
 ## Changing a set
 
