@@ -119,11 +119,16 @@ SELECT f.id, f.category, f.title, f.created_at,
  WHERE f.status = 'open' AND f.category IN ('query_regression', 'plan_regression')
    AND f.created_at <= $1
    AND NOT EXISTS (SELECT 1 FROM sage.action_log a
-                    WHERE a.finding_id = f.id AND a.outcome = 'success')
+                     JOIN sage.action_outcome o ON o.action_log_id = a.id
+                    WHERE a.finding_id = f.id AND a.outcome = 'success'
+                      AND o.verdict = 'improved')
  ORDER BY f.id LIMIT 50`
 
 // RegressionSource fires for a regression finding open for 72 hours or
-// more whose action was reverted, or that has no verified action.
+// more whose action was reverted, or that has no verified action: none
+// that ran and was judged improved by verification (sage.action_outcome).
+// An action that ran but is still pending, neutral or unverifiable has
+// not resolved the regression.
 func RegressionSource(store *Store, database string) Source {
 	return sourceFunc{kind: KindUnresolvedRegression, fn: func(ctx context.Context,
 		now time.Time) ([]Trigger, error) {

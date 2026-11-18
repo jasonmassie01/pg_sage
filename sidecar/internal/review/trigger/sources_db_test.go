@@ -103,7 +103,7 @@ func TestSourcesDB_CalendarBoundaryAndNoEnrollmentAfterAReview(t *testing.T) {
 }
 
 func seedRegression(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ident string,
-	age time.Duration, outcome string) int64 {
+	age time.Duration, outcome, verdict string) int64 {
 	t.Helper()
 	var id int64
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.findings (created_at, category,
@@ -112,28 +112,47 @@ func seedRegression(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ident
 		fmt.Sprintf("%d seconds", int64(age.Seconds())), ident).Scan(&id); err != nil {
 		t.Fatalf("seed finding: %v", err)
 	}
-	if outcome != "" {
-		if _, err := pool.Exec(ctx, `INSERT INTO sage.action_log (action_type,
-			finding_id, sql_executed, outcome) VALUES ('create_index', $1, 'SELECT 1', $2)`,
-			id, outcome); err != nil {
-			t.Fatalf("seed action: %v", err)
+	if outcome == "" {
+		return id
+	}
+	var action int64
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.action_log (action_type,
+		finding_id, sql_executed, outcome) VALUES ('create_index', $1, 'SELECT 1', $2)
+		RETURNING id`, id, outcome).Scan(&action); err != nil {
+		t.Fatalf("seed action: %v", err)
+	}
+	if verdict != "" {
+		if _, err := pool.Exec(ctx, `INSERT INTO sage.action_outcome (action_log_id,
+			action_class, predicted, prediction_method, verdict) VALUES ($1, 'index',
+			'{}', 'rule', $2)`, action, verdict); err != nil {
+			t.Fatalf("seed outcome: %v", err)
 		}
 	}
 	return id
 }
 
+// Only an action verification judged improved resolves a regression: one
+// that ran but is unjudged or neutral leaves it unresolved.
 func TestSourcesDB_RegressionOpenSeventyTwoHoursWithoutAVerifiedAction(t *testing.T) {
 	pool, ctx := livePool(t, "regression")
-	none := seedRegression(t, ctx, pool, "q1", 73*time.Hour, "")
-	reverted := seedRegression(t, ctx, pool, "q2", 80*time.Hour, "rolled_back")
-	seedRegression(t, ctx, pool, "q3", 71*time.Hour, "")         // too young
-	seedRegression(t, ctx, pool, "q4", 100*time.Hour, "success") // verified
+	none := seedRegression(t, ctx, pool, "q1", 73*time.Hour, "", "")
+	reverted := seedRegression(t, ctx, pool, "q2", 80*time.Hour, "rolled_back", "")
+	seedRegression(t, ctx, pool, "q3", 71*time.Hour, "", "")                 // too young
+	seedRegression(t, ctx, pool, "q4", 100*time.Hour, "success", "improved") // verified
+	unjudged := seedRegression(t, ctx, pool, "q5", 90*time.Hour, "success", "")
+	neutral := seedRegression(t, ctx, pool, "q6", 90*time.Hour, "success", "neutral")
 	got := evaluate(t, ctx, RegressionSource(NewStore(pool), "shop"), time.Now())
-	if len(got) != 2 || got[0].Key != fmt.Sprintf("finding:%d", none) ||
-		got[1].Key != fmt.Sprintf("finding:%d", reverted) ||
-		got[0].Detail["reason"] != "no verified action" ||
-		got[1].Detail["reason"] != "action reverted" {
-		t.Fatalf("regression triggers %+v, want q1 and q2", got)
+	want := []int64{none, reverted, unjudged, neutral}
+	reasons := []string{"no verified action", "action reverted", "no verified action",
+		"no verified action"}
+	if len(got) != len(want) {
+		t.Fatalf("regression triggers %+v, want q1, q2, q5 and q6", got)
+	}
+	for i, id := range want {
+		if got[i].Key != fmt.Sprintf("finding:%d", id) || got[i].Detail["reason"] != reasons[i] {
+			t.Fatalf("trigger %d = %s %v, want finding:%d %q", i, got[i].Key,
+				got[i].Detail["reason"], id, reasons[i])
+		}
 	}
 }
 
