@@ -171,6 +171,27 @@ func ownsRequest(ctx context.Context, record RequestRecord) bool {
 	return actor != "" && record.OwnerActor != "" && record.OwnerActor == "mcp:"+actor
 }
 
+// actorOwnedKinds are the handle kinds whose store records the proposing
+// actor as well as the principal (sage.plan created_by, sage.policy
+// proposed_by); the others record only an agent principal id.
+var actorOwnedKinds = map[string]bool{"plan": true, "policy_exception": true}
+
+// canTrack: ownsRequest can match ctx's caller to the item handle names,
+// so a held result may point it at get_request_status and
+// wait_for_decision. A person over MCP whose change records no principal
+// is never pointed at a status that can only answer not_found.
+func canTrack(ctx context.Context, handle string) bool {
+	p, bound := PrincipalFromContext(ctx)
+	if !bound {
+		return false
+	}
+	if strings.TrimSpace(p.PrincipalID) != "" {
+		return true
+	}
+	kind, _, _ := strings.Cut(handle, ":")
+	return actorOwnedKinds[kind] && strings.TrimSpace(p.Actor) != ""
+}
+
 // statusResult is the answer both tools give for record.
 func statusResult(q RequestQuery, record RequestRecord) map[string]any {
 	args := map[string]any{"handle": handleOf(q)}

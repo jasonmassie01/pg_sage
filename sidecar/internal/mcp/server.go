@@ -160,7 +160,7 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (map[string]
 	if !ok {
 		out = toolSuccess(result)
 	}
-	return withHeldFields(call.Name, arguments, out), nil
+	return withHeldFields(ctx, call.Name, arguments, out), nil
 }
 
 // objectArguments returns the arguments when they are a JSON object

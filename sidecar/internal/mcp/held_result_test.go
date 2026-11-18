@@ -38,8 +38,10 @@ func (b *intentRecorder) RequestIntent(_ context.Context, _ string,
 }
 
 // A queued change creates no action-queue item on the intent path; its
-// handle names the ledger decision, and status (mcp-01b) reads it with
-// get_request_status, never the change approvals.
+// handle names the ledger decision. A person over MCP polls the ledger
+// that records it (sage.decision names no person, so get_request_status
+// could only answer not_found); an agent principal, whose id the decision
+// records, gets get_request_status and wait_for_decision (mcp-01b).
 func TestHeldChangeCarriesApprovalURLStatusAndHandle(t *testing.T) {
 	for _, tool := range []string{"request_change", "optimize_query"} {
 		backend := &recordingBackend{changeResult: ChangeResult{Decision: "queued",
@@ -55,10 +57,23 @@ func TestHeldChangeCarriesApprovalURLStatusAndHandle(t *testing.T) {
 			tool)
 		require.Equal(t, "change:ev-9", content["handle"], tool)
 		status := objectMap(t, content["status"])
-		require.Equal(t, toolGetRequestStatus, status["tool"], tool)
+		require.Equal(t, "get_ledger", status["tool"], tool)
+		require.Equal(t, map[string]any{"database": "orders"}, status["arguments"], tool)
+		require.NotContains(t, content, "wait", "%s: a person's change is not trackable", tool)
+		polled := invoke(t, server, operatorContext(context.Background()),
+			toolCall("get_ledger", mustJSON(t, status["arguments"])))
+		require.Zero(t, polled.Error.Code, polled.Error.Message)
+		require.Equal(t, 1, backend.ledgerCalls, "%s: the status call reads the ledger", tool)
+
+		agent := heldContent(t, server, waitAgentCtx("chg"), tool, args)
+		require.Equal(t, "change:ev-9", agent["handle"], tool)
+		agentStatus := objectMap(t, agent["status"])
+		require.Equal(t, toolGetRequestStatus, agentStatus["tool"], tool)
 		require.Equal(t, map[string]any{"database": "orders", "handle": "change:ev-9"},
-			status["arguments"], tool)
-		require.Equal(t, toolWaitForDecision, objectMap(t, content["wait"])["tool"], tool)
+			agentStatus["arguments"], tool)
+		wait := objectMap(t, agent["wait"])
+		require.Equal(t, toolWaitForDecision, wait["tool"], tool)
+		require.Equal(t, agentStatus["arguments"], wait["arguments"], tool)
 	}
 }
 
@@ -70,9 +85,8 @@ func TestParkedChangePointsAtHeldBack(t *testing.T) {
 	require.Equal(t, "#/actions?tab=decisions&database=orders", content["approval_url"])
 	require.Equal(t, "change:ev-3", content["handle"])
 	status := objectMap(t, content["status"])
-	require.Equal(t, toolGetRequestStatus, status["tool"])
-	require.Equal(t, map[string]any{"database": "orders", "handle": "change:ev-3"},
-		status["arguments"])
+	require.Equal(t, "get_ledger", status["tool"])
+	require.Equal(t, map[string]any{"database": "orders"}, status["arguments"])
 }
 
 func TestChangeThatIsNotHeldCarriesNoHeldFields(t *testing.T) {
@@ -137,7 +151,13 @@ func TestRemediationQueuedCarriesTheApprovalQueueHandle(t *testing.T) {
 			content["approval_url"], verdict)
 		require.Equal(t, "change_approval:7", content["handle"], verdict)
 		status := objectMap(t, content["status"])
-		require.Equal(t, toolGetRequestStatus, status["tool"])
+		require.Equal(t, toolGetInbox, status["tool"], "%s: a person polls the inbox", verdict)
+		require.NotContains(t, content, "wait", verdict)
+		agent := heldContent(t, NewServer(backend).WithDirectory(fleetOf("orders")),
+			waitAgentCtx("rem"), "specialist_request_remediation", remediationArgs)
+		require.Equal(t, map[string]any{"database": "orders", "handle": "change_approval:7"},
+			objectMap(t, agent["status"])["arguments"], verdict)
+		require.Equal(t, toolWaitForDecision, objectMap(t, agent["wait"])["tool"], verdict)
 	}
 	noQueue := &remediationBackend{response: specialist.RemediationResponse{
 		Verdict: "queued_for_approval"}}

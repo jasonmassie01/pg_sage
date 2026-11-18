@@ -215,3 +215,34 @@ func jsonText(v any) string {
 	raw, _ := json.Marshal(v)
 	return string(raw)
 }
+
+// canTrack points a held result at the status tools only for a caller
+// ownsRequest can match: never an unbound caller, a person only where the
+// store records the proposing actor (plans, policy proposals).
+func TestCanTrackMatchesWhatOwnershipCanProve(t *testing.T) {
+	person := operatorContext(context.Background())
+	tokenAgent := agentContext(ScopeRead, ScopePropose) // an agent token, no principal id
+	cases := []struct {
+		name   string
+		ctx    context.Context
+		handle string
+		want   bool
+	}{
+		{"unbound plan", context.Background(), "plan:1", false},
+		{"blank actor plan", WithPrincipal(context.Background(), Principal{Actor: " "}),
+			"plan:1", false},
+		{"person plan", person, "plan:1", true},
+		{"person policy", person, "policy_exception:2", true},
+		{"person change", person, "change:ev-1", false},
+		{"person queue item", person, "change_approval:3", false},
+		{"person capability", person, "agent_request:4", false},
+		{"token agent plan", tokenAgent, "plan:1", true},
+		{"token agent queue item", tokenAgent, "change_approval:3", false},
+		{"principal change", waitAgentCtx("trk"), "change:ev-1", true},
+		{"principal queue item", waitAgentCtx("trk"), "change_approval:3", true},
+		{"principal capability", waitAgentCtx("trk"), "agent_request:4", true},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, canTrack(c.ctx, c.handle), c.name)
+	}
+}

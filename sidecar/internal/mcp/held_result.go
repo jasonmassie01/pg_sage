@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -15,9 +16,11 @@ import (
 // and id; a change the policy check held back is "change:<evidence_id>"
 // and a proposed plan "plan:<id>". With a handle, status is
 // get_request_status {handle, database} and wait is wait_for_decision with
-// the same arguments (mcp-01b); without one (no id came back), status
-// stays the list the item shows up in. Polling and waiting are read-only:
-// no field here approves anything.
+// the same arguments (mcp-01b), when the caller is one the item's store
+// can name as its requester (canTrack); otherwise (no id came back, or a
+// person whose change the store does not record by name), status stays
+// the list the item shows up in. Polling and waiting are read-only: no
+// field here approves anything.
 
 // heldItem is what one held result adds.
 type heldItem struct {
@@ -36,7 +39,7 @@ var heldShapers = map[string]func(content map[string]any, database string) (held
 }
 
 // withHeldFields adds a held result's fields to the tools/call result out.
-func withHeldFields(tool string, arguments json.RawMessage,
+func withHeldFields(ctx context.Context, tool string, arguments json.RawMessage,
 	out map[string]any) map[string]any {
 	shaper, ok := heldShapers[tool]
 	if !ok {
@@ -56,6 +59,8 @@ func withHeldFields(tool string, arguments json.RawMessage,
 	status := map[string]any{"tool": item.statusTool, "arguments": item.statusArgs}
 	if item.handle != "" {
 		content["handle"] = item.handle
+	}
+	if item.handle != "" && canTrack(ctx, item.handle) {
 		args := databaseArgs(boundDatabase(arguments))
 		args["handle"] = item.handle
 		status = map[string]any{"tool": toolGetRequestStatus, "arguments": args}

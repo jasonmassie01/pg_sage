@@ -207,8 +207,8 @@ queued for approval and an `agent_request_capability` waiting for an operator. E
 |---|---|
 | `approval_url` | the dashboard page where a person decides (kept as the tool returned it when it already has one) |
 | `handle` | the item, `<kind>:<id>`: the inbox kind and id (`policy_exception:42`, `change_approval:7`, `agent_request:4`, `plan:9`) or `change:<evidence_id>` for a change the policy check queued or held back |
-| `status` | `{"tool": "get_request_status", "arguments": {"handle": ..., "database": ...}}`, a read-only call that reports the item now; without a handle (no id came back) it is `get_inbox` for the item's kind. A tool that has its own `status` field keeps it (`propose_plan`'s plan status) |
-| `wait` | `{"tool": "wait_for_decision", "arguments": {...}}` with the same arguments, present with a handle |
+| `status` | `{"tool": "get_request_status", "arguments": {"handle": ..., "database": ...}}`, a read-only call that reports the item now, when the caller is one the item's store records as its requester (an agent principal; a person for a plan or a policy proposal). Otherwise it stays the list the item shows up in: `get_ledger` for a `change:` handle, `get_inbox` for the item's kind (also when no id came back). A tool that has its own `status` field keeps it (`propose_plan`'s plan status) |
+| `wait` | `{"tool": "wait_for_decision", "arguments": {...}}` with the same arguments, present whenever `status` is `get_request_status` |
 
 None of these approve anything: a person decides on the page `approval_url` names.
 
@@ -239,8 +239,11 @@ also wake it) and reads the item once per signal: no polling loop, and no databa
 connection is held while it waits. Each principal may have 5 waits open and the sidecar
 200; one more is `rate_limited` with `retry_after` (when the soonest open wait ends).
 
-The status is the requester's own: another principal's handle, a person's MCP session or a
-caller with no principal gets `not_found`, the same answer as a handle that does not exist.
+The status is the requester's own: another principal's handle, or a caller with no principal,
+gets `not_found`, the same answer as a handle that does not exist. A person over MCP can read
+the plans and policy proposals they proposed (the store records the proposing actor); a
+change or an approval item records only an agent principal, so a person's held change points
+at `get_ledger` or `get_inbox` instead.
 A `change:<evidence_id>` handle resolves for the agent principal recorded on the ledger
 decision; a decision that queued an approval reports that approval's state. A change the
 policy check held back without an approval is `held` and final: nothing waits on a person

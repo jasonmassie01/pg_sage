@@ -7,7 +7,7 @@
     {"follow": "example", "with": {"database": "orders"},
      "expect": {"decision": "queued", "held": true}},
     {"follow": "status",
-     "expect": {"tool": "get_request_status"}},
+     "expect": {"tool": "get_ledger"}},
     {"call": {"name": "request_change",
               "arguments": {"intent": {"kind": "ensure_fk_indexes", "schema": "public"}}},
      "expect": {"reason": "database_required", "next_tool": "list_databases"}},
