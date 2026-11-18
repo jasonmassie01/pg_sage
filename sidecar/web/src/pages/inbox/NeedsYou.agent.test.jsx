@@ -23,6 +23,8 @@ describe('NeedsYou agent requests', () => {
     const who = within(row).getByTestId('inbox-agent-change_approval-7')
     expect(who.textContent).toContain('agp_aaaaaaaaaaaaaaaaaaaa')
     expect(who.textContent).toContain('change_approval:7')
+    expect(who.textContent).toContain('· waits on change_approval:7')
+    expect(who.textContent).not.toContain('�')
     const agentLink = within(who).getByRole('link', { name: 'agp_aaaaaaaaaaaaaaaaaaaa' })
     expect(agentLink.getAttribute('href'))
       .toBe('#/agents?agent=agp_aaaaaaaaaaaaaaaaaaaa&database=orders')

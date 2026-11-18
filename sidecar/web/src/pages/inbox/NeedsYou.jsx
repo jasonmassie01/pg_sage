@@ -192,7 +192,7 @@ function AskedBy({ item }) {
         ? <a href={agentHref} className="underline" style={{ color: 'var(--accent)' }}>
           {item.agent}</a>
         : <span>{item.agent || 'unknown'}</span>}
-      {item.handle && <> · waits on <code>{item.handle}</code></>}
+      {item.handle && <> Â· waits on <code>{item.handle}</code></>}
     </div>
   )
 }
