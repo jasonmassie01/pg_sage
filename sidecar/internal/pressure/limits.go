@@ -92,7 +92,8 @@ func DefaultLimits(a Alerts) Limits {
 
 // LimitsFromPolicy is DefaultLimits with the policy's pressure block on
 // top: each bound it sets replaces the default, and its required list,
-// when present, replaces the default set.
+// when present, replaces the default set. A stop set alone that the
+// default slow would sit at or past keeps a slow band (keepSlowBand).
 func LimitsFromPolicy(p policy.PressurePolicy, a Alerts) Limits {
 	l := DefaultLimits(a)
 	for name, set := range p.Limits {
@@ -103,10 +104,30 @@ func LimitsFromPolicy(p policy.PressurePolicy, a Alerts) Limits {
 		if set.Stop != nil {
 			cur.Stop = ptr(*set.Stop)
 		}
+		if set.Slow == nil {
+			cur = keepSlowBand(name, cur)
+		}
 		l.Inputs[name] = cur
 	}
 	if p.Required != nil {
 		l.Required = setOf(p.Required)
+	}
+	return l
+}
+
+// keepSlowBand moves a default slow bound that sits at or past the stop
+// to half the stop (for free storage, half again above it, at most 100%),
+// so a stricter stop still slows a job first. Bounds derived from the
+// freeze maximum are left to Evaluation.bounds, which already does this.
+func keepSlowBand(name string, l Limit) Limit {
+	if l.Slow == nil || l.Stop == nil || l.SlowAtFreezeMax {
+		return l
+	}
+	switch {
+	case policy.PressureLowerIsWorse(name) && *l.Slow <= *l.Stop:
+		l.Slow = ptr(min(100, *l.Stop*1.5))
+	case !policy.PressureLowerIsWorse(name) && *l.Slow >= *l.Stop:
+		l.Slow = ptr(*l.Stop / 2)
 	}
 	return l
 }

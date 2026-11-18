@@ -49,9 +49,9 @@ func TestPressureLimitsFromThePolicyBlock(t *testing.T) {
 		t.Fatalf("limits: %v", err)
 	}
 	lag := l.Inputs[policy.PressureReplicaLag]
-	if *lag.Stop != 8 || *lag.Slow != 15 {
-		t.Fatalf("lag = stop %v slow %v, want the policy's 8 and the default slow 15 "+
-			"(half of half the 60 s alert)", *lag.Stop, *lag.Slow)
+	if *lag.Stop != 8 || *lag.Slow != 4 {
+		t.Fatalf("lag = stop %v slow %v, want the policy's 8 and a slow of 4 (the "+
+			"default 15 would sit past the stop)", *lag.Stop, *lag.Slow)
 	}
 	if len(l.Required) != 1 || !l.Required[policy.PressureFreeStorage] {
 		t.Fatalf("required = %v, want only free storage", l.Required)

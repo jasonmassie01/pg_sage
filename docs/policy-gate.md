@@ -357,9 +357,11 @@ of its matching alert threshold, so the signal stops a job before the alert fire
 
 No alert covers the vacuum, WAL rate and lock queue inputs, so their defaults are fixed.
 For `free_storage_pct` lower is worse: `slow` must be above `stop`, both at most 100. For
-every other input `slow` must be below `stop`. A bound left out keeps its default; a limit
-with neither bound, an unknown input or a negative value is refused when the document is
-parsed. `required` replaces the default list (`[]` requires none): a required input that
+every other input `slow` must be below `stop`. A bound left out keeps its default, except
+that a default `slow` at or past a `stop` you set moves to half that stop (for
+`free_storage_pct`, 1.5 times it, at most 100%), so a stricter stop still slows a job first.
+A limit with neither bound, an unknown input or a negative value is refused when the
+document is parsed. `required` replaces the default list (`[]` requires none): a required input that
 cannot be read (a timeout, a missing privilege) stops the answer. Any other unknown input
 is reported and never decides, and an answer with no input known at all is `stop`. An input
 that does not exist here, such as replica lag without replicas, is `not_applicable`.

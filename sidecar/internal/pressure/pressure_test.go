@@ -377,6 +377,36 @@ func TestPressureLimitsFromPolicy_OverridesOnlyWhatIsSet(t *testing.T) {
 	}
 }
 
+// A stop set below the default slow (or, for free storage, above it)
+// keeps a slow band: half the stop, or for free storage half again above
+// it, at most 100%. A slow the policy sets itself is never moved.
+func TestPressureLimitsFromPolicy_StopAloneKeepsASlowBand(t *testing.T) {
+	p := policy.PressurePolicy{Limits: map[string]policy.PressureLimit{
+		policy.PressureReplicaLag:  {Stop: f(4)},
+		policy.PressureLockQueue:   {Stop: f(1)},
+		policy.PressureFreeStorage: {Stop: f(40)},
+		policy.PressureWALRate:     {Stop: f(1 << 20), Slow: f(1 << 10)},
+	}}
+	l := LimitsFromPolicy(p, Alerts{})
+	for name, want := range map[string]float64{policy.PressureReplicaLag: 2,
+		policy.PressureLockQueue: 0.5, policy.PressureFreeStorage: 60,
+		policy.PressureWALRate: 1 << 10} {
+		if got := l.Inputs[name].Slow; got == nil || *got != want {
+			t.Errorf("%s slow = %v, want %v under its stop", name, deref(got), want)
+		}
+	}
+	v := Evaluate(Evaluation{Readings: map[string]Reading{
+		policy.PressureReplicaLag: Known(3, time.Now())}, Limits: l, Now: time.Now()})
+	if in := v.Inputs[0]; in.Band != BandSlow {
+		t.Fatalf("lag 3 s under a set stop of 4 = %s, want the slow band", in.Band)
+	}
+	high := LimitsFromPolicy(policy.PressurePolicy{Limits: map[string]policy.PressureLimit{
+		policy.PressureFreeStorage: {Stop: f(90)}}}, Alerts{})
+	if got := *high.Inputs[policy.PressureFreeStorage].Slow; got != 100 {
+		t.Fatalf("free storage slow over a stop of 90 = %v, want capped at 100", got)
+	}
+}
+
 func TestPressureInputFailure_NamesTheCause(t *testing.T) {
 	timeout := &pgconn.PgError{Code: "57014", Message: "canceling statement due to " +
 		"statement timeout"}
