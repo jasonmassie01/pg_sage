@@ -83,6 +83,9 @@ export function TrustPage({ database, user, onSelectDatabase }) {
   const onRevalidate = act(revalidate)
   const databases = trust.data?.databases || []
   const role = user?.role
+  // The fleet summary names the databases that wait for an admin and links
+  // to each; approving happens in that database's scope (ux-10b, ux-06b).
+  const summary = summarizes(database, databases.length)
   return (
     <QueryState query={trust}><section className="space-y-4" data-testid="trust-page">
       <div>
@@ -107,15 +110,17 @@ export function TrustPage({ database, user, onSelectDatabase }) {
           executor starts.
         </div>
       )}
-      {summarizes(database, databases.length)
+      {summary
         ? <TrustSummary views={databases} onSelectDatabase={onSelectDatabase} />
         : databases.map(view => (
           <DatabaseTrust key={view.database} view={view}
             isAdmin={role === 'admin'} onRevalidate={onRevalidate} />
         ))}
-      <WaitingPromotions databases={databases} isAdmin={role === 'admin'}
-        canReject={role === 'admin' || role === 'operator'}
-        onApprove={onApprove} onReject={onReject} />
+      {!summary && (
+        <WaitingPromotions databases={databases} isAdmin={role === 'admin'}
+          canReject={role === 'admin' || role === 'operator'}
+          onApprove={onApprove} onReject={onReject} />
+      )}
       <ModelLift database={database} />
       <TuningCalibration database={database} />
     </section></QueryState>
