@@ -75,6 +75,9 @@ type PolicySet struct {
 type SetDocument struct {
 	Set    PolicySet `json:"set"`
 	Policy *Policy   `json:"policy,omitempty"`
+	// ManagedBy is who owns the set's row: "api", or "config" for one the
+	// GitOps directory reconciler made or adopted (cli-02a).
+	ManagedBy string `json:"managed_by"`
 }
 
 // Member is what a selector sees of a registered database.

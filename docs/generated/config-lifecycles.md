@@ -343,6 +343,8 @@
 | `oauth.redirect_url` | `restart` | `-` | `safety_critical` |
 | `oauth.role_mapping` | `restart` | `-` | `safety_critical` |
 | `oauth.unmapped_users` | `restart` | `-` | `safety_critical` |
+| `policy.directory` | `restart` | `-` | `safety_critical` |
+| `policy.directory_mode` | `restart` | `-` | `safety_critical` |
 | `policy.profile` | `restart` | `-` | `safety_critical` |
 | `postgres.action_dsn` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.aws.cluster_identifier` | `restart` | `-` | `safety_critical` |

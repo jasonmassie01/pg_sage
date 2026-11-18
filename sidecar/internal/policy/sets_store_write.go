@@ -38,23 +38,32 @@ func (s *Store) PutSet(ctx context.Context, req PutSetRequest) (SetDocument, err
 	}
 	var out SetDocument
 	err := s.inLockedTx(ctx, setsLockKey, func(tx pgx.Tx) error {
-		existing, err := readSets(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if err := checkCandidate(ctx, tx, existing, req.Set); err != nil {
-			return err
-		}
-		if err := upsertSet(ctx, tx, req); err != nil {
-			return err
-		}
-		if err := ensureSetDocument(ctx, tx, existing, req.Set.Name, req.Actor); err != nil {
-			return err
-		}
-		out, err = savedSet(ctx, tx, req.Set.Name)
+		var err error
+		out, err = putSetIn(ctx, tx, req, "")
 		return err
 	})
 	return out, err
+}
+
+// putSetIn saves req.Set in tx, which holds the sets lock. managedBy ""
+// keeps the row's owner (a new row is the API's); otherwise the row is
+// marked with it (cli-02a).
+func putSetIn(ctx context.Context, tx pgx.Tx, req PutSetRequest,
+	managedBy string) (SetDocument, error) {
+	existing, err := readSets(ctx, tx)
+	if err != nil {
+		return SetDocument{}, err
+	}
+	if err := checkCandidate(ctx, tx, existing, req.Set); err != nil {
+		return SetDocument{}, err
+	}
+	if err := upsertSet(ctx, tx, req, managedBy); err != nil {
+		return SetDocument{}, err
+	}
+	if err := ensureSetDocument(ctx, tx, existing, req.Set.Name, req.Actor); err != nil {
+		return SetDocument{}, err
+	}
+	return savedSet(ctx, tx, req.Set.Name)
 }
 
 func checkCandidate(ctx context.Context, tx pgx.Tx, existing []SetDocument, set PolicySet) error {
@@ -71,7 +80,7 @@ func checkCandidate(ctx context.Context, tx pgx.Tx, existing []SetDocument, set 
 	return CheckTies(append(candidate, set), members)
 }
 
-func upsertSet(ctx context.Context, tx pgx.Tx, req PutSetRequest) error {
+func upsertSet(ctx context.Context, tx pgx.Tx, req PutSetRequest, managedBy string) error {
 	selectors, err := json.Marshal(req.Set.Selectors)
 	if err != nil {
 		return fmt.Errorf("encode selectors: %w", err)
@@ -84,12 +93,15 @@ func upsertSet(ctx context.Context, tx pgx.Tx, req PutSetRequest) error {
 		return fmt.Errorf("encode requirements: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-INSERT INTO sage.policy_sets (name, priority, selectors, requirements, created_by, updated_by)
-VALUES ($1, $2, $3, $4, $5, $5)
+INSERT INTO sage.policy_sets (name, priority, selectors, requirements, created_by, updated_by,
+    managed_by)
+VALUES ($1, $2, $3, $4, $5, $5, COALESCE(NULLIF($6, ''), 'api'))
 ON CONFLICT (name) DO UPDATE SET priority = EXCLUDED.priority,
     selectors = EXCLUDED.selectors, requirements = EXCLUDED.requirements,
-    updated_by = EXCLUDED.updated_by, updated_at = now()`,
-		req.Set.Name, req.Set.Priority, selectors, requirements, req.Actor); err != nil {
+    updated_by = EXCLUDED.updated_by, updated_at = now(),
+    managed_by = COALESCE(NULLIF($6, ''), sage.policy_sets.managed_by)`,
+		req.Set.Name, req.Set.Priority, selectors, requirements, req.Actor,
+		managedBy); err != nil {
 		return fmt.Errorf("save policy set %s: %w", req.Set.Name, err)
 	}
 	detail, _ := json.Marshal(map[string]any{"priority": req.Set.Priority,

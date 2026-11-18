@@ -3069,6 +3069,21 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "policy.directory": {
+    "type": "string",
+    "default": "",
+    "doc": "GitOps directory of policy-sets/, principals/ and grants/ YAML files reconciled into policy sets, agent principals and database grants; relative to the config file. Empty: off.",
+    "warning": "In apply mode the files own the rows they name: the reconciler creates, changes and retires them, and an empty directory retires every row it made. A widening is only proposed and waits for a person.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.directory_mode": {
+    "type": "string",
+    "default": "dry_run",
+    "doc": "dry_run (log and show the diff in Settings, write nothing) or apply. Default: dry_run.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "policy.profile": {
     "type": "string",
     "default": "unattended",
@@ -3997,6 +4012,13 @@
     "type": "float64",
     "default": 10,
     "doc": "Regression that halts and rolls back the rollout, 0-100. Default: 10.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "sre.autonomy.canary.stage_wait_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between a database's verdict and the next change, 0-720. Default: 24.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

@@ -26,9 +26,9 @@ type querier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-const policySetsSQL = `/* pg_sage policy_sets v1 */
+const policySetsSQL = `/* pg_sage policy_sets v2 */
 SELECT s.name, s.priority, s.selectors, s.requirements, s.created_by, s.updated_at,
-       p.id, p.version, p.profile, p.doc, COALESCE(p.ratified_by, p.proposed_by),
+       s.managed_by, p.id, p.version, p.profile, p.doc, COALESCE(p.ratified_by, p.proposed_by),
        COALESCE(p.activated_at, p.ratified_at, p.proposed_at)
 FROM sage.policy_sets s
 LEFT JOIN sage.policy p
@@ -144,8 +144,9 @@ func scanSetDocument(rows pgx.Rows) (SetDocument, error) {
 	var profile, by *string
 	var doc []byte
 	var at *time.Time
+	var managedBy string
 	if err := rows.Scan(&set.Name, &set.Priority, &selectors, &requirements, &set.CreatedBy,
-		&set.UpdatedAt, &id, &version, &profile, &doc, &by, &at); err != nil {
+		&set.UpdatedAt, &managedBy, &id, &version, &profile, &doc, &by, &at); err != nil {
 		return SetDocument{}, fmt.Errorf("scan policy set: %w", err)
 	}
 	if err := json.Unmarshal(selectors, &set.Selectors); err != nil {
@@ -154,7 +155,7 @@ func scanSetDocument(rows pgx.Rows) (SetDocument, error) {
 	if err := json.Unmarshal(requirements, &set.Requirements); err != nil {
 		return SetDocument{}, fmt.Errorf("policy set %s: requirements: %w", set.Name, err)
 	}
-	out := SetDocument{Set: set}
+	out := SetDocument{Set: set, ManagedBy: managedBy}
 	if id != nil {
 		out.Policy = &Policy{ID: *id, Version: *version, Profile: *profile,
 			Document: doc, UpdatedBy: *by, Scope: Scope{SetName: set.Name},

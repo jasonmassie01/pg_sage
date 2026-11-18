@@ -512,7 +512,9 @@
     "DatabaseGrantMapping": null
   },
   "Policy": {
-    "Profile": "unattended"
+    "Profile": "unattended",
+    "Directory": "",
+    "DirectoryMode": "dry_run"
   },
   "Value": {
     "ToilModelVersion": 1

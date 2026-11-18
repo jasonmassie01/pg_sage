@@ -49,10 +49,18 @@ func scanPolicy(row rowScanner) (Policy, error) {
 func (s *Store) insertProposal(
 	ctx context.Context, request ProposalRequest, current Policy, preview []byte,
 ) (Proposal, error) {
+	return insertProposalIn(ctx, s.pool, request, current, preview)
+}
+
+// insertProposalIn files request as a proposal against current through q
+// (the pool, or a caller's transaction).
+func insertProposalIn(
+	ctx context.Context, q querier, request ProposalRequest, current Policy, preview []byte,
+) (Proposal, error) {
 	agent, widening := proposalProvenance(request, current)
 	var result Proposal
 	var databaseID *int64
-	err := s.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 WITH next_id AS (SELECT nextval('sage.policy_id_seq') AS id)
 INSERT INTO sage.policy (
     id, database_id, version, scope, profile, doc, preview, status,

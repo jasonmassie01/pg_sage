@@ -255,26 +255,31 @@ func (s *Store) SetStatus(ctx context.Context, id string, to Status,
 		return Principal{}, err
 	}
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		cur, err := lockForChange(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `/* pg_sage guard_principal_status v2 */
-			UPDATE sage.guard_principals SET status = $2,
-				frozen_reason = CASE WHEN $2 = 'frozen' THEN $3 ELSE '' END,
-				updated_at = now()
-			WHERE id = $1`, id, string(to), a.Reason); err != nil {
-			return fmt.Errorf("agentguard: setting status of principal %s: %w", id, err)
-		}
-		return record(ctx, tx, a, statusEvent(to), cur.shape.SponsorUserID,
-			map[string]any{"principal_id": id, "name": cur.name,
-				"before_status": string(cur.status), "after_status": string(to),
-				"reason": a.Reason})
+		return setStatusInTx(ctx, tx, id, to, a)
 	})
 	if err != nil {
 		return Principal{}, err
 	}
 	return s.Get(ctx, id)
+}
+
+// setStatusInTx moves the principal tx locks to status to and records it.
+func setStatusInTx(ctx context.Context, tx pgx.Tx, id string, to Status, a Audit) error {
+	cur, err := lockForChange(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `/* pg_sage guard_principal_status v2 */
+		UPDATE sage.guard_principals SET status = $2,
+			frozen_reason = CASE WHEN $2 = 'frozen' THEN $3 ELSE '' END,
+			updated_at = now()
+		WHERE id = $1`, id, string(to), a.Reason); err != nil {
+		return fmt.Errorf("agentguard: setting status of principal %s: %w", id, err)
+	}
+	return record(ctx, tx, a, statusEvent(to), cur.shape.SponsorUserID,
+		map[string]any{"principal_id": id, "name": cur.name,
+			"before_status": string(cur.status), "after_status": string(to),
+			"reason": a.Reason})
 }
 
 // Taint marks a principal tainted by source (the read that caused it).

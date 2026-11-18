@@ -89,7 +89,7 @@ type DatabaseGrant struct {
 	Role      string    `json:"role"`
 	GrantedBy int       `json:"granted_by"`
 	GrantedAt time.Time `json:"granted_at"`
-	Source    string    `json:"source"` // GrantSourceManual or GrantSourceIdP
+	Source    string    `json:"source"` // GrantSourceManual, GrantSourceIdP or GrantSourceConfig
 }
 
 // GrantChange is one grant write: who makes it, for whom, on what.
@@ -180,9 +180,12 @@ func (s *DatabaseGrantStore) SetGrant(ctx context.Context, c GrantChange) (Datab
 	}
 	var g DatabaseGrant
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		prev, _, err := lockGrant(ctx, tx, c)
+		prev, source, err := lockGrant(ctx, tx, c)
 		if err != nil {
 			return err
+		}
+		if source == GrantSourceConfig {
+			return ErrConfigGrantReadOnly
 		}
 		g = DatabaseGrant{UserID: c.UserID, Database: c.Database, Role: c.Role,
 			GrantedBy: c.ActorID, Source: GrantSourceManual}
@@ -224,6 +227,9 @@ func (s *DatabaseGrantStore) RevokeGrant(ctx context.Context, c GrantChange) err
 		}
 		if c.ProtectIdP && source == GrantSourceIdP {
 			return ErrIdPGrantReadOnly
+		}
+		if source == GrantSourceConfig {
+			return ErrConfigGrantReadOnly
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM sage.user_database_grants
 			WHERE user_id = $1 AND database_name = $2`, c.UserID, c.Database); err != nil {

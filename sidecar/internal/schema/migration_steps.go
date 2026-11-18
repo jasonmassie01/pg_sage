@@ -273,5 +273,6 @@ func trancheSevenMigrations() []namedStep {
 		{"ddlNotificationRuleClass", ddlNotificationRuleClass}, // ux-09a
 		{"ddlActionQueueLadder", ddlActionQueueLadder},         // lab-03a
 		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect}, // lab-03b
+		{"ddlGitopsManagedBy", ddlGitopsManagedBy},             // cli-02a
 	}
 }
