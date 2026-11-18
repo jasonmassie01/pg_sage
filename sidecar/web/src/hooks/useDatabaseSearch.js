@@ -35,9 +35,13 @@ export function useDatabaseSearch({ open, q, tag }) {
         if (ctrl.signal.aborted || err?.name === 'AbortError') return
         setState({ ...EMPTY, key: url, error: err })
       })
+    // A load-more cut off here never settles, so its mark goes too: a
+    // later answer with the same cursor must be able to load more again.
     return () => {
       ctrl.abort()
       more.current?.abort()
+      more.current = null
+      setMoreFor(null)
     }
   }, [open, url])
 
@@ -52,6 +56,7 @@ export function useDatabaseSearch({ open, q, tag }) {
     apiGet(databaseSearchURL({ q, tag, cursor }), { signal: ctrl.signal })
       .then(page => {
         if (ctrl.signal.aborted) return
+        setMoreFor(null)
         const got = pageOf(page)
         setState(prev => (prev.key !== url ? prev
           : { ...got, key: url, error: null, rows: [...prev.rows, ...got.rows] }))
