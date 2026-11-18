@@ -36,11 +36,15 @@ func (h *Hub) Register(database string, s *Store, largeTableBytes int64) {
 	h.dbs[database] = hubEntry{store: s, largeBytes: largeTableBytes}
 }
 
-// Unregister removes database's queue.
-func (h *Hub) Unregister(database string) {
+// Unregister removes database's queue if it is still s: a rebuilt runtime
+// registers its queue before the one it replaces stops, and the old
+// runtime's exit must not remove the new queue.
+func (h *Hub) Unregister(database string, s *Store) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.dbs, database)
+	if e, ok := h.dbs[database]; ok && e.store == s {
+		delete(h.dbs, database)
+	}
 }
 
 // resolve is database, or the only registered database when it is "".

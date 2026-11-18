@@ -26,18 +26,37 @@ func TestHub_UnknownDatabaseIsAnErrorAndCounted(t *testing.T) {
 
 func TestHub_EmptyNameResolvesOnlyASingleDatabase(t *testing.T) {
 	h := NewHub()
-	h.Register("shop", NewStore(nil), 10<<30)
+	shop, crm := NewStore(nil), NewStore(nil)
+	h.Register("shop", shop, 10<<30)
 	if db, ok := h.resolve(""); !ok || db != "shop" {
 		t.Fatalf("resolve(\"\") = %q %v, want the only database", db, ok)
 	}
-	h.Register("crm", NewStore(nil), 10<<30)
+	h.Register("crm", crm, 10<<30)
 	if db, ok := h.resolve(""); ok {
 		t.Fatalf("resolve(\"\") = %q with two databases, want none", db)
 	}
-	h.Unregister("crm")
-	h.Unregister("shop")
+	h.Unregister("crm", crm)
+	h.Unregister("shop", shop)
 	if _, ok := h.resolve("shop"); ok {
 		t.Fatal("an unregistered database still resolves")
+	}
+}
+
+// A rebuilt runtime registers its queue before the replaced runtime stops:
+// the old runtime's Unregister must leave the new queue in place.
+func TestHub_StaleUnregisterKeepsTheReplacement(t *testing.T) {
+	h := NewHub()
+	old, repl := NewStore(nil), NewStore(nil)
+	h.Register("shop", old, 1<<30)
+	h.Register("shop", repl, 2<<30)
+	h.Unregister("shop", old)
+	_, e, err := h.entry("shop", KindPreUpgrade)
+	if err != nil || e.store != repl || e.largeBytes != 2<<30 {
+		t.Fatalf("after a stale unregister: entry %+v, %v; want the replacement", e, err)
+	}
+	h.Unregister("shop", repl)
+	if _, ok := h.resolve("shop"); ok {
+		t.Fatal("the current queue's unregister left it registered")
 	}
 }
 

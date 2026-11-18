@@ -45,7 +45,7 @@ func (rt *databaseRuntime) startReviewTriggers() {
 	sched := rt.reviewScheduler(store)
 	trigger.Default.Register(rt.spec.Name, store, rt.cfg.Review.LargeTableBytes)
 	rt.start(func() {
-		defer trigger.Default.Unregister(rt.spec.Name)
+		defer trigger.Default.Unregister(rt.spec.Name, store)
 		everyAfter(rt.ctx, reviewTriggerFirst, reviewTriggerTick, func(ctx context.Context) {
 			if fleetLeader != nil && !fleetLeader.IsLeader() {
 				return
