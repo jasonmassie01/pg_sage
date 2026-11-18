@@ -256,6 +256,9 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_SUPERVISED` | (unset) | `1` or `true` declares a supervisor that relaunches the sidecar on exit code 42; only then does the dashboard's restart endpoint work (otherwise it answers 501) |
 | `SAGE_ENCRYPTION_KEY` / `_FILE` | (none) | Passphrase that encrypts stored secrets, including API-set config secrets ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_ENCRYPTION_KEY_PREVIOUS` / `_FILE` | (none) | The previous passphrase during a key rotation |
+| `SAGE_DRILL_ID` | (none) | Set by pg_sage, never read: the drill id a `drill.command.restore_argv` program restores under ([restore drills](restore-drills.md)) |
+| `SAGE_DRILL_DATABASE` | (none) | Set by pg_sage, never read: the pg_sage name of the database a `drill.command.restore_argv` program restores ([restore drills](restore-drills.md)) |
+| `SAGE_CLONE_ID` | (none) | Set by pg_sage, never read: the restore id a `drill.command.destroy_argv` program removes ([restore drills](restore-drills.md)) |
 | `SAGE_DATA_DIR` | (none) | Persistent directory; without an encryption key, pg_sage generates `encryption.key` there ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_BREAK_GLASS_PASSWORD_HASH` / `_FILE` | (none) | bcrypt hash of the [break-glass admin](security.md#break-glass-admin) password |
 | `SAGE_BOOTSTRAP_ADMIN_EMAIL` | (none) | Email of the first admin, created only when the users table is empty |
@@ -289,9 +292,10 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_VERIFY_REGRESS_PCT` | `15` | Regression percentage that triggers a revert (`verify.regress_pct`) |
 | `SAGE_VERIFY_WRITE_IMPACT_PCT` | `20` | Maximum rise of the table's WAL bytes per written tuple (`verify.write_impact_pct`) |
 | `SAGE_VERIFY_MIN_SAMPLES` | `30` | Minimum verification samples (`verify.min_samples`) |
-| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle` or `lakebase_branch` |
+| `SAGE_CLONE_PROVIDER` | `none` | Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`, `rds_restore`, `cloudsql_clone`, `alloydb_restore` or `azure_restore` |
 | `SAGE_CLONE_DLE_ENDPOINT` | (none) | Database Lab Engine API endpoint (`clone.dle_endpoint`) |
 | `SAGE_CLONE_DLE_TOKEN` / `_FILE` | (none) | Database Lab bearer token (`clone.dle_token`) |
+| `SAGE_CLONE_NEON_API_KEY` / `_FILE` | (none) | Neon API key for `neon_branch` rehearsal branches (`clone.neon.api_key`) |
 | `SAGE_CLONE_MAX_AGE_MINUTES` | `1440` | Maximum source snapshot age (`clone.max_clone_age_minutes`) |
 | `SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT` | `25` | Remaining XID percentage classified red (`custodian.freeze.red_buffer_pct`) |
 | `SAGE_CUSTODIAN_WAL_ABANDON_AFTER_MINUTES` | `1440` | Inactive replication-slot abandonment age (`custodian.wal.abandon_after_minutes`) |
@@ -516,7 +520,12 @@ Ranges that changed in tranche T4 (config-02b), where the file and the API used 
 - The API now refuses `analyzer.self_cost_budget_ms` above `3600000` and
   `rca.dedup_window_minutes` above `525600`, which the file refused.
 - `clone.provider: lakebase_branch` stays file-only: the API refuses it, because its
-  `clone.lakebase` project binding is file-only and restart-bound.
+  `clone.lakebase` project binding is file-only and restart-bound. `neon_branch` is
+  refused the same way: its `clone.neon` project and API key are file or env only, as are
+  `aurora_clone` and `rds_restore`: their `clone.aurora` and `clone.rds` regions are
+  file-only, `cloudsql_clone`: its `clone.cloudsql` project and instance are file-only,
+  `alloydb_restore`: its `clone.alloydb` project, location and cluster are file-only, and
+  `azure_restore`: its `clone.azure` subscription, resource group and server are file-only.
 
 A stored override that a moved range now refuses is skipped at replay with a warning naming the
 key and its `updated_at`, and the default applies until a valid value is saved.
@@ -817,11 +826,29 @@ A build withheld because its index name exists is parked until that name is gone
 | `backup.max_age_hours` | `26` | Hours the provider's last good backup may age before `backup_stale` opens (critical at twice the age), `1`-`8760`. RDS and Aurora: the latest restorable time; Cloud SQL: the last successful backup run. Restart to apply |
 | `backup.max_archive_gap_minutes` | `15` | Minutes completed WAL may wait since the last successful archive before `wal_archive_stale` opens (critical at four times the gap), `1`-`10080`. Restart to apply |
 | `backup.min_retention_days` | `7` | Backup retention the provider must keep; less opens `backup_retention_below_policy`. `0` turns the check off; a negative value is refused at startup. `0`-`35`. Restart to apply |
+| `backup.min_pitr_hours` | `24` | Hours of point-in-time recovery window the provider must offer; less opens `pitr_window_below_policy` (24 h passes a 24 h policy). `0` turns the check off. `0`-`8760`. Restart to apply |
+| `backup.external_source` | empty | A backup kept outside the provider's delete path that pg_sage cannot read (an AWS Backup vault in another account, a dump in other storage). Set, it resolves `backup_shares_delete_path`: it is your statement, not evidence pg_sage checked. One line, at most 200 characters. Restart to apply |
 
 These keys only open and close findings (see
 [Backups and WAL archiving](findings.md#backups-and-wal-archiving)); they never change what
 pg_sage may do. They are YAML only. A self-managed server's backup tool leaves no evidence
 in the catalog, so there its backup freshness is unknown and only the WAL archiver is judged.
+
+### Restore drills
+
+| Parameter | Default | Description |
+|---|---|---|
+| `drill.max_concurrent_per_fleet` | `2` | Most restore drills the fleet leader runs at once, across every database, `1`-`10`. Each database runs one drill at a time, and every drill clone still counts against `clone.max_creates_per_hour`. Restart to apply |
+| `drill.command.restore_argv` | unset | Self-managed servers only: the program (an absolute path) and arguments that restore the database's own backups and print one JSON line `{"dsn", "id", "recovery_point"}`. Set, drills use it instead of `clone.provider`; it is a full copy, so it needs `clone.allow_full_copy` and `full_copy` in the policy's drill kinds. Refused at startup next to a managed `clone.provider` or a database whose `provider` is managed ("use the provider's clone kind"). Restart to apply |
+| `drill.command.destroy_argv` | unset | Required with `restore_argv`: the program and arguments that remove a restore, given `SAGE_CLONE_ID`. The clone reaper may run it again for the same id. Restart to apply |
+| `drill.command.env_allow` | `[]` | Names of sidecar environment variables passed to both programs besides `PATH`, for example a repository passphrase. `SAGE_` names are refused. Values are never logged. Restart to apply |
+
+Each database's drill is set in its standing policy document's `drill` block (cadence,
+clone kinds, time budget, marker query; see
+[restore drills](policy-gate.md#restore-drills)), and drills run on `clone.provider`
+([managed clouds](managed-clouds.md#restore-drills)) or, on a self-managed server, on
+`drill.command` ([restore drills on self-managed servers](restore-drills.md)), which needs
+`data_dir`: the programs run in `data_dir/restore-drills`. YAML only.
 
 ### HA role checks
 
@@ -1853,21 +1880,71 @@ The default `unattended` policy profile permits explicitly bounded deadline
 overrides for XID and disk emergencies. Use `staffed` for narrow maintenance
 windows without deadline overrides. Clone-backed migration rehearsal defaults
 to disabled (`clone.provider: none`) and stale clones are recommendation-only.
-The clone adapters are `dle` (Database Lab Engine) and `lakebase_branch` (an
-instant Lakebase branch per rehearsal, below). `snapshot` is refused at startup:
-this build has no RDS, Aurora, Cloud SQL or AlloyDB snapshot adapter.
+The clone adapters are `dle` (Database Lab Engine), `lakebase_branch` (an
+instant Lakebase branch per rehearsal, below), `neon_branch` (a copy-on-write
+Neon branch per rehearsal, below), `aurora_clone` (an Aurora copy-on-write
+clone of the monitored cluster per rehearsal, below) and `rds_restore` (a
+point-in-time restore of the monitored RDS instance per rehearsal: a full copy at
+the full instance price, which needs `clone.allow_full_copy: true` or startup
+fails). `snapshot` is refused at startup with the names that replace it:
+`rds_restore`, `cloudsql_clone`, `alloydb_restore` and `azure_restore`, the
+full-copy restores. `cloudsql_clone` (a Cloud SQL instance clone) and
+`alloydb_restore` (a point-in-time restore of the monitored AlloyDB cluster) and
+`azure_restore` (a point-in-time restore of the monitored Azure flexible server) are
+full copies too and need `clone.allow_full_copy: true`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `clone.provider` | `none` | `none`, `dle` or `lakebase_branch` |
+| `clone.provider` | `none` | `none`, `dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`, `rds_restore`, `cloudsql_clone`, `alloydb_restore` or `azure_restore` |
 | `clone.lakebase.project` | (none) | Lakebase project id the rehearsal branches are created in. Required for `lakebase_branch` |
 | `clone.lakebase.source_branch` | the monitored endpoint's branch | Branch id, or `projects/<project>/branches/<id>` of the same project, a rehearsal branches from |
 | `clone.lakebase.ttl_minutes` | `60` | Server-side expiry of every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
 | `clone.lakebase.endpoint_max_cu` | `1` | Autoscaling maximum of the read-write endpoint on a rehearsal branch |
+| `clone.neon.project_id` | (none) | Neon project id the rehearsal branches are created in (the monitored database's project). Required for `neon_branch` |
+| `clone.neon.parent_branch` | the monitored endpoint's branch | Branch id (`br-...`) or name in the project a rehearsal branches from; one outside the project is refused |
+| `clone.neon.api_key` | (none) | Neon API key (secret; also `SAGE_CLONE_NEON_API_KEY` or `_FILE`). Without it `neon_branch` creates nothing, rehearsals are recommendation-only and startup logs a warning |
+| `clone.neon.endpoint_max_cu` | `1` | Autoscaling maximum, 0.25 to 8 compute units, of the read-write endpoint on a rehearsal branch (minimum 0.25) |
+| `clone.neon.ttl_minutes` | `60` | Expiry Neon sets on every rehearsal branch, 1 to 1440: the backstop if pg_sage cannot delete it |
+| `clone.aurora.region` | (none) | AWS region of the monitored Aurora PostgreSQL cluster; clones are made, and leaked ones looked for, there. Required for `aurora_clone` |
+| `clone.aurora.instance_class` | the source writer's class | Class of the clone's one instance, such as `db.r6g.large` or `db.serverless` (Serverless v2, which needs a Serverless v2 source) |
+| `clone.aurora.ttl_minutes` | `60` | Longest an Aurora clone lives, 30 to 1440; tagged on the clone, and a rehearsal (clone creation included) ends by then. Aurora has no server-side expiry: the reaper destroys a leaked clone |
+| `clone.rds.region` | (none) | AWS region of the monitored RDS for PostgreSQL instance; restores are made, and leaked ones looked for, there. Required for `rds_restore` |
+| `clone.rds.instance_class` | the source instance's class | Class of the restored instance, such as `db.m6g.large` |
+| `clone.cloudsql.project` | (none) | Google Cloud project of the monitored Cloud SQL for PostgreSQL instance; clones are made, and leaked ones looked for, there. Required for `cloudsql_clone` |
+| `clone.cloudsql.instance` | (none) | Instance id of the monitored Cloud SQL for PostgreSQL instance; pg_sage must connect to one of its IPs. Required for `cloudsql_clone` |
+| `clone.alloydb.project` | (none) | Google Cloud project of the monitored AlloyDB cluster; restores are made, and leaked ones looked for, there. Required for `alloydb_restore` |
+| `clone.alloydb.location` | (none) | Region of the monitored AlloyDB cluster, such as `us-central1` (not a zone). Required for `alloydb_restore` |
+| `clone.alloydb.cluster` | (none) | Cluster id of the monitored AlloyDB cluster; it needs continuous backup on, and pg_sage must connect to its primary instance's IP. Required for `alloydb_restore` |
+| `clone.azure.subscription_id` | (none) | Azure subscription ID (a GUID) of the monitored flexible server; restores are made there. Required for `azure_restore` |
+| `clone.azure.resource_group` | (none) | Resource group of the monitored flexible server; restores are made, and leaked ones looked for, there. Required for `azure_restore` |
+| `clone.azure.server` | (none) | Name of the monitored flexible server (not its FQDN); pg_sage must connect to its `<name>.postgres.database.azure.com` FQDN. Required for `azure_restore` |
+| `clone.restore_deadline_minutes` | `120` | Longest a full-copy restore or clone (`rds_restore`, `cloudsql_clone`, `alloydb_restore`, `azure_restore`) may take to become available, 30 to 720; one still not ready is left to the reaper, which finds it by tag or name. A full-copy rehearsal is bounded by this plus one hour, and its receipt lives 15 minutes longer |
+| `clone.rehearsals_per_hour` | `2` | Most index rehearsals on a clone one database starts in any hour (tuning agent and index floor together), 1 to 60 |
+| `clone.allow_full_copy` | `false` | Allow full-copy clones (a whole-instance restore: hours and a full instance bill). Without it a full-copy provider, or one that does not say what its clones are, creates nothing. `true` with a provider that makes no full copies logs a startup warning |
+| `clone.max_creates_per_hour` | `4` | Most clones this deployment creates in any hour, every purpose together, 1 to 60; the next create is refused naming the limit |
+| `clone.rehearsal_statement_timeout_seconds` | `5` | Longest one statement an index rehearsal executes on the clone may run, 1 to 300 seconds; a statement that hits it records "timed out on the clone", not a cost |
 
 The `clone.lakebase.*` keys are read at startup (restart to change them) and are
 not dashboard overrides. They are checked only when `clone.provider` is
 `lakebase_branch`. See [Lakebase: branch rehearsal](lakebase.md#branch-rehearsal).
+The `clone.neon.*` keys are likewise read at startup and checked only when
+`clone.provider` is `neon_branch`. See
+[Neon and Supabase: branch rehearsal](neon-supabase.md#branch-rehearsal-on-neon).
+The `clone.aurora.*` keys are read at startup and checked only when
+`clone.provider` is `aurora_clone`. See
+[Managed clouds: Aurora clone rehearsal](managed-clouds.md#aurora-clone-rehearsal).
+The `clone.rds.*` keys and `clone.restore_deadline_minutes` are read at startup and
+checked only when `clone.provider` is `rds_restore`. See
+[Managed clouds: RDS restore rehearsal](managed-clouds.md#rds-restore-rehearsal).
+The `clone.cloudsql.*` keys are read at startup and checked only when
+`clone.provider` is `cloudsql_clone` (which also checks `clone.restore_deadline_minutes`).
+See [Managed clouds: Cloud SQL clone rehearsal](managed-clouds.md#cloud-sql-clone-rehearsal).
+The `clone.alloydb.*` keys are read at startup and checked only when
+`clone.provider` is `alloydb_restore` (which also checks `clone.restore_deadline_minutes`).
+See [Managed clouds: AlloyDB restore rehearsal](managed-clouds.md#alloydb-restore-rehearsal).
+The `clone.azure.*` keys are read at startup and checked only when
+`clone.provider` is `azure_restore` (which also checks `clone.restore_deadline_minutes`).
+See [Azure: restore rehearsal](azure.md#restore-rehearsal).
 
 A rehearsal clone holds production data, so pg_sage keeps a receipt for it
 (`sage.clone_instances`, purpose `rehearsal`) in the agent governance control
@@ -1876,12 +1953,53 @@ before the clone is requested and is closed when the clone is destroyed. With no
 receipt store the rehearsal is recommendation-only with reason
 `no_receipt_store`. A rehearsal is bounded to one hour and its receipt expires
 15 minutes later. Every 10 minutes the fleet leader destroys the clones of
-expired rehearsal receipts of its own adapter, endpoint (for `lakebase_branch`,
-the project) and deployment. An
+expired rehearsal receipts of its own adapter, endpoint (for `lakebase_branch`
+and `neon_branch`, the project; for `aurora_clone`, `aws/<region>`) and
+deployment. An
 expired receipt that never got a clone id is logged, never destroyed. Before the
 first step the rehearsal checks that the clone is not the production server:
 the same DSN host and port, or the same postmaster start time and port under
 any name, is refused (`target_is_production`), and nothing runs on it.
+
+Clone lifecycle (lab-05a). Each adapter says what kind of clone it makes:
+`dle` a thin clone (no new instance), `lakebase_branch` and `neon_branch` a
+branch, `aurora_clone` a copy-on-write clone (one new instance); a full-copy
+restore needs `clone.allow_full_copy`. Before the clone is requested its
+receipt gets a cost label: instance-hours for the receipt's lifetime and, when a
+`cost.rates` entry names the database, a figure in that entry's currency with
+its date; otherwise "unpriced" (pg_sage ships no price tables). The receipt also
+names the sidecar process holding the clone (`holder_id`), which heartbeats it
+every minute. On startup and every pass the leader's reaper also destroys, before
+their TTL, the clones of this deployment, any purpose, whose holder is another
+process and whose heartbeat is more than 5 minutes old: what a killed sidecar
+left. Receipts written before this release have no holder and end by their TTL
+only. A create the provider answers with 429 or 5xx backs off that adapter's
+creates (1 minute, doubling to 1 hour); a provider that can look its clones up
+by name resolves an uncertain create by the name the receipt gave it, else the
+receipt is logged, never guessed.
+
+The same clones rehearse proposed indexes (lab-04a). With `clone.provider` set,
+the tuning agent offers the model a `rehearse` tool (once per cycle) and the
+deterministic index floor rehearses each candidate it admits, at most
+`clone.rehearsals_per_hour` per database. A rehearsal builds the index on the
+clone, after the same production check, and measures each target statement
+before and after: a statement with no `$n` parameters that the analyze guard
+proves read-only is executed with `EXPLAIN (ANALYZE, BUFFERS)` and its shared
+blocks (hit plus read) are compared, under
+`clone.rehearsal_statement_timeout_seconds` per statement; any other statement
+is planned only and says why ("not executed: parameters unknown"). The result
+is the proposal's tier-2 ladder record on the approval card, with the clone
+receipt id: passed when the executed statements' blocks per call fell, failed
+when they did not, inconclusive when nothing was executed, skipped (with the
+reason) when no clone could be made, the cap was reached, or no clone provider
+is configured. A rehearsal never changes the monitored database, and a failed
+or skipped one still lets the proposal queue as before. Every rehearsal ends
+within the rehearsal bound (1 hour, or the Lakebase or Neon branch TTL when shorter), and
+the floor reuses a candidate's passed, failed or inconclusive record for 24 hours
+instead of rehearsing it again each cycle. `pg_stat_statements`
+stores statements with their constants replaced by `$n`, so most targets are
+planned only; generic plans of parameterized statements need PostgreSQL 16 or
+later.
 
 #### Freeze custodian: what holds the xmin horizon
 
@@ -1930,7 +2048,7 @@ Managed providers may hide slot detail. A holder whose age is unknown pins nothi
 so it is never read as proof that no holder exists. There is no configuration
 for this logic.
 
-The standing policy document also carries three safety fields, all enforced:
+The standing policy document also carries these safety fields, all enforced:
 
 - `refusal_set`: actions pg_sage never runs on its own. A refused action is
   queued for approval with reason `refused_by_policy` (the token is in the
@@ -1956,6 +2074,12 @@ The standing policy document also carries three safety fields, all enforced:
   window is `trust.maintenance_window` (when set) intersected with the
   policy's `maintenance_windows`. A document without the field keeps its
   meaning. Lowering or removing the margin widens the policy.
+- `exposure.mode` (optional, `shadow` or `enforce`, default `shadow`): whether
+  the exposure findings AP-03 and AP-15 become typed remediations
+  (`enable_row_level_security`, `revoke_public_grant`). `shadow` records the
+  would-be action on the finding only. A document without the key is `shadow`
+  and keeps its bytes. Setting `enforce` widens the policy. See [Exposure
+  remediation](policy-gate.md#exposure-remediation).
 - `serialize_mode`: what happens when another writer holds the DDL lease on
   the same object. `park` (both profiles): a self-initiated action is parked
   with reason `ddl_conflict` and retried next cycle. A park is not a failure:
@@ -3158,7 +3282,7 @@ literals always removed.
 | `sre.autonomy.game_days.interval_hours` | `168` | Hours between scheduled game days, `24`-`2160` |
 | `sre.autonomy.game_days.local_dsn` | `""` | Development fallback when `clone.provider` is `none`, for game days and local bench runs. It must be its own cluster, marked (see below). A database on the cluster of a monitored or the metadata database is refused |
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
-| `sre.autonomy.game_days.customer_programs` | unset | Run the customer programs, which exercise the monitored database's own hottest table on the clone (see below). Unset: on when the clone provider copies the database (`dle`, `lakebase_branch`); `local_dsn` never runs them |
+| `sre.autonomy.game_days.customer_programs` | unset | Run the customer programs, which exercise the monitored database's own hottest table on the clone (see below). Unset: on when the clone provider copies the database (`dle`, `lakebase_branch`, `neon_branch`, `aurora_clone`); `local_dsn` never runs them |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
 | `sre.autonomy.canary.regression_limit_pct` | `10` | Measured regression (a database's effect net of the untreated members' change) that halts and rolls back a rollout, `0`-`100` |
 | `sre.autonomy.canary.stage_wait_hours` | `24` | Hours a fleet rollout waits after a database's verdict before it changes the next one, `0`-`720` (`0`: no pause) |
@@ -3489,6 +3613,17 @@ or approves. See [Ask Sage](ask-sage.md).
 | `ask.retention_days` | `30` | Days a conversation is kept after its last question (1-3650). Restart to change |
 | `ask.max_seconds_per_question` | `60` | Wall clock of one question (15-300; each model call at most 15 s). `POST /api/v1/databases/{db}/ask` gets this plus 5 s, every other API route 30 s; an MCP call keeps its own deadline. A run cut off by its caller after it acted is stored `incomplete` with stop `cancelled`; answers are counted in `pg_sage_ask_answers_total{database,status,stop}`. Restart to change |
 | `ask.max_concurrent_runs` | `4` | Asynchronous runs (the dashboard's questions, `POST /api/v1/databases/{db}/ask/runs`) at once per database on one sidecar (1-16). One more is refused with HTTP 429 and `Retry-After`; a second run on one conversation is 409. Each run is bounded by `ask.max_seconds_per_question` and the daily budgets; see [Ask Sage](ask-sage.md#asynchronous-runs). Restart to change |
+
+### Sage Review
+
+Sage Review grades each database against the versioned rubric `pg_sage-rubric/1`,
+deterministic and read-only; it writes only `sage.review_run` and `sage.review_grade`. See
+[Sage Review](review.md).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `review.enabled` | `true` | Grade each database once after its first look, then every `review.grade_interval_hours`. Restart to change |
+| `review.grade_interval_hours` | `24` | Hours between two grades of one database (1-720). Restart to change |
 
 ### Forecaster
 

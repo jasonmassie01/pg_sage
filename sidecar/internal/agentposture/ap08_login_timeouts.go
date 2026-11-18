@@ -22,7 +22,7 @@ type ap08 struct{}
 
 func (ap08) Spec() Spec {
 	return Spec{ID: "AP-08", Title: "Login roles without session timeouts",
-		Severity: Info}
+		Severity: Info, ReadsSessions: true}
 }
 
 // providerAdminRoles are managed-service administration logins.

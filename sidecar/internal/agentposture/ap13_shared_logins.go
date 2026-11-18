@@ -23,7 +23,7 @@ type ap13 struct{}
 
 func (ap13) Spec() Spec {
 	return Spec{ID: "AP-13", Title: "Login roles shared with agent-like clients",
-		Severity: Warning}
+		Severity: Warning, ReadsSessions: true}
 }
 
 // sharedLoginClients is how many distinct clients make a login shared.

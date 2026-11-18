@@ -6,6 +6,7 @@ import { queryBlocked } from '../lib/queryState'
 import { EmptyState } from '../components/EmptyState'
 import { DatabaseSummary } from './databases/DatabaseSummary'
 import { EvidencePacks } from './database/EvidencePacks'
+import { RecoverabilityPanel } from '../components/RecoverabilityPanel'
 
 const MAX_INLINE_CHARS = 500000
 
@@ -94,6 +95,7 @@ export function DatabasePage({ database, user }) {
   return (
     <div className="space-y-6">
       <DatabaseSummary database={db} />
+      <RecoverabilityPanel database={db} />
       <EvidencePacks database={db} user={user} />
       {queryBlocked(snapshot) ? (
         <QueryState query={snapshot} skeleton={<LoadingSpinner />} />

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/drill"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
@@ -29,6 +31,9 @@ import (
 type agentGateState struct {
 	decider *decide.Decider
 	control *pgxpool.Pool
+	// envs classifies databases (nil without environment bindings); the
+	// drill scheduler reads it to find production databases.
+	envs *envbind.Service
 }
 
 var agentGate atomic.Pointer[agentGateState]
@@ -42,8 +47,9 @@ func startAgentGate(c *config.Config, mgr *fleet.DatabaseManager, meta *metaDBSt
 		return
 	}
 	cfg := decide.Config{Principals: agentguard.NewStore(control),
-		Profiles: decide.DefaultProfiles(), Recovery: fleetRecovery{mgr: mgr},
-		Freezes: agentFreezes(control)}
+		Profiles: decide.DefaultProfiles(),
+		Recovery: fleetRecovery{mgr: mgr, drills: drill.NewStore(control)},
+		Freezes:  agentFreezes(control)}
 	agentGrantSources(&cfg, mgr) // D5, D9 and D10 (agent_grants_wiring.go)
 	if envs != nil {
 		cfg.Environments = envSource{svc: envs}
@@ -51,7 +57,7 @@ func startAgentGate(c *config.Config, mgr *fleet.DatabaseManager, meta *metaDBSt
 		// (agent_broker_wiring.go) and the grant registry's, both must pass.
 		cfg.Objects = allObjects{agentObjectChecker(envs), cfg.Objects}
 	}
-	agentGate.Store(&agentGateState{decider: decide.New(cfg), control: control})
+	agentGate.Store(&agentGateState{decider: decide.New(cfg), control: control, envs: envs})
 }
 
 // installAgentGovernance wires one database's executor.
@@ -114,16 +120,34 @@ func bindStdioPrincipal(rt *mcp.Runtime, c *config.Config, mgr *fleet.DatabaseMa
 }
 
 // fleetRecovery is D7's recovery posture: the provider's PITR flag from
-// cloud telemetry, else the server's WAL archiving. Restore drills arrive
-// with G3, so the last drill is unknown (which caps L3 at L2).
-type fleetRecovery struct{ mgr *fleet.DatabaseManager }
+// cloud telemetry, else the server's WAL archiving, and the database's
+// last passed restore drill (drill-01a; zero, which caps L3 at L2, when
+// none passed or the drill record cannot be read).
+type fleetRecovery struct {
+	mgr    *fleet.DatabaseManager
+	drills drillHistory
+	// cloudPITR is the provider's PITR flag (nil: unknown); nil is cloud
+	// telemetry's.
+	cloudPITR func(database string) *bool
+}
+
+// drillHistory is where passed restore drills are read (drill.Store).
+type drillHistory interface {
+	LastPassed(ctx context.Context, database string) (time.Time, error)
+}
+
+// drillReadWarned keeps one warning per database for an unreadable drill
+// record.
+var drillReadWarned sync.Map
 
 func (f fleetRecovery) Recovery(ctx context.Context, database string) (bool, time.Time,
 	error) {
-	if rt := cloudtel.Lookup(database); rt != nil {
-		if b := rt.Backup(); b != nil && b.PITREnabled != nil {
-			return *b.PITREnabled, time.Time{}, nil
-		}
+	lookup := f.cloudPITR
+	if lookup == nil {
+		lookup = cloudTelemetryPITR
+	}
+	if pitr := lookup(database); pitr != nil {
+		return *pitr, f.lastDrill(ctx, database), nil
 	}
 	var inst *fleet.DatabaseInstance
 	if f.mgr != nil {
@@ -132,7 +156,40 @@ func (f fleetRecovery) Recovery(ctx context.Context, database string) (bool, tim
 	if inst == nil || inst.Pool == nil {
 		return false, time.Time{}, nil
 	}
-	return walArchived(ctx, inst.Pool)
+	pitr, _, err := walArchived(ctx, inst.Pool)
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	return pitr, f.lastDrill(ctx, database), nil
+}
+
+// lastDrill is the database's last passed drill, zero when none passed.
+// A read failure is zero too: D7 then caps at L2 (fail closed) instead of
+// refusing every production write.
+func (f fleetRecovery) lastDrill(ctx context.Context, database string) time.Time {
+	if f.drills == nil {
+		return time.Time{}
+	}
+	at, err := f.drills.LastPassed(ctx, database)
+	if err != nil {
+		if _, seen := drillReadWarned.LoadOrStore(database, true); !seen {
+			logWarn("agents", "D7 reads no restore drill for %s, so agent writes stay at "+
+				"L2: %v", database, err)
+		}
+		return time.Time{}
+	}
+	drillReadWarned.Delete(database)
+	return at
+}
+
+// cloudTelemetryPITR is the provider's PITR flag from cloud telemetry.
+func cloudTelemetryPITR(database string) *bool {
+	if rt := cloudtel.Lookup(database); rt != nil {
+		if b := rt.Backup(); b != nil {
+			return b.PITREnabled
+		}
+	}
+	return nil
 }
 
 func walArchived(ctx context.Context, pool *pgxpool.Pool) (bool, time.Time, error) {

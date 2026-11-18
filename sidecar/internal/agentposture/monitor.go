@@ -28,10 +28,13 @@ type MonitorOptions struct {
 // Other cycles read only the fingerprint and report nothing, so the open
 // posture findings stay as they are.
 type Monitor struct {
-	pool       *pgxpool.Pool
-	opts       MonitorOptions
-	mu         sync.Mutex
+	pool *pgxpool.Pool
+	opts MonitorOptions
+	mu   sync.Mutex
+	// st is the analyzer's runs; exp is the exposure detectors' last run,
+	// by a sweep (sweep.go) or a cycle that ran every detector.
 	st         cadence
+	exp        cadence
 	evaluated  []string
 	incomplete []string
 	obs        *ObservationStore
@@ -66,7 +69,7 @@ func (m *Monitor) Detect(ctx context.Context) ([]analyzer.Finding, error) {
 		return nil, ErrNoPool
 	}
 	cfg := m.opts.Config()
-	fp, err := m.fingerprint(ctx)
+	fp, err := m.fingerprint(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -75,13 +78,17 @@ func (m *Monitor) Detect(ctx context.Context) ([]analyzer.Finding, error) {
 	if reason == "" {
 		return nil, nil
 	}
-	res, err := RunAll(ctx, m.pool, RunOptions{Registry: m.opts.Registry, Config: cfg,
+	reg, all := m.cycleRegistry(reason, fp)
+	res, err := RunAll(ctx, m.pool, RunOptions{Registry: reg, Config: cfg,
 		StatementTimeout: m.opts.StatementTimeout, Observations: m.obs})
 	if err != nil {
 		return nil, fmt.Errorf("agent posture (%s): %w", reason, err)
 	}
 	if !m.logFailures(res.Failed) {
 		m.st.record(fp, now)
+		if all {
+			m.exp.record(fp, now)
+		}
 	}
 	m.evaluated = res.EvaluatedCategories()
 	m.incomplete = res.TruncatedCategories()
@@ -94,6 +101,24 @@ func (m *Monitor) Detect(ctx context.Context) ([]analyzer.Finding, error) {
 	m.opts.Logf("INFO", "agent posture (%s): %d findings from %d detectors", reason,
 		len(out), len(res.Outcomes))
 	return out, nil
+}
+
+// registry is the detectors the monitor runs.
+func (m *Monitor) registry() *Registry {
+	if m.opts.Registry != nil {
+		return m.opts.Registry
+	}
+	return Default()
+}
+
+// cycleRegistry is what a cycle due for reason runs on catalog fp: every
+// detector, or, when a sweep already ran the exposure detectors on this
+// catalog, the others only. The daily run always runs every detector.
+func (m *Monitor) cycleRegistry(reason string, fp int64) (*Registry, bool) {
+	if reason != dueDaily && m.exp.haveFP && m.exp.fp == fp {
+		return withoutExposure(m.registry()), false
+	}
+	return m.registry(), true
 }
 
 // logFailures logs each failed detector and reports whether any failure
@@ -142,13 +167,20 @@ func (m *Monitor) LastEvaluatedCategories() []string {
 	return append([]string(nil), m.evaluated...)
 }
 
-func (m *Monitor) fingerprint(ctx context.Context) (int64, error) {
+// fingerprint is the catalog fingerprint with cfg's Data API state folded in.
+func (m *Monitor) fingerprint(ctx context.Context, cfg Config) (int64, error) {
 	tx, err := beginRead(ctx, m.pool, m.opts.StatementTimeout)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }() // read-only
-	return Fingerprint(ctx, tx)
+	fp, err := Fingerprint(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	// The Supabase Data API state is evidence of AP-03 and AP-04 that the
+	// catalog does not hold (fleetpol-02c): a change of it alone is due.
+	return fp ^ cfg.Platform.dataAPIFingerprint(), nil
 }
 
 // Due reasons.

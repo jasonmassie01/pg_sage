@@ -17,6 +17,9 @@ var queryRuleNames = map[string]bool{
 }
 
 func (a *Analyzer) cycle(ctx context.Context) error {
+	// An out-of-cycle run (RunOutOfCycle) never overlaps a cycle.
+	a.cycleMu.Lock()
+	defer a.cycleMu.Unlock()
 	latest := a.collector.LatestSnapshot()
 	if latest == nil {
 		a.logFn("DEBUG", "analyzer: no snapshot yet, skipping")

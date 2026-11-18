@@ -406,6 +406,7 @@ func TestIsLeasedMutation(t *testing.T) {
 		"ALTER TABLE public.t SET (fillfactor = 90)":       true,
 		"VACUUM (FREEZE) public.t":                         true,
 		"vacuum public.t":                                  true,
+		"REVOKE ALL ON TABLE public.t FROM PUBLIC":         true,
 		"ANALYZE public.t":                                 false,
 		"ALTER SYSTEM SET max_slot_wal_keep_size = '10GB'": false,
 		"SELECT pg_terminate_backend(42)":                  false,

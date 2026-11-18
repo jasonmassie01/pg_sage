@@ -37,7 +37,7 @@ created, so this path is covered by unit tests only.
 | Database-scope settings | `ALTER DATABASE ... SET` is proposed only for settings whose `pg_settings.context` is `user`, or `superuser` when the role holds `SET` on the parameter (PostgreSQL 15+). `sighup` settings such as `max_wal_size`, `checkpoint_completion_target` and the `autovacuum_*` instance knobs, and `postmaster` settings, become advisory findings naming the server parameter; the executor refuses a stale `ALTER DATABASE` for them before it reaches PostgreSQL |
 | Instance parameters | `ALTER SYSTEM` is unavailable. A setting SQL cannot change becomes a managed-change **proposal** (mechanism `server_parameter`) on the Actions page: the value in Azure's unit, whether a restart is needed, the rollback and the `az postgres flexible-server parameter set` command. An operator approves and runs it; pg_sage never writes these parameters |
 | Restart-bound parameters | The proposal is marked `reboot_required` and adds `az postgres flexible-server restart`; pg_sage observes the running value afterwards and reports drift |
-| ARM writes | Only the WAL-slot custodian's `max_slot_wal_keep_size` cap is written through Azure Resource Manager, and only when the `azure:` section is set |
+| ARM writes | Only the WAL-slot custodian's `max_slot_wal_keep_size` cap is written through Azure Resource Manager, and only when the `azure:` section is set; with `clone.provider: azure_restore` pg_sage also creates and deletes its own `sage-*` rehearsal servers (see [Restore rehearsal](#restore-rehearsal)) |
 | Host telemetry | With `azure.subscription_id` and `azure.resource_group` (or a database's `cloud_resource.azure`), pg_sage reads the flexible server over ARM: its SKU (memory, from a dated table; an unknown SKU leaves memory unknown), storage auto-grow, its read replicas, and Azure Monitor metrics `cpu_percent`, `memory_percent`, `storage_used`, `storage_free`, `active_connections`, `read_iops`, `write_iops` and each replica's `physical_replication_delay_in_seconds`. They feed the memory gates, CPU index-build admission and the replica-lag and storage guards exactly as on RDS and Cloud SQL (see [managed-clouds.md](managed-clouds.md)). Reads only; a stale or missing point is unknown, never 0% |
 | Readiness | The fleet overview shows `azure_monitor` log access. The `azure.extensions` allow-list requirement for HypoPG, pg_hint_plan and auto_explain appears as a separate `extension_hints` field (shown as "hint:" in the dashboard); the `extensions` field is what the catalog shows is installed. ANALYZE permission is `ok` for members of `azure_pg_admin`, otherwise `limited` (checked per table at execution). Capabilities are recollected every 15 minutes and after a config reload |
 
@@ -106,6 +106,114 @@ scoped to the server grants both.
 At startup pg_sage logs either `azure server NAME: the WAL-slot cap (max_slot_wal_keep_size)
 applies through ARM; other server parameters become operator-approved proposals with the az
 command`, or why the cap stays guidance-only.
+
+## Restore rehearsal
+
+> **Cost warning: read this before the first run.** Azure flexible server has no
+> copy-on-write clone. Every `azure_restore` rehearsal restores production into a **whole
+> new flexible server** of the source's SKU and storage, billed at the **full price** from
+> the restore until teardown: up to `clone.restore_deadline_minutes` of restoring plus up to
+> an hour of rehearsal. A restore takes minutes to hours, growing with the data. pg_sage
+> creates nothing unless you set `clone.allow_full_copy: true`, logs this cost at every
+> startup, and writes each clone's instance-hours on its receipt before Azure is asked for it.
+
+`clone.provider: azure_restore` rehearses a migration or an index on a point-in-time restore
+of the monitored flexible server. Azure always restores to a **new server in the same region
+and the same major version** as the source; pg_sage also keeps it in the same resource group.
+
+```yaml
+clone:
+  provider: azure_restore
+  allow_full_copy: true          # required: without it startup fails
+  restore_deadline_minutes: 120  # 30-720: the longest a restore may take to be ready
+  azure:
+    subscription_id: 0f1e2d3c-4b5a-4697-8877-665544332211  # its subscription (required)
+    resource_group: rg-shop-prod # its resource group (required)
+    server: shop                 # its server name, not the FQDN (required)
+```
+
+What pg_sage does for each clone:
+
+- The source is `clone.azure.server`. It must be a `Ready` primary (a read replica is
+  refused), and pg_sage must connect to its FQDN, `<server>.postgres.database.azure.com`
+  (an IP or another name is refused with "not the configured Azure flexible server"), so the
+  clone is reached the same way.
+- The point in time is five minutes ago (`AzureRestoreLag`). One before the server's
+  `earliestRestoreDate` (a server created recently) is refused with reason
+  `clone_unavailable`.
+- It first checks that no server named `sage-<purpose>-<8 hex>` (lowercase, 3 to 63
+  characters) exists in the resource group, because an ARM `PUT` on an existing server
+  updates it; the `PUT` also sends `If-None-Match: *`. The `PUT` asks for
+  `createMode: PointInTimeRestore` with the source's `sourceServerResourceId` and
+  `pointInTimeUTC`, in the source's region, with the source's tags plus
+  `pg-sage-receipt=<its name>` and `pg-sage-expires-at=<Unix seconds>`. A source in a
+  delegated subnet is restored into the same subnet and private DNS zone; a source encrypted
+  with a customer key keeps that key and its user-assigned identity, so a clone is never
+  silently moved to service-managed keys. The clone has no high-availability standby and
+  the shortest backup retention Azure allows (7 days). Azure keeps backups even for a
+  rehearsal server, and may keep them for a while after it is deleted; pg_sage cannot turn
+  that off.
+- pg_sage polls the `Azure-AsyncOperation` URL (or `Location`) only when it is an operation
+  of the configured subscription on the ARM endpoint; any other URL is never called (the
+  bearer token goes with it), and the restored server is deleted.
+- The clone's DSN is the monitored DSN on the new server's FQDN: the same users and
+  passwords (a restore keeps the administrator login and its password at that point in
+  time), `sslmode` at least `require`, port 5432 (the clone's built-in PgBouncer is not
+  used). A clone that answers on production's FQDN is refused and deleted.
+- Teardown deletes the server with an ARM `DELETE`. Only a `sage-*` server tagged with its
+  own name is deleted. The restore tags the server as it creates it, so an untagged server
+  is never pg_sage's: if Azure ever restores one without the tags, pg_sage reports it left
+  behind and names the `az postgres flexible-server delete` command to run by hand, and the
+  reaper keeps its receipt `create_uncertain` instead of closing it.
+- A `PUT` Azure refused (4xx, including `409 ServerNameAlreadyExists`, since server names
+  are global DNS names) made nothing. A 5xx or lost reply is looked up by name and deleted;
+  a failed or canceled operation, or a server not `Ready` afterwards, is deleted before the
+  error returns. A restore not done by the deadline leaves its receipt `create_uncertain`,
+  and the reaper finds the server by name and destroys it. Azure has no server-side expiry,
+  so the reaper is the backstop: check `az postgres flexible-server list --resource-group
+  <group>` for `sage-*` servers if a sidecar was down for long.
+- The receipt and the rehearsal bound cover the clone: a rehearsal may run
+  `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer.
+  Receipts are scoped `azure/<subscription>/<resource group>`.
+- A caller that ends before `restore_deadline_minutes` is refused before the restore is
+  asked for (reason `clone_unavailable`), so `apply_migration` over stdio MCP is
+  recommendation-only with `azure_restore`, as with the other full-copy providers.
+
+Credentials come from the same DefaultAzureCredential chain as server parameters and host
+telemetry (service principal variables, workload or managed identity, then `az login`), built
+on the first restore or teardown. Without them, or without the monitored pool, nothing is
+created and rehearsals are recommendation-only with reason `clone_unavailable`. The API cannot
+switch `clone.provider` to `azure_restore`; set it in YAML and restart.
+
+The RBAC actions the identity needs on the resource group, on top of the telemetry reads (a
+custom role; the built-in Contributor role on the resource group also covers them):
+
+| Action | Used for |
+| --- | --- |
+| `Microsoft.DBforPostgreSQL/flexibleServers/read` | Read the source and the restored server |
+| `Microsoft.DBforPostgreSQL/flexibleServers/write` | The point-in-time restore (`PUT`) |
+| `Microsoft.DBforPostgreSQL/flexibleServers/delete` | Delete the restored server |
+| `Microsoft.DBforPostgreSQL/locations/azureAsyncOperation/read`, `.../locations/operationResults/read` | Poll the restore |
+| `Microsoft.ManagedIdentity/userAssignedIdentities/assign/action` | Only for a customer-key source: give the clone the source's identity |
+| `Microsoft.Network/virtualNetworks/subnets/join/action` | Only for a delegated-subnet source |
+
+A 401 or 403 names the action and the resource group. Restores land in the source's resource
+group, so the role cannot be narrowed to the clones by scope alone; an Azure Policy or ABAC
+condition on the `sage-` name prefix can narrow `write` and `delete`.
+
+Cost: each receipt carries the instance-hours of one server for the receipt's lifetime
+(`restore_deadline_minutes` plus 75 minutes), priced only by a `cost.rates` entry you supply
+for the source (pg_sage ships no prices; storage and backups are not priced). The number that
+says it works: restores that are ready within their estimate, their instance-hours, and
+servers left after 24 hours (0).
+
+The live check (`SAGE_AZURE_LIVE=1` with `SAGE_AZURE_LIVE_DATABASE_URL`,
+`SAGE_AZURE_SUBSCRIPTION_ID`, `SAGE_AZURE_RESOURCE_GROUP`, `SAGE_AZURE_SERVER` and
+`SAGE_TEST_DATABASE_URL`) runs the clone contract on a real, funded server; it is owner-run
+and never in CI. It also confirms what the fakes assume: that the restore accepts the tags,
+`If-None-Match: *`, `highAvailability`, `backup.backupRetentionDays`, the copied `network`,
+`dataEncryption` and `identity`, and that a public-access clone keeps the source's firewall
+rules (otherwise pg_sage cannot reach it and the rehearsal is recommendation-only).
 
 ## Test server (live checklist)
 

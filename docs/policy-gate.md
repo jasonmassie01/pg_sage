@@ -14,6 +14,9 @@ you see it. Configuration lives in [Configuration](configuration.md): the trust 
 reports how exposed a database is to AI agents, is a separate check: see
 [Agent governance](agent-governance.md).
 
+In a fleet, the standing policy a database's gate reads comes from its
+[policy set](policy-sets.md), or from its own document when it has an exception.
+
 The gate fails closed. Whatever it cannot read (the runtime state, the standing policy, the
 usage counters, the confirmed facts, the autonomy ledger, the in-flight verifications) turns
 into a `blocked` verdict, never into an `execute`.
@@ -61,6 +64,11 @@ withheld verdict into `execute`.
    `rollback_mitigation`, outside windows, budgets, per-class autonomy and the change-class
    allowlist. The observation trust level, the rollback contract's approval guardrail and,
    for an automatic revert, the approval classes and refusal set still apply.
+8a. **Exposure mode.** A forward `revoke_public_grant` or `enable_row_level_security`
+   (see [Exposure remediation](#exposure-remediation)) is `observe_only`
+   `exposure_shadow` unless the policy document's `exposure.mode` is `enforce`, an
+   operator-approved one included. Their re-GRANT or RLS disable is refused
+   (`blocked` `refused_by_policy`) unless it is the revert of a recorded action (step 8).
 9. **Operator-approved actions.** A person's approval replaces the tier flags, the trust
    ramp, the execution mode and the self-initiated budgets. Trust, the change-class
    allowlist and the maintenance windows still bind: `execute` `operator_approved`.
@@ -179,6 +187,7 @@ operator action (`blocked` `ddl_conflict`); see `serialize_mode` in
 | Reason | Meaning | What clears it | Shows |
 |---|---|---|---|
 | `observe_only` | `trust.level: observation` or `execution_mode: manual`. | Raising trust or the mode. | Ledger |
+| `exposure_shadow` | An exposure remediation while the policy document's `exposure.mode` is `shadow` (the default). The finding records the would-be action. | Setting `exposure.mode: enforce`. | Ledger |
 | `autonomy_level` | The class has not earned L2; the proposal is shown as a manual script. | The class earning its level. | Ledger |
 | `autonomy_downgraded` | A downgrade signal holds (error budget, failover, stale evidence, concurrency). | The signal clearing. | Ledger |
 
@@ -263,6 +272,40 @@ The gate checks one action at a time. A plan runs many, so the standing policy d
   - `caps_unavailable` or `size_unavailable`: the policy or a size could not be read. The
     step waits and never passes the cap.
 
+## Restore drills
+
+The standing policy document's `drill` block sets the database's restore drill
+([managed clouds](managed-clouds.md#restore-drills)). A passed drill is what lets D7 lift
+production agent writes above L2 ([agent governance](agent-governance.md)).
+
+```json
+"drill": {
+  "enabled": true,
+  "cadence_days": 30,
+  "kinds": ["thin_clone", "branch", "copy_on_write"],
+  "max_duration_minutes": 240,
+  "marker_query": "SELECT max(created_at) FROM app.orders"
+}
+```
+
+| Field | Default | Range | What it sets |
+|---|---|---|---|
+| `enabled` | `true` | | `false` stops drills for the database (D7 then stays at L2). |
+| `cadence_days` | 30 | 1-365 | Days between drills. With the agent gate on for a production database, a cheap kind drills at least every `require_restore_drill_days` - 2 days. A failed cheap drill is retried after a day. |
+| `kinds` | `thin_clone`, `branch`, `copy_on_write` | those and `full_copy` | Clone kinds a drill may use. `full_copy` (RDS, Cloud SQL, AlloyDB, Azure restore) also needs `clone.allow_full_copy: true`; an empty list is refused. |
+| `max_duration_minutes` | 240 | 1-1440 | The whole drill, the clone's creation included. The clone's receipt lives an hour longer, so the reaper never destroys a clone in use. |
+| `marker_query` | none | one `SELECT` or `WITH`, no `;`, at most 2,000 characters | Run on the clone only, read-only, to find the newest committed timestamp when the sage schema is not in the database. Without it and without the sage schema, RPO is reported unknown. |
+
+A document without the block, or with a field left out, gets the defaults; an explicit `0`
+or an out-of-range value is refused when the document is parsed, and the error names the
+field. The block is written back only when it differs from the defaults.
+
+The drill reads the same standing policy the executor enforces: the database's own
+policy in meta mode, the global policy in standalone and YAML fleet mode, where one
+`drill` block covers every database. When the configured clone kind is not allowed (not in
+`kinds`, or `full_copy` without `clone.allow_full_copy`), no drill runs and the database
+gets the info finding `recoverability_unknown` with the reason.
+
   A step that waits past its `deadline_minutes`, counted from when it first waited, ends
   `skipped` with verdict `expired`, and its `on_expired` decides. `halt_ask` (the default)
   halts the plan. `keep` and `revert_step` let it go on, since nothing ran.
@@ -311,6 +354,49 @@ A person approves a plan at the plan hash they were shown, in one of three modes
   approval; an approval racing an edit is either voided by it or refused as stale.
 - **Approval is never automatic.** Every plan needs a person's approval, whatever the trust
   level. A never-automatic step always needs its own approval as well.
+## Exposure remediation
+
+The exposure detectors (AP-03 tables reachable by exposed roles without RLS, AP-15
+relations granted to `PUBLIC`; see [Agent governance](agent-governance.md#exposure-remediation))
+can be acted on by two typed contracts. Both run only when the policy document says
+`"exposure": {"mode": "enforce"}`; the default is `shadow`, which changes nothing.
+Setting `enforce` widens the policy. Setting `shadow` again withdraws the exposure
+proposals still pending (queue status `superseded`); an action that already ran keeps its
+rollback.
+
+| Contract | Tier | What it runs | Rollback |
+|---|---|---|---|
+| `revoke_public_grant` | `moderate` | `REVOKE <privileges> ON TABLE s.t FROM PUBLIC`, in one transaction under `lock_timeout` 2 s, for only the privileges PUBLIC holds (read with `aclexplode`, `acldefault` when the ACL is NULL). | The exact re-`GRANT ... TO PUBLIC` of what was revoked, in `sage.action_log.rollback_sql`; the prior ACL is in `sage.exposure_remediations`. |
+| `enable_row_level_security` | `high` | `ALTER TABLE s.t ENABLE ROW LEVEL SECURITY`. Always approval, at every trust level. | `ALTER TABLE s.t DISABLE ROW LEVEL SECURITY`. |
+
+Both act only on a user table (not a view or a system catalog) that an open exposure
+finding names, and only when pg_sage's action role owns the table or is a member of its
+owner. Otherwise the proposal ends once with "pg_sage cannot revoke: grant ownership or
+run as the owner" and is not retried; the owner must run the finding's script. Nothing
+to revoke (or RLS already on) records no action. A lock not granted within 2 s is retried
+next cycle.
+
+`revoke_public_grant` change class is `exposure`. With the class granted at `moderate`
+(`trust.level: autonomous`, `trust.tier3_moderate`) it runs unattended; under `advisory`
+it is proposed for approval. Spec section 3 keeps privilege revokes approval-only; this
+one is the exception because it is reversible by its stored re-GRANT, and only for a
+table an exposure finding names.
+
+After a revoke, pg_sage verifies the readers: every `pg_stat_statements` statement that
+references the table and ran in the hour before must keep running in the window after
+(15 minutes). pg_stat_statements counts only statements that succeed, so a reader that
+relied on PUBLIC and now gets "permission denied" stops; the revoke is then reverted
+through the rollback path (`rollback_mitigation`). Without statement history, or when
+`pg_stat_statements` cannot be read, the revoke is kept and marked `unverifiable`. The
+revoke holds the table's change lease, so two cycles on one table record one action, and
+a statement that fails `maxActionRetries` (3) times is not retried: the count is per
+table, so failures on one relation of an AP-15 finding do not hold back the others.
+
+The approval card of `enable_row_level_security` (in the queuing decision's evidence,
+`exposure_card`) lists the top 20 statements by calls that reference the table
+(fingerprints only), the roles that would lose access (grantees that neither own the
+table nor bypass RLS, PUBLIC included) and an optional `CREATE POLICY` template. The
+template is card text; pg_sage never runs it.
 
 ## The decision ledger
 

@@ -202,6 +202,7 @@ func overlayAgentNativeEnv(o *envOverlay, cfg *Config) {
 		{"SAGE_CLONE_PROVIDER", &cfg.Clone.Provider},
 		{"SAGE_CLONE_DLE_ENDPOINT", &cfg.Clone.DLEEndpoint},
 		{"SAGE_CLONE_DLE_TOKEN", &cfg.Clone.DLEToken},
+		{"SAGE_CLONE_NEON_API_KEY", &cfg.Clone.Neon.APIKey},
 	})
 	overlayVar(o, "SAGE_CLONE_MAX_AGE_MINUTES", parseEnvInt, &cfg.Clone.MaxCloneAgeMinutes)
 	overlayVar(o, "SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT", parseEnvFloat,

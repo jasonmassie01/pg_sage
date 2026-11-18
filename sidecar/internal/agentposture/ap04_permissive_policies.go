@@ -81,6 +81,10 @@ func policyRoles(env Env, roles []uint32) []Role {
 }
 
 func ap04Finding(env Env, r ap04Row) Finding {
+	return withDataAPI(env.Config.Platform, r.schema, ap04PolicyFinding(env, r))
+}
+
+func ap04PolicyFinding(env Env, r ap04Row) Finding {
 	who := policyRoles(env, r.roles)
 	ps := env.paths(who, r.roles)
 	var exprs []string

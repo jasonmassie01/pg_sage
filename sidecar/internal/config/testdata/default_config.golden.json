@@ -537,11 +537,46 @@
     "DLEEndpoint": "",
     "DLEToken": "",
     "MaxCloneAgeMinutes": 1440,
+    "RehearsalsPerHour": 2,
+    "RehearsalStatementTimeoutSeconds": 5,
+    "AllowFullCopy": false,
+    "MaxCreatesPerHour": 4,
     "Lakebase": {
       "Project": "",
       "SourceBranch": "",
       "TTLMinutes": 60,
       "EndpointMaxCU": 1
+    },
+    "Neon": {
+      "ProjectID": "",
+      "ParentBranch": "",
+      "APIKey": "",
+      "EndpointMaxCU": 1,
+      "TTLMinutes": 60
+    },
+    "Aurora": {
+      "Region": "",
+      "InstanceClass": "",
+      "TTLMinutes": 60
+    },
+    "RestoreDeadlineMinutes": 120,
+    "RDS": {
+      "Region": "",
+      "InstanceClass": ""
+    },
+    "CloudSQL": {
+      "Project": "",
+      "Instance": ""
+    },
+    "AlloyDB": {
+      "Project": "",
+      "Location": "",
+      "Cluster": ""
+    },
+    "Azure": {
+      "SubscriptionID": "",
+      "ResourceGroup": "",
+      "Server": ""
     }
   },
   "Custodian": {
@@ -573,6 +608,10 @@
     "RetentionDays": 30,
     "MaxSecondsPerQuestion": 60,
     "MaxConcurrentRuns": 4
+  },
+  "Review": {
+    "Enabled": true,
+    "GradeIntervalHours": 24
   },
   "Facts": {
     "ConfirmedAbsenceDays": 7
@@ -652,7 +691,17 @@
   "Backup": {
     "MaxAgeHours": 26,
     "MaxArchiveGapMinutes": 15,
-    "MinRetentionDays": 7
+    "MinRetentionDays": 7,
+    "MinPITRHours": 24,
+    "ExternalSource": ""
+  },
+  "Drill": {
+    "MaxConcurrentPerFleet": 2,
+    "Command": {
+      "RestoreArgv": null,
+      "DestroyArgv": null,
+      "EnvAllow": null
+    }
   },
   "CloudTelemetry": {
     "Enabled": null,
@@ -711,6 +760,9 @@
     "Posture": {
       "MemoryGrowthGBDay": 5,
       "DailyAt": "03:00"
+    },
+    "Exposure": {
+      "SweepSeconds": 60
     },
     "Roles": {
       "ConnectionLimit": 5,

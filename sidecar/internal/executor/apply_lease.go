@@ -78,10 +78,11 @@ func leaseSpecFor(intent ActionIntent) (TargetLease, bool) {
 }
 
 // isLeasedMutation reports statements that hold their object while they
-// run: every DDL mutation, and VACUUM (a custodian freeze can hold a table
-// for minutes). ANALYZE, settings and signals take no lease.
+// run: every DDL mutation, VACUUM (a custodian freeze can hold a table for
+// minutes) and the exposure REVOKE (fleetpol-02b: two cycles on one table
+// must yield one action). ANALYZE, settings and signals take no lease.
 func isLeasedMutation(sql string) bool {
-	if isDDLMutation(sql) {
+	if isDDLMutation(sql) || exposureActionType(sql) != "" {
 		return true
 	}
 	upper := strings.ToUpper(strings.TrimSpace(sql))

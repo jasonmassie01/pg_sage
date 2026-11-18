@@ -173,10 +173,33 @@ safety_critical azure.subscription_id
 safety_critical clone.dle_endpoint
 safety_critical clone.dle_token
 operator_preference clone.max_clone_age_minutes
+operator_preference clone.rehearsals_per_hour
+operator_preference clone.rehearsal_statement_timeout_seconds
+safety_critical clone.allow_full_copy
+operator_preference clone.max_creates_per_hour
 safety_critical clone.lakebase.project
 safety_critical clone.lakebase.source_branch
 operator_preference clone.lakebase.ttl_minutes
 operator_preference clone.lakebase.endpoint_max_cu
+safety_critical clone.neon.project_id
+safety_critical clone.neon.parent_branch
+safety_critical clone.neon.api_key
+operator_preference clone.neon.endpoint_max_cu
+operator_preference clone.neon.ttl_minutes
+safety_critical clone.aurora.region
+operator_preference clone.aurora.instance_class
+operator_preference clone.aurora.ttl_minutes
+safety_critical clone.rds.region
+operator_preference clone.rds.instance_class
+operator_preference clone.restore_deadline_minutes
+safety_critical clone.cloudsql.project
+safety_critical clone.cloudsql.instance
+safety_critical clone.alloydb.project
+safety_critical clone.alloydb.location
+safety_critical clone.alloydb.cluster
+safety_critical clone.azure.subscription_id
+safety_critical clone.azure.resource_group
+safety_critical clone.azure.server
 safety_critical clone.provider
 operator_preference value.toil_model_version
 
@@ -534,6 +557,8 @@ derivable ask.max_tokens_per_question
 operator_preference ask.max_concurrent_runs
 operator_preference ask.max_seconds_per_question
 operator_preference ask.retention_days
+operator_preference review.enabled
+operator_preference review.grade_interval_hours
 operator_preference facts.confirmed_absence_days
 
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the
@@ -606,6 +631,19 @@ operator_preference ha.check_interval_seconds
 operator_preference backup.max_age_hours
 operator_preference backup.max_archive_gap_minutes
 operator_preference backup.min_retention_days
+operator_preference backup.min_pitr_hours
+operator_preference backup.external_source
+
+# Restore drills (drill-01a): the fleet-wide cap on drills running at once.
+# Each drill's clone is still bounded by clone.max_creates_per_hour.
+operator_preference drill.max_concurrent_per_fleet
+
+# Self-managed restore drills (drill-01c): programs the sidecar runs on its own
+# host, with what they may read from its environment. Never derived, never
+# API-writable.
+safety_critical drill.command.restore_argv
+safety_critical drill.command.destroy_argv
+safety_critical drill.command.env_allow
 
 # History placement (v2.3.0): where pg_sage keeps its own telemetry history is
 # deployment topology the operator declares. It never widens what pg_sage may
@@ -622,6 +660,7 @@ safety_critical agents.default_environment
 operator_preference agents.client_patterns
 operator_preference agents.posture.daily_at
 operator_preference agents.posture.memory_growth_gb_day
+operator_preference agents.exposure.sweep_seconds
 
 # Audit export and evidence (E2). Sinks are endpoints and the signing key is
 # a credential; the cadence and correlation switches are the operator's.

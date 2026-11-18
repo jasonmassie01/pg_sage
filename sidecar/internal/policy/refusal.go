@@ -101,9 +101,15 @@ func validateRefusalSet(tokens []string) error {
 	return nil
 }
 
-func rlsChange(req ActionRequest) bool { return rlsChangeSQL.MatchString(req.SQL) }
+// rlsChange and grantExpansion leave out the rollback of pg_sage's own
+// exposure change: it restores the prior state (fleetpol-02b).
+func rlsChange(req ActionRequest) bool {
+	return !exposureRollback(req) && rlsChangeSQL.MatchString(req.SQL)
+}
 
-func grantExpansion(req ActionRequest) bool { return grantExpansionSQL.MatchString(req.SQL) }
+func grantExpansion(req ActionRequest) bool {
+	return !exposureRollback(req) && grantExpansionSQL.MatchString(req.SQL)
+}
 
 func nonDerivableDrop(req ActionRequest) bool { return dropKind(req) == DropNonDerivable }
 

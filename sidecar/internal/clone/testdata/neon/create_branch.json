@@ -1,0 +1,106 @@
+{
+  "branch": {
+    "id": "br-wispy-meadow-a5k2x9q1",
+    "project_id": "shiny-wind-028834",
+    "parent_id": "br-aged-salad-637688",
+    "parent_lsn": "0/1DE2850",
+    "name": "sage-rehearsal-0a1b2c3d",
+    "current_state": "init",
+    "pending_state": "ready",
+    "state_changed_at": "2026-11-16T10:00:00Z",
+    "creation_source": "console",
+    "primary": false,
+    "default": false,
+    "protected": false,
+    "cpu_used_sec": 0,
+    "compute_time_seconds": 0,
+    "active_time_seconds": 0,
+    "written_data_bytes": 0,
+    "data_transfer_bytes": 0,
+    "created_at": "2026-11-16T10:00:00Z",
+    "updated_at": "2026-11-16T10:00:00Z",
+    "expires_at": "2026-11-16T11:00:00Z",
+    "init_source": "parent-data"
+  },
+  "endpoints": [
+    {
+      "host": "ep-mute-rain-a5r1k0ew.us-east-2.aws.neon.tech",
+      "id": "ep-mute-rain-a5r1k0ew",
+      "project_id": "shiny-wind-028834",
+      "branch_id": "br-wispy-meadow-a5k2x9q1",
+      "autoscaling_limit_min_cu": 0.25,
+      "autoscaling_limit_max_cu": 1,
+      "region_id": "aws-us-east-2",
+      "type": "read_write",
+      "current_state": "init",
+      "pending_state": "active",
+      "settings": {},
+      "pooler_enabled": false,
+      "pooler_mode": "transaction",
+      "disabled": false,
+      "passwordless_access": true,
+      "creation_source": "console",
+      "created_at": "2026-11-16T10:00:00Z",
+      "updated_at": "2026-11-16T10:00:00Z",
+      "proxy_host": "us-east-2.aws.neon.tech",
+      "suspend_timeout_seconds": 0,
+      "provisioner": "k8s-neonvm"
+    }
+  ],
+  "operations": [
+    {
+      "id": "b6afbc21-2990-4a76-980b-b57d8c2948f2",
+      "project_id": "shiny-wind-028834",
+      "branch_id": "br-wispy-meadow-a5k2x9q1",
+      "action": "create_branch",
+      "status": "running",
+      "failures_count": 0,
+      "created_at": "2026-11-16T10:00:00Z",
+      "updated_at": "2026-11-16T10:00:00Z",
+      "total_duration_ms": 0
+    },
+    {
+      "id": "c7bfcd32-3aa1-4b87-a91e-c68e9d3a59a3",
+      "project_id": "shiny-wind-028834",
+      "branch_id": "br-wispy-meadow-a5k2x9q1",
+      "endpoint_id": "ep-mute-rain-a5r1k0ew",
+      "action": "start_compute",
+      "status": "scheduling",
+      "failures_count": 0,
+      "created_at": "2026-11-16T10:00:00Z",
+      "updated_at": "2026-11-16T10:00:00Z",
+      "total_duration_ms": 0
+    }
+  ],
+  "roles": [
+    {
+      "branch_id": "br-wispy-meadow-a5k2x9q1",
+      "name": "app_owner",
+      "protected": false,
+      "created_at": "2026-11-16T10:00:00Z",
+      "updated_at": "2026-11-16T10:00:00Z"
+    }
+  ],
+  "databases": [
+    {
+      "id": 2914,
+      "branch_id": "br-wispy-meadow-a5k2x9q1",
+      "name": "appdb",
+      "owner_name": "app_owner",
+      "created_at": "2026-11-16T10:00:00Z",
+      "updated_at": "2026-11-16T10:00:00Z"
+    }
+  ],
+  "connection_uris": [
+    {
+      "connection_uri": "postgresql://app_owner:npg_FIXTUREpw@ep-mute-rain-a5r1k0ew.us-east-2.aws.neon.tech/appdb?sslmode=require",
+      "connection_parameters": {
+        "database": "appdb",
+        "password": "npg_FIXTUREpw",
+        "role": "app_owner",
+        "host": "ep-mute-rain-a5r1k0ew.us-east-2.aws.neon.tech",
+        "pooler_host": "ep-mute-rain-a5r1k0ew-pooler.us-east-2.aws.neon.tech"
+      }
+    }
+  ]
+}

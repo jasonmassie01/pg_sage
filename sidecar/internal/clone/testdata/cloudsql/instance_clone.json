@@ -1,0 +1,43 @@
+{
+  "kind": "sql#instance",
+  "state": "RUNNABLE",
+  "databaseVersion": "POSTGRES_16",
+  "settings": {
+    "tier": "db-custom-4-16384",
+    "kind": "sql#settings",
+    "availabilityType": "REGIONAL",
+    "pricingPlan": "PER_USE",
+    "activationPolicy": "ALWAYS",
+    "ipConfiguration": {
+      "privateNetwork": "projects/acme-prod-1234/global/networks/default",
+      "ipv4Enabled": true,
+      "sslMode": "ENCRYPTED_ONLY"
+    },
+    "dataDiskType": "PD_SSD",
+    "settingsVersion": "1",
+    "storageAutoResize": true,
+    "dataDiskSizeGb": "500",
+    "deletionProtectionEnabled": true,
+    "userLabels": {
+      "team": "shop"
+    },
+    "edition": "ENTERPRISE"
+  },
+  "ipAddresses": [
+    {
+      "type": "PRIMARY",
+      "ipAddress": "34.9.8.7"
+    },
+    {
+      "type": "PRIVATE",
+      "ipAddress": "10.0.0.17"
+    }
+  ],
+  "instanceType": "CLOUD_SQL_INSTANCE",
+  "project": "acme-prod-1234",
+  "backendType": "SECOND_GEN",
+  "connectionName": "acme-prod-1234:us-central1:sage-rehearsal-0a1b2c3d",
+  "name": "sage-rehearsal-0a1b2c3d",
+  "region": "us-central1",
+  "gceZone": "us-central1-b"
+}

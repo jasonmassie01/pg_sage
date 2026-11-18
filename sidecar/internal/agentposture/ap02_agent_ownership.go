@@ -16,7 +16,8 @@ func init() { Register(ap02{}) }
 type ap02 struct{}
 
 func (ap02) Spec() Spec {
-	return Spec{ID: "AP-02", Title: "Objects owned by agent roles", Severity: Critical}
+	return Spec{ID: "AP-02", Title: "Objects owned by agent roles", Severity: Critical,
+		ReadsSessions: true}
 }
 
 // ap02Examples is how many owned objects a finding names.

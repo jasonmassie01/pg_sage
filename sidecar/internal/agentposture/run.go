@@ -191,6 +191,11 @@ func RunAll(ctx context.Context, pool *pgxpool.Pool, opts RunOptions) (Result, e
 	}
 	res := Result{Env: env, Failed: map[string]error{}}
 	for _, d := range reg.Detectors() {
+		if env.SessionsErr != nil && d.Spec().ReadsSessions {
+			res.Failed[d.Spec().ID] = fmt.Errorf("agent posture %s: the session list is "+
+				"unreadable: %w", d.Spec().ID, env.SessionsErr)
+			continue
+		}
 		out, err := runSaved(ctx, tx, d, env)
 		if ctx.Err() != nil {
 			return Result{}, fmt.Errorf("agent posture: %w", ctx.Err())

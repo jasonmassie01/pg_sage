@@ -87,47 +87,5 @@ func (s *ReceiptStore) transition(ctx context.Context, id int64, to, query strin
 	return got, nil
 }
 
-// MaxExpiredPerPass bounds one Expired read.
+// MaxExpiredPerPass bounds one Reapable read.
 const MaxExpiredPerPass = 100
-
-const expiredReceiptsSQL = `/* pg_sage clone_receipt v1 */
-SELECT ` + receiptColumns + ` FROM sage.clone_instances
-WHERE deployment_id = $1::uuid AND adapter = $2 AND scope = $3 AND purpose = $4
-  AND status IN ('creating', 'create_uncertain', 'ready', 'destroying')
-  AND expires_at <= now()
-ORDER BY expires_at, id
-LIMIT $5`
-
-// Expired returns up to MaxExpiredPerPass receipts of scope and purpose
-// that are past their expiry and not terminal (destroyed, failed), the
-// oldest first.
-func (s *ReceiptStore) Expired(ctx context.Context, scope ReceiptScope,
-	purpose string) ([]Receipt, error) {
-	if err := scope.validate(); err != nil {
-		return nil, err
-	}
-	if !purposes[purpose] {
-		return nil, fmt.Errorf("%w: unknown purpose %q", ErrInvalidReceipt, purpose)
-	}
-	if s == nil || s.pool == nil {
-		return nil, ErrNoReceiptStore
-	}
-	rows, err := s.pool.Query(ctx, expiredReceiptsSQL, scope.DeploymentID, scope.Adapter,
-		scope.Scope, purpose, MaxExpiredPerPass)
-	if err != nil {
-		return nil, fmt.Errorf("read expired %s clone receipts: %w", scope.Adapter, err)
-	}
-	defer rows.Close()
-	var out []Receipt
-	for rows.Next() {
-		r, err := scanReceipt(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan expired clone receipt: %w", err)
-		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read expired %s clone receipts: %w", scope.Adapter, err)
-	}
-	return out, nil
-}

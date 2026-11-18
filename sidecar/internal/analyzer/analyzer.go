@@ -83,7 +83,9 @@ type Analyzer struct {
 	dispatcher   EventDispatcher
 	databaseName string
 	mu           sync.RWMutex
-	findings     []Finding
+	// cycleMu is held by every cycle and every out-of-cycle run.
+	cycleMu  cycleLock
+	findings []Finding
 	// notifiedAt records the last critical notification per identity;
 	// only touched by the cycle goroutine.
 	notifiedAt map[string]time.Time
