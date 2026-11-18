@@ -73,6 +73,11 @@ type Host interface {
 	Comment(ctx context.Context, repo string, number int, body string) error
 	// PRState reads the state of pull request number.
 	PRState(ctx context.Context, repo string, number int) (PRStatus, error)
+	// GetFileAt reads path at ref (a branch or a commit sha), for example a
+	// pull request's merge commit (cli-02b).
+	GetFileAt(ctx context.Context, repo, path, ref string) (File, error)
+	// ClosePR closes pull request number without merging it (cli-02b).
+	ClosePR(ctx context.Context, repo string, number int) error
 }
 
 // Bounds of one call.
@@ -137,11 +142,14 @@ const (
 	PRMerged PRStateName = "merged"
 )
 
-// PRStatus is a pull request's state and, once merged, when.
+// PRStatus is a pull request's state and, once merged, when, by whom
+// (the host login) and at which commit.
 type PRStatus struct {
 	Number   int         `json:"number"`
 	State    PRStateName `json:"state"`
 	MergedAt *time.Time  `json:"merged_at,omitempty"`
+	MergedBy string      `json:"merged_by,omitempty"`
+	MergeSHA string      `json:"merge_sha,omitempty"`
 }
 
 // Options configure a REST client; zero values mean the defaults.

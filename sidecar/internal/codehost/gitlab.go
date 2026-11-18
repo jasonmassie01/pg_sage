@@ -70,6 +70,11 @@ func (g *GitLab) SearchCode(ctx context.Context, repo, query string) ([]SearchHi
 
 // GetFile implements Host with the raw file endpoint on the default branch.
 func (g *GitLab) GetFile(ctx context.Context, repo, path string) (File, error) {
+	return g.fileAt(ctx, repo, path, "HEAD")
+}
+
+// fileAt reads one raw file on ref.
+func (g *GitLab) fileAt(ctx context.Context, repo, path, ref string) (File, error) {
 	base, err := glProject(repo)
 	if err != nil {
 		return File{}, err
@@ -79,7 +84,7 @@ func (g *GitLab) GetFile(ctx context.Context, repo, path string) (File, error) {
 	}
 	raw, err := g.r.do(ctx, call{method: http.MethodGet,
 		path:  base + "/repository/files/" + url.PathEscape(path) + "/raw",
-		query: url.Values{"ref": {"HEAD"}}, repo: repo})
+		query: url.Values{"ref": {ref}}, repo: repo})
 	if err != nil {
 		return File{}, err
 	}
@@ -98,6 +103,11 @@ type glMR struct {
 	State       string     `json:"state"`
 	MergedAt    *time.Time `json:"merged_at"`
 	Labels      []string   `json:"labels"`
+	MergedBy    *struct {
+		Username string `json:"username"`
+	} `json:"merged_by"`
+	MergeSHA  *string `json:"merge_commit_sha"`
+	SquashSHA *string `json:"squash_commit_sha"`
 }
 
 func (m glMR) pullRequest() PullRequest {
@@ -162,7 +172,8 @@ func (g *GitLab) PRState(ctx context.Context, repo string, number int) (PRStatus
 	case "opened":
 		st.State = PROpen
 	case "merged":
-		st.State, st.MergedAt = PRMerged, m.MergedAt
+		st.State, st.MergedAt, st.MergedBy, st.MergeSHA = PRMerged, m.MergedAt,
+			m.merger(), m.mergeCommit()
 	case "closed", "locked":
 		st.State = PRClosed
 	default:

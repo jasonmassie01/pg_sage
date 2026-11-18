@@ -103,7 +103,12 @@ type ghContent struct {
 
 // GetFile implements Host with GET /repos/{repo}/contents/{path}.
 func (g *GitHub) GetFile(ctx context.Context, repo, path string) (File, error) {
-	c, err := g.content(ctx, repo, path, "")
+	return g.fileAt(ctx, repo, path, "")
+}
+
+// fileAt reads one file on ref ("" is the default branch).
+func (g *GitHub) fileAt(ctx context.Context, repo, path, ref string) (File, error) {
+	c, err := g.content(ctx, repo, path, ref)
 	if err != nil {
 		return File{}, err
 	}
@@ -241,6 +246,10 @@ func (g *GitHub) PRState(ctx context.Context, repo string, number int) (PRStatus
 		State    string     `json:"state"`
 		Merged   bool       `json:"merged"`
 		MergedAt *time.Time `json:"merged_at"`
+		MergedBy *struct {
+			Login string `json:"login"`
+		} `json:"merged_by"`
+		MergeSHA string `json:"merge_commit_sha"`
 	}
 	c := call{method: http.MethodGet, path: base + "/pulls/" + strconv.Itoa(number),
 		repo: repo}
@@ -250,7 +259,10 @@ func (g *GitHub) PRState(ctx context.Context, repo string, number int) (PRStatus
 	st := PRStatus{Number: pr.Number, State: PROpen}
 	switch {
 	case pr.Merged || pr.MergedAt != nil:
-		st.State, st.MergedAt = PRMerged, pr.MergedAt
+		st.State, st.MergedAt, st.MergeSHA = PRMerged, pr.MergedAt, pr.MergeSHA
+		if pr.MergedBy != nil {
+			st.MergedBy = pr.MergedBy.Login
+		}
 	case pr.State == "closed":
 		st.State = PRClosed
 	case pr.State != "open":

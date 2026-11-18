@@ -24,6 +24,7 @@ type Fake struct {
 	calls   int
 	opened  []codehost.PRRequest
 	notes   []string
+	closed  []int
 }
 
 var _ codehost.Host = (*Fake)(nil)
