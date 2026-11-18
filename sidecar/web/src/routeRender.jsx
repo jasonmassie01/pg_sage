@@ -14,6 +14,7 @@ import { InboxPage } from './pages/InboxPage'
 import { LedgerPage } from './pages/LedgerPage'
 import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
 import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
+import { DigestCard } from './components/DigestCard'
 import { SLOsPage } from './pages/SLOsPage'
 import { RunbooksPage } from './pages/RunbooksPage'
 import { AutonomyHub } from './pages/autonomy/AutonomyHub'
@@ -115,6 +116,7 @@ export const RENDERERS = Object.freeze({
         onSelectDatabase={ctx.selectDatabase} />
       <FirstLookPanel database={ctx.database} user={ctx.user}
         onSelectDatabase={ctx.selectDatabase} />
+      <DigestCard database={ctx.database} />
       <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
     </div>
   ),

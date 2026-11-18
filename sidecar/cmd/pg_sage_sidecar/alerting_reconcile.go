@@ -47,12 +47,7 @@ func (o *alertingOwner) reconcileAtBoot(
 		return nil
 	}
 	o.addReconciler(s)
-	block := cfg.Alerting
-	if block.EffectiveEngine() == config.AlertingEngineLegacy {
-		block = config.AlertingConfig{}
-	}
-	res, err := notify.Reconcile(ctx, s, block, configTargetPolicy(cfg),
-		logStructuredWrapper)
+	res, err := reconcileNotifyConfig(ctx, s, cfg)
 	if err != nil {
 		logError("alerting", "reconciling the alerting: block into notification channels "+
 			"failed; its alerts are not delivered until a reconcile succeeds: %v", err)
@@ -62,6 +57,29 @@ func (o *alertingOwner) reconcileAtBoot(
 		logInfo("alerting", "alerting: block reconciled into notification channels: %+v", res)
 	}
 	return &res
+}
+
+// reconcileNotifyConfig reconciles c's alerting block and the briefing's
+// Slack target (ux-02b) into s. With the legacy engine the alerting block
+// is reconciled as absent (the legacy manager delivers it); the briefing
+// channel is reconciled in every engine: the digest goes through
+// Notifications either way.
+func reconcileNotifyConfig(
+	ctx context.Context, s notify.ReconcileStore, c *config.Config,
+) (notify.ReconcileResult, error) {
+	block := c.Alerting
+	if block.EffectiveEngine() == config.AlertingEngineLegacy {
+		block = config.AlertingConfig{}
+	}
+	return notify.Reconcile(ctx, s, block, configTargetPolicy(c), logStructuredWrapper,
+		notify.WithBriefing(c.Briefing))
+}
+
+// briefingTargetsChanged reports whether a change touches the briefing's
+// managed Notifications channel.
+func briefingTargetsChanged(prev, next config.BriefingConfig) bool {
+	return prev.SlackWebhookURL != next.SlackWebhookURL ||
+		!reflect.DeepEqual(prev.Channels, next.Channels)
 }
 
 // alertingTargetsChanged reports whether a change touches what the
@@ -78,18 +96,18 @@ func alertingTargetsChanged(prev, next config.AlertingConfig) bool {
 // so the change is refused rather than left silently unapplied. A store
 // that fails restores the stores already reconciled to prev.
 func (o *alertingOwner) reconcileChange(ctx context.Context, prev, next *config.Config) error {
-	if !alertingTargetsChanged(prev.Alerting, next.Alerting) {
+	alertingChanged := alertingTargetsChanged(prev.Alerting, next.Alerting)
+	if !alertingChanged && !briefingTargetsChanged(prev.Briefing, next.Briefing) {
 		return nil
 	}
-	if prev.Alerting.EffectiveEngine() == config.AlertingEngineLegacy {
+	if alertingChanged && prev.Alerting.EffectiveEngine() == config.AlertingEngineLegacy {
 		return fmt.Errorf("alerting.engine is legacy: a change of alerting.enabled, routes, " +
 			"webhooks or the Slack and PagerDuty targets applies only after a restart; " +
 			"restart the sidecar, or set alerting.engine: notify")
 	}
 	stores := o.reconcileStores()
 	for i, s := range stores {
-		if _, err := notify.Reconcile(ctx, s, next.Alerting, configTargetPolicy(next),
-			logStructuredWrapper); err != nil {
+		if _, err := reconcileNotifyConfig(ctx, s, next); err != nil {
 			restoreAlerting(ctx, stores[:i], prev)
 			return fmt.Errorf("alerting: %w", err)
 		}
@@ -100,8 +118,7 @@ func (o *alertingOwner) reconcileChange(ctx context.Context, prev, next *config.
 // restoreAlerting reconciles stores back to prev after a failed change.
 func restoreAlerting(ctx context.Context, stores []notify.ReconcileStore, prev *config.Config) {
 	for _, s := range stores {
-		if _, err := notify.Reconcile(ctx, s, prev.Alerting, configTargetPolicy(prev),
-			logStructuredWrapper); err != nil {
+		if _, err := reconcileNotifyConfig(ctx, s, prev); err != nil {
 			logError("alerting", "restoring the previous alerting: block failed: %v", err)
 		}
 	}
