@@ -1,14 +1,37 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { filterDatabases } from '../../lib/databaseFilter'
 import { RuntimeCells } from './RuntimeCells'
 import { RUNTIME_HEADERS } from './runtimeStatus'
 
-// DatabaseTable lists the managed registrations with their runtime state.
-// runtimeFor maps a registration to its GET /api/v1/databases row;
-// runtimeKnown is false when that inventory could not be read.
-export function DatabaseTable({
-  databases, onEdit, onDelete, onError,
-  runtimeFor = () => undefined, runtimeKnown = true, onSelectDatabase,
-}) {
+// TABLE_ROW_LIMIT bounds the rows rendered at once (ux-05e): a fleet of
+// 500 shows the first ones and says how to reach the rest (the filter).
+export const TABLE_ROW_LIMIT = 100
+
+const muted = { color: 'var(--text-secondary)' }
+const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
+
+// FleetFilter is the text filter above the table (name, host or tag).
+function FleetFilter({ query, onChange, shown, matched, total }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 mb-2">
+      <input type="search" aria-label="Filter databases" value={query}
+        data-testid="db-filter" placeholder="Filter by name, host or tag"
+        onChange={e => onChange(e.target.value)}
+        className="px-3 py-1.5 rounded text-sm w-full sm:w-72"
+        style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)',
+          border: '1px solid var(--border)' }} />
+      {matched > shown && (
+        <span data-testid="db-filter-count" className="text-xs" style={muted}>
+          Showing {shown} of {matched}{matched < total ? ` matching (${total} in all)` : ''};
+          {' '}type in the filter to find the rest.
+        </span>
+      )}
+    </div>
+  )
+}
+
+// useConnectionTest runs a registration's connection test, one at a time.
+function useConnectionTest(onError) {
   const [testing, setTesting] = useState(null)
   const [testResult, setTestResult] = useState(null)
 
@@ -32,6 +55,20 @@ export function DatabaseTable({
       setTesting(null)
     }
   }
+  return { testing, testResult, handleTest }
+}
+
+// DatabaseTable lists the managed registrations with their runtime state.
+// runtimeFor maps a registration to its GET /api/v1/databases row;
+// runtimeKnown is false when that inventory could not be read.
+export function DatabaseTable({
+  databases, onEdit, onDelete, onError,
+  runtimeFor = () => undefined, runtimeKnown = true, onSelectDatabase,
+}) {
+  const { testing, testResult, handleTest } = useConnectionTest(onError)
+  const [query, setQuery] = useState('')
+  const matched = useMemo(() => filterDatabases(databases, query), [databases, query])
+  const shown = matched.length > TABLE_ROW_LIMIT ? matched.slice(0, TABLE_ROW_LIMIT) : matched
 
   if (databases.length === 0) {
     return (
@@ -46,32 +83,44 @@ export function DatabaseTable({
     )
   }
 
+  const rowProps = {
+    onEdit, onDelete, onTest: handleTest, testing, testResult, runtimeFor, runtimeKnown,
+    onSelectDatabase,
+  }
   return (
-    <div className="rounded-lg overflow-x-auto"
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-      }}>
+    <div>
+      <FleetFilter query={query} onChange={setQuery} shown={shown.length}
+        matched={matched.length} total={databases.length} />
+      {matched.length === 0 ? (
+        <div data-testid="db-filter-empty" role="status"
+          className="rounded-lg p-6 text-center text-sm" style={{ ...muted, ...cardStyle }}>
+          No database matches &ldquo;{query.trim()}&rdquo;. Clear the filter to see all
+          {' '}{databases.length}.
+        </div>
+      ) : <FleetRows databases={shown} {...rowProps} />}
+    </div>
+  )
+}
+
+function FleetRows({ databases, testing, testResult, runtimeFor, ...rest }) {
+  return (
+    <div className="rounded-lg overflow-x-auto" style={cardStyle}>
       <table className="w-full text-sm" data-testid="databases-table">
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
             {['Name', 'Host', 'Trust Level', 'Execution Mode', 'Registration',
               ...RUNTIME_HEADERS, ''].map(h => (
               <th key={h} className="text-left px-4 py-2 text-xs whitespace-nowrap"
-                style={{ color: 'var(--text-secondary)' }}>{h}</th>
+                style={muted}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {databases.map(db => (
-            <DatabaseRow key={db.id} db={db}
-              onEdit={onEdit} onDelete={onDelete}
-              onTest={handleTest}
+            <DatabaseRow key={db.id} db={db} {...rest}
               testing={testing === db.id}
               testResult={testResult?.id === db.id ? testResult : null}
-              runtime={runtimeFor(db)} runtimeKnown={runtimeKnown}
-              onSelectDatabase={onSelectDatabase}
-            />
+              runtime={runtimeFor(db)} />
           ))}
         </tbody>
       </table>

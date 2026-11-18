@@ -165,6 +165,17 @@
       "MaxOutputTokens": 8192,
       "FallbackToGeneral": true
     },
+    "ReviewLLM": {
+      "Enabled": false,
+      "Endpoint": "",
+      "APIKey": "",
+      "Model": "",
+      "TimeoutSeconds": 0,
+      "TokenBudgetDaily": 0,
+      "CooldownSeconds": 0,
+      "MaxOutputTokens": 0,
+      "FallbackToGeneral": true
+    },
     "RedactNumericLiterals": true,
     "Pricing": null
   },
@@ -185,7 +196,9 @@
       "stdout"
     ],
     "SlackWebhookURL": "",
-    "FleetMode": "rollup"
+    "FleetMode": "rollup",
+    "OnlyWhenChanged": true,
+    "DBAHourRateUSD": 0
   },
   "Alerting": {
     "Enabled": false,
@@ -613,7 +626,17 @@
     "Enabled": true,
     "GradeIntervalHours": 24,
     "WindowDays": 90,
-    "LargeTableBytes": 10737418240
+    "LargeTableBytes": 10737418240,
+    "ModelPass": "auto",
+    "ModelRuns": 3,
+    "Consensus": "majority",
+    "HashIdentifiers": false,
+    "Gate": {
+      "MinReviews": 50,
+      "MaxGapPoints": 10,
+      "MaxRevertPct": 2,
+      "FixtureDatabases": null
+    }
   },
   "Facts": {
     "ConfirmedAbsenceDays": 7

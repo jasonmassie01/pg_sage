@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/review/modelgate"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
@@ -254,5 +255,31 @@ func TestInboxDB_ThousandItemsOverFiveHundredDatabases(t *testing.T) {
 	}
 	if took > 3*time.Second {
 		t.Fatalf("took %s, over the 3s bound", took)
+	}
+}
+
+// review-05a on a real server: a pending G-M1 row of the gate is one
+// autonomy promotion beside the trust ledger's, and approving it (the
+// gate's own route) takes it out of the inbox.
+func TestInboxDB_ModelGatePromotionListsUntilApproved(t *testing.T) {
+	pool := inboxDB(t, "inbox_gate")
+	mustExec(t, pool, `INSERT INTO sage.review_gate (model, rule, tick, verdict, reason)
+		VALUES ('m1', 'G-M1', now(), 'pending_approval', 'G-M1: 50 of 50 reviews')`)
+	svc, _ := inboxFleet(t, pool, "shop")
+	res := svc.List(context.Background(), Request{Databases: []string{"shop"},
+		Kinds: []Kind{KindAutonomyPromotion}})
+	if res.Total != 1 || len(res.Errors) != 0 || res.Items[0].Source != "sage.review_gate" ||
+		res.Items[0].Risk != RiskHigh || res.Items[0].Why != "G-M1: 50 of 50 reviews" {
+		t.Fatalf("result %+v, want the gate's one promotion", res)
+	}
+	id := scalarInt(t, pool, `SELECT id FROM sage.review_gate`)
+	if _, err := modelgate.New(pool, "shop", modelgate.Options{}).Approve(
+		context.Background(), id, "admin"); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	res = svc.List(context.Background(), Request{Databases: []string{"shop"},
+		Kinds: []Kind{KindAutonomyPromotion}})
+	if res.Total != 0 || len(res.Errors) != 0 {
+		t.Fatalf("after the approval: %+v, want an empty inbox", res)
 	}
 }

@@ -1,4 +1,5 @@
 import { verdictLabel } from '../../lib/verificationOutcome'
+import { formatTime } from '../../lib/time'
 
 // Presentation helpers for the action ledger and the pending queue
 // (moved out of Actions.jsx by dashboard-31; behaviour unchanged).
@@ -37,7 +38,7 @@ export function formatActionTime(value) {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return date.toLocaleString()
+  return formatTime(date)
 }
 
 // actionCaseScope reads the case id from the hash query (#/actions?case=N).

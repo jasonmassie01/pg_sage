@@ -36,11 +36,15 @@ func TestReviewCapacityForecastMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-func TestReviewCapacityForecastStep_IsTheLastT6StepAndBounded(t *testing.T) {
+// review-03a, review-03b and review-05a appended steps after it (the merge of
+// their chains moved the last-step pin), so the pin is its place: right after
+// ddlReviewCandidateOperator.
+func TestReviewCapacityForecastStep_IsAT6StepAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewCapacityForecast" {
-		t.Fatalf("T6 steps end with %v, want ddlReviewCapacityForecast",
-			steps[len(steps)-1])
+	at := stepIndex(steps, "ddlReviewCapacityForecast")
+	if at < 1 || steps[at-1][0] != "ddlReviewCandidateOperator" {
+		t.Fatalf("T6 steps %v, want ddlReviewCandidateOperator then "+
+			"ddlReviewCapacityForecast", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_capacity_forecast",

@@ -10,10 +10,19 @@ import (
 // of the install. No concurrent access tests here: two creators are
 // covered by workpack.TestPseudonymKeyDB_ConcurrentCallersAgree.
 
-func TestWorkloadPseudonymKeyStep_IsLastBoundedAndIdempotent(t *testing.T) {
+// lab-03a, lab-05a, lab-03b, plan-03b, ux-01b and ux-02b appended T5 steps
+// after this one, so the pin is its place (right after ddlPlanApprovalModes), not "last".
+func TestWorkloadPseudonymKeyStep_IsPlacedBoundedAndIdempotent(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlWorkloadPseudonymKey" {
-		t.Fatalf("T5 steps = %v, want ddlWorkloadPseudonymKey last", steps)
+	idx := -1
+	for i, step := range steps {
+		if step[0] == "ddlWorkloadPseudonymKey" {
+			idx = i
+		}
+	}
+	if idx < 1 || steps[idx-1][0] != "ddlPlanApprovalModes" {
+		t.Fatalf("T5 steps = %v, want ddlPlanApprovalModes then ddlWorkloadPseudonymKey",
+			steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.workload_pseudonym_key", "CHECK (id = 1)",

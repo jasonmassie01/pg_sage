@@ -43,6 +43,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/findings"},
 	{"GET", "/api/v1/inbox"},
 	{"GET", "/api/v1/inbox/count"},
+	{"GET", "/api/v1/inbox/seen"},
 	{"GET", "/api/v1/outcomes"},
 	{"GET", "/api/v1/findings/categories"},
 	{"GET", "/api/v1/findings/stats"},
@@ -85,6 +86,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/users"},
 	{"GET", "/api/v1/value"},
 	{"GET", "/api/v1/wait-load"}, // market-01
+	{"POST", "/api/v1/inbox/seen"},
 	{"POST", "/api/v1/actions/execute"},
 	{"POST", "/api/v1/actions/7/approve"},
 	{"POST", "/api/v1/actions/7/reject"},
@@ -193,9 +195,11 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/databases/7/runbooks/7"},
 	{"GET", "/api/v1/databases/7/runbooks/7/runs"},
 	{"GET", "/api/v1/databases/7/workload-packs"},
-	{"GET", "/api/v1/databases/7/restore-drills"}, // drill-01d
-	{"GET", "/api/v1/fleet/recoverability"},       // drill-01d
-	{"GET", "/api/v1/databases/7/review/grade"},   // review-01a
+	{"GET", "/api/v1/databases/7/restore-drills"},         // drill-01d
+	{"GET", "/api/v1/fleet/recoverability"},               // drill-01d
+	{"GET", "/api/v1/databases/7/review/grade"},           // review-01a
+	{"GET", "/api/v1/databases/7/review/scorecard"},       // review-05a
+	{"POST", "/api/v1/databases/7/review/gate/7/approve"}, // review-05a
 	{"GET", "/api/v1/databases/7/workload-packs/7"},
 	{"GET", "/api/v1/databases/7/workload-packs/7/evidence/7"},
 	{"GET", "/api/v1/databases/7/workload-packs/7/export"},

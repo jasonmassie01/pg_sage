@@ -382,6 +382,15 @@ derivable llm.optimizer_llm.max_output_tokens
 safety_critical llm.optimizer_llm.model
 derivable llm.optimizer_llm.timeout_seconds
 derivable llm.optimizer_llm.token_budget_daily
+safety_critical llm.review_llm.api_key
+derivable llm.review_llm.cooldown_seconds
+safety_critical llm.review_llm.enabled
+safety_critical llm.review_llm.endpoint
+safety_critical llm.review_llm.fallback_to_general
+derivable llm.review_llm.max_output_tokens
+safety_critical llm.review_llm.model
+derivable llm.review_llm.timeout_seconds
+derivable llm.review_llm.token_budget_daily
 safety_critical llm.redact_numeric_literals
 derivable llm.timeout_seconds
 derivable llm.token_budget_daily
@@ -401,8 +410,10 @@ operator_preference alerting.routes
 safety_critical alerting.slack_webhook_url
 operator_preference alerting.timezone
 safety_critical alerting.webhooks
+operator_preference briefing.dba_hour_rate_usd
 operator_preference briefing.channels
 operator_preference briefing.fleet_mode
+operator_preference briefing.only_when_changed
 operator_preference briefing.schedule
 safety_critical briefing.slack_webhook_url
 
@@ -561,6 +572,14 @@ operator_preference review.enabled
 operator_preference review.grade_interval_hours
 operator_preference review.window_days
 operator_preference review.large_table_bytes
+operator_preference review.model_pass
+operator_preference review.model_runs
+operator_preference review.consensus
+safety_critical review.hash_identifiers
+safety_critical review.gate.min_reviews
+safety_critical review.gate.max_gap_points
+safety_critical review.gate.max_revert_pct
+safety_critical review.gate.fixture_databases
 operator_preference facts.confirmed_absence_days
 
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the

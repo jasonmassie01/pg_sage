@@ -110,6 +110,7 @@ export function useActionsData({ database, canReview, caseScope, actionFocus }) 
     q.recommendations.refetch(); q.caseData.refetch()
   }
   return { range, single, dbParam, q, cases, proposals, ledger, counts, refreshAll,
+    pendingTotal: s.pendingData.pending.length + s.managedCount('pending'),
     selectedCase: caseScope ? cases.find(c => String(caseID(c)) === caseScope) : null,
     managedDatabases: s.managedDatabases, pendingData: s.pendingData, cards: s.cards }
 }

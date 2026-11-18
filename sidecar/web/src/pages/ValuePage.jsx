@@ -53,6 +53,15 @@ function EmptyState() {
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
           Verified successful actions earn credit once their outcome is proven.
         </p>
+        <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          The first credit comes from the first verified change: an action
+          pg_sage ran, with your approval or within its trust level, whose
+          outcome it then measured and verified.
+        </p>
+        <a href="#/" className="mt-3 inline-block text-sm underline"
+          style={{ color: 'var(--accent)' }}>
+          Start with the first look
+        </a>
       </div>
       <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
         No pending potential savings.

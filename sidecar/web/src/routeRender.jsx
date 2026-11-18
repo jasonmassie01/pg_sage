@@ -10,9 +10,11 @@ import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
+import { InboxPage } from './pages/InboxPage'
 import { LedgerPage } from './pages/LedgerPage'
 import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
 import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
+import { DigestCard } from './components/DigestCard'
 import { SLOsPage } from './pages/SLOsPage'
 import { RunbooksPage } from './pages/RunbooksPage'
 import { AutonomyPage } from './pages/AutonomyPage'
@@ -62,7 +64,7 @@ function NotFound() {
       </p>
       <a href="#/" className="inline-block mt-4 text-sm underline"
         style={{ color: 'var(--accent)' }}>
-        Go to Dashboard
+        Go to Inbox
       </a>
     </div>
   )
@@ -83,7 +85,7 @@ function PlatformProtocolUnavailable({ agents = false }) {
       </p>
       <a href="#/" className="inline-block mt-4 text-sm underline"
         style={{ color: 'var(--accent)' }}>
-        Go to Dashboard
+        Go to Inbox
       </a>
     </div>
   )
@@ -102,13 +104,16 @@ const profile = ctx => <ProfilePage user={ctx.user} authMode={ctx.authMode} />
 // authMode, fleetQuery, fleetData, databases, the Ask inventory fields,
 // selectDatabase, setSelectedDB, selectedDatabase and linkedCase.
 export const RENDERERS = Object.freeze({
-  value: ctx => (
+  // Onboarding and first look stay above the Inbox until ux-04b's wizard.
+  inbox: ctx => (
     <div className="space-y-6">
       <OnboardingPanel database={ctx.database} authMode={ctx.authMode} user={ctx.user} />
       <FirstLookPanel database={ctx.database} user={ctx.user} />
-      <ValuePage database={ctx.database} />
+      <DigestCard database={ctx.database} />
+      <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
     </div>
   ),
+  value: ctx => <ValuePage database={ctx.database} />,
   cases: ctx => cases(ctx),
   actions,
   ledger: ctx => <LedgerPage key={ctx.route} database={ctx.database} />,

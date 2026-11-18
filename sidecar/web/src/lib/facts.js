@@ -1,3 +1,6 @@
+import { withSurface } from './inbox'
+import { formatTime } from './time'
+
 // Binding facts (roadmap 2.3): API helpers and the declare-form rules
 // shared by the Facts page and the inline fact badges. Confirmed facts
 // only narrow or redirect what pg_sage does on its own; proposed facts
@@ -85,10 +88,10 @@ export function factErrorMessage(status, json) {
   return json?.error || `Request failed (${status})`
 }
 
-async function postJSON(url, body) {
+async function postJSON(url, body, surface) {
   const res = await fetch(url, {
     method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: withSurface({ 'Content-Type': 'application/json' }, surface),
     body: JSON.stringify(body),
   })
   let json = {}
@@ -101,10 +104,11 @@ async function postJSON(url, body) {
   return json
 }
 
-// decideFact confirms, rejects or expires one fact on its database.
-export function decideFact(database, id, verb, note) {
+// decideFact confirms, rejects or expires one fact on its database;
+// surface names the deciding page (X-Sage-Surface, ux-01a).
+export function decideFact(database, id, verb, note, surface) {
   return postJSON(`/api/v1/facts/${id}/${verb}${dbQuery(database)}`,
-    { note: note || '' })
+    { note: note || '' }, surface)
 }
 
 export function declareFact(database, body) {
@@ -140,7 +144,7 @@ export function formatFactDate(value) {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) return null
-  return date.toLocaleString()
+  return formatTime(date)
 }
 
 // collectMatches flattens a /facts/match response into the distinct

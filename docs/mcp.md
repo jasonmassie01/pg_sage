@@ -563,6 +563,10 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`get_outcomes`](#get_outcomes) | `read` | always |
 | [`restore_drills`](#restore_drills) | `read` | always |
 | [`review_grade`](#review_grade) | `read` | always |
+| [`review_scorecard`](#review_scorecard) | `read` | always |
+| [`propose_plan`](#propose_plan) | `propose` | always |
+| [`list_plans`](#list_plans) | `read` | always |
+| [`get_plan`](#get_plan) | `read` | always |
 
 ### `get_policy`
 
@@ -1333,5 +1337,50 @@ Scope: `read`
 | Argument | Type | Required | Notes |
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+
+### `review_scorecard`
+
+Sage Review's scorecard for the database: per review and overall, the plan steps each origin (generator, model, person) proposed and how many were accepted, verified improved, no change, inconclusive, regressed, reverted or unverifiable, by generator too, and the latest model gate evaluations (G-M1: may the model's steps run without their own approval; G-M2: does the model pass still add steps of its own). Read-only.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `since` | string | no | Start of the window (RFC 3339); default the last 90 days; format date-time |
+
+### `propose_plan`
+
+Propose a multi-step plan (goal, scope, steps and edges, each step citing a finding_id or evidence_ids that resolve) for a person to decide. It is stored proposed and nothing runs until a person approves it in pg_sage; agents can never approve. At most 5 open plans per principal.
+
+Scope: `propose`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `plan` | object or string | yes | the plan as a JSON object (goal, scope, pack_hash, steps, edges), or a string holding exactly that JSON, without markdown fences |
+
+### `list_plans`
+
+List a database's plans, newest first, with their status (proposed ones await a person).
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `limit` | integer | no | value 1-500 |
+| `status` | string | no |  |
+
+### `get_plan`
+
+Read one plan: its steps and edges, every approval and what each approval covers now.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `plan_id` | integer | yes | value >= 1 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

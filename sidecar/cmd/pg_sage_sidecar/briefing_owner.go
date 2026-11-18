@@ -31,7 +31,7 @@ func (o *briefingOwner) Name() string { return config.BriefingOwner }
 // Prepare refuses an invalid schedule, so the change is rejected at apply
 // time with the field named and no worker changes.
 func (o *briefingOwner) Prepare(
-	_ context.Context, active, desired config.ConfigSnapshot,
+	ctx context.Context, active, desired config.ConfigSnapshot,
 ) (config.PreparedReconfiguration, error) {
 	if desired.Config == nil {
 		return nil, fmt.Errorf("briefing: desired config is nil")
@@ -40,11 +40,18 @@ func (o *briefingOwner) Prepare(
 	if err := briefing.ValidateSchedule(next.Schedule); err != nil {
 		return nil, fmt.Errorf("briefing.schedule %q: %w", next.Schedule, err)
 	}
-	prev := next
+	prevCfg := desired.Config
 	if active.Config != nil {
-		prev = active.Config.Briefing
+		prevCfg = active.Config
 	}
-	return preparedBriefing{owner: o, prev: prev, next: next}, nil
+	// ux-02b: briefing.slack_webhook_url and briefing.channels are the
+	// managed Notifications channel; a reconcile that fails refuses the
+	// change and leaves the tables as they were.
+	if err := alertingRuntime.reconcileChange(ctx, prevCfg, desired.Config); err != nil {
+		return nil, fmt.Errorf("briefing: %w", err)
+	}
+	return preparedBriefing{owner: o, prev: prevCfg.Briefing, next: next,
+		prevCfg: prevCfg, nextCfg: desired.Config}, nil
 }
 
 // add tracks w and gives it the settings of the last live change, so a
@@ -106,13 +113,26 @@ func (o *briefingOwner) apply(bc config.BriefingConfig) error {
 }
 
 type preparedBriefing struct {
-	owner      *briefingOwner
-	prev, next config.BriefingConfig
+	owner            *briefingOwner
+	prev, next       config.BriefingConfig
+	prevCfg, nextCfg *config.Config
 }
 
-func (p preparedBriefing) Commit(context.Context) error   { return p.owner.apply(p.next) }
-func (p preparedBriefing) Rollback(context.Context) error { return p.owner.apply(p.prev) }
-func (preparedBriefing) Drain(context.Context) error      { return nil }
+func (p preparedBriefing) Commit(context.Context) error { return p.owner.apply(p.next) }
+
+// Rollback restores the settings and reconciles the previous briefing
+// channel back.
+func (p preparedBriefing) Rollback(ctx context.Context) error {
+	if err := p.owner.apply(p.prev); err != nil {
+		return err
+	}
+	if p.prevCfg == nil || p.nextCfg == nil {
+		return nil
+	}
+	return alertingRuntime.reconcileChange(ctx, p.nextCfg, p.prevCfg)
+}
+
+func (preparedBriefing) Drain(context.Context) error { return nil }
 
 // registerBriefingOwner registers the briefing owner in every mode.
 func registerBriefingOwner() {

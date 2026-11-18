@@ -65,13 +65,13 @@ function Decision({ database, record, onDecided }) {
         <button data-testid="managed-change-approve" disabled={busy || blocked}
           title={approveTitle} onClick={() => decide('approve')}
           className="px-3 py-1 rounded text-sm"
-          style={{ background: 'var(--green)', color: '#fff',
+          style={{ background: 'var(--green-solid)', color: '#fff',
             opacity: busy || blocked ? 0.5 : 1 }}>
           I will apply it
         </button>
         <button data-testid="managed-change-reject" disabled={busy}
           onClick={() => decide('reject')} className="px-3 py-1 rounded text-sm"
-          style={{ background: 'var(--red)', color: '#fff', opacity: busy ? 0.5 : 1 }}>
+          style={{ background: 'var(--red-solid)', color: '#fff', opacity: busy ? 0.5 : 1 }}>
           Reject
         </button>
       </div>

@@ -94,11 +94,13 @@ type desiredRule struct {
 
 // Reconcile makes the config-managed channels and rules match the
 // alerting block a: one channel per usable target, one rule per routed
-// channel and reconciled event. Rows created through the API are never
-// read or written. A disabled or absent block deletes every config row.
+// channel and reconciled event, plus the briefing's channel when
+// WithBriefing asks for one (ux-02b). Rows created through the API are
+// never read or written. A disabled or absent block deletes every config
+// row it owns.
 func Reconcile(
 	ctx context.Context, store ReconcileStore, a config.AlertingConfig,
-	policy TargetPolicy, logFn func(string, string, ...any),
+	policy TargetPolicy, logFn func(string, string, ...any), opts ...ReconcileOption,
 ) (ReconcileResult, error) {
 	if store == nil {
 		return ReconcileResult{}, errors.New("reconcile alerting: no notification store")
@@ -106,7 +108,13 @@ func Reconcile(
 	if logFn == nil {
 		logFn = func(string, string, ...any) {}
 	}
+	var in reconcileInput
+	for _, opt := range opts {
+		opt(&in)
+	}
 	channels, rules := desiredState(a, policy, logFn)
+	bch, brules := briefingState(in.briefing, policy, logFn)
+	channels, rules = append(channels, bch...), append(rules, brules...)
 	var res ReconcileResult
 	err := store.InReconcileTx(ctx, func(tx ReconcileTx) error {
 		res = ReconcileResult{}

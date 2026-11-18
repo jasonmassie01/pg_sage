@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { formatTime } from '../../lib/time'
 import {
   actionCaseScope, actionRisk, actionRowKey, actionStatus, formatActionTime,
   lifecycleStatus, rollbackClassLabel, verificationStatus,
@@ -86,11 +87,11 @@ describe('rollbackClassLabel', () => {
 })
 
 describe('formatActionTime', () => {
-  it('formats a valid timestamp in the local locale', () => {
+  it('formats a valid timestamp with its zone (ux-05d)', () => {
     const value = '2026-10-03T11:00:00Z'
     const got = formatActionTime(value)
-    expect(got).toBe(new Date(value).toLocaleString())
-    expect(got).not.toBe('')
+    expect(got).toBe(formatTime(value))
+    expect(got).toMatch(/^2026-10-0[23] \d{2}:00 \S+$/)
   })
 
   it.each([
@@ -107,7 +108,8 @@ describe('formatActionTime', () => {
   })
 
   it('accepts a numeric epoch other than zero', () => {
-    expect(formatActionTime(1000)).toBe(new Date(1000).toLocaleString())
+    expect(formatActionTime(1000)).toBe(formatTime(1000))
+    expect(formatActionTime(1000)).toMatch(/^19(69|70)-/)
   })
 })
 

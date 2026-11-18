@@ -45,8 +45,8 @@ var toolClasses = map[string]toolClass{
 	"propose_policy_change":  propose(CapPolicyProposal),
 	"sre_draft_runbook":      propose(CapPolicyProposal),
 	"sre_compile_runbook":    propose(CapPolicyProposal),
-	// Unchanged: facts stay proposed until a person confirms.
-	"propose_fact": propose(""), "mark_object": propose(""),
+	// Unchanged: facts (and plans, plan-03b) stay proposed until a person decides.
+	"propose_fact": propose(""), "mark_object": propose(""), "propose_plan": propose(""),
 	"report_source_fix": propose(""), "sre_evaluate_autonomy": propose(""),
 	// Approve scope: out of an agent's reach.
 	"decide_fact": approve(), "declare_table_contract": approve(),
@@ -65,7 +65,7 @@ var toolClasses = map[string]toolClass{
 	"sre_list_changes":   read(),
 	"sre_list_incidents": read(), "sre_list_runbooks": read(), "sre_list_slos": read(),
 	"sre_runbook_runs": read(), "sre_similar_incidents": read(), "top_queries": read(),
-	"whatif_index": read(),
+	"whatif_index": read(), "list_plans": read(), "get_plan": read(),
 	// market-05: one bounded read-only transaction; it writes nothing.
 	"upgrade_readiness": read(),
 	// agent_* tools (G1+): every D-step applies.

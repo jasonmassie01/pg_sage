@@ -5,6 +5,8 @@ type BriefingConfig struct {
 	Channels        []string `yaml:"channels"`
 	SlackWebhookURL string   `yaml:"slack_webhook_url"`
 	FleetMode       string   `yaml:"fleet_mode" doc:"Fleet and meta-db modes: rollup (default) posts one briefing message covering every database; per_database posts one per database. Each database still stores its own briefing. Restart to change."`
+	OnlyWhenChanged bool     `yaml:"only_when_changed" doc:"Send the digest only when it differs from the last one delivered (and never an empty one); it is still stored. false sends every scheduled digest, \"Nothing changed\" included. Default: true."`
+	DBAHourRateUSD  float64  `yaml:"dba_hour_rate_usd" doc:"Operator-supplied cost of one DBA hour in US dollars; the digest's Saved line shows dollars beside hours when set. 0 (default) shows hours only: pg_sage ships no rates."`
 }
 
 type AlertingConfig struct {

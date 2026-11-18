@@ -40,7 +40,8 @@ as `restart`. In-flight work keeps its original snapshot.
 `llm` (the LLM connection: `llm.enabled`, `llm.endpoint`, `llm.api_key`,
 `llm.model`, `llm.auth` and its timeouts), `llm_redaction`
 (`llm.redact_numeric_literals`) and `briefing` (`briefing.schedule`,
-`briefing.channels`, `briefing.slack_webhook_url`) in every mode, and
+`briefing.channels`, `briefing.slack_webhook_url`, `briefing.only_when_changed`,
+`briefing.dba_hour_rate_usd`) in every mode, and
 `fleet_databases` (`databases` and `defaults.*`) in YAML fleet mode. A
 briefing schedule that does not parse is rejected when it is applied, naming
 `briefing.schedule`, and the workers keep the old one. Every other field,
@@ -273,6 +274,9 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_OPTIMIZER_LLM_API_KEY` / `_FILE` | (none) | Separate API key for the optimizer model (optional) |
 | `SAGE_OPTIMIZER_LLM_ENDPOINT` | (none) | Separate endpoint for the optimizer model (optional) |
 | `SAGE_OPTIMIZER_LLM_MODEL` | (none) | Separate model name for the optimizer (optional) |
+| `SAGE_REVIEW_LLM_API_KEY` / `_FILE` | (none) | Separate API key for the Sage Review model (optional) |
+| `SAGE_REVIEW_LLM_ENDPOINT` | (none) | Separate endpoint for the Sage Review model (optional) |
+| `SAGE_REVIEW_LLM_MODEL` | (none) | Separate model name for Sage Review (optional) |
 | `SAGE_LAKEBASE_ENDPOINT` | (none) | Lakebase endpoint resource path for OAuth; applies to target and metadata pools |
 | `SAGE_LAKEBASE_ENDPOINTS` | (none) | JSON hostname-to-endpoint map for a fleet spanning Lakebase endpoints; use instead of the singular variable |
 | `SAGE_AUTH_MODE` | (none) | `databricks_app` selects Databricks Apps authentication (see Web UI and API Authentication) |
@@ -440,22 +444,52 @@ retention:
 briefing:
   schedule: "0 6 * * *"         # cron expression; "" turns briefings off
   channels: ["stdout"]          # stdout, slack
-  slack_webhook_url: ""
+  slack_webhook_url: ""         # reconciled into the channel config:slack:briefing
   fleet_mode: rollup            # fleet only: rollup (one message) or per_database
+  only_when_changed: true       # send the digest only when it changed
+  dba_hour_rate_usd: 0          # cost of one DBA hour; 0 shows hours only
 ```
 
-A briefing covers the time since the previous briefing (on the first run,
-since the schedule's previous fire time), so a weekly schedule reports a week
-of actions; the structured text names the window ("Recent Actions (7d)").
-Slack receives the briefing as mrkdwn: headings and `**bold**` become `*bold*`,
-and `<`, `>` and `&` are escaped, so text from the model or the database
-cannot ping `<!channel>` or post a link. Each channel's result is stored in
-`sage.briefings.delivery_status`. In fleet mode, YAML or meta-db,
-`briefing.fleet_mode: rollup`
-(the default) posts one message with a section per database; each database
-still stores its own briefing row, and every row records that message's
-result. `per_database` posts one message per database, as before. Changing
-`fleet_mode` needs a restart; it is ignored in standalone mode.
+Each scheduled briefing sends a **digest** (ux-02b): what pg_sage did since the
+previous one, in a fixed order.
+
+1. **Did**: the changes in the window, from the outcome ledger (`GET /api/v1/outcomes`).
+2. **Verified or reverted**: verified, reverted, inconclusive and pending counts.
+3. **Saved**: DBA hours, with dollars only when `briefing.dba_hour_rate_usd` is set
+   (pg_sage ships no rates).
+4. **Needs you**: what waits in the inbox, by kind (`GET /api/v1/inbox`).
+5. **Could not do and why**: the open held-back decisions (`GET /api/v1/decisions`),
+   grouped by reason.
+
+Every count is computed by pg_sage. With an LLM configured, the model may write
+the one-sentence headline from the counts alone (no database, object or SQL is
+sent); a reply that is empty, longer than 200 characters, not one plain sentence,
+names an identifier, times out or is rate limited is replaced by the computed
+headline ("6 changes, 5 verified, 1 reverted, 2 need you"), and the reason is
+logged and stored with the digest.
+
+The digest is the notification event `digest_ready` (severity `info`), sent at
+once through Notifications, so Slack, email, Teams, Telegram and webhook channels
+receive it under their rules. When no `digest_ready` rule exists, pg_sage adds one
+on the first enabled channel that suits a digest (never PagerDuty, Opsgenie or
+incident.io); disable that rule to stop digests there (deleting it brings the
+default back). `briefing.slack_webhook_url` with `slack` in `briefing.channels` is
+reconciled into the managed channel `config:slack:briefing` with a `digest_ready`
+rule, at startup and on a live change; removing it removes the channel. `stdout`
+prints the digest locally. The briefing has no Slack post path of its own any more.
+
+With `briefing.only_when_changed: true` (the default) an empty digest, or one
+equal to the last digest delivered for the same database (or the fleet roll-up),
+is stored but not sent; its row says `suppressed_unchanged`. Two sidecars that
+both produce the same digest send it once. `false` sends every scheduled digest,
+an empty one saying "Nothing changed". Each channel's result is stored in
+`sage.briefings.delivery_status`, keyed by channel name, and every attempt is in
+the notification log. In fleet mode, YAML or meta-db, `briefing.fleet_mode: rollup`
+(the default) sends one digest with a section per database; each database still
+stores its own briefing row, and every row records that message's result.
+`per_database` sends one per database. Changing `fleet_mode` needs a restart; it
+is ignored in standalone mode. The stored briefing still keeps the long-form
+health text (`content_text`) for the API and MCP readers.
 
 Stored briefings are readable by every signed-in role:
 `GET /api/v1/briefings?database=<name|all>&limit=<1-100, default 20>` lists them newest first,
@@ -463,7 +497,7 @@ and `GET /api/v1/briefings/latest?database=<name|all>` returns each database's l
 (`without_briefing` names the databases that have none yet). Both return `content_json` and
 `delivery_status` exactly as stored; in a fleet, a database whose read fails is listed under
 `unavailable` while the others answer. When no database has a briefing yet, `latest` answers
-404 with the reason. The Overview page shows the latest briefing in a card, and MCP clients
+404 with the reason. Home shows each database's latest digest in a card, and MCP clients
 read it as the resource `pgsage://databases/{database}/briefings/latest`
 ([MCP resources](mcp.md#resources)).
 
@@ -1449,6 +1483,7 @@ budget.
 | `llm.optimizer.rejection_memory.prompt_max_shapes` | `5` | Most recent rejected shapes per table listed in the tuning agent's case packet as already measured (1-20) |
 | `llm.optimizer.rejection_memory.skip_llm_after` | `3` | After this many consecutive answers about a tuning case were all wasted (every proposal rejected or already measured, or the answer empty or malformed), the agent stops asking the model about the case until it changes materially (its statements, or a call-volume or mean-time change of `call_volume_ratio`/`mean_time_ratio`) or `max_age_days` passes (1-100). A provider failure neither extends nor breaks the streak. Exported as `pg_sage_optimizer_llm_calls_skipped_total{database}`; skipped what-ifs as `pg_sage_optimizer_whatif_skipped_total{database}` |
 | `llm.optimizer_llm.enabled` | `false` | Dedicated optimizer model; adds a second client with its own `token_budget_daily`. It inherits `llm.api_key` only when `llm.optimizer_llm.endpoint` is empty or on the same origin as `llm.endpoint`; otherwise set `llm.optimizer_llm.api_key` |
+| `llm.review_llm.enabled` | `false` | Dedicated Sage Review model, the same keys as `llm.optimizer_llm` (`endpoint`, `api_key`, `model`, `timeout_seconds`, `token_budget_daily`, `cooldown_seconds`, `max_output_tokens`, `fallback_to_general`). When off, the review uses the optimizer model when enabled, else the general client. The general key is sent only to the same origin |
 | `advisor.enabled` | `true` | LLM configuration advisor (WAL, connections, rewrites, bloat). With `advisor.memory_enabled` / `advisor.vacuum_enabled` it also lets the tuning agent propose server settings / table storage parameters. In fleet mode one database per PostgreSQL instance owns the instance settings: only it runs the WAL and connection reviews and proposes `ALTER SYSTEM` or managed parameter changes (see [Several databases on one PostgreSQL instance](walkthrough-fleet.md#several-databases-on-one-postgresql-instance)) |
 | `advisor.interval_seconds` | `86400` | Seconds between model reviews of each configuration sub-advisor (WAL, connections, rewrites, bloat), scheduled per sub-advisor in `sage.advisor_runs` so a restart within the interval makes no model call and concurrent cycles make one. A run counts only on success: a model or token-budget failure retries after 1 h, doubling per consecutive failure, never later than this interval. Every cycle, without the model, open advisor findings are re-checked: a WAL or connection setting resolves once the live `pg_settings` value equals the recommended one (units normalized, `4GB` = `4096MB`), a rewrite once its query has been absent from `pg_stat_statements` for 3 cycles, a bloat finding once its table stays under 10% dead tuples (or 1,000 rows) for 2 cycles. An open finding keeps only its own setting, query or table out of the next review; the rest of its category is still reviewed |
 | `tuner.hint_absent_cycles` | `3` | Analyzer cycles an open `query_tuning` finding's statement must be absent from `pg_stat_statements`, or below the tuner's admission thresholds, before the finding resolves; the wait is N x the analyzer interval. 0 or less means 3 (see [hint verification](hint-verification.md#when-a-query_tuning-finding-resolves)) |
@@ -2156,7 +2191,7 @@ max_changes_per_window}`); `hygiene` is optional and defaults per field.
   tables and rows, `rate_limit_exceeded` for changes) and retried next cycle.
   The decision's `evidence.budget_detail` says which budget is full and when it
   next frees, for example `hygiene budget full: 11 of 10 tables in the 24h
-  window; next frees at 2026-10-04T18:00:02Z`. Actions > Decisions and
+  window; next frees at 2026-10-04T18:00:02Z`. Actions > Held back and
   `GET /api/v1/decisions?verdict=parked` show it per candidate
   ([Reading decisions](policy-gate.md#reading-decisions)).
 - **Concurrent candidates.** An authorized change holds its slot from the
@@ -3626,6 +3661,14 @@ deterministic and read-only; it writes only `sage.review_run` and `sage.review_g
 | `review.grade_interval_hours` | `24` | Hours between two grades of one database (1-720). Restart to change |
 | `review.window_days` | `90` | Days of history the review generators judge (14-100). The workload pack is the shorter of this and the retained rollups; a shorter pack is reported as partial coverage. Restart to change |
 | `review.large_table_bytes` | `10737418240` | Bytes (1 GiB-1 PiB, default 10 GiB) from which the schema-debt generator advises range-partitioning an unpartitioned table that a date or timestamp key orders in time. Advice only. Restart to change |
+| `review.model_pass` | `auto` | The model pass that ranks, attacks and links a review's candidates and writes its report ([review.md](review.md#model-pass)): `auto` runs it when a model is usable, `on` makes a missing model a failed pass, `off` keeps the deterministic ranking and templated text. The model reads only the pack's model tier and never writes SQL that runs |
+| `review.model_runs` | `3` | Independent model runs combined by `review.consensus`; odd, 1-5. `1` applies no consensus and the report says "single run" |
+| `review.consensus` | `majority` | `majority` keeps a candidate most runs keep, at its median rank; `refute` has a second run refute the first run's picks with cited evidence |
+| `review.hash_identifiers` | `false` | Replace schema, table, index and column names with keyed pseudonyms in what the review model reads; the report shows the real names. Needs `encryption_key`. Decision D3 (OWNER ACTION) may flip the default |
+| `review.gate.min_reviews` | `50` | Reviews on real databases, each with a finished model pass of the running review model, that the model gate needs before G-M1 or G-M2 decides (1-10000). A proposal for the owner (decision D11). See [the model gate](review.md#scorecard-and-the-model-gate). Restart to change |
+| `review.gate.max_gap_points` | `10` | G-M1 passes when the model's verified-improved rate is at least the generators' rate minus this many percentage points (0-100). A pass only files an inbox promotion; an admin grants it. A proposal for the owner (decision D11). Restart to change |
+| `review.gate.max_revert_pct` | `2` | G-M1 passes when at most this percent of the model's decided steps were reverted (0-100). A proposal for the owner (decision D11). Restart to change |
+| `review.gate.fixture_databases` | `[]` | Database names whose reviews never count toward G-M1 or G-M2 (bench and game-day fixtures). Databases named by a clone receipt never count either. Restart to change |
 
 ### Forecaster
 

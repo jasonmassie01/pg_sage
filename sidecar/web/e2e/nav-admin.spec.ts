@@ -7,7 +7,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mockAllAPIs, mockAuthMe } from './fixtures'
 
-const OPERATE = ['Value', 'Cases', 'Actions', 'Ledger', 'Workload', 'SLOs', 'Trust', 'Facts',
+const OPERATE = ['Inbox', 'Cases', 'Actions', 'Ledger', 'Workload', 'SLOs', 'Trust', 'Facts',
   'Ask Sage']
 const ADMIN = ['Fleet', 'Users', 'Notifications', 'Alert log', 'Settings', 'MCP tokens',
   'Agents']
@@ -76,7 +76,7 @@ test('clicking an Admin link opens its page and marks it current', async ({ page
 
 test('dashboard-06: ? opens the shortcuts sheet listing the keymap', async ({ page }) => {
   await page.goto('/#/')
-  await expect(page.getByTestId('nav-value')).toBeVisible()
+  await expect(page.getByTestId('nav-inbox')).toBeVisible()
   await page.keyboard.press('?')
   const sheet = page.getByTestId('shortcuts-sheet')
   await expect(sheet).toBeVisible()
@@ -94,7 +94,7 @@ test('dashboard-06: ? opens the shortcuts sheet listing the keymap', async ({ pa
 
 test('the sheet closes on Close and on a click outside it', async ({ page }) => {
   await page.goto('/#/')
-  await expect(page.getByTestId('nav-value')).toBeVisible()
+  await expect(page.getByTestId('nav-inbox')).toBeVisible()
   await page.keyboard.press('?')
   await page.getByTestId('shortcuts-sheet').getByRole('button', { name: 'Close' }).click()
   await expect(page.getByTestId('shortcuts-sheet')).toHaveCount(0)
@@ -105,7 +105,7 @@ test('the sheet closes on Close and on a click outside it', async ({ page }) => 
 
 test('? typed into a text field does not open the sheet', async ({ page }) => {
   await page.goto('/#/')
-  await expect(page.getByTestId('nav-value')).toBeVisible()
+  await expect(page.getByTestId('nav-inbox')).toBeVisible()
   await page.keyboard.press('Control+k')
   const input = page.getByTestId('command-palette-input')
   await expect(input).toBeFocused()
@@ -116,7 +116,7 @@ test('? typed into a text field does not open the sheet', async ({ page }) => {
 
 test('the palette\'s Keyboard shortcuts command opens the sheet', async ({ page }) => {
   await page.goto('/#/')
-  await expect(page.getByTestId('nav-value')).toBeVisible()
+  await expect(page.getByTestId('nav-inbox')).toBeVisible()
   await page.keyboard.press('Control+k')
   await page.getByTestId('command-palette-input').fill('keyboard')
   await page.getByTestId('command-help').click()

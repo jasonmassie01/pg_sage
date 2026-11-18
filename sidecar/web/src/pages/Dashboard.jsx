@@ -9,10 +9,10 @@ import { DatabaseTile } from '../components/DatabaseTile'
 import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { FleetRecoverabilityLine } from '../components/RecoverabilityPanel'
-import { BriefingCard } from '../components/BriefingCard'
 import { Skeleton } from '../components/Skeleton'
 import { HealthHero } from '../components/HealthHero'
 import { TopCasesPanel } from '../components/TopCasesPanel'
+import { TabList, TabPanel } from '../components/Tabs'
 import { topCasesURL } from '../lib/topCases'
 import { Clock, ListChecks } from 'lucide-react'
 
@@ -161,27 +161,15 @@ function OnboardingWelcome() {
 }
 
 function OverviewTabs({ activeTab, setActiveTab }) {
+  const tabs = OVERVIEW_TABS.map(tab => ({ ...tab, testId: `overview-tab-${tab.key}` }))
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-2" role="tablist"
-        aria-label="Overview sections">
-        {OVERVIEW_TABS.map(tab => (
-          <button key={tab.key} type="button" role="tab"
-            data-testid={`overview-tab-${tab.key}`}
-            aria-selected={activeTab === tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className="px-3 py-1.5 rounded text-sm"
-            style={{
-              background: activeTab === tab.key
-                ? 'var(--accent)' : 'var(--bg-card)',
-              color: activeTab === tab.key
-                ? '#fff' : 'var(--text-secondary)',
-              border: '1px solid var(--border)',
-            }}>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <TabList id="overview" label="Overview sections" tabs={tabs} active={activeTab}
+        onSelect={setActiveTab} tabStyle={selected => ({
+          background: selected ? 'var(--accent)' : 'var(--bg-card)',
+          color: selected ? '#fff' : 'var(--text-secondary)',
+          border: '1px solid var(--border)',
+        })} />
       <p className="text-sm" data-testid="overview-tab-description"
         style={{ color: 'var(--text-secondary)' }}>
         {OVERVIEW_TABS.find(tab => tab.key === activeTab)?.description}
@@ -278,24 +266,24 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
       </div>
       <FleetRecoverabilityLine />
 
-      <BriefingCard database={database} />
-
       <Suspense fallback={<Skeleton height={192}
         data-testid="fleet-health-chart-loading" />}>
         <FleetHealthChart database={database} />
       </Suspense>
       <OverviewTabs activeTab={overviewTab} setActiveTab={setOverviewTab} />
-      {overviewTab === 'databases' && (
-        <DatabaseOverviewPanel databases={databases}
-          database={database} loading={loading} onSelectDB={onSelectDB} />
-      )}
-      {overviewTab === 'provider-readiness' && (
-        <div className="space-y-4">
-          <ProviderReadinessMatrix />
-          <IndexAdmissionPanel database={database} />
-        </div>
-      )}
-      {topCasesOpen && <TopCasesPanel query={topCases} database={database} />}
+      <TabPanel id="overview" active={overviewTab} className="space-y-4">
+        {overviewTab === 'databases' && (
+          <DatabaseOverviewPanel databases={databases}
+            database={database} loading={loading} onSelectDB={onSelectDB} />
+        )}
+        {overviewTab === 'provider-readiness' && (
+          <div className="space-y-4">
+            <ProviderReadinessMatrix />
+            <IndexAdmissionPanel database={database} />
+          </div>
+        )}
+        {topCasesOpen && <TopCasesPanel query={topCases} database={database} />}
+      </TabPanel>
     </div>
   )
 }

@@ -351,6 +351,10 @@ A person approves a plan at the plan hash they were shown, in one of three modes
   approval; an approval racing an edit is either voided by it or refused as stale.
 - **Approval is never automatic.** Every plan needs a person's approval, whatever the trust
   level. A never-automatic step always needs its own approval as well.
+- **A model-origin step needs its own approval** too (review-03b): in a plan whose origin is
+  `model`, an action step the model proposed is not covered by `all` or `up_to` until a person
+  grants that model authority (review-05a's G-M1, `sage.review_model_authority`); its reason
+  starts with `model_origin`. See [review.md](review.md#from-review-to-plan).
 ## Exposure remediation
 
 The exposure detectors (AP-03 tables reachable by exposed roles without RLS, AP-15
@@ -439,7 +443,9 @@ series there above zero means the ledger is missing decisions.
 operator or admin role, read one database at a time (all of them by default), return no SQL
 text and record nothing.
 
-**Actions > Decisions** and `GET /api/v1/decisions` list the open withheld decisions: rows
+**Actions > Held back** (formerly Decisions) and `GET /api/v1/decisions` list the open
+withheld decisions, with each verdict and reason in words and a link to the exact approval
+request (`#/actions?tab=pending&queue=<id>`) or finding (`#/cases?finding=<id>`): rows
 with a `queue_approval`, `parked`, `blocked` or `observe_only` verdict that no execute has
 resolved and no approval queue item has taken over. A withheld row recorded outside the gate's
 repeats (a lease conflict's `ddl_conflict` park, a `custodian_backoff` escalation, a schema
@@ -510,6 +516,21 @@ one-click buttons that go through the same approval path. A Sage SRE cancel is d
 through its approval card only, and a signed Slack callback older than
 `sre.actions.chatops_tolerance_seconds` is refused; see
 [Sage SRE approved actions](configuration.md#sage-sre-approved-actions).
+
+**Plan cards in chat.** A plan stored as proposed (an agent proposes one with MCP
+`propose_plan`) sends a plan card to the channels that already receive approval cards, with
+no new configuration. The card gives the goal, the step count, each step's expected effect
+and risk tier, and how to review the plan in the app. From chat a person may approve steps
+of risk tier `safe` and `moderate` (decision D7, `changeplan.ChatApprovableTiers`): a plan
+of such steps offers "Approve all" and "Approve step 1 only"; a plan whose first `high` or
+never-automatic step is step K offers "Approve up to step K-1" and says the rest needs the
+app; at step 1 the card offers only "Reject", which every card offers. The approval is
+plan-03a's coverage rule with `via` `chat`. A press is checked like an approval card: a
+signed callback from a chat user mapped to an operator or admin, a single-use token issued
+to this channel, unused and unexpired, offering that decision, on a plan still `proposed` at
+the hash the card showed ("Refused: this plan changed" otherwise). What chat may approve is
+checked again against the plan when the button is pressed. Two clicks make one decision; if
+pg_sage cannot record the decision the card stays usable. No MCP tool approves a plan.
 
 **Agent policy proposals.** An agent can only propose a change to its own policy. A
 proposal that widens the current policy needs two different people to approve it, and the

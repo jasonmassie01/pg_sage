@@ -60,14 +60,10 @@ func TestReviewRunsMigration_BootstrapTwice(t *testing.T) {
 // so ddlReviewRuns must come right before it; later items append after.
 func TestReviewRunsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	at := -1
-	for i, s := range steps {
-		if s[0] == "ddlReviewRuns" {
-			at = i
-		}
-	}
+	// review-03a and review-03b appended steps after ddlReviewCandidates.
+	at := stepIndex(steps, "ddlReviewRuns")
 	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewCandidates" {
-		t.Fatalf("T6 steps %v, want ddlReviewRuns then ddlReviewCandidates", steps)
+		t.Fatalf("T6 steps %v, want ddlReviewRuns just before ddlReviewCandidates", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_run",
