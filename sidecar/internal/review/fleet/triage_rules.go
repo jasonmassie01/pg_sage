@@ -40,6 +40,19 @@ func lineOf(r Rollup) triageLine {
 	return l
 }
 
+// triagePromptOverhead is the bytes a triage prompt adds around its lines
+// (its heading and the data wrapper), with room to spare.
+const triagePromptOverhead = 256
+
+// lineBytes is the bytes a member's line takes in a triage prompt.
+func lineBytes(r Rollup) int {
+	b, err := json.Marshal(lineOf(r))
+	if err != nil {
+		return 0
+	}
+	return len(b) + 1
+}
+
 // triagePrompt is a batch's members, one JSON object per line, wrapped as
 // untrusted data.
 func triagePrompt(batch []Rollup) string {

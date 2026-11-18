@@ -119,10 +119,24 @@ func modeOf(used, fell int) string {
 	return ModeMixed
 }
 
+// batchesOf splits the rollups into calls of at most TriageBatchMembers
+// members whose prompt lines fit TriageBatchTokens (four bytes a token,
+// less the system prompt and the data wrapper). A member whose line alone
+// is over the budget gets a call of its own.
 func batchesOf(rollups []Rollup) [][]Rollup {
+	budget := TriageBatchTokens*4 - len(triageSystem) - triagePromptOverhead
 	var out [][]Rollup
-	for start := 0; start < len(rollups); start += TriageBatchMembers {
-		out = append(out, rollups[start:min(start+TriageBatchMembers, len(rollups))])
+	start, used := 0, 0
+	for i, r := range rollups {
+		size := lineBytes(r)
+		if i > start && (i-start >= TriageBatchMembers || used+size > budget) {
+			out = append(out, rollups[start:i])
+			start, used = i, 0
+		}
+		used += size
+	}
+	if start < len(rollups) {
+		out = append(out, rollups[start:])
 	}
 	return out
 }
