@@ -249,3 +249,36 @@ not monitored is 404.
  "delta": {"first_run": false, "rubric_changed": false, "from_overall": "B",
   "to_overall": "B", "dimensions": []}}
 ```
+
+## Sage Review scorecard
+
+### `GET /api/v1/databases/{db}/review/scorecard`
+
+Viewer; read scope on `{db}`. The database's review scorecard since `since` (RFC 3339; default
+the last 90 days), the newest G-M1 and G-M2 evaluations of the model gate (`gate`, empty
+before the first) and the thresholds (see
+[the model gate](review.md#scorecard-and-the-model-gate)). `by_origin` and `by_generator` hold
+the counts; `per_review` is each review, newest first. A bad `since` is 400. The MCP tool
+`review_scorecard` is the same read.
+
+```json
+{"scorecard": {"database": "orders", "reviews": 50,
+  "by_origin": {"model": {"proposed": 50, "accepted": 50, "verified_improved": 45,
+    "no_change": 5, "inconclusive": 0, "regressed": 0, "reverted": 0, "unverifiable": 0,
+    "pending": 0, "decided": 50}},
+  "by_generator": {"indexes": {"proposed": 50, "verified_improved": 50, "decided": 50}},
+  "model_only_accepted": 50, "per_review": []},
+ "gate": [{"id": 7, "model": "m1", "rule": "G-M1", "verdict": "pending_approval",
+   "reason": "G-M1: 50 of 50 reviews; model 45/50 improved (90.0%) vs generators ...",
+   "evidence": {"reviews": {"k": 50, "n": 50}, "model_improved": {"k": 45, "n": 50}}}],
+ "thresholds": {"min_reviews": 50, "max_gap_points": 10, "max_revert_pct": 2}}
+```
+
+### `POST /api/v1/databases/{db}/review/gate/{id}/approve`
+
+Admin. Approves the live G-M1 promotion `{id}` (the inbox's `autonomy_promotion` item from
+`sage.review_gate`): the row becomes `granted` with the approver, and the model's review steps
+run at their class's trust level. Only the newest G-M1 evaluation, still pending, can be
+approved: an older or already decided one is 409, an unknown id 404, a malformed id 400.
+Nothing else grants model authority; a failed window or a model change revokes it at the next
+evaluation.

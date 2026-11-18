@@ -3665,6 +3665,10 @@ deterministic and read-only; it writes only `sage.review_run` and `sage.review_g
 | `review.model_runs` | `3` | Independent model runs combined by `review.consensus`; odd, 1-5. `1` applies no consensus and the report says "single run" |
 | `review.consensus` | `majority` | `majority` keeps a candidate most runs keep, at its median rank; `refute` has a second run refute the first run's picks with cited evidence |
 | `review.hash_identifiers` | `false` | Replace schema, table, index and column names with keyed pseudonyms in what the review model reads; the report shows the real names. Needs `encryption_key`. Decision D3 (OWNER ACTION) may flip the default |
+| `review.gate.min_reviews` | `50` | Reviews on real databases, each with a finished model pass of the running review model, that the model gate needs before G-M1 or G-M2 decides (1-10000). A proposal for the owner (decision D11). See [the model gate](review.md#scorecard-and-the-model-gate). Restart to change |
+| `review.gate.max_gap_points` | `10` | G-M1 passes when the model's verified-improved rate is at least the generators' rate minus this many percentage points (0-100). A pass only files an inbox promotion; an admin grants it. A proposal for the owner (decision D11). Restart to change |
+| `review.gate.max_revert_pct` | `2` | G-M1 passes when at most this percent of the model's decided steps were reverted (0-100). A proposal for the owner (decision D11). Restart to change |
+| `review.gate.fixture_databases` | `[]` | Database names whose reviews never count toward G-M1 or G-M2 (bench and game-day fixtures). Databases named by a clone receipt never count either. Restart to change |
 
 ### Forecaster
 

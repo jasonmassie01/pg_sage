@@ -301,3 +301,69 @@ with the reason: `no_template`, `no_contract`, `unknown_object`, `invalid_target
 `no_evidence`, `sql_refused`, `ladder_error`, `no_ladder_tier`, `below_minimum`,
 `not_measurable`, `next_review` or `advice_only`). If the plan store refuses a plan, the
 review's save fails with an error naming `sage.plan`.
+
+## Scorecard and the model gate
+
+The scorecard is the product's proof and the test for the next model. For each review, and
+over all reviews since a time, it counts the plan steps each origin proposed (`generator`,
+`model`, `person`), also split by generator name, and what became of them:
+
+| Count | Meaning |
+|---|---|
+| `proposed` | every action or operator step of the review's plan |
+| `accepted` | the step has its own live approval, or it was started (a person approved it) |
+| `verified_improved`, `no_change`, `regressed` | the verifier's verdict |
+| `inconclusive` | an inconclusive or expired verdict |
+| `unverifiable` | the verifier could not measure it |
+| `reverted` | any rollback of the step (its state, or its action's `rolled_back` outcome) |
+| `pending` | no verdict yet |
+| `decided` | improved, no change or regressed, plus every reverted step |
+
+`model_only_accepted` counts accepted model steps that no generator of the same review also
+proposed (same action and SQL). The reads are SQL over `sage.review_run`,
+`sage.review_model_run`, `sage.review_plan`, `sage.plan_step`, `sage.plan_step_origin`,
+`sage.plan_step_approval` and `sage.action_log`; the arithmetic is in Go. Read it with
+`GET /api/v1/databases/{db}/review/scorecard` ([API](api.md#sage-review-scorecard)) or the MCP
+tool `review_scorecard`.
+
+**Which reviews count.** The gate reads the newest `review.gate.min_reviews` reviews of the
+database that are `done`, on a real database, and whose model pass finished on the running
+review model and no other. A review of a database named in `review.gate.fixture_databases`
+(bench and game-day fixtures) or by a clone receipt (`sage.clone_instances`) never counts. A
+new model id starts with no reviews: that is the test for the next model.
+
+**G-M1 (give the model more).** It passes when all three hold:
+
+1. at least `review.gate.min_reviews` reviews count (default 50);
+2. the model's verified-improved rate is at least the generators' rate minus
+   `review.gate.max_gap_points` (default 10 points);
+3. the model's revert rate is at most `review.gate.max_revert_pct` (default 2%).
+
+Rates are decided steps over decided steps; the Wilson 95% intervals are reported beside them,
+never instead of them. Invalid counts, no decided model or generator steps, or an error never
+pass. A pass does not promote by itself: it files one high-risk **autonomy promotion** in the
+inbox with the numbers. Only an admin's approval
+(`POST /api/v1/databases/{db}/review/gate/{id}/approve`) grants it: the newest G-M1
+evaluation, still pending, becomes `granted` and sets review-03b's
+`sage.review_model_authority` row for that model id, so its steps run at their class's trust
+level without their own approval. A grant for one model id never applies to another.
+
+**Revocation is automatic.** At each evaluation (after every grade), a window that fails
+G-M1, a change of the running review model, or a grant with no approved evaluation behind it
+revokes the flag at once, with a `revoked` row and a digest line. Plans of another model id
+never use the old grant, since the grant is keyed by model id.
+
+**G-M2 (drop the model pass).** Over the same reviews, if no accepted step was the model's
+alone, `review.model_pass: auto` stops calling that model id for the review, and the digest
+says so. It only narrows: `review.model_pass: on` always runs the pass, a gate that cannot be
+read changes nothing, and a new model id starts on.
+
+**Stored.** `sage.review_gate`: one row per model, rule and hourly evaluation tick (`model`,
+`rule`, `tick`, `evaluated_at`, `verdict` `not_eligible`, `pending_approval`, `granted`,
+`revoked`, `model_on` or `model_off`, `reason`, `evidence` with the counts and intervals,
+`approved_by`, `approved_at`, `revoked_at`). A `granted` row without an approval is refused by
+the table's CHECK.
+
+**The thresholds are proposals for the owner** (decision D11: 50 reviews, 10 points, 2%).
+Measuring them takes 50 or more reviews on real databases, which is calendar time on real
+deployments; they ship as proposals until the owner confirms or changes them.
