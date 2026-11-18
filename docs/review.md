@@ -139,8 +139,9 @@ the due triggers with `FOR UPDATE SKIP LOCKED` (two sidecars never claim one tri
 the run id on the claim as soon as the run is recorded, and holds the claim for 35 minutes (the
 stale-run reaper's 30 minutes, plus margin). A claim whose sidecar died goes back to `fired`
 when its lease ends, keeping its run id: the next leader consumes it into that run if the run
-finished, waits while it runs, and starts a new run only if it failed. So a trigger gets one
-finished run. A grade that is already running makes the loop release the claim and retry at
+finished, waits while it runs, and starts a new run if it failed or has been running for
+longer than the lease (its sidecar died mid-run; the new run's reaper fails it). So a trigger
+gets one finished run. A grade that is already running makes the loop release the claim and retry at
 the next tick.
 
 **What a run does.** Today a trigger-started run is a `review` run graded against the rubric,

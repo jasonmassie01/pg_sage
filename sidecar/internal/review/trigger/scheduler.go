@@ -109,7 +109,9 @@ func (s *Scheduler) poll(ctx context.Context, now time.Time) int {
 
 // resume settles triggers that a run already started (their leader died):
 // a finished run consumes them, a running one keeps them waiting, a
-// failed or missing one lets them start a new run. It returns the rest.
+// failed or missing one, or one running for longer than the lease (its
+// sidecar died mid-run; the next run's reaper fails it), lets them start a
+// new run. It returns the rest.
 func (s *Scheduler) resume(ctx context.Context, pending []Trigger, res *TickResult) (
 	[]Trigger, error) {
 	byRun := map[int64][]int64{}
@@ -122,7 +124,7 @@ func (s *Scheduler) resume(ctx context.Context, pending []Trigger, res *TickResu
 		byRun[t.RunID] = append(byRun[t.RunID], t.ID)
 	}
 	for run, ids := range byRun {
-		st, err := s.Store.RunStatus(ctx, run)
+		st, err := s.Store.RunStatus(ctx, run, s.Lease)
 		if err != nil {
 			return nil, err
 		}

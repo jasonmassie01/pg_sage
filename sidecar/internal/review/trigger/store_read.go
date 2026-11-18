@@ -41,14 +41,24 @@ func (s *Store) LastFullReview(ctx context.Context, database string) (Review, bo
 	return r, true, nil
 }
 
-// RunStatus is review run id's status ("" when no such run).
-func (s *Store) RunStatus(ctx context.Context, id int64) (string, error) {
+// RunStale is RunStatus's answer for a run still running after staleAfter
+// (on the database's clock): its sidecar died mid-run, and the next run's
+// reaper fails it.
+const RunStale = "stale"
+
+// RunStatus is review run id's status ("" when no such run), or RunStale
+// when it has been running for longer than staleAfter (> 0).
+func (s *Store) RunStatus(ctx context.Context, id int64, staleAfter time.Duration) (string,
+	error) {
 	if err := s.usable(); err != nil {
 		return "", err
 	}
 	var st string
-	err := s.pool.QueryRow(ctx, `SELECT status FROM sage.review_run WHERE id = $1`, id).
-		Scan(&st)
+	err := s.pool.QueryRow(ctx, `/* pg_sage review trigger */
+		SELECT CASE WHEN status = 'running' AND $2::float8 > 0
+		             AND started_at < now() - make_interval(secs => $2::float8) THEN 'stale'
+		            ELSE status END
+		  FROM sage.review_run WHERE id = $1`, id, staleAfter.Seconds()).Scan(&st)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
