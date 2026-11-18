@@ -170,8 +170,9 @@ func (rt *databaseRuntime) providerCandidate(ctx context.Context) (*fleet.Databa
 		if err != nil {
 			return nil, fmt.Errorf("read database %d: %w", rt.spec.DatabaseID, err)
 		}
-		if !rec.Enabled {
-			return nil, fmt.Errorf("database %d is disabled: %w", rec.ID, fleet.ErrInstanceConflict)
+		if !rec.RunsRuntime() { // disabled, or observe-only (fleetpol-01d)
+			return nil, fmt.Errorf("database %d is disabled or observe-only: %w", rec.ID,
+				fleet.ErrInstanceConflict)
 		}
 		return prepareStoreDatabase(ctx, state, *rec)
 	}

@@ -147,11 +147,22 @@ func (l *DBLoader) lint(ctx context.Context) LintInput {
 func (l *DBLoader) settings(ctx context.Context) SettingsInput {
 	ctx, cancel := l.bounded(ctx)
 	defer cancel()
+	return ProbeSettings(ctx, l.Pool, time.Duration(l.timeoutMS())*time.Millisecond)
+}
+
+// ProbeSettings is the settings probe on its own (fleetpol-01d's
+// observe-only sweep has no sage schema to read the rest from): the server
+// version and the settings waiting for a restart, in a read-only
+// transaction under statement_timeout.
+func ProbeSettings(ctx context.Context, pool *pgxpool.Pool, timeout time.Duration) SettingsInput {
+	if pool == nil {
+		return SettingsInput{Err: ErrNoStore}
+	}
 	var out SettingsInput
-	err := pgx.BeginTxFunc(ctx, l.Pool, pgx.TxOptions{AccessMode: pgx.ReadOnly},
+	err := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{AccessMode: pgx.ReadOnly},
 		func(tx pgx.Tx) error {
 			if _, err := tx.Exec(ctx, "SELECT set_config('statement_timeout', $1, true)",
-				fmt.Sprint(l.timeoutMS())); err != nil {
+				fmt.Sprint(timeout.Milliseconds())); err != nil {
 				return err
 			}
 			return tx.QueryRow(ctx, `/* pg_sage review v1 */

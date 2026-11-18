@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -50,6 +51,13 @@ type Store interface {
 	Release(ctx context.Context, rowID int64, reason string) error
 	DueForExpiry(ctx context.Context, now time.Time) ([]store.DiscoveredRow, error)
 	SetStatus(ctx context.Context, rowID int64, status, reason string) error
+	// Enrollment by policy set (fleetpol-01b).
+	ClaimSet(ctx context.Context, source, set, tier string, limit, maxLive int,
+		now time.Time) (
+		[]store.DiscoveredRow, error)
+	PendingGrades(ctx context.Context) ([]store.DiscoveredRow, error)
+	MarkMilestone(ctx context.Context, rowID int64, m store.Milestone, at time.Time) error
+	EnrollStats(ctx context.Context, now time.Time) ([]store.EnrollStat, error)
 }
 
 // Members enrols and disables fleet members. Enrol must create the member
@@ -67,18 +75,28 @@ const (
 	listTimeout   = 30 * time.Second
 )
 
-// Report is what one cycle did.
+// Report is what one cycle did. With policy sets: PerSet is the members
+// each set enrolled, Graded and AtBaseline the milestones recorded,
+// Ignored the attributes and candidates left out and Overdue the members
+// past their set's grade deadline (each reported once per process).
 type Report struct {
-	Sources  map[string]SourceReport
-	Enrolled int
-	Expired  int
-	Errors   []error
+	Sources    map[string]SourceReport
+	Enrolled   int
+	Expired    int
+	Errors     []error
+	PerSet     map[string]int
+	Graded     int
+	AtBaseline int
+	Ignored    []string
+	Overdue    []string
 }
 
-// SourceReport is one source's listing in a cycle.
+// SourceReport is one source's listing in a cycle. BackingOff: the source
+// was not listed, its provider throttled an earlier listing.
 type SourceReport struct {
 	Listed, New, Gone int
 	Truncated         bool
+	BackingOff        bool
 	Err               error
 }
 
@@ -92,6 +110,16 @@ type Runner struct {
 	cap      int
 	mu       sync.Mutex
 	listed   map[string]bool // sources with a successful listing this process
+	backoff  map[string]backoffState
+	// Enrollment by policy set (fleetpol-01b); sets nil is the legacy
+	// per-source enrollment.
+	sets     SetLister
+	grades   Grades
+	setRun   map[string]time.Time // each set's last enrollment cycle
+	warned   map[string]bool      // reasons already reported
+	statsMu  sync.Mutex           // guards lastSets and stats
+	lastSets []policy.PolicySet
+	stats    []store.EnrollStat
 }
 
 // NewRunner validates cfg and the bindings. A disabled runner needs no
@@ -99,7 +127,9 @@ type Runner struct {
 func NewRunner(cfg config.FleetDiscoveryConfig, bindings []Binding, st Store,
 	members Members) (*Runner, error) {
 	r := &Runner{cfg: cfg, bindings: bindings, store: st, members: members,
-		now: time.Now, cap: CycleCap, listed: map[string]bool{}}
+		now: time.Now, cap: CycleCap, listed: map[string]bool{},
+		backoff: map[string]backoffState{}, setRun: map[string]time.Time{},
+		warned: map[string]bool{}}
 	if !cfg.Enabled {
 		return r, nil
 	}
@@ -132,17 +162,18 @@ func (r *Runner) WithCap(n int) *Runner {
 	return r
 }
 
-// Run runs a cycle now and then every interval until ctx ends.
+// Run runs a cycle now and then, until ctx ends, after each Wait: the
+// interval, or the shortest enrollment interval of the policy sets.
 func (r *Runner) Run(ctx context.Context, interval time.Duration) {
 	if !r.cfg.Enabled {
 		return
 	}
-	t := time.NewTicker(interval)
-	defer t.Stop()
 	for {
 		logReport(r.Cycle(ctx))
+		t := time.NewTimer(r.Wait(interval))
 		select {
 		case <-ctx.Done():
+			t.Stop()
 			return
 		case <-t.C:
 		}
@@ -159,39 +190,63 @@ func logReport(rep Report) {
 	for _, err := range rep.Errors {
 		slog.Warn("fleet discovery", "error", err)
 	}
+	for _, why := range rep.Ignored {
+		slog.Warn("fleet discovery: ignored", "reason", why)
+	}
+	for _, late := range rep.Overdue {
+		slog.Warn("fleet discovery: first grade overdue", "member", late)
+	}
 }
 
 // Cycle lists every source, records what it found, marks what vanished
-// gone, enrols within max_enrolled, and disables expired members.
+// gone, enrols within max_enrolled (by policy set when they are on),
+// advances first grades, and disables expired members.
 func (r *Runner) Cycle(ctx context.Context) Report {
-	rep := Report{Sources: map[string]SourceReport{}}
+	rep := Report{Sources: map[string]SourceReport{}, PerSet: map[string]int{}}
 	if !r.cfg.Enabled {
 		return rep
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := r.now()
+	sets, setsOK := r.loadSets(ctx, &rep)
+	listed := map[string]bool{}
 	for _, b := range r.bindings {
-		sr := r.listSource(ctx, b, now, &rep)
-		rep.Sources[b.Source.Name()] = sr
-		if sr.Err == nil && b.EnrolFrom != "" && r.cfg.MaxEnrolled > 0 {
+		name := b.Source.Name()
+		sr := r.listSource(ctx, b, now, sets, setsOK, &rep)
+		rep.Sources[name] = sr
+		listed[name] = sr.Err == nil && !sr.BackingOff
+		if r.sets == nil && listed[name] && b.EnrolFrom != "" && r.cfg.MaxEnrolled > 0 {
 			r.enrol(ctx, b, now, &rep)
 		}
 	}
+	if setsOK {
+		r.enrolSets(ctx, sets, listed, now, &rep)
+		r.grade(ctx, sets, now, &rep)
+	}
 	r.expire(ctx, now, &rep)
+	if r.sets != nil {
+		r.refreshStats(ctx, now, &rep)
+	}
 	return rep
 }
 
 // listSource lists one source. A failed listing keeps every candidate; a
-// first or truncated listing marks nothing gone.
+// first or truncated listing marks nothing gone; a throttled one backs
+// the source off.
 func (r *Runner) listSource(ctx context.Context, b Binding, now time.Time,
-	rep *Report) SourceReport {
+	sets []policy.PolicySet, setsOK bool, rep *Report) SourceReport {
 	name := b.Source.Name()
+	if r.backingOff(name, now) {
+		return SourceReport{BackingOff: true}
+	}
 	lctx, cancel := context.WithTimeout(ctx, listTimeout)
 	cands, err := b.Source.List(lctx)
 	cancel()
+	r.noteListing(name, err, now)
 	var sr SourceReport
 	if err == nil {
+		cands = r.annotate(b, cands, sets, setsOK, rep)
 		sr.Listed, sr.Truncated = len(cands), len(cands) >= r.cap
 		sr.New, err = r.store.Upsert(ctx, name, b.Owner, cands, now)
 	}
@@ -237,19 +292,27 @@ func (r *Runner) enrol(ctx context.Context, b Binding, now time.Time, rep *Repor
 	}
 	expires := now.Add(r.cfg.TTL())
 	for _, row := range rows {
-		id, err := r.members.Enrol(ctx, b.EnrolFrom, row, expires)
-		if err == nil {
-			err = r.recordEnrolled(ctx, row, id)
-		} else if relErr := r.store.Release(ctx, row.ID, err.Error()); relErr != nil {
-			err = errors.Join(err, relErr)
-		}
-		if err != nil {
-			rep.Errors = append(rep.Errors, fmt.Errorf("enrolling %s/%s: %w", name,
-				row.ExternalID, err))
-			continue
-		}
-		rep.Enrolled++
+		r.enrolRow(ctx, b, row, expires, rep)
 	}
+}
+
+// enrolRow enrolls one claimed row until expires; a failed enrolment
+// releases the claim with the error.
+func (r *Runner) enrolRow(ctx context.Context, b Binding, row store.DiscoveredRow,
+	expires time.Time, rep *Report) bool {
+	id, err := r.members.Enrol(ctx, b.EnrolFrom, row, expires)
+	if err == nil {
+		err = r.recordEnrolled(ctx, row, id)
+	} else if relErr := r.store.Release(ctx, row.ID, err.Error()); relErr != nil {
+		err = errors.Join(err, relErr)
+	}
+	if err != nil {
+		rep.Errors = append(rep.Errors, fmt.Errorf("enrolling %s/%s: %w", b.Source.Name(),
+			row.ExternalID, err))
+		return false
+	}
+	rep.Enrolled++
+	return true
 }
 
 // recordEnrolled links row to its new member. When the link cannot be

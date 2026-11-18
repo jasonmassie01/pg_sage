@@ -27,6 +27,9 @@ func (m *DatabaseManager) ReadView(visible map[string]bool) *DatabaseManager {
 		fleetStop: m.fleetStop,
 		budget:    m.budget,
 		readOnly:  true,
+		// The census lists fleet-wide; the inbox keeps a scoped caller's
+		// advice to the databases this view holds.
+		census: m.census,
 	}
 	for name, inst := range m.instances {
 		if visible[name] {

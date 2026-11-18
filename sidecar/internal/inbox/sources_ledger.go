@@ -77,8 +77,9 @@ func Runbooks(in Instances) Source {
 }
 
 // FleetSources is every kind's source over a fleet (or a read view of
-// it) and the trust ledgers. Autonomy promotions are the ledgers' and the
-// review model gate's (review-05a).
+// it), the trust ledgers and, when the fleet has one, its sprawl census.
+// Autonomy promotions are the ledgers' and the review model gate's
+// (review-05a).
 func FleetSources(in Instances, ledgers *earned.Registry) map[Kind]Source {
 	return map[Kind]Source{
 		KindChangeApproval:    ChangeApprovals(in),
@@ -88,5 +89,6 @@ func FleetSources(in Instances, ledgers *earned.Registry) map[Kind]Source {
 		KindRunbookSignature:  Runbooks(in),
 		KindAgentRequest:      AgentRequests(in),
 		KindPolicyException:   joinSources(PolicyProposals(in), PolicyExceptions(in)),
+		KindAdvice:            CensusAdvice(censusOf(in)),
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -46,16 +47,53 @@ func listDiscoveredHandler(deps *DatabaseDeps) http.HandlerFunc {
 				"last_run_at": s.LastRunAt, "last_success_at": s.LastSuccessAt,
 				"last_error": s.LastError, "last_count": s.LastCount})
 		}
-		jsonResponse(w, map[string]any{"discovered": out, "sources": srcs})
+		enrollment, err := enrollmentNumbers(r.Context(), deps.Discovery)
+		if err != nil {
+			internalError(w, r, "read enrollment numbers", err)
+			return
+		}
+		jsonResponse(w, map[string]any{"discovered": out, "sources": srcs,
+			"enrollment": enrollment})
 	}
 }
 
 func discoveredToMap(r store.DiscoveredRow) map[string]any {
+	tags := r.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
 	return map[string]any{"id": r.ID, "source": r.Source, "external_id": r.ExternalID,
 		"host": r.Host, "port": r.Port, "dbname": r.DBName, "owner": r.Owner,
 		"status": r.Status, "database_id": r.DatabaseID, "last_error": r.LastError,
 		"first_seen": r.FirstSeen, "last_seen": r.LastSeen, "expires_at": r.ExpiresAt,
-		"already_managed": r.AlreadyManaged}
+		"already_managed": r.AlreadyManaged,
+		// fleetpol-01b: what the source knows and the enrollment milestones.
+		"tags": tags, "creator": r.Creator, "created_at": r.CreatedAt,
+		"set_name": r.SetName, "enrolled_at": r.EnrolledAt,
+		"grade_requested_at": r.GradeRequestedAt, "first_graded_at": r.FirstGradedAt,
+		"baseline_at": r.BaselineAt}
+}
+
+// enrollmentNumbers is each policy set's time to enrollment and 24 h
+// baseline share (fleetpol-01b), the numbers behind
+// pg_sage_fleet_enroll_seconds and pg_sage_fleet_baseline_24h_ratio.
+func enrollmentNumbers(ctx context.Context, disc *store.DiscoveryStore) (
+	[]map[string]any, error) {
+	stats, err := disc.EnrollStats(ctx, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(stats))
+	for _, s := range stats {
+		item := map[string]any{"set": s.Set, "enrolled": s.Enrolled,
+			"p50_seconds": s.P50Seconds, "p95_seconds": s.P95Seconds,
+			"past_24h": s.Eligible, "baseline_24h": s.AtBaseline}
+		if s.Eligible > 0 {
+			item["baseline_24h_ratio"] = float64(s.AtBaseline) / float64(s.Eligible)
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }
 
 func adoptDiscoveredHandler(deps *DatabaseDeps) http.HandlerFunc {

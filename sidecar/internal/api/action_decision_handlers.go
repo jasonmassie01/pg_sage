@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -287,8 +288,12 @@ func fleetManualExecuteHandler(
 		if !ok {
 			return
 		}
-		inst := mgr.GetInstance(body.Database)
-		if inst == nil || inst.Executor == nil {
+		inst, err := mgr.ActionTarget(body.Database)
+		if errors.Is(err, fleet.ErrObserveOnlyMember) {
+			jsonError(w, err.Error(), http.StatusConflict) // fleetpol-01d
+			return
+		}
+		if err != nil || inst.Executor == nil {
 			jsonError(w, "database action executor not found",
 				http.StatusNotFound)
 			return

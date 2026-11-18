@@ -27,8 +27,14 @@ type DatabaseManager struct {
 	instances   map[string]*DatabaseInstance
 	cfg         *config.Config
 	primaryName string // first registered instance name
-	mu          sync.RWMutex
-	lifecycle   chan struct{}
+	// observeOnly are the observe-only member names (fleetpol-01d), guarded
+	// by mu: their actions are refused (ActionTarget).
+	observeOnly map[string]bool
+	// census lists the sprawl census's standing proposals (fleetpol-03),
+	// guarded by mu; nil outside a meta-db fleet.
+	census    CensusProposer
+	mu        sync.RWMutex
+	lifecycle chan struct{}
 	// persistStop writes the durable emergency_stop flag as an actor. nil
 	// uses persistEmergencyStop; tests inject failures here.
 	persistStop func(context.Context, *DatabaseInstance, bool, string) error

@@ -138,8 +138,9 @@ func TestInboxRoutesDB_SevenKindsWithHrefsCountsAndRoles(t *testing.T) {
 		t.Fatalf("inbox %+v, want seven exact items", res)
 	}
 	for kind, n := range res.CountsByKind {
-		if n != 1 {
-			t.Fatalf("counts_by_kind[%s] = %d, want 1", kind, n)
+		// This fleet has no sprawl census (fleetpol-03), so no advice.
+		if want := map[bool]int{true: 0, false: 1}[kind == "advice"]; n != want {
+			t.Fatalf("counts_by_kind[%s] = %d, want %d", kind, n, want)
 		}
 	}
 	if got := itemOf(res, "change_approval")["href"]; got != fmt.Sprintf(

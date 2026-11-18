@@ -261,24 +261,75 @@ fleet:
         tag_key: pg_sage
         tag_value: discover
         owner: platform
+      - name: neon
+        type: neon             # branches of a Neon project (empty: every project)
+        project: my-neon-project
+        database: neondb       # the database each branch candidate names
+        owner: app-team
 ```
+
+A `neon` source uses the Neon API key of `clone.neon.api_key`
+(`SAGE_CLONE_NEON_API_KEY`) and only reads: the projects page (at most
+100), and each project's branches and endpoints. A branch with no compute
+endpoint, and pg_sage's own `sage-<purpose>-<8 hex>` rehearsal branches,
+are left out. A listing Neon or Databricks throttles (429 or 5xx) fails
+that source's run with the status and backs the source off for 10
+minutes, doubling to an hour; the other sources still run.
 
 Every 10 minutes each source lists at most 200 candidates. A cluster
 source runs one read-only, timeout-bounded
-`SELECT datname FROM pg_catalog.pg_database WHERE NOT datistemplate AND
-datallowconn` on the member's pool; templates and the member's own
-database are left out. What a source reports is kept in
+`SELECT datname, shobj_description(oid, 'pg_database') FROM pg_catalog.pg_database
+WHERE NOT datistemplate AND datallowconn` on the member's pool; templates
+and the member's own database are left out.
+
+Each candidate carries what its source knows: RDS instance tags (the
+`creator` tag names its creator) and creation time; a Lakebase branch's
+creation time (the SDK reports no creator); a Neon branch's creation time
+and creator (`person:<name>` for the console, `agent:<creation_source>`
+for anything else, so the stricter set applies when in doubt); and a
+cluster database's pg_sage comment:
+
+```sql
+COMMENT ON DATABASE app IS 'pg_sage: creator=agent:builder owner=team-a tier=dev';
+```
+
+`creator=` names the creator, every other `key=value` is a tag. An empty
+creator, a tag key over 64 characters or outside `A-Z a-z 0-9 _ . / -`,
+or an item that is not `key=value` is dropped and logged once with the
+reason (`fleet discovery: ignored`); it never makes a database look
+agent-created. What a source reports is kept in
 `sage.discovered_databases` (one row per source and external id, so two
 sidecars on one meta database make no duplicates).
 
 Only a cluster source with `reuse_credentials: true` enrols: the candidate
 is added with the member's role, one connection, trust `observation`,
-execution `approval`, the source's `owner` and an `expires_at` of now plus
-`ttl_hours`. Lakebase and RDS candidates stay candidates; add them by hand
-when you want them. A database that is already a member is never
-enrolled twice. At most 5 candidates per source enrol each cycle; one
-whose enrolment fails (a role without CONNECT, say) goes back to
-`candidate` with its error and is retried after the untried ones.
+execution `approval`, its tags and an `expires_at`. Lakebase, RDS and Neon
+candidates stay candidates; add them by hand when you want them. A
+database that is already a member is never enrolled twice. One whose
+enrolment fails (a role without CONNECT, say) goes back to `candidate`
+with its error and is retried after the untried ones.
+
+Enrolment goes by [policy set](policy-sets.md#enrollment). Each candidate
+is matched to the highest-priority set its tags, creator and source match
+(`agent-created` for `creator=agent:*`, else `default`), and each set
+enrols on its own cycle: every `enrollment.interval_minutes` (default 10,
+at least 2), at most `enrollment.per_cycle` (default 5, at most 20), owned
+by its `enrollment.owner` rule and expiring after its `ttl_hours` (0 is
+`fleet.discovery.ttl_hours`). Discovery then wakes as often as the
+shortest set interval. A candidate that ties between two sets, or matches
+none, is not enrolled and the reason is logged. Once enrolled, the
+member's first Sage Review is asked for at once (the review queue's
+`enrollment` trigger, key `discovered`) instead of after two weeks of
+rollups, and discovery records when it was enrolled, first graded and
+first met its set's grade requirements (`sage.discovered_databases`
+`enrolled_at`, `first_graded_at`, `baseline_at`). A member not graded
+within the set's `enrollment_deadline_hours` (or its shortest grade
+`within_hours`) is logged once as overdue. The Discovered list
+(`GET /api/v1/databases/discovered`) shows each row's `set_name`, `tags`,
+`creator` and milestones, and `enrollment`: per set, the seconds from
+creation to enrolment at p50 and p95 and the share at baseline within 24
+hours. `/metrics` exports the same as `pg_sage_fleet_enroll_seconds{set,
+quantile}` and `pg_sage_fleet_baseline_24h_ratio{set}`.
 
 A discovered member is not trusted further by being found. Until an owner
 adopts it, a trigger on `sage.databases` rejects any trust-level or
@@ -295,6 +346,91 @@ shows its error on the tab. Every enrolment, adoption, extension, ignore,
 expiry and gone is recorded in `sage.config_audit` under
 `fleet.discovery.*`. Standalone and YAML fleets ignore the setting and log
 that they do.
+
+### Observe-only members
+
+A meta-db fleet holds two tiers of member. A **full** member gets its own
+runtime (collector, analyzer, executor, pools). The 50-member cap of
+`sage.databases` applies to full members only. An **observe-only** member
+gets no runtime, no executor, no model calls and no goroutine of its own.
+A fleet can hold up to 2,000 observe-only members next to its 50 full ones.
+Agent-created fleets with hundreds of small databases enroll their members
+observe-only.
+
+- **Enrollment.** Each policy set's `enrollment.tier` decides the tier its
+  discovered members get. The seeded `agent-created` set is observe-only
+  unless it says otherwise, and every other set is full. An observe-only
+  set keeps enrolling past `fleet.discovery.max_enrolled`, which bounds full
+  members only. The store refuses the 2,001st observe-only member
+  ("maximum of 2000 observe-only databases reached").
+- **Sweeping.** One fleet-level sweeper visits the enabled observe-only
+  members in rounds, every 15 minutes and 4 at a time. Each visit opens one
+  connection and closes it at the end. The connection is read-only, has
+  `application_name` `pg_sage observe` and a 1 s `lock_timeout`, and gives
+  each statement 5 s. A visit runs the first look with only the exposure
+  detectors (AP-01..05, AP-15, AP-17) as its agent posture section, plus the
+  settings probe. It then grades the member with review-01's deterministic
+  rubric, and takes the sprawl census's reading: one `pg_stat_statements`
+  read of the calls by roles other than pg_sage's, and the database size.
+  Checks that need a runtime (findings, restore drills, schema lint)
+  grade `unknown`, never `pass`. The subset covers too little of the rubric
+  for an overall letter, so the per-dimension letters are what discovery's
+  baseline checks. Nothing is written to a swept member. The newest sweep of
+  each member is in `sage.observe_sweeps` (`ok`, `unreachable` or `failed`,
+  with the error). The rounds are in `sage.observe_rounds`: start, end,
+  counts and the most members visited at once, kept for 30 days. Each round
+  is also logged under `observe-only`. A member that cannot be reached is
+  marked `unreachable`, and the round goes on.
+- **Promotion.** A set that says `enrollment.tier: full` promotes the
+  observe-only members it matches. A promoted member counts against the 50
+  and gets its runtime on the next meta reconcile. At the cap it stays
+  observe-only, is still swept, and the refusal is logged. A failed policy
+  read never promotes. Demoting a member (setting `tier` back to
+  `observe_only`) removes its runtime on the next reconcile. Disabling it
+  stops its sweeps.
+- **No actions.** Only full members can have actions.
+  `POST /api/v1/actions/execute` refuses an observe-only member with 409
+  Conflict "observe-only member". It does so even while a runtime of that
+  name is still draining after a demotion.
+
+review-04b's fleet rollup does not cover observe-only members yet.
+
+### Sprawl census
+
+Once a month the fleet leader of a meta-db fleet takes a census of every
+database: full members, observe-only members, and discovered databases
+that were never enrolled. Each row in `sage.sprawl_census` has the owner,
+the creator (`agent:...` or `person:...`, from discovery), the creation
+time, the last real activity, the size and the monthly storage cost.
+
+- **Real activity** is review-02f's idle-database rule: workload calls,
+  with pg_sage's own statements left out. A full member is read from its
+  query rollups (evid-01) by day. An observe-only member is read from the
+  sweeper's per-round readings of `pg_stat_statements`, counting only the
+  calls by roles other than pg_sage's. Their newest reading is in
+  `sage.sprawl_activity`. `pg_stat_database.xact_commit` is not used,
+  because pg_sage's own reads raise it. Without `pg_stat_statements` the
+  row is `unmeasured`.
+- **Cost** is the size at the `cost.rates` storage rate for the member, in
+  the entry's currency. With no rate the row reads `unpriced` and says why.
+  pg_sage ships no price tables.
+- **The number.** Each run in `sage.sprawl_census_runs` stores the reuse
+  share. It is the share of agent-created databases, at least 7 days old,
+  with any real activity 7 or more days after creation. A database whose
+  7th day pg_sage did not observe is left out of the share, as unknown.
+  The run also counts its TTL proposals, and it is logged under `census`.
+- **TTL proposals.** A discovered member that no owner has adopted, and
+  that had no real activity in 30 days, gets the proposal "no real activity
+  in N days: propose TTL 7 days". The proposal is an inbox item of kind
+  `advice`, decided by an operator. Adopting the member withdraws it. A
+  person's database is listed but never proposed. pg_sage deletes nothing,
+  and there is no delete action.
+- **Runs.** The leader checks every hour. One run is kept per UTC month,
+  so a leader change never writes two. A run left unfinished for an hour is
+  taken over. Runs older than 400 days are pruned with their rows.
+- **Limits.** A database discovered but never enrolled has no connection,
+  so its activity and size are unknown unless a cloud adapter reports them.
+  An unreachable member is listed `unreachable`, and the run goes on.
 
 ## 5. Verify the v1 UI
 

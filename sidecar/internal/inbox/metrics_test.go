@@ -81,7 +81,7 @@ func TestObserveItemsNeverRecordsALowerBound(t *testing.T) {
 	}
 	ObserveItems(lower)
 	items, _ := Snapshot()
-	if len(items) != 7 || items[KindFact] != 3 || items[KindPlanApproval] != 1 {
+	if len(items) != 8 || items[KindFact] != 3 || items[KindPlanApproval] != 1 {
 		t.Fatalf("items = %v, want the complete read only", items)
 	}
 	items[KindFact] = 100

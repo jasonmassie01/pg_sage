@@ -8,7 +8,8 @@ import "github.com/pg-sage/sidecar/internal/decommission"
 var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemptions,
 	decommissionExemptions, agentEnvClassExemptions, agentGuardExemptions,
 	agentGateExemptions, auditChainExemptions, agentKillExemptions, agentGrantExemptions,
-	trancheThreeExemptions, planExemptions, trancheFiveExemptions, reviewExemptions)
+	trancheThreeExemptions, planExemptions, trancheFiveExemptions, reviewExemptions,
+	sprawlCensusExemptions)
 
 // agentGuardExemptions: agent identities and their roles are the record of
 // truth for who could act (spec §6.4, §6.6); §6.17 sets no age

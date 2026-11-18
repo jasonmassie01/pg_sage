@@ -39,7 +39,8 @@ func classifyMetaRecord(
 ) (metaPlan, error) {
 	plan := metaPlan{id: id, current: current}
 	rec, err := state.Store.Get(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !rec.Enabled) {
+	// A disabled or observe-only member has no runtime (fleetpol-01d).
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !rec.RunsRuntime()) {
 		if current != nil {
 			plan.kind = "removed"
 		}

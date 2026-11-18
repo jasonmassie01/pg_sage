@@ -74,8 +74,10 @@ func inboxHandler(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
 		if !ok || rejectUnknownDatabase(w, mgr, q.database) {
 			return
 		}
-		res := listInbox(r.Context(), mgr, ledgers, q, inboxDatabases(mgr, nil))
-		if _, scoped := visibleDatabasesFrom(r.Context()); !scoped && q.database == "" {
+		_, scoped := visibleDatabasesFrom(r.Context())
+		all := !scoped && q.database == ""
+		res := listInbox(r.Context(), mgr, ledgers, q, inboxDatabases(mgr, nil), all)
+		if all {
 			inbox.ObserveItems(res) // the whole fleet, every kind: the gauge
 		}
 		markActionable(r, res.Items)
@@ -134,9 +136,11 @@ func inboxDatabases(mgr *fleet.DatabaseManager, allowed []string) []string {
 	return names
 }
 
-// listInbox lists q over names (or over q.database alone).
+// listInbox lists q over names (or over q.database alone); all means the
+// caller may read every database, observe-only members included, whose
+// census advice (fleetpol-03) is listed fleet-wide.
 func listInbox(ctx context.Context, mgr *fleet.DatabaseManager, ledgers *earned.Registry,
-	q inboxQuery, names []string) inbox.Result {
+	q inboxQuery, names []string, all bool) inbox.Result {
 	if q.database != "" {
 		names = []string{q.database}
 	}
@@ -145,7 +149,8 @@ func listInbox(ctx context.Context, mgr *fleet.DatabaseManager, ledgers *earned.
 		in = mgr
 	}
 	svc := &inbox.Service{Sources: inbox.FleetSources(in, ledgers)}
-	return svc.List(ctx, inbox.Request{Databases: names, Kinds: q.kinds, Limit: q.limit})
+	return svc.List(ctx, inbox.Request{Databases: names, Kinds: q.kinds, Limit: q.limit,
+		AllDatabases: all && q.database == ""})
 }
 
 // InboxMCP serves get_inbox from the same read as GET /api/v1/inbox. An
@@ -173,7 +178,7 @@ func (b inboxMCP) Inbox(ctx context.Context, req mcp.InboxRequest) (any, error) 
 		limit = inbox.DefaultLimit
 	}
 	return listInbox(ctx, b.mgr, b.ledgers, inboxQuery{database: req.Database,
-		kinds: kinds, limit: limit}, names), nil
+		kinds: kinds, limit: limit}, names, req.Databases == nil), nil
 }
 
 func contains(names []string, name string) bool {

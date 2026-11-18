@@ -147,6 +147,16 @@ var runtimeFamilies = []Family{
 	{Name: "pg_sage_collector_query_store_failures_total", Type: Counter, Area: AreaCollector,
 		Help:   "Failed sage.query_store writes",
 		Labels: []string{"database"}, Modes: AllModes, Since: "v2.7.0"},
+	{Name: "pg_sage_fleet_enroll_seconds", Type: Gauge, Area: AreaFleet,
+		Help: "Seconds from a discovered database's creation (the provider's time, else " +
+			"first seen) to its enrollment, by policy set, at the 0.5 and 0.95 quantiles " +
+			"over the last 30 days",
+		Labels: []string{"set", "quantile"}, Modes: []string{ModeMeta}, Unit: "seconds",
+		Since: "v2.8.0"},
+	{Name: "pg_sage_fleet_baseline_24h_ratio", Type: Gauge, Area: AreaFleet,
+		Help: "Share of a policy set's enrolled members, past their first 24 hours, that " +
+			"reached the set's grade baseline within 24 hours of enrollment",
+		Labels: []string{"set"}, Modes: []string{ModeMeta}, Unit: "ratio", Since: "v2.8.0"},
 	{Name: "pg_sage_fleet_databases", Type: Gauge, Area: AreaFleet,
 		Help:  "Total fleet databases",
 		Modes: AllModes, Since: "v0.8.3"},

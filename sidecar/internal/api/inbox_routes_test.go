@@ -88,7 +88,7 @@ func TestInboxRoutes_EmptyFleetIsAnEmptyListNotNull(t *testing.T) {
 	}
 	code, out, _ := inboxGet(t, h, "/api/v1/inbox/count", testViewerUser())
 	counts, _ := out["counts_by_kind"].(map[string]any)
-	if code != 200 || out["total"] != float64(0) || len(counts) != 7 || out["items"] != nil {
+	if code != 200 || out["total"] != float64(0) || len(counts) != 8 || out["items"] != nil {
 		t.Fatalf("empty count = %d %v", code, out)
 	}
 }

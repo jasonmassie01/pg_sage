@@ -166,10 +166,14 @@ func scanSetDocument(rows pgx.Rows) (SetDocument, error) {
 	return out, nil
 }
 
+// readMembers reads what selectors see of each registered database; a
+// discovered member's creator is its discovery row's (fleetpol-01b).
 func readMembers(ctx context.Context, q querier, only *int64) ([]Member, error) {
 	rows, err := q.Query(ctx, `/* pg_sage policy_set_members v1 */
-SELECT id, name, COALESCE(tags, '{}'::jsonb), COALESCE(discovered_source, '')
-FROM sage.databases WHERE $1::bigint IS NULL OR id = $1 ORDER BY id`, only)
+SELECT m.id, m.name, COALESCE(m.tags, '{}'::jsonb), COALESCE(m.discovered_source, ''),
+       COALESCE((SELECT d.creator FROM sage.discovered_databases d
+                  WHERE d.database_id = m.id ORDER BY d.id DESC LIMIT 1), '')
+FROM sage.databases m WHERE $1::bigint IS NULL OR m.id = $1 ORDER BY m.id`, only)
 	if err != nil {
 		return nil, fmt.Errorf("read policy set members: %w", err)
 	}
@@ -178,7 +182,8 @@ FROM sage.databases WHERE $1::bigint IS NULL OR id = $1 ORDER BY id`, only)
 	for rows.Next() {
 		var m Member
 		var tags []byte
-		if err := rows.Scan(&m.DatabaseID, &m.Name, &tags, &m.DiscoverySource); err != nil {
+		if err := rows.Scan(&m.DatabaseID, &m.Name, &tags, &m.DiscoverySource,
+			&m.Creator); err != nil {
 			return nil, fmt.Errorf("scan policy set member: %w", err)
 		}
 		if m.Tags, err = decodeMemberTags(tags); err != nil {
