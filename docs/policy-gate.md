@@ -395,6 +395,29 @@ is the gate's, not a candidate's own refusal) and `human_reason`. `status` is `e
 or `no_candidate` when the finding has nothing the executor could run. Explaining records
 no decision and takes no budget slot.
 
+**Why not?** `GET /api/v1/whynot?database=` with one of `finding_id`, `object` (an
+unquoted `schema.name`, optionally with `category`) or `category`, or with the database
+alone ("why has nothing been proposed here?"), answers as one chain of ten links checked in
+order: `observed` (the collector's last snapshot and its freshness), `finding` (an open
+finding for the question), `candidate` (an action pg_sage could take), `policy` (the
+gate's verdict, through the same explain path), `window`, `budget`, `privilege` (the role's
+grants, `pg_stat_statements`, query-text visibility and whether the database is a replica,
+read in a bounded read-only transaction), `trust`, `verification_wait` and
+`emergency_stop`. Each link is `pass`, `fail`, `unknown` or `not_applicable`, with one plain
+`sentence`, the gate `reason` when the link came from it, and at most one `fix`:
+`{kind, value, note}` where kind is `grant_sql` (the exact statement, and who runs it on the
+detected provider: `rds_superuser`, `cloudsqlsuperuser`, `alloydbsuperuser`,
+`azure_pg_admin`, Supabase `postgres`), `setting` (`key=value`), `ui_link` (a dashboard
+link) or `wait_until` (an RFC 3339 time). A failing link without a fix says why in `no_fix`.
+`first_fail` is the earliest failing link, except that a failing emergency stop is always
+marked first; `failing` lists every failing link, the marked one first. A link that cannot
+be read is `unknown` with an error class (`timeout`, `permission_denied`, `sqlstate_<code>`,
+`error`), never a pass, and the answer is still `200`. Every reason on this page maps to a
+link and to a fix or a `no_fix`. Both `finding_id` and `object` is `400`, a bad identifier
+or category is `400`, and a finding that is not in the named database is `404`. Like the
+explain route it is operator only, records no decision and takes no budget slot. The chain
+does not report who holds a key or network policy.
+
 ## Approval flow
 
 1. A `queue_approval` verdict creates one item in the database's approval queue. Its
