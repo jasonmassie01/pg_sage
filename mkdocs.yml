@@ -54,6 +54,8 @@ nav:
   - Migration safety: migration-safety.md
   - Ask Sage: ask-sage.md
   - "Sage Review: rubric and grade": review.md
+  - "The rubric (generated)": rubric.md
+  - "Publishing outcomes": publish-outcomes.md
   - Postgres Specialist for Other Agents: specialist.md
   - Hint Verification: hint-verification.md
   - "Verifying the verifier: the placebo back-test": verification.md

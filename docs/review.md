@@ -54,6 +54,9 @@ no score and no letter ever improves.
 
 ## Rubric `pg_sage-rubric/1`
 
+[The rubric page](rubric.md) is generated from the same table (`go run ./cmd/gen_rubric`) and
+published under CC BY 4.0, so other tools and people can grade against it.
+
 Weights are in parentheses; **critical** checks cap their dimension at D. "Self-managed" is
 `postgres` and `cnpg`; "cloud" is RDS, Aurora, Cloud SQL, AlloyDB and Azure.
 
