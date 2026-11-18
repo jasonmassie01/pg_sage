@@ -24,9 +24,11 @@ func ids(ts []Trigger) []int64 {
 	return out
 }
 
-func TestKinds_AreTheSevenAndOnlyThoseAreValid(t *testing.T) {
+// review-04b added fleet_outlier as the eighth kind.
+func TestKinds_AreTheEightAndOnlyThoseAreValid(t *testing.T) {
 	want := []Kind{KindEnrollment, KindPreUpgrade, KindUnresolvedRegression,
-		KindCostGrowth, KindLargeMigration, KindInstanceChange, KindCalendar}
+		KindCostGrowth, KindLargeMigration, KindInstanceChange, KindCalendar,
+		KindFleetOutlier}
 	got := Kinds()
 	if len(got) != len(want) {
 		t.Fatalf("Kinds() = %v, want %v", got, want)

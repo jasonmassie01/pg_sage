@@ -109,3 +109,29 @@ func (s *Store) SaveFacts(ctx context.Context, database string, f Facts) error {
 	}
 	return nil
 }
+
+// Find is the trigger of database, kind and key, if one was fired.
+func (s *Store) Find(ctx context.Context, database string, kind Kind, key string) (Trigger,
+	bool, error) {
+	got, err := s.query(ctx, fmt.Sprintf("find the %s trigger %q of %s", kind, key, database),
+		`SELECT `+triggerCols+` FROM sage.review_trigger
+		  WHERE database_name = $1 AND kind = $2 AND dedupe_key = $3`,
+		database, string(kind), key)
+	if err != nil || len(got) == 0 {
+		return Trigger{}, false, err
+	}
+	return got[0], true, nil
+}
+
+// ByID is trigger id; ErrNotFound when there is none.
+func (s *Store) ByID(ctx context.Context, id int64) (Trigger, error) {
+	got, err := s.query(ctx, fmt.Sprintf("read review trigger %d", id),
+		`SELECT `+triggerCols+` FROM sage.review_trigger WHERE id = $1`, id)
+	if err != nil {
+		return Trigger{}, err
+	}
+	if len(got) == 0 {
+		return Trigger{}, fmt.Errorf("%w: id %d", ErrNotFound, id)
+	}
+	return got[0], nil
+}

@@ -29,10 +29,13 @@ const (
 	KindLargeMigration       Kind = "large_migration"
 	KindInstanceChange       Kind = "instance_change"
 	KindCalendar             Kind = "calendar"
+	// KindFleetOutlier is a deep review the fleet triage scheduled for a
+	// member (review-04b).
+	KindFleetOutlier Kind = "fleet_outlier"
 )
 
 var kinds = []Kind{KindEnrollment, KindPreUpgrade, KindUnresolvedRegression,
-	KindCostGrowth, KindLargeMigration, KindInstanceChange, KindCalendar}
+	KindCostGrowth, KindLargeMigration, KindInstanceChange, KindCalendar, KindFleetOutlier}
 
 // Kinds is every trigger kind, in a fixed order.
 func Kinds() []Kind { return append([]Kind(nil), kinds...) }
@@ -82,6 +85,7 @@ var (
 	ErrNoStore         = errors.New("review trigger: no database connection pool")
 	ErrLeaseLost       = errors.New("review trigger: the claim is no longer held")
 	ErrUnknownDatabase = errors.New("review trigger: no review queue for the database")
+	ErrNotFound        = errors.New("review trigger: no such trigger")
 	// ErrBusy is a Reviewer's answer when another run of the database is
 	// running: the claim is released and the triggers wait.
 	ErrBusy = errors.New("review trigger: a review run is already running")
