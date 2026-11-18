@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InboxPage } from './InboxPage'
 
 // ux-11: the Inbox shows the external agent requests still waiting on a
-// person: it hands the agent-request list the queue ids of the change
-// approvals it lists. Viewers cannot read the request audit (operator API)
+// person: it hands the agent-request list the database and queue id of
+// each change approval it lists (queue ids are per database). Viewers cannot read the request audit (operator API)
 // and never get the section.
 // No concurrent access tests: one render tree.
 
@@ -14,7 +14,8 @@ vi.mock('../components/Toast', () => ({ useToast: () => ({ success: vi.fn(), err
 vi.mock('./inbox/NeedsYou', () => ({ NeedsYou: () => <div data-testid="needs-you-stub" /> }))
 vi.mock('./mcptokens/ExternalAgentRequests', () => ({
   ExternalAgentRequests: ({ mode, waiting }) => (
-    <div data-testid="agent-requests-stub">{mode}:{waiting.join(',')}</div>),
+    <div data-testid="agent-requests-stub">
+      {mode}:{waiting.map(w => `${w.database}/${w.id}`).join(',')}</div>),
 }))
 
 const item = (kind, id) => ({ kind, id: String(id), database: 'orders', title: `${kind} ${id}`,
@@ -48,9 +49,11 @@ afterEach(() => {
 
 describe('InboxPage agent requests', () => {
   it('passes the waiting change approvals to the agent-request list', async () => {
-    setItems([item('change_approval', 91), item('fact', 7), item('change_approval', 12)])
+    setItems([item('change_approval', 91), item('fact', 7),
+      { ...item('change_approval', 12), database: 'billing' }])
     await renderInbox({ role: 'operator' })
-    expect(screen.getByTestId('agent-requests-stub')).toHaveTextContent('waiting:91,12')
+    expect(screen.getByTestId('agent-requests-stub'))
+      .toHaveTextContent('waiting:orders/91,billing/12')
   })
 
   it('shows no agent-request list when no change approval waits', async () => {

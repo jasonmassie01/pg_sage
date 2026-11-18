@@ -31,34 +31,48 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+// at names change approvals the Inbox lists on the orders database.
+const at = (...ids) => ids.map(id => ({ database: 'orders', id }))
+
 describe('waitingRequests', () => {
   it('keeps only queued remediations whose approval still waits', () => {
-    expect(waitingRequests(records, ['91']).map(r => r.id)).toEqual(['r3'])
-    expect(waitingRequests(records, ['90', '91']).map(r => r.id)).toEqual(['r3', 'r2'])
+    expect(waitingRequests(records, at('91')).map(r => r.id)).toEqual(['r3'])
+    expect(waitingRequests(records, at('90', '91')).map(r => r.id)).toEqual(['r3', 'r2'])
+  })
+
+  // Each monitored database has its own action queue, so queue 91 on
+  // billing is not queue 91 on orders.
+  it('matches an approval on the database of the request only', () => {
+    expect(waitingRequests(records, [{ database: 'billing', id: '91' }])).toEqual([])
+    const billing = { ...queued, id: 'r9', database: 'billing' }
+    expect(waitingRequests([queued, billing], [{ database: 'billing', id: '91' }])
+      .map(r => r.id)).toEqual(['r9'])
+    expect(waitingRequests([{ ...queued, database: '' }], [{ id: '91' }])).toEqual([])
   })
 
   it('finds nothing without waiting approvals or without requests', () => {
     expect(waitingRequests(records, [])).toEqual([])
     expect(waitingRequests(records, undefined)).toEqual([])
-    expect(waitingRequests([], ['91'])).toEqual([])
-    expect(waitingRequests(null, ['91'])).toEqual([])
+    expect(waitingRequests([], at('91'))).toEqual([])
+    expect(waitingRequests(null, at('91'))).toEqual([])
+    expect(waitingRequests(records, [null, {}, 'orders'])).toEqual([])
   })
 
   it('never counts a request without a valid queue id as waiting', () => {
     const bad = [{ ...queued, queue_id: 0 }, { ...queued, queue_id: 'abc' },
       { ...queued, queue_id: -1 }, { ...queued, queue_id: undefined }]
-    expect(waitingRequests(bad, ['0', 'abc', '-1', 'undefined'])).toEqual([])
+    expect(waitingRequests(bad, at('0', 'abc', '-1', 'undefined', ''))).toEqual([])
   })
 
   it('matches a refused or opening request to no approval', () => {
-    expect(waitingRequests([refused, opened], ['91', '90'])).toEqual([])
+    expect(waitingRequests([refused, opened], at('91', '90'))).toEqual([])
   })
 })
 
 describe('ExternalAgentRequests in the Inbox', () => {
   it('lists the waiting requests and links to the ledger record', async () => {
     stub(200, { items: records })
-    render(<ExternalAgentRequests mode="waiting" waiting={['91']} />)
+    render(<ExternalAgentRequests mode="waiting" waiting={at('91')} />)
     expect(await screen.findByTestId('specialist-request-r3')).toBeInTheDocument()
     expect(screen.queryByTestId('specialist-request-r2')).toBeNull()
     expect(screen.queryByTestId('specialist-request-r1')).toBeNull()
@@ -70,14 +84,14 @@ describe('ExternalAgentRequests in the Inbox', () => {
 
   it('renders nothing when no request waits', async () => {
     const mock = stub(200, { items: records })
-    const { container } = render(<ExternalAgentRequests mode="waiting" waiting={['7']} />)
+    const { container } = render(<ExternalAgentRequests mode="waiting" waiting={at('7')} />)
     await waitFor(() => expect(mock).toHaveBeenCalled())
     await waitFor(() => expect(container).toBeEmptyDOMElement())
   })
 
   it('names a failed read instead of hiding it', async () => {
     stub(503, { error: 'request audit unavailable' })
-    render(<ExternalAgentRequests mode="waiting" waiting={['91']} />)
+    render(<ExternalAgentRequests mode="waiting" waiting={at('91')} />)
     expect(await screen.findByTestId('specialist-requests-error'))
       .toHaveTextContent('request audit unavailable')
   })

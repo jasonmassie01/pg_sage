@@ -128,7 +128,8 @@ function NeedsSection({ data, changes, when, partial, onDecided }) {
 // is nothing to look up while no change approval waits.
 function WaitingAgentRequests({ data, canReview }) {
   const items = Array.isArray(data?.items) ? data.items : []
-  const waiting = items.filter(it => it.kind === 'change_approval').map(it => String(it.id))
+  const waiting = items.filter(it => it.kind === 'change_approval')
+    .map(it => ({ database: it.database, id: String(it.id) }))
   if (!canReview || waiting.length === 0) return null
   return <ExternalAgentRequests mode="waiting" waiting={waiting} />
 }
