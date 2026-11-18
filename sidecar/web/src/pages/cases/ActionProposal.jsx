@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { useToast } from '../../components/Toast'
+import { formatTime } from '../../lib/time'
 
 // Sage SRE actions of an investigation (AI-SRE-SPEC §9): the proposed
 // mitigation with its exact target, cited evidence, repair contract and
@@ -102,8 +103,8 @@ function Target({ target, evidenceIDs }) {
   return (
     <div style={muted}>
       Target: pid {target.pid}, user {target.user}, database {target.database},
-      backend started {new Date(target.backend_start).toLocaleString()}, blocking{' '}
-      {target.blocking}; observed {new Date(target.observed_at).toLocaleString()}.
+      backend started {formatTime(target.backend_start)}, blocking{' '}
+      {target.blocking}; observed {formatTime(target.observed_at)}.
       {' '}Evidence:{' '}
       {evidenceIDs.map(id => (
         <a key={id} href={`#evidence-${id}`} data-testid={`evidence-link-${id}`}

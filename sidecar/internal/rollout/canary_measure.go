@@ -59,7 +59,9 @@ func (b *canaryBackend) Measure(ctx context.Context, instance Instance,
 				instance.ID, err)
 		}
 		if verdictFinal(outcome, verification) {
-			return judgeVerdict(change.Handle, outcome, verification), nil
+			b.markPauseDue()
+			return b.withEffect(ctx, instance.ID, target, actionID,
+				judgeVerdict(change.Handle, outcome, verification)), nil
 		}
 		left := deadline.Sub(b.svc.opts.Now())
 		if left <= 0 {

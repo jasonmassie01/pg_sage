@@ -127,7 +127,11 @@ func TestHistoryCommandMigratesStatusAndCleansUp(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("migrate exit %d: %s", code, errOut)
 	}
-	for _, want := range []string{"snapshots", "query_store", "copied 4", "complete"} {
+	// evid-01b: the derived rollup tables move too and the hourly tier is
+	// rebuilt in the destination.
+	for _, want := range []string{"snapshots", "query_store", "copied 4", "complete",
+		"sage.query_rollup_daily", "sage.query_rollup_coverage",
+		"sage.query_rollup_hourly: hourly rollup rebuilt"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("migrate output must mention %q:\n%s", want, out)
 		}
@@ -147,7 +151,8 @@ func TestHistoryCommandMigratesStatusAndCleansUp(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("cleanup exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out, "removed") {
+	if !strings.Contains(out, "removed") ||
+		!strings.Contains(out, "sage.query_rollup_daily: removed 0 rows") {
 		t.Fatalf("cleanup output must say what it removed:\n%s", out)
 	}
 	if n := count(t, mon, "SELECT count(*) FROM sage.snapshots"); n != 0 {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { formatTime } from '../../lib/time'
 
 const LIST_URL = '/api/v1/databases/discovered'
 const EXTEND_HOURS = 24
@@ -127,7 +128,7 @@ function DiscoveredTable({ rows, busy, onAct }) {
               {row.status}{row.already_managed ? ' (already managed)' : ''}
             </td>
             <td className="px-4 py-3">
-              {row.expires_at ? new Date(row.expires_at).toLocaleString() : ''}
+              {row.expires_at ? formatTime(row.expires_at) : ''}
             </td>
             <td className="px-4 py-3" style={{ color: 'var(--text-secondary)' }}>
               {row.last_error}

@@ -1,3 +1,4 @@
+import { formatTime } from '../../lib/time'
 // Runtime state of one fleet database, as GET /api/v1/databases reports
 // it, in the words the Fleet and Database pages show (fleet-06).
 
@@ -83,7 +84,7 @@ export function formatRun(value) {
   if (!value) return 'never'
   const date = new Date(value)
   if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) return 'never'
-  return date.toLocaleString()
+  return formatTime(date)
 }
 
 export function stopLabel(runtime) {

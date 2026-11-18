@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/apppath"
+	"github.com/pg-sage/sidecar/internal/planhash"
 	"github.com/pg-sage/sidecar/internal/sanitize"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -249,7 +250,7 @@ func (s *hypopgSession) measureCosts(ctx context.Context, queries []QueryInfo,
 		}
 		if cost := extractTotalCost(plan); cost > 0 {
 			m.costs[query.QueryID] = cost
-			m.uses[query.QueryID] = planUsesIndex(plan, guard)
+			m.uses[query.QueryID] = planhash.UsesIndex(plan, guard)
 		}
 	}
 	return m, nil

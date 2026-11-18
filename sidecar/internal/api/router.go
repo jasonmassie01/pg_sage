@@ -95,6 +95,9 @@ type RuntimeDeps struct {
 	// Audit serves the E2 audit routes; its Pool, Control and DatabaseID are
 	// filled from the fleet and the control pool.
 	Audit AuditDeps
+	// WorkloadPseudonymKey keys the workload pack model tier's identifier
+	// hashing (evid-02c); nil refuses hash_identifiers.
+	WorkloadPseudonymKey []byte
 	// LLMBudgets covers every LLM client (general, optimizer, per-database)
 	// and the fleet budget; nil falls back to the shared manager (G3-B14).
 	LLMBudgets LLMBudgetRegistry
@@ -194,7 +197,7 @@ func NewRouterFullRuntime(
 		registerActionRoutes(apiMux, actions)
 	}
 	if mgr != nil {
-		registerApprovalCardRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
+		registerChangeDecisionRoutes(apiMux, mgr, pool, rt)
 	}
 	if dbDeps != nil && dbDeps.Store != nil {
 		registerDatabaseRoutes(apiMux, dbDeps)
@@ -233,6 +236,16 @@ func NewRouterFullRuntime(
 	return root, nil
 }
 
+// registerChangeDecisionRoutes registers the approval cards and the plan routes
+// (plan-03a), which decide changes on one monitored database each. Outside
+// a Databricks App the plan routes also take an operator API token from
+// pool's store.
+func registerChangeDecisionRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
+	pool *pgxpool.Pool, rt RuntimeDeps) {
+	registerApprovalCardRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
+	registerPlanRoutes(apiMux, mgr, lintTokenStore(mcpTokenStore(pool)), rt.DatabricksAppAuth)
+}
+
 // registerFleetScopedRoutes registers the routes that resolve their data
 // through the fleet and therefore exist without a control pool.
 func registerFleetScopedRoutes(
@@ -255,7 +268,7 @@ func registerFleetScopedRoutes(
 	registerDeploymentStatusRoutes(apiMux, cfg, rt, llmBudgetSource(rt.LLMBudgets, llmMgr))
 	// Sage SRE investigations live with each database's runtime (D3-style
 	// fleet resolution), not in the control pool.
-	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
+	registerSRERoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy), cfg, workloadPackKeys(rt, pool))
 	registerSRESignalRoutes(apiMux, mgr, cfg)
 	if rt.DatabricksAppAuth {
 		registerAppSLISampleRoute(apiMux, mgr, cfg)
@@ -264,6 +277,7 @@ func registerFleetScopedRoutes(
 	registerTrustRoutes(apiMux, mgr, rt.Autonomy)
 	registerSelfAwareRoutes(apiMux, mgr)
 	registerFactRoutes(apiMux, mgr)
+	registerInboxRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
 	registerAgentClassRoutes(apiMux, mgr)
 	registerAgentEnvRoutes(apiMux, rt.AgentEnvironments)
 	registerAgentKillRoutes(apiMux, rt.AgentKill)
@@ -299,6 +313,7 @@ func registerFleetReadRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
 			return valueHandler(fleetValueReader(m, cfg))
 		})
 	registerBriefingRoutes(apiMux, mgr)
+	registerOutcomesRoutes(apiMux, mgr) // the outcome ledger (ux-02a)
 	if appMode {
 		registerMigrationLintRoutes(apiMux, mgr, cfg)
 	} else {
@@ -352,6 +367,7 @@ func registerControlPoolRoutes(
 	})
 	registerDecommissionRoutes(apiMux, pool)
 	registerSecurityPostureRoutes(apiMux, rt.SecretsPosture)
+	registerInboxSeenRoutes(apiMux, pool) // the Inbox seen time (ux-01b)
 }
 
 // newRouterOAuthProvider builds the configured OAuth provider, tries

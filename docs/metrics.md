@@ -74,6 +74,10 @@ The collector's breaker, freshness and failures per database.
 |---|---|---|---|---|---|---|
 | `pg_sage_collector_breaker_skips_total` | counter | `database`, `reason` | - | all | v2.7.0 | Collector cycles skipped by the breaker, by reason (load, load_query_error) |
 | `pg_sage_collector_breaker_state` | gauge | `database` | - | all | v2.6.0 | Collector circuit breaker (0=closed, 1=skipping, 2=dormant) |
+| `pg_sage_query_rollup_hours_total` | counter | `database`, `result` | - | all | v2.8.0 | Hours the hourly per-query rollup rolled, by result (ok, empty: no queries snapshot in the hour, failed) |
+| `pg_sage_query_rollup_lag_hours` | gauge | `database` | hours | all | v2.8.0 | Closed hours the hourly per-query rollup has not rolled yet (0: caught up) |
+| `pg_sage_workload_pack_builds_total` | counter | `database`, `result` | - | all | v2.8.0 | Workload evidence pack builds, by result (built, reused: the window's data was already stored, too_large, failed) |
+| `pg_sage_workload_pack_bytes` | gauge | `database` | bytes | all | v2.8.0 | Stored bytes of the last workload evidence pack built or reused |
 | `pg_sage_collector_category_unavailable` | gauge | `database`, `category` | - | all | v2.7.0 | Category the latest snapshot could not read |
 | `pg_sage_collector_last_success_timestamp` | gauge | `database` | seconds | all | v2.7.0 | Last collected snapshot (unix seconds) |
 | `pg_sage_collector_last_success_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | Unix time of the database's last completed collector snapshot |
@@ -134,8 +138,14 @@ Action outcomes, pending approvals, verification verdicts, policy parks and shad
 | Metric | Type | Labels | Unit | Modes | Since | Meaning |
 |---|---|---|---|---|---|---|
 | `pg_sage_action_last_failure_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | When the latest failed action was recorded (no sample: none has failed) |
+| `pg_sage_inbox_items` | gauge | `kind` | - | all | v2.8.0 | Decisions waiting on a person by kind at the last complete fleet-wide inbox read (no sample before one; a read that missed a source is not recorded) |
+| `pg_sage_outcomes_measured_ratio` | gauge | `database` | - | all | v2.8.0 | Share of the last 24 hours' changes with a measured effect, per database, at the last complete outcome ledger read of that window (no sample before one, or when the window has no changes) |
+| `pg_sage_inbox_decision_seconds` | histogram | `kind`, `decided_from` | seconds | all | v2.8.0 | Time from approval needed to decision, by inbox kind and the surface the decision came from (X-Sage-Surface: inbox, page, chat, api, cli) |
+| `pg_sage_plan_approvals_total` | counter | `mode` | - | all | v2.8.0 | New plan approvals by the mode stored (all, up_to, step) since the process started; all and up_to approve multi-step work once |
 | `pg_sage_actions_pending_approval` | gauge | `database`, `risk` | - | all | v2.7.0 | Pending approvals a person can act on now (past cooldown, not expired), by risk |
 | `pg_sage_actions_total` | counter | `database`, `class`, `outcome` | - | all | v2.7.0 | Actions that ended, by change class and outcome (success, failed, rolled_back, cancelled, unverifiable, other) |
+| `pg_sage_owner_brief_present` | gauge | `database` | - | all | v2.7.0 | 1 when the database has a confirmed owner brief (owner, peak windows, growth), else 0 |
+| `pg_sage_owner_brief_steps` | gauge | `database`, `period`, `outcome` | - | all | v2.7.0 | Accepted (approved or executed) and rejected queued actions since the owner brief was confirmed (after) and in as long before it (before); without a brief the split is 30 days ago |
 | `pg_sage_policy_parks_total` | counter | `database`, `reason` | - | all | v2.2.0 | Self-initiated changes the policy gate parked, by reason (one per evaluation) |
 | `pg_sage_policy_record_failures_total` | counter | `database`, `reason` | - | all | v2.5.1 | Policy gate decisions that could not be recorded in the decision ledger, by decision reason |
 | `pg_sage_shadow_decisions_total` | counter | `database`, `class`, `verdict` | - | all | v1.9.0 | Shadow decisions recorded below an action class's earned trust level, by the gate's verdict had it been trusted |

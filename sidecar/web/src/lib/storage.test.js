@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readPref, writePref } from './storage'
+import { prefsAvailable, readPref, writePref } from './storage'
 
 // dashboard-03: one guarded helper owns every dashboard preference read and
 // write. Blocked site storage must degrade to defaults, never crash a render.
@@ -122,5 +122,30 @@ describe('writePref', () => {
       throw bug
     })
     expect(() => writePref('pg_sage_db', 'orders')).toThrow(bug)
+  })
+})
+
+// ux-05c: the page guide asks whether a visit can be remembered at all,
+// without writing anything.
+describe('prefsAvailable', () => {
+  it('reports true when localStorage answers, and writes nothing', () => {
+    expect(prefsAvailable()).toBe(true)
+    expect(localStorage.length).toBe(0)
+  })
+
+  it('reports false when the accessor throws SecurityError', () => {
+    blockStorageAccessor(securityError())
+    expect(prefsAvailable()).toBe(false)
+  })
+
+  it('reports false when localStorage is null', () => {
+    nullStorage()
+    expect(prefsAvailable()).toBe(false)
+  })
+
+  it('rethrows an error that is not a DOMException', () => {
+    const bug = new TypeError('unexpected')
+    blockStorageAccessor(bug)
+    expect(() => prefsAvailable()).toThrow(bug)
   })
 })

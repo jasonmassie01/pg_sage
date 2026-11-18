@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 import { paletteRoutes, routeHref, routeLabel } from '../routes'
-import { PALETTE_KEY, shortcutFor } from './keymap'
+import { PALETTE_KEY, isTyping, shortcutFor } from './keymap'
 import { ShortcutsSheet } from './ShortcutsSheet'
 
 function score(query, text) {
@@ -175,9 +175,3 @@ function CommandResults({ ranked, index, onHover, onPick }) {
   )
 }
 
-function isTyping(el) {
-  if (!el) return false
-  const tag = (el.tagName || '').toLowerCase()
-  return tag === 'input' || tag === 'textarea'
-    || el.isContentEditable
-}

@@ -23,13 +23,16 @@ var guidance = map[Type]string{
 		"could invalidate it; alert instead.",
 	TypeAppendOnly: "Its rows are never updated or deleted: keep its data and its " +
 		"indexes (they serve rare reads).",
+	TypeDoNotTouch: "Never propose any change to it.",
 }
 
-// promptPriority orders the binding facts of a prompt before its budget
-// cuts: the facts behind WAL and vacuum advice first, so many index
-// ownership facts never crowd them out. Ties go by fact id.
-var promptPriority = map[Type]int{TypeSlotConsumer: 0, TypeTableWindow: 1,
-	TypeAppendOnly: 2, TypeAppMigrations: 3, TypeTestFixture: 4}
+// promptPriority orders the facts of a prompt before its budget cuts: the
+// owner brief (about the whole database), what must not be touched, then
+// the facts behind WAL and vacuum advice, so many index ownership facts
+// never crowd them out. Ties go by fact id.
+var promptPriority = map[Type]int{TypeOwnerBrief: 0, TypeDoNotTouch: 1,
+	TypeSlotConsumer: 2, TypeTableWindow: 3, TypeAppendOnly: 4, TypeAppMigrations: 5,
+	TypeTestFixture: 6}
 
 func promptRank(t Type) int {
 	if p, ok := promptPriority[t]; ok {
@@ -102,6 +105,9 @@ func omittedNote(n int) string {
 }
 
 func promptLine(f Fact) string {
+	if f.Type == TypeOwnerBrief {
+		return briefPromptLine(f)
+	}
 	how := guidance[f.Type]
 	if f.Type == TypeTableWindow {
 		how = "Act on it only inside that window."
@@ -114,8 +120,12 @@ func promptLine(f Fact) string {
 }
 
 // relevant reports a fact about one of refs; an index fact is relevant to
-// any object in its schema (the object's indexes are not listed).
+// any object in its schema (the object's indexes are not listed), and a
+// database fact (the owner brief) to every object.
 func relevant(f Fact, refs []ObjectRef) bool {
+	if f.Kind == KindDatabase {
+		return true
+	}
 	p, err := ParsePattern(f.Kind, f.Subject)
 	if err != nil {
 		return false

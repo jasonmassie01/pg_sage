@@ -50,7 +50,7 @@ func (e *Executor) evaluateRollbackPolicy(
 	// A rollback re-runs pg_sage's recorded inverse, which names another
 	// object than the forward finding (a dropped index's table): it is not
 	// target-bound.
-	request := unboundFindingRequest(f, false)
+	request := rollbackFindingRequest(f)
 	request.Rollback = true
 	request.Evidence = map[string]any{"source": rollbackSource(false)}
 	if actionID > 0 {
@@ -68,17 +68,39 @@ func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionReque
 }
 
 func unboundFindingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
-	var contract *policy.ActionContract
+	return contractFindingRequest(finding, findingPolicyContract(finding), isReplica)
+}
+
+// rollbackFindingRequest is the gate request of an automatic rollback: a
+// rollback restores the prior state, so the verification ladder's entry
+// rule, which gates forward changes, does not apply to it.
+func rollbackFindingRequest(finding analyzer.Finding) policy.ActionRequest {
+	return contractRequestBase(finding, findingPolicyContract(finding), false)
+}
+
+func findingPolicyContract(finding analyzer.Finding) *policy.ActionContract {
 	if found, ok := contractForFinding(finding); ok {
-		contract = policyContract(found)
+		return policyContract(found)
 	}
-	return contractFindingRequest(finding, contract, isReplica)
+	return nil
 }
 
 // contractFindingRequest is the gate request for finding under contract
 // (nil when no contract runs it), before its statement is bound: the
 // request the executor authorizes and the Cases view explains.
 func contractFindingRequest(
+	finding analyzer.Finding, contract *policy.ActionContract, isReplica bool,
+) policy.ActionRequest {
+	request := contractRequestBase(finding, contract, isReplica)
+	if contract != nil {
+		requireApprovalWithoutRehearsal(finding, contract)
+	}
+	return request
+}
+
+// contractRequestBase is contractFindingRequest without the ladder's
+// entry rule (lab-03a).
+func contractRequestBase(
 	finding analyzer.Finding, contract *policy.ActionContract, isReplica bool,
 ) policy.ActionRequest {
 	request := policy.ActionRequest{

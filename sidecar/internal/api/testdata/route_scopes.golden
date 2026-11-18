@@ -22,6 +22,7 @@ bare GET /api/v1/alert-log gate:viewer scope:aggregate
 bare GET /api/v1/snapshots/latest gate:viewer scope:aggregate
 bare GET /api/v1/snapshots/history gate:viewer scope:aggregate
 bare GET /api/v1/queries/top gate:viewer scope:aggregate
+bare GET /api/v1/queries/coverage gate:viewer scope:aggregate
 bare GET /api/v1/queries/{queryid} gate:viewer scope:aggregate
 bare GET /api/v1/wait-load gate:viewer scope:aggregate
 bare GET /api/v1/fleet/health gate:viewer scope:aggregate
@@ -71,6 +72,9 @@ bare POST /api/v1/facts gate:operator scope:database:query-or-only
 bare POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 bare POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 bare POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+bare GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
+bare GET /api/v1/inbox gate:viewer scope:aggregate
+bare GET /api/v1/inbox/count gate:viewer scope:aggregate
 bare GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 bare GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 bare PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -103,6 +107,7 @@ bare GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 bare GET /api/v1/value gate:viewer scope:aggregate
 bare GET /api/v1/briefings gate:viewer scope:aggregate
 bare GET /api/v1/briefings/latest gate:viewer scope:aggregate
+bare GET /api/v1/outcomes gate:viewer scope:aggregate
 bare POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 bare GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 bare GET /api/v1/onboarding gate:viewer scope:fleet-only
@@ -114,6 +119,13 @@ bare GET /api/v1/approvals/{id} gate:operator scope:aggregate
 bare POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 bare POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 bare POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+bare GET /api/v1/plans gate:viewer scope:aggregate
+bare GET /api/v1/plans/{id} gate:viewer scope:aggregate
+bare POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
+bare POST /api/v1/plans/{id}/steps/{step}/approve gate:operator scope:database:query-or-only
+bare POST /api/v1/plans/{id}/reject gate:operator scope:database:query-or-only
+bare POST /api/v1/plans/{id}/resume gate:operator scope:database:query-or-only
+bare POST /api/v1/plans/{id}/cancel gate:operator scope:database:query-or-only
 bare GET /api/v1/audit/verify gate:admin scope:admin-only
 bare GET /api/v1/audit/evidence gate:admin scope:admin-only
 bare GET /api/v1/audit/evidence/key gate:admin scope:admin-only
@@ -149,6 +161,11 @@ bare GET /api/v1/databases/{db}/investigations/{id}/similar gate:viewer scope:da
 bare POST /api/v1/databases/{db}/investigations/{id}/outcome gate:operator scope:database:path:db
 bare GET /api/v1/databases/{db}/investigations/{id}/replay-case gate:operator scope:database:path:db
 bare GET /api/v1/databases/{db}/investigations/{id}/transcript gate:viewer scope:database:path:db
+bare POST /api/v1/databases/{db}/workload-packs gate:operator scope:database:path:db
+bare GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
+bare GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
+bare GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+bare GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 standalone POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 standalone POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 standalone /ready gate:public scope:-
@@ -175,6 +192,7 @@ standalone GET /api/v1/alert-log gate:viewer scope:aggregate
 standalone GET /api/v1/snapshots/latest gate:viewer scope:aggregate
 standalone GET /api/v1/snapshots/history gate:viewer scope:aggregate
 standalone GET /api/v1/queries/top gate:viewer scope:aggregate
+standalone GET /api/v1/queries/coverage gate:viewer scope:aggregate
 standalone GET /api/v1/queries/{queryid} gate:viewer scope:aggregate
 standalone GET /api/v1/wait-load gate:viewer scope:aggregate
 standalone GET /api/v1/fleet/health gate:viewer scope:aggregate
@@ -243,6 +261,9 @@ standalone POST /api/v1/facts gate:operator scope:database:query-or-only
 standalone POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 standalone POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 standalone POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+standalone GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
+standalone GET /api/v1/inbox gate:viewer scope:aggregate
+standalone GET /api/v1/inbox/count gate:viewer scope:aggregate
 standalone GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 standalone GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 standalone PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -278,6 +299,7 @@ standalone POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
 standalone GET /api/v1/value gate:viewer scope:aggregate
 standalone GET /api/v1/briefings gate:viewer scope:aggregate
 standalone GET /api/v1/briefings/latest gate:viewer scope:aggregate
+standalone GET /api/v1/outcomes gate:viewer scope:aggregate
 standalone POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 standalone GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 standalone GET /api/v1/onboarding gate:viewer scope:fleet-only
@@ -347,6 +369,8 @@ standalone POST /api/v1/policy/proposals/{id}/ratify gate:admin scope:-
 standalone GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 standalone POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 standalone POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
+standalone GET /api/v1/inbox/seen gate:viewer scope:global
+standalone POST /api/v1/inbox/seen gate:viewer-write scope:-
 standalone GET /api/v1/actions/pending gate:operator scope:fleet-only
 standalone GET /api/v1/actions/pending/count gate:operator scope:fleet-only
 standalone GET /api/v1/findings/{id}/pending-actions gate:operator scope:fleet-only
@@ -361,6 +385,13 @@ standalone GET /api/v1/approvals/{id} gate:operator scope:aggregate
 standalone POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 standalone POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 standalone POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+standalone GET /api/v1/plans gate:viewer scope:aggregate
+standalone GET /api/v1/plans/{id} gate:viewer scope:aggregate
+standalone POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
+standalone POST /api/v1/plans/{id}/steps/{step}/approve gate:operator scope:database:query-or-only
+standalone POST /api/v1/plans/{id}/reject gate:operator scope:database:query-or-only
+standalone POST /api/v1/plans/{id}/resume gate:operator scope:database:query-or-only
+standalone POST /api/v1/plans/{id}/cancel gate:operator scope:database:query-or-only
 standalone GET /api/v1/audit/verify gate:admin scope:admin-only
 standalone GET /api/v1/audit/evidence gate:admin scope:admin-only
 standalone GET /api/v1/audit/evidence/key gate:admin scope:admin-only
@@ -399,6 +430,11 @@ standalone GET /api/v1/databases/{db}/investigations/{id}/similar gate:viewer sc
 standalone POST /api/v1/databases/{db}/investigations/{id}/outcome gate:operator scope:database:path:db
 standalone GET /api/v1/databases/{db}/investigations/{id}/replay-case gate:operator scope:database:path:db
 standalone GET /api/v1/databases/{db}/investigations/{id}/transcript gate:viewer scope:database:path:db
+standalone POST /api/v1/databases/{db}/workload-packs gate:operator scope:database:path:db
+standalone GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
+standalone GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
+standalone GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+standalone GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 fleet-readonly POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 fleet-readonly POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 fleet-readonly /ready gate:public scope:-
@@ -425,6 +461,7 @@ fleet-readonly GET /api/v1/alert-log gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/snapshots/latest gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/snapshots/history gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/queries/top gate:viewer scope:aggregate
+fleet-readonly GET /api/v1/queries/coverage gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/queries/{queryid} gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/wait-load gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/fleet/health gate:viewer scope:aggregate
@@ -474,6 +511,9 @@ fleet-readonly POST /api/v1/facts gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+fleet-readonly GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
+fleet-readonly GET /api/v1/inbox gate:viewer scope:aggregate
+fleet-readonly GET /api/v1/inbox/count gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 fleet-readonly GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 fleet-readonly PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -506,6 +546,7 @@ fleet-readonly GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggrega
 fleet-readonly GET /api/v1/value gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/briefings gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/briefings/latest gate:viewer scope:aggregate
+fleet-readonly GET /api/v1/outcomes gate:viewer scope:aggregate
 fleet-readonly POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 fleet-readonly GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 fleet-readonly GET /api/v1/onboarding gate:viewer scope:fleet-only
@@ -575,6 +616,8 @@ fleet-readonly POST /api/v1/policy/proposals/{id}/ratify gate:admin scope:-
 fleet-readonly GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 fleet-readonly POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 fleet-readonly POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
+fleet-readonly GET /api/v1/inbox/seen gate:viewer scope:global
+fleet-readonly POST /api/v1/inbox/seen gate:viewer-write scope:-
 fleet-readonly GET /api/v1/actions/pending gate:operator scope:aggregate
 fleet-readonly GET /api/v1/actions/pending/count gate:operator scope:aggregate
 fleet-readonly GET /api/v1/findings/{id}/pending-actions gate:operator scope:fleet-only
@@ -589,6 +632,13 @@ fleet-readonly GET /api/v1/approvals/{id} gate:operator scope:aggregate
 fleet-readonly POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 fleet-readonly POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+fleet-readonly GET /api/v1/plans gate:viewer scope:aggregate
+fleet-readonly GET /api/v1/plans/{id} gate:viewer scope:aggregate
+fleet-readonly POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
+fleet-readonly POST /api/v1/plans/{id}/steps/{step}/approve gate:operator scope:database:query-or-only
+fleet-readonly POST /api/v1/plans/{id}/reject gate:operator scope:database:query-or-only
+fleet-readonly POST /api/v1/plans/{id}/resume gate:operator scope:database:query-or-only
+fleet-readonly POST /api/v1/plans/{id}/cancel gate:operator scope:database:query-or-only
 fleet-readonly GET /api/v1/databases/managed gate:admin scope:admin-only
 fleet-readonly POST /api/v1/databases/managed gate:admin scope:-
 fleet-readonly POST /api/v1/databases/managed/import gate:admin scope:-
@@ -635,6 +685,11 @@ fleet-readonly GET /api/v1/databases/{db}/investigations/{id}/similar gate:viewe
 fleet-readonly POST /api/v1/databases/{db}/investigations/{id}/outcome gate:operator scope:database:path:db
 fleet-readonly GET /api/v1/databases/{db}/investigations/{id}/replay-case gate:operator scope:database:path:db
 fleet-readonly GET /api/v1/databases/{db}/investigations/{id}/transcript gate:viewer scope:database:path:db
+fleet-readonly POST /api/v1/databases/{db}/workload-packs gate:operator scope:database:path:db
+fleet-readonly GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
+fleet-readonly GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
+fleet-readonly GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+fleet-readonly GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 store-only-actions /ready gate:public scope:-
 store-only-actions /health gate:public scope:-
 store-only-actions / gate:public scope:-
@@ -659,6 +714,7 @@ store-only-actions GET /api/v1/alert-log gate:viewer scope:aggregate
 store-only-actions GET /api/v1/snapshots/latest gate:viewer scope:aggregate
 store-only-actions GET /api/v1/snapshots/history gate:viewer scope:aggregate
 store-only-actions GET /api/v1/queries/top gate:viewer scope:aggregate
+store-only-actions GET /api/v1/queries/coverage gate:viewer scope:aggregate
 store-only-actions GET /api/v1/queries/{queryid} gate:viewer scope:aggregate
 store-only-actions GET /api/v1/wait-load gate:viewer scope:aggregate
 store-only-actions GET /api/v1/fleet/health gate:viewer scope:aggregate
@@ -708,6 +764,9 @@ store-only-actions POST /api/v1/facts gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+store-only-actions GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
+store-only-actions GET /api/v1/inbox gate:viewer scope:aggregate
+store-only-actions GET /api/v1/inbox/count gate:viewer scope:aggregate
 store-only-actions GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 store-only-actions GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 store-only-actions PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -740,6 +799,7 @@ store-only-actions GET /api/v1/queries/{queryid}/call-site gate:viewer scope:agg
 store-only-actions GET /api/v1/value gate:viewer scope:aggregate
 store-only-actions GET /api/v1/briefings gate:viewer scope:aggregate
 store-only-actions GET /api/v1/briefings/latest gate:viewer scope:aggregate
+store-only-actions GET /api/v1/outcomes gate:viewer scope:aggregate
 store-only-actions POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 store-only-actions GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 store-only-actions GET /api/v1/onboarding gate:viewer scope:fleet-only
@@ -760,6 +820,13 @@ store-only-actions GET /api/v1/approvals/{id} gate:operator scope:aggregate
 store-only-actions POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 store-only-actions POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+store-only-actions GET /api/v1/plans gate:viewer scope:aggregate
+store-only-actions GET /api/v1/plans/{id} gate:viewer scope:aggregate
+store-only-actions POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
+store-only-actions POST /api/v1/plans/{id}/steps/{step}/approve gate:operator scope:database:query-or-only
+store-only-actions POST /api/v1/plans/{id}/reject gate:operator scope:database:query-or-only
+store-only-actions POST /api/v1/plans/{id}/resume gate:operator scope:database:query-or-only
+store-only-actions POST /api/v1/plans/{id}/cancel gate:operator scope:database:query-or-only
 store-only-actions GET /api/v1/audit/verify gate:admin scope:admin-only
 store-only-actions GET /api/v1/audit/evidence gate:admin scope:admin-only
 store-only-actions GET /api/v1/audit/evidence/key gate:admin scope:admin-only
@@ -795,6 +862,11 @@ store-only-actions GET /api/v1/databases/{db}/investigations/{id}/similar gate:v
 store-only-actions POST /api/v1/databases/{db}/investigations/{id}/outcome gate:operator scope:database:path:db
 store-only-actions GET /api/v1/databases/{db}/investigations/{id}/replay-case gate:operator scope:database:path:db
 store-only-actions GET /api/v1/databases/{db}/investigations/{id}/transcript gate:viewer scope:database:path:db
+store-only-actions POST /api/v1/databases/{db}/workload-packs gate:operator scope:database:path:db
+store-only-actions GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
+store-only-actions GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
+store-only-actions GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+store-only-actions GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 optional POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 optional POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 optional /ready gate:public scope:-
@@ -821,6 +893,7 @@ optional GET /api/v1/alert-log gate:viewer scope:aggregate
 optional GET /api/v1/snapshots/latest gate:viewer scope:aggregate
 optional GET /api/v1/snapshots/history gate:viewer scope:aggregate
 optional GET /api/v1/queries/top gate:viewer scope:aggregate
+optional GET /api/v1/queries/coverage gate:viewer scope:aggregate
 optional GET /api/v1/queries/{queryid} gate:viewer scope:aggregate
 optional GET /api/v1/wait-load gate:viewer scope:aggregate
 optional GET /api/v1/fleet/health gate:viewer scope:aggregate
@@ -889,6 +962,9 @@ optional POST /api/v1/facts gate:operator scope:database:query-or-only
 optional POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 optional POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 optional POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+optional GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
+optional GET /api/v1/inbox gate:viewer scope:aggregate
+optional GET /api/v1/inbox/count gate:viewer scope:aggregate
 optional GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 optional GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 optional PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -935,6 +1011,7 @@ optional POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
 optional GET /api/v1/value gate:viewer scope:aggregate
 optional GET /api/v1/briefings gate:viewer scope:aggregate
 optional GET /api/v1/briefings/latest gate:viewer scope:aggregate
+optional GET /api/v1/outcomes gate:viewer scope:aggregate
 optional POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 optional GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 optional GET /api/v1/onboarding gate:viewer scope:fleet-only
@@ -1004,11 +1081,20 @@ optional POST /api/v1/policy/proposals/{id}/ratify gate:admin scope:-
 optional GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 optional POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 optional POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
+optional GET /api/v1/inbox/seen gate:viewer scope:global
+optional POST /api/v1/inbox/seen gate:viewer-write scope:-
 optional GET /api/v1/approvals gate:operator scope:aggregate
 optional GET /api/v1/approvals/{id} gate:operator scope:aggregate
 optional POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 optional POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 optional POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+optional GET /api/v1/plans gate:viewer scope:aggregate
+optional GET /api/v1/plans/{id} gate:viewer scope:aggregate
+optional POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
+optional POST /api/v1/plans/{id}/steps/{step}/approve gate:operator scope:database:query-or-only
+optional POST /api/v1/plans/{id}/reject gate:operator scope:database:query-or-only
+optional POST /api/v1/plans/{id}/resume gate:operator scope:database:query-or-only
+optional POST /api/v1/plans/{id}/cancel gate:operator scope:database:query-or-only
 optional GET /api/v1/audit/verify gate:admin scope:admin-only
 optional GET /api/v1/audit/evidence gate:admin scope:admin-only
 optional GET /api/v1/audit/evidence/key gate:admin scope:admin-only
@@ -1047,6 +1133,11 @@ optional GET /api/v1/databases/{db}/investigations/{id}/similar gate:viewer scop
 optional POST /api/v1/databases/{db}/investigations/{id}/outcome gate:operator scope:database:path:db
 optional GET /api/v1/databases/{db}/investigations/{id}/replay-case gate:operator scope:database:path:db
 optional GET /api/v1/databases/{db}/investigations/{id}/transcript gate:viewer scope:database:path:db
+optional POST /api/v1/databases/{db}/workload-packs gate:operator scope:database:path:db
+optional GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
+optional GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
+optional GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+optional GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only
 databricks-app /ready gate:public scope:-
 databricks-app /health gate:public scope:-
 databricks-app / gate:public scope:-
@@ -1071,6 +1162,7 @@ databricks-app GET /api/v1/alert-log gate:viewer scope:aggregate
 databricks-app GET /api/v1/snapshots/latest gate:viewer scope:aggregate
 databricks-app GET /api/v1/snapshots/history gate:viewer scope:aggregate
 databricks-app GET /api/v1/queries/top gate:viewer scope:aggregate
+databricks-app GET /api/v1/queries/coverage gate:viewer scope:aggregate
 databricks-app GET /api/v1/queries/{queryid} gate:viewer scope:aggregate
 databricks-app GET /api/v1/wait-load gate:viewer scope:aggregate
 databricks-app GET /api/v1/fleet/health gate:viewer scope:aggregate
@@ -1121,6 +1213,9 @@ databricks-app POST /api/v1/facts gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/facts/{id}/confirm gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/facts/{id}/reject gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/facts/{id}/expire gate:operator scope:database:query-or-only
+databricks-app GET /api/v1/databases/{db}/facts/peak-suggestion gate:viewer scope:database:path:db
+databricks-app GET /api/v1/inbox gate:viewer scope:aggregate
+databricks-app GET /api/v1/inbox/count gate:viewer scope:aggregate
 databricks-app GET /api/v1/agent-classifications/{database} gate:viewer scope:database:path:database
 databricks-app GET /api/v1/agent-classifications/{database}/column gate:viewer scope:database:path:database
 databricks-app PUT /api/v1/agent-classifications/{database}/columns gate:operator scope:database:path:database
@@ -1153,6 +1248,7 @@ databricks-app GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggrega
 databricks-app GET /api/v1/value gate:viewer scope:aggregate
 databricks-app GET /api/v1/briefings gate:viewer scope:aggregate
 databricks-app GET /api/v1/briefings/latest gate:viewer scope:aggregate
+databricks-app GET /api/v1/outcomes gate:viewer scope:aggregate
 databricks-app POST /api/v1/migrations/lint gate:viewer-write-or-token scope:-
 databricks-app GET /api/v1/upgrade-readiness gate:viewer scope:fleet-only
 databricks-app GET /api/v1/onboarding gate:viewer scope:fleet-only
@@ -1204,11 +1300,20 @@ databricks-app POST /api/v1/policy/proposals/{id}/ratify gate:admin scope:-
 databricks-app GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 databricks-app POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 databricks-app POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
+databricks-app GET /api/v1/inbox/seen gate:viewer scope:global
+databricks-app POST /api/v1/inbox/seen gate:viewer-write scope:-
 databricks-app GET /api/v1/approvals gate:operator scope:aggregate
 databricks-app GET /api/v1/approvals/{id} gate:operator scope:aggregate
 databricks-app POST /api/v1/approvals/{id}/approve gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/approvals/{id}/reject gate:operator scope:database:query-or-only
 databricks-app POST /api/v1/approvals/{id}/snooze gate:operator scope:database:query-or-only
+databricks-app GET /api/v1/plans gate:viewer scope:aggregate
+databricks-app GET /api/v1/plans/{id} gate:viewer scope:aggregate
+databricks-app POST /api/v1/plans/{id}/approve gate:operator scope:database:query-or-only
+databricks-app POST /api/v1/plans/{id}/steps/{step}/approve gate:operator scope:database:query-or-only
+databricks-app POST /api/v1/plans/{id}/reject gate:operator scope:database:query-or-only
+databricks-app POST /api/v1/plans/{id}/resume gate:operator scope:database:query-or-only
+databricks-app POST /api/v1/plans/{id}/cancel gate:operator scope:database:query-or-only
 databricks-app GET /api/v1/audit/verify gate:admin scope:admin-only
 databricks-app GET /api/v1/audit/evidence gate:admin scope:admin-only
 databricks-app GET /api/v1/audit/evidence/key gate:admin scope:admin-only
@@ -1244,3 +1349,8 @@ databricks-app GET /api/v1/databases/{db}/investigations/{id}/similar gate:viewe
 databricks-app POST /api/v1/databases/{db}/investigations/{id}/outcome gate:operator scope:database:path:db
 databricks-app GET /api/v1/databases/{db}/investigations/{id}/replay-case gate:operator scope:database:path:db
 databricks-app GET /api/v1/databases/{db}/investigations/{id}/transcript gate:viewer scope:database:path:db
+databricks-app POST /api/v1/databases/{db}/workload-packs gate:operator scope:database:path:db
+databricks-app GET /api/v1/databases/{db}/workload-packs gate:viewer scope:database:path:db
+databricks-app GET /api/v1/databases/{db}/workload-packs/{sha} gate:viewer scope:database:path:db
+databricks-app GET /api/v1/databases/{db}/workload-packs/{sha}/evidence/{id...} gate:viewer scope:database:path:db
+databricks-app GET /api/v1/databases/{db}/workload-packs/{sha}/export gate:admin scope:admin-only

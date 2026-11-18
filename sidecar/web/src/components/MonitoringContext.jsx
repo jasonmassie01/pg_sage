@@ -1,6 +1,7 @@
 import {
   fleetAutonomy, normalizeTrustLevel, rowAutoFamilies, unreportedNote,
 } from '../lib/autonomy'
+import { formatTime } from '../lib/time'
 
 const muted = { color: 'var(--text-secondary)' }
 
@@ -91,7 +92,7 @@ export function MonitoringContext({ database, fleetData, error, user }) {
       {selected && <p className="text-xs" style={muted}>
         {status?.connected === true ? 'Connected' : 'Connection not confirmed'}
         {' · '}{collected
-          ? <>Last collected <time dateTime={collected.toISOString()}>{collected.toLocaleString()}</time>. Collection timestamps do not verify every signal.</>
+          ? <>Last collected <time dateTime={collected.toISOString()}>{formatTime(collected)}</time>. Collection timestamps do not verify every signal.</>
           : 'No collection timestamp reported. Evidence freshness is unknown.'}
       </p>}
       {(error || status?.error || (selected && status?.connected !== true)) && (

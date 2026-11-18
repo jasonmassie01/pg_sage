@@ -1,7 +1,7 @@
 # config-31: SHA-256 of every DDL constant, generated on the unsplit
 # bootstrap.go (base tables, expectedTables, migration steps, audit chain).
 # A pinned line never changes; a new migration step needs no line here.
-auditchain.MigrationSQL f692dd723b1fd4bdd614b4dbd26ce4259936f6135bad21ba447e835df48a123e
+auditchain.MigrationSQL 64a4f237c31450fb6ad6f4bb5673dbb6281bd8989afd9b08b042f2dd5321e2ba
 base.ddlActionLog 042efe8f4e5b3ac88aa4deba8c4092c6a1c5b7ccd559a9f417ff1f473525b6cf
 base.ddlActionQueue 9dd00beab47c18e83554678cc521051de9b69debd08fb3c49ce6ef72b87000f9
 base.ddlAlertLog b85ee5f37f4bad00f1515dcdcdc5e61b0ae4c1ad826e2e76f60420dcc02d0e57

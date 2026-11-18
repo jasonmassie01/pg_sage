@@ -1,3 +1,4 @@
+import { formatTime } from '../../lib/time'
 /* eslint-disable react-refresh/only-export-components */
 // Shared styles and small pieces of the Agents page.
 
@@ -73,5 +74,5 @@ export function TextInput({ testId, value, onChange, placeholder, label }) {
 export function when(iso) {
   if (!iso) return ''
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
+  return Number.isNaN(d.getTime()) ? '' : formatTime(d)
 }

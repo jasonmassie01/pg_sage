@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+
+	"github.com/pg-sage/sidecar/internal/inbox"
 )
 
 // registerActionRoutes registers the action queue routes. Fleet mode
@@ -55,12 +57,12 @@ func registerPendingActionRoutes(
 func registerExecutorActionRoutes(
 	mux *http.ServeMux, deps *ActionDeps,
 ) {
-	approveH := http.HandlerFunc(
-		approveActionHandler(
-			deps.Store, deps.Executor))
+	since := actionWaitingSince(fixedActions(deps.Store))
+	approveH := timeDecision(inbox.KindChangeApproval, since,
+		approveActionHandler(deps.Store, deps.Executor))
 	routeDB(mux, "POST /api/v1/actions/{id}/approve", gateOperator, queryDatabase, approveH)
 
-	rejectH := http.HandlerFunc(
+	rejectH := timeDecision(inbox.KindChangeApproval, since,
 		rejectActionHandler(deps.Store))
 	routeDB(mux, "POST /api/v1/actions/{id}/reject", gateOperator, queryDatabase, rejectH)
 
@@ -81,11 +83,12 @@ func registerExecutorActionRoutes(
 func registerFleetActionRoutes(
 	mux *http.ServeMux, deps *ActionDeps,
 ) {
-	approveH := http.HandlerFunc(
+	since := actionWaitingSince(fleetActions(deps.Fleet))
+	approveH := timeDecision(inbox.KindChangeApproval, since,
 		fleetApproveActionHandler(deps.Fleet))
 	routeDB(mux, "POST /api/v1/actions/{id}/approve", gateOperator, queryDatabase, approveH)
 
-	rejectH := http.HandlerFunc(
+	rejectH := timeDecision(inbox.KindChangeApproval, since,
 		fleetRejectActionHandler(deps.Fleet))
 	routeDB(mux, "POST /api/v1/actions/{id}/reject", gateOperator, queryDatabase, rejectH)
 

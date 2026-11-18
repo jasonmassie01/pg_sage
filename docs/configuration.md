@@ -1033,8 +1033,8 @@ targets, the metric that should move and by how much, and how that was predicted
 | Verdict | Meaning | Trust and credit |
 |---|---|---|
 | `improved` | the predicted effect was observed (a drop: reads held for the whole cycle) | counts toward earned autonomy and value |
-| `neutral` | measured, no change beyond the bars | neither |
-| `insufficient_evidence` | too few calls, too few sampling intervals, or too noisy to tell | neither |
+| `neutral` | measured, no change beyond the bars (shown as "No change") | neither |
+| `insufficient_evidence` | too few calls, too few sampling intervals, or too noisy to tell (shown as "Inconclusive") | neither |
 | `unverifiable` | nothing measurable, or no prediction | neither |
 | `regressed` | a targeted query (or the targeted metric) got significantly worse | rolled back; counts against trust |
 
@@ -1044,6 +1044,31 @@ only when it is both significant and beyond its bar. With several targets each i
 with a Bonferroni-corrected significance and the call-weighted pool decides. A first verdict
 comes after `trust.rollback_window_minutes` once there are `verify.min_samples` calls; without
 enough evidence the watch extends up to `verify.window_max_minutes`.
+
+`verify.method` picks the verifier that decides (`v1`, `shadow`, `v2` or `auto`,
+default `auto`): `shadow` computes verification v2 beside v1 and acts on v1, `v2`
+acts on v2, and `auto` is `v2` only on a database whose latest verifier back-test
+passed within 35 days, `shadow` otherwise: v2 becomes a database's verifier once its
+own back-test passes (see [verification.md](verification.md)). The weekly back-test
+draws `verify.backtest_placebos` placebo steps (default 300, 200-10000) and stops,
+storing nothing, after `verify.backtest_max_runtime_minutes` (default 10, 1-1440);
+`pg_sage_sidecar verifier-backtest --database NAME` runs one by hand. In v2 a "No change" result keeps the index instead of
+reverting it as `no_gain`. The post-action monitor (index drops, settings, storage
+parameters) always acts on v1 for now and records v2's verdict beside it for comparison.
+`verify.on_expired` (`ask`, `keep` or `revert`, default
+`ask`) decides what happens to a monitor whose window ended while pg_sage was not
+watching: `ask` queues one "Revert action N" item, `keep` keeps the change
+(recorded), `revert` rolls it back through the operator rollback (a refused rollback queues the
+revert item instead). An expired change with no rollback SQL is kept and recorded. Any other value of
+either key is refused at startup. A step whose targets ran too rarely in the last 4
+weeks to be judged within `verify.window_max_minutes` needs approval at every trust
+level ("cannot be verified within 72 h: the targets run N times a week").
+
+```yaml
+verify:
+  method: auto        # v1 | shadow | v2 | auto
+  on_expired: ask     # ask | keep | revert
+```
 
 Verification pauses while its evidence is unreadable. A failed read of the query history
 or the catalog (a lost connection, or the meta database down under
@@ -2008,7 +2033,7 @@ max_changes_per_window}`); `hygiene` is optional and defaults per field.
   tables and rows, `rate_limit_exceeded` for changes) and retried next cycle.
   The decision's `evidence.budget_detail` says which budget is full and when it
   next frees, for example `hygiene budget full: 11 of 10 tables in the 24h
-  window; next frees at 2026-10-04T18:00:02Z`. Actions > Decisions and
+  window; next frees at 2026-10-04T18:00:02Z`. Actions > Held back and
   `GET /api/v1/decisions?verdict=parked` show it per candidate
   ([Reading decisions](policy-gate.md#reading-decisions)).
 - **Concurrent candidates.** An authorized change holds its slot from the
@@ -3136,7 +3161,8 @@ literals always removed.
 | `sre.autonomy.game_days.families` | `[]` | Families to exercise. Empty: every family the bench covers |
 | `sre.autonomy.game_days.customer_programs` | unset | Run the customer programs, which exercise the monitored database's own hottest table on the clone (see below). Unset: on when the clone provider copies the database (`dle`, `lakebase_branch`); `local_dsn` never runs them |
 | `sre.autonomy.canary.canary_instances` | `1` | Databases changed and verified before a fleet rollout widens, `1`-`10` |
-| `sre.autonomy.canary.regression_limit_pct` | `10` | Regression that halts and rolls back a rollout, `0`-`100` |
+| `sre.autonomy.canary.regression_limit_pct` | `10` | Measured regression (a database's effect net of the untreated members' change) that halts and rolls back a rollout, `0`-`100` |
+| `sre.autonomy.canary.stage_wait_hours` | `24` | Hours a fleet rollout waits after a database's verdict before it changes the next one, `0`-`720` (`0`: no pause) |
 | `sre.autonomy.canary.settle_seconds` | removed | Removed in executor-04: a canary now waits for each database's own verification verdict instead of a fixed settle time. A config that still sets it loads and prints one startup warning that the key is ignored; remove the key, which a later release rejects |
 
 Game days run only the deterministic causal-graph arm, so they spend no LLM tokens. A
@@ -3317,6 +3343,29 @@ execution plus its class's monitor cap: `verify.window_max_minutes`, or
 rollout as `verification_pending`, with that database's record `verification_pending`: nothing
 is judged or rolled back, and the database's own monitor keeps the change and gives its
 verdict. A long monitor cap holds the single canary slot for that long.
+
+How a database's regression is measured (lab-03b). Once a database's verdict is final, the
+canary reads that action's verification v2 record from the database's own
+`sage.action_outcome` (the acted verdict's `evidence`, or `other_evidence` when v2 runs in
+shadow): its effect on the target queries' blocks per call, with its interval. While the
+database is measured, the run's databases not changed yet supply a fleet control: each one's
+change of the same queries over the same hours (the verdict's window against the as-long
+period before it), matched by normalized statement text because queryids differ across
+databases, read in parallel. With at least two of them measured, the database's effect is its
+own change of the target queries minus the control's median, so a shift the whole fleet sees
+the same day does not halt a good change. A database that cannot be read, or ran none of the
+queries, is left out of the control by name in the detail and never counts as flat. With
+fewer than two, the database's own v2 effect is the number. That number is the instance's
+`regression_pct`, compared with `regression_limit_pct`: at the limit the rollout proceeds,
+above it it halts and rolls back newest first. With no v2 number (no v2 record, an unmeasured
+one, or one that is not an object, which logs a warning), the verdict flag alone decides and
+the detail says "flag only". A failed, reverted or unverifiable verdict always halts,
+whatever the number. Each instance record keeps `effect_pct`, `control_pct` and
+`effect_method` (`v2_fleet_control`, `v2` or `flag_only`), and the database's queue item, when
+its action has one, gains a tier-4 (`fleet`) ladder record with the effect. After each
+database's verdict the rollout waits `stage_wait_hours` (default 24; 0 for no pause) before it
+changes the next database; R6 suggests a full weekly cycle (168), a policy choice. The wait
+holds the single canary slot, and a request that ends during it rolls back what was changed.
 
 The source action must have a verification of `success`; an action with no verification is
 refused. When the rollout itself fails (a database cannot be read, re-verified or changed, or
@@ -3952,9 +4001,12 @@ action or changes trust. API: `GET /api/v1/case-tickets?database=` (viewer) list
 
 | Parameter | Default | Description |
 |---|---|---|
-| `retention.snapshots_days` | `90` | Days to retain snapshot data |
+| `retention.snapshots_days` | `90` | Days to retain snapshot data, the source the hourly per-query rollup is built and rebuilt from |
+| `retention.query_rollup_hourly_days` | `35` | Days to keep the hourly per-query rollup (`sage.query_rollup_hourly`): two weeks for every hour-of-week bucket twice plus the baseline's minimum weeks. An hour is removed only once its UTC day is in the daily tier, or once it is older than `query_rollup_daily_days`. At most `snapshots_days` (a larger value is refused; the default follows a smaller `snapshots_days`). `0` disables. Range 0-3650. |
+| `retention.query_rollup_daily_days` | `400` | Days to keep the daily per-query rollup (`sage.query_rollup_daily`) and the hourly coverage rows (`sage.query_rollup_coverage`), so a long window still states its coverage after the hourly rows are gone. At least `query_rollup_hourly_days`. `0` disables. Range 0-3650. |
+| `retention.workload_packs_days` | `180` | Days to keep stored workload evidence packs (`sage.workload_packs`), counted from when each pack was built. A pack is never changed once stored; this purge only deletes. A pack that an open plan, or a terminal plan younger than `retention.actions_days`, cites is kept. `0` disables. Range 0-3650. |
 | `retention.findings_days` | `180` | Days to retain resolved findings |
-| `retention.actions_days` | `365` | Days to retain action log entries |
+| `retention.actions_days` | `365` | Days to retain action log entries; also plans in a terminal status (completed, reverted, rejected, voided, cancelled), counted from their last change. Open plans are kept. |
 | `retention.explains_days` | `90` | Days to retain EXPLAIN plan captures |
 | `retention.sage_size_warning_pct` | `10` | Raise a `sage_footprint` finding when pg_sage's own tables (the `sage` schema, with TOAST and indexes) exceed this percent of the database size; below 256 MB it is never a finding. `0` disables the check. With `history.store: meta` the snapshots and the query store are not in this schema. |
 
@@ -3965,6 +4017,13 @@ exactly as collected, through `sage.snapshot_data(data, base_id)`. Retention kee
 keyframe as long as a retained row is built on it, so the oldest kept rows can be up
 to 6 hours older than `snapshots_days`. Rows written by earlier versions stay readable
 and age out with `snapshots_days`; nothing is rewritten.
+
+The per-query rollup is measured, not estimated: at the default 500-query cap, 28 days of
+hourly rows (500 queryids x 24 hours x 28 days, 336,000 rows) with their 14,000 daily rows
+and 672 coverage rows take 75.9 MB (79,577,088 bytes, PostgreSQL 17, tables and indexes).
+The hourly rows dominate: the 35-day hourly tier is about 1.25 times that figure.
+`GET /api/v1/queries/coverage` reports each database's
+measured `rollup_bytes` (with `history.store: meta`, its share of the store's tables).
 
 > **Complete reference:** See `sidecar/config.example.yaml` for all
 > configuration fields including `safety`, `alerting`, `auto_explain`,

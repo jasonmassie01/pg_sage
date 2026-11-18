@@ -53,6 +53,24 @@ var workFamilies = []Family{
 		Help: "When the latest failed action was recorded (no sample: none has " +
 			"failed)",
 		Labels: []string{"database"}, Modes: AllModes, Unit: "seconds", Since: "v2.7.0"},
+	{Name: "pg_sage_inbox_items", Type: Gauge, Area: AreaActions,
+		Help: "Decisions waiting on a person by kind at the last complete fleet-wide " +
+			"inbox read (no sample before one; a read that missed a source is not recorded)",
+		Labels: []string{"kind"}, Modes: AllModes, Since: "v2.8.0"},
+	{Name: "pg_sage_outcomes_measured_ratio", Type: Gauge, Area: AreaActions,
+		Help: "Share of the last 24 hours' changes with a measured effect, per database, " +
+			"at the last complete outcome ledger read of that window (no sample before " +
+			"one, or when the window has no changes)",
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.8.0"},
+	{Name: "pg_sage_inbox_decision_seconds", Type: Histogram, Area: AreaActions,
+		Help: "Time from approval needed to decision, by inbox kind and the surface " +
+			"the decision came from (X-Sage-Surface: inbox, page, chat, api, cli)",
+		Labels: []string{"kind", "decided_from"}, Modes: AllModes, Unit: "seconds",
+		Since: "v2.8.0"},
+	{Name: "pg_sage_plan_approvals_total", Type: Counter, Area: AreaActions,
+		Help: "New plan approvals by the mode stored (all, up_to, step) since the " +
+			"process started; all and up_to approve multi-step work once",
+		Labels: []string{"mode"}, Modes: AllModes, Since: "v2.8.0"},
 	{Name: "pg_sage_actions_pending_approval", Type: Gauge, Area: AreaActions,
 		Help: "Pending approvals a person can act on now (past cooldown, not " +
 			"expired), by risk",
@@ -61,6 +79,15 @@ var workFamilies = []Family{
 		Help: "Actions that ended, by change class and outcome (success, failed, " +
 			"rolled_back, cancelled, unverifiable, other)",
 		Labels: []string{"database", "class", "outcome"}, Modes: AllModes, Since: "v2.7.0"},
+	{Name: "pg_sage_owner_brief_present", Type: Gauge, Area: AreaActions,
+		Help: "1 when the database has a confirmed owner brief (owner, peak windows, " +
+			"growth), else 0",
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.7.0"},
+	{Name: "pg_sage_owner_brief_steps", Type: Gauge, Area: AreaActions,
+		Help: "Accepted (approved or executed) and rejected queued actions since the " +
+			"owner brief was confirmed (after) and in as long before it (before); " +
+			"without a brief the split is 30 days ago",
+		Labels: []string{"database", "period", "outcome"}, Modes: AllModes, Since: "v2.7.0"},
 	{Name: "pg_sage_policy_parks_total", Type: Counter, Area: AreaActions,
 		Help: "Self-initiated changes the policy gate parked, by reason (one per " +
 			"evaluation)",

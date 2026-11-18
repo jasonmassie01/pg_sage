@@ -1,10 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useState } from 'react'
 import { SQLBlock } from '../../components/SQLBlock'
-import { useToast } from '../../components/Toast'
 import { HintPlanSection } from './HintPlanSection'
+import { LadderSection } from './LadderSection'
 import { ShadowHistory } from './ShadowHistory'
-import { blockerText, riskLabel } from './workflow'
+import { riskLabel } from './workflow'
+import { ApprovalActions } from './ApprovalActions'
+import { formatTime } from '../../lib/time'
+
+export { approvalOutcomeMessage } from './approvalOutcome'
 
 // ApprovalCard shows one queued action with the why (roadmap 1.5): what
 // pg_sage wants to do, why it needs a person, the cited evidence, the
@@ -16,8 +20,6 @@ import { blockerText, riskLabel } from './workflow'
 const RISK_COLORS = {
   safe: 'var(--green)', moderate: 'var(--yellow)', high: 'var(--red)', high_risk: 'var(--red)',
 }
-
-const SNOOZE_HOURS = [1, 4, 24, 72]
 
 function formatBytes(n) {
   if (!Number.isFinite(n)) return null
@@ -39,36 +41,6 @@ function expiresIn(expiresAt, now) {
   const hours = Math.floor(ms / 3600000)
   if (hours < 1) return `Expires in ${Math.floor(ms / 60000)}m`
   return `Expires in ${hours}h`
-}
-
-// approvalOutcomeMessage turns an approve response into a truthful
-// message: executed, approved but not run, or refused (and why).
-export function approvalOutcomeMessage(status, json) {
-  const body = json || {}
-  if (status >= 200 && status < 300 && body.status === 'scheduled') {
-    return { ok: true, text: 'Approved. Scheduled for the window opening ' +
-      (body.run_after_label || 'of the next maintenance window') +
-      '; pg_sage checks the policy again then. Cancel it under Pending.' }
-  }
-  if (status >= 200 && status < 300 && body.executed) {
-    return { ok: true, text: 'Approved and executed; verification: ' +
-      (body.verification_status || 'pending') }
-  }
-  if (status >= 200 && status < 300 && (body.execution_started === true || body.status === 'executing')) {
-    return { ok: true, text: 'Approval accepted; execution started. Completion and outcome verification are still pending.' }
-  }
-  if (status >= 200 && status < 300 && body.ok === true && body.executed == null) {
-    return { ok: true, text: 'Approval accepted. Execution has not been confirmed; check In progress and History for the recorded result.' }
-  }
-  if (status >= 200 && status < 300) {
-    return { ok: false, text: 'The action did not run: ' +
-      (body.error || 'execution was not confirmed') }
-  }
-  if (status === 409 && body.code === 'content_changed') {
-    return { ok: false, text: 'This action changed after this card was shown. ' +
-      'Reload and review it again.' }
-  }
-  return { ok: false, text: body.error || `Approve failed (${status})` }
 }
 
 function Section({ title, testId, children }) {
@@ -222,8 +194,10 @@ function RollbackSection({ rollback }) {
 
 // facts is an optional node (the binding facts about the card's targets)
 // shown under the why and trust lines.
+// surface names the page deciding (X-Sage-Surface, ux-01a); the Inbox passes 'inbox'.
+// actionsRef receives the decision verbs the approval list's keys call (ux-05a).
 export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedReason, mode,
-  windowOnly = false }) {
+  windowOnly = false, surface, actionsRef }) {
   const [now] = useState(() => Date.now())
   return (
     <div data-testid="approval-card" className="rounded p-4 space-y-3"
@@ -245,7 +219,7 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
       {card.snoozed_until && (
         <div data-testid="approval-snoozed-badge" className="text-xs"
           style={{ color: 'var(--text-secondary)' }}>
-          Snoozed until {new Date(card.snoozed_until).toLocaleString()}
+          Snoozed until {formatTime(card.snoozed_until)}
           {card.snooze_reason ? ` — ${card.snooze_reason}` : ''}
         </div>
       )}
@@ -255,6 +229,7 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
       {facts}
       <EvidenceSection evidence={card.evidence} />
       <HintPlanSection evidence={card.hint_evidence} />
+      <LadderSection ladder={card.ladder} note={card.ladder_note} />
       <RationaleSection rationale={card.rationale} />
       <PredictedSection predicted={card.predicted_effect} />
       <Section title="SQL" testId="approval-sql"><SQLBlock sql={card.sql} /></Section>
@@ -267,137 +242,9 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
         </p>
       </Section>
       <ShadowHistory history={card.shadow_history} />
-      <ApprovalActions card={card} onDecided={onDecided}
-        eligible={eligible} blockedReason={blockedReason} mode={mode} windowOnly={windowOnly} />
-    </div>
-  )
-}
-
-function decisionURL(card, verb) {
-  const db = card.database ? `?database=${encodeURIComponent(card.database)}` : ''
-  return `/api/v1/approvals/${card.queue_id}/${verb}${db}`
-}
-
-async function postDecision(card, verb, body) {
-  const res = await fetch(decisionURL(card, verb), {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  })
-  let json = {}
-  try {
-    json = await res.json()
-  } catch (err) {
-    json = { error: `unreadable response (${err.message})` }
-  }
-  return { status: res.status, json }
-}
-
-function ApprovalActions({ card, onDecided, eligible, blockedReason, mode: executionMode,
-  windowOnly }) {
-  const toast = useToast()
-  const [busy, setBusy] = useState(false)
-  const [mode, setMode] = useState(null)
-  const [reason, setReason] = useState('')
-  const [hours, setHours] = useState(4)
-  const [snoozeReason, setSnoozeReason] = useState('')
-  // policy-04: an approval only the maintenance window withholds is
-  // scheduled for the next opening.
-  const schedules = eligible === false && windowOnly && executionMode !== 'observation'
-  const blocked = executionMode === 'observation'
-    ? 'Database changes are disabled in Observation mode.'
-    : schedules ? 'Outside the maintenance window: approving schedules it for the next opening, and the policy is checked again then.'
-      : blockerText(blockedReason) || (eligible === false ? 'This action cannot run yet; eligibility reason unavailable.' : '')
-
-  async function run(verb, body, describe) {
-    setBusy(true)
-    try {
-      const { status, json } = await postDecision(card, verb, body)
-      const msg = describe(status, json)
-      if (msg.ok) toast.success(msg.text)
-      else toast.error(msg.text)
-    } catch (err) {
-      toast.error(`Request failed: ${err.message}`)
-    } finally {
-      setBusy(false)
-      setMode(null)
-      onDecided?.()
-    }
-  }
-
-  const simple = (done) => (status, json) => (status >= 200 && status < 300
-    ? { ok: true, text: done } : { ok: false, text: json.error || `Failed (${status})` })
-
-  return (
-    <div data-testid="approval-actions" className="space-y-2">
-      {blocked ? <p data-testid="approval-blocker" className="text-sm"
-        style={{ color: 'var(--yellow)' }}>{blocked}</p>
-        : <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-          Approve and run requests immediate execution of this SQL after current safety checks.
-          {eligible == null && ' Current eligibility is not available in this summary; the server will recheck it.'}
-        </p>}
-      <div className="flex flex-wrap gap-2">
-        <button data-testid="approval-approve"
-          disabled={busy || (eligible === false && !schedules) || executionMode === 'observation'}
-          onClick={() => run('approve', { card_hash: card.card_hash },
-            approvalOutcomeMessage)}
-          className="px-3 py-1 rounded text-sm"
-          style={{ background: 'var(--green)', color: '#fff', opacity: busy ? 0.5 : 1 }}>
-          {schedules ? 'Approve for the next window' : 'Approve and run'}
-        </button>
-        <button data-testid="approval-reject" disabled={busy}
-          onClick={() => setMode(mode === 'reject' ? null : 'reject')}
-          className="px-3 py-1 rounded text-sm"
-          style={{ background: 'var(--red)', color: '#fff', opacity: busy ? 0.5 : 1 }}>
-          Reject
-        </button>
-        <button data-testid="approval-snooze" disabled={busy}
-          onClick={() => setMode(mode === 'snooze' ? null : 'snooze')}
-          className="px-3 py-1 rounded text-sm"
-          style={{ border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
-          Snooze
-        </button>
-      </div>
-      {mode === 'reject' && (
-        <div className="flex flex-wrap gap-2 items-start">
-          <textarea data-testid="approval-reject-reason" value={reason}
-            onChange={e => setReason(e.target.value)} rows={2}
-            placeholder="Why not? (kept with the action; pg_sage will not run it unasked)"
-            className="flex-1 min-w-[16rem] p-2 rounded text-sm"
-            style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)',
-              color: 'var(--text-primary)' }} />
-          <button data-testid="approval-reject-confirm" disabled={busy || !reason.trim()}
-            onClick={() => run('reject', { reason: reason.trim(),
-              card_hash: card.card_hash }, simple(`Action ${card.queue_id} rejected`))}
-            className="px-3 py-1 rounded text-sm"
-            style={{ background: 'var(--red)', color: '#fff',
-              opacity: busy || !reason.trim() ? 0.5 : 1 }}>
-            Reject with reason
-          </button>
-        </div>
-      )}
-      {mode === 'snooze' && (
-        <div className="flex flex-wrap gap-2 items-center">
-          <select data-testid="approval-snooze-hours" value={hours}
-            onChange={e => setHours(Number(e.target.value))}
-            className="p-1 rounded text-sm"
-            style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)',
-              color: 'var(--text-primary)' }}>
-            {SNOOZE_HOURS.map(h => <option key={h} value={h}>{h}h</option>)}
-          </select>
-          <input data-testid="approval-snooze-reason" value={snoozeReason}
-            onChange={e => setSnoozeReason(e.target.value)} placeholder="Reason (optional)"
-            className="flex-1 min-w-[12rem] p-1 rounded text-sm"
-            style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)',
-              color: 'var(--text-primary)' }} />
-          <button data-testid="approval-snooze-confirm" disabled={busy}
-            onClick={() => run('snooze', { hours, reason: snoozeReason.trim() },
-              simple(`Snoozed for ${hours}h`))}
-            className="px-3 py-1 rounded text-sm"
-            style={{ border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
-            Snooze {hours}h
-          </button>
-        </div>
-      )}
+      <ApprovalActions card={card} onDecided={onDecided} surface={surface}
+        eligible={eligible} blockedReason={blockedReason} mode={mode} windowOnly={windowOnly}
+        actionsRef={actionsRef} />
     </div>
   )
 }

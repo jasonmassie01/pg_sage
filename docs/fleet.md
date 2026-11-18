@@ -325,6 +325,39 @@ Each database contributes at most its 500 newest open findings. A database
 with more is named in `truncated` and on the page as "counts may be low
 for", because a problem it shares may be among the findings not read.
 
+## Staged rollouts (fleet canary)
+
+A fix verified on one database can be rolled out to the others one database at a time
+through the fleet canary (`POST /api/v1/sre/autonomy/rollouts`, started by an admin). Each
+database is changed only where its own analyzer recommends the same statement, through its
+own approval path, and judged by a number: its effect on the target queries' blocks per call,
+net of the median change of the same queries on the databases not changed yet (the untreated
+controls, matched by normalized statement text), or its own verification v2 effect when fewer
+than two controls can be measured. The rollout halts and rolls back newest first when that
+effect is above `sre.autonomy.canary.regression_limit_pct` (default 10), and waits
+`sre.autonomy.canary.stage_wait_hours` (default 24) after each database's verdict before the
+next. A database with no v2 number is judged by its verdict flag only, said so in its record.
+The full behaviour and the stored records are in
+[configuration.md](configuration.md#sage-sre-earned-autonomy).
+
+```yaml
+sre:
+  autonomy:
+    canary:
+      canary_instances: 1
+      regression_limit_pct: 10
+      stage_wait_hours: 24   # 168 covers a full weekly cycle
+```
+
+## Finding a database
+
+The Databases page has a filter above its table: it matches a name, a host
+or a tag (`key`, `value` or `key=value`), ignoring case and treating every
+character literally, and shows at most 100 rows at a time. From six
+databases the header scope picker adds a **Find database** box over the same
+names: typing narrows the list, and a unique exact name, or Enter on a single
+match, selects it.
+
 ## API routes
 
 All three routes need a session with the viewer, operator or admin role.

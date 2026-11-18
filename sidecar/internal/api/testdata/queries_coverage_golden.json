@@ -1,0 +1,20 @@
+{
+  "database": "testdb",
+  "since": "2021-05-01T00:00:00Z",
+  "until": "2021-05-29T00:00:00Z",
+  "databases": [
+    {
+      "database": "testdb",
+      "status": "ok",
+      "covered_exec_share": 0.87,
+      "epoch_breaks": 3,
+      "hours": 667,
+      "hours_missing": 5,
+      "dealloc_growth": 667,
+      "epoch_source_counters_only_hours": 2,
+      "oldest_hour": "2021-05-01T00:00:00Z",
+      "oldest_day": "2021-05-01",
+      "rollup_bytes": 229376
+    }
+  ]
+}

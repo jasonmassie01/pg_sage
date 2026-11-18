@@ -8,6 +8,7 @@ import { ChannelForm } from './ChannelForm'
 import { CallbackInfo } from './CallbackInfo'
 import { ChatIdentities } from './ChatIdentities'
 import { CHANNELS_URL, needsCallback } from './channelConfig'
+import { formatTime } from '../../lib/time'
 
 // The Channels tab (alerting-10): add and edit channels of every type,
 // ChatOps settings included, see each channel's last delivery, and link
@@ -155,7 +156,7 @@ function LastDelivery({ ch }) {
     <span data-testid="channel-last-delivery" title={ch.last_error || undefined}>
       <span style={{ color }}>{ch.last_status}</span>{' '}
       <span style={{ color: 'var(--text-secondary)' }}>
-        {new Date(ch.last_sent_at).toLocaleString()}
+        {formatTime(ch.last_sent_at)}
       </span>
       {ch.last_error && (
         <span className="block text-xs truncate max-w-xs" style={{ color: 'var(--red)' }}>

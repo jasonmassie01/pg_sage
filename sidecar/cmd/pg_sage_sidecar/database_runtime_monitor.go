@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/forecaster"
+	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/tuning"
 	"github.com/pg-sage/sidecar/internal/verify"
@@ -18,9 +19,7 @@ import (
 // optional analysis feature, then the notification and alerting paths.
 // The analyzer is fully configured before its goroutine starts (G2-B15).
 func (rt *databaseRuntime) startMonitoring() {
-	rt.collector = rt.newCollector()
-	rt.start(func() { rt.collector.Run(rt.ctx) })
-	rt.note("collector")
+	rt.startCollector()
 	rt.startAutoExplain()
 	rt.joinInstanceOwner()
 	// Interfaces stay true nils when a feature is off (no typed nils).
@@ -96,6 +95,18 @@ func (rt *databaseRuntime) attachAnalyzerInputs() {
 // both default on, but run only with a usable LLM. The open index
 // verifications' targets are pinned (collection-07): sampled whatever
 // their rank, so an index that made its query cheap is still measured.
+// startCollector builds and starts the collector and, beside it, the
+// hourly per-query rollup (evid-01a), which writes only sage history and
+// stops with the runtime.
+func (rt *databaseRuntime) startCollector() {
+	rt.collector = rt.newCollector()
+	rt.start(func() { rt.collector.Run(rt.ctx) })
+	rt.note("collector")
+	rollup := &querystore.RollupWorker{Store: rt.spec.Pool, Database: rt.spec.Name,
+		Log: logStructuredWrapper}
+	rt.start(func() { rollup.Run(rt.ctx) })
+}
+
 func (rt *databaseRuntime) newCollector() *collector.Collector {
 	result := collector.New(
 		rt.spec.Pool, rt.cfg, rt.pgVersion(), logStructuredWrapper,

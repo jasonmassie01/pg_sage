@@ -11,6 +11,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/inbox"
 )
 
 // Binding facts (roadmap 2.3). GET /api/v1/facts lists a database's facts
@@ -53,6 +54,7 @@ func registerFactRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 	for _, verb := range []string{"confirm", "reject", "expire"} {
 		routeDB(mux, "POST /api/v1/facts/{id}/"+verb, gateOperator, factDB, h.decide(verb))
 	}
+	registerFactPeakRoute(mux, mgr)
 }
 
 // factView is a fact as served: with its database, its words and who
@@ -181,6 +183,9 @@ func (h factHandlers) decide(verb string) http.HandlerFunc {
 		if err != nil {
 			writeFactError(w, r, err)
 			return
+		}
+		if verb != "expire" {
+			recordDecision(r, inbox.KindFact, f.CreatedAt)
 		}
 		jsonResponse(w, map[string]any{"fact": viewOf(inst.Name, f)})
 	}

@@ -22,6 +22,22 @@ type HostGuardReader interface {
 	HostWithhold(context.Context) []string
 }
 
+// HostWithhold is the installed host guard's reasons to wait now (none
+// without a guard): the weekly verifier back-test skips a database under
+// it, as heavy maintenance does.
+func (e *Executor) HostWithhold(ctx context.Context) []string {
+	if e == nil {
+		return nil
+	}
+	e.policyMu.RLock()
+	reader := e.hostCPU
+	e.policyMu.RUnlock()
+	if guard, ok := reader.(HostGuardReader); ok {
+		return guard.HostWithhold(ctx)
+	}
+	return nil
+}
+
 // IOEvidenceReader supplies pg-side IO rates and the learned baseline.
 type IOEvidenceReader interface {
 	IOEvidence(context.Context) (verify.IOEvidence, error)

@@ -7,8 +7,10 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/ask"
+	"github.com/pg-sage/sidecar/internal/changeplan"
 	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/migration"
+	"github.com/pg-sage/sidecar/internal/outcomes"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -59,8 +61,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeSREInvestigationMetrics(&b, views)
 	writeMigrationEnrichMetrics(&b, migration.EnrichDroppedCounts())
 	writeAuditHealthFamilies(&b)
-	writeAskMetrics(&b, ask.AnswerCounts())
-	writeAskRunMetrics(&b, ask.ActiveRuns(), ask.RunCounts())
+	writeAskAndInboxMetrics(&b)
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if _, err := fmt.Fprint(w, b.String()); err != nil {
@@ -109,4 +110,15 @@ func writeFleetMetrics(b *strings.Builder) {
 	metricsreg.Header(b, "pg_sage_fleet_findings_critical")
 	fmt.Fprintf(b, "pg_sage_fleet_findings_critical %d\n\n",
 		status.Summary.TotalCritical)
+}
+
+// writeAskAndInboxMetrics renders Ask Sage's answers and runs, the inbox,
+// the outcome ledger and plan approvals, the in-process families of the
+// people-facing surfaces.
+func writeAskAndInboxMetrics(b *strings.Builder) {
+	writeAskMetrics(b, ask.AnswerCounts())
+	writeAskRunMetrics(b, ask.ActiveRuns(), ask.RunCounts())
+	writeInboxMetrics(b)
+	writeOutcomesMetrics(b, outcomes.MeasuredRatios())
+	writePlanApprovalMetrics(b, changeplan.ApprovalCounts())
 }

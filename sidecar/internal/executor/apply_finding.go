@@ -42,6 +42,9 @@ func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
 	} else if n > 0 {
 		e.logFn("executor", "superseded %d queued proposal(s) whose reason is gone", n)
 	}
+	if err := e.settleKeptExpired(ctx); err != nil {
+		e.logFn("executor", "%v", err)
+	}
 	// Scheduled approvals are people's decisions: they run in every mode,
 	// and the gate re-checks each one (executor-disabled included).
 	if !isReplica {
@@ -113,15 +116,15 @@ func (e *Executor) processFinding(
 // gateFinding is f as the gate, the shadow and the queue must all see it:
 // with its open finding's current evidence (the revision's is immutable),
 // and marked approval_required when its VACUUM targets a partitioned
-// parent (vacuum-01). ok is false for a stale VACUUM finding whose table
-// no longer exists.
+// parent (vacuum-01) or its step cannot be verified (lab-01c). ok is
+// false for a stale VACUUM finding whose table no longer exists.
 func (e *Executor) gateFinding(
 	ctx context.Context, f analyzer.Finding, findingID int64,
 	cand *recommendation.Candidate,
 ) (analyzer.Finding, bool) {
 	f = e.currentGateEvidence(ctx, f, findingID, cand)
 	f, stale := e.guardVacuumTarget(ctx, f)
-	return f, !stale
+	return e.guardUnverifiable(ctx, f), !stale
 }
 
 // withheldBeforeGate reports the read-only skips after the finding lookup:

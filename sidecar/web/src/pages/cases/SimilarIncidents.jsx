@@ -1,4 +1,5 @@
 import { useAPI } from '../../hooks/useAPI'
+import { formatTime } from '../../lib/time'
 
 // Incident memory in the Cases panel (AI-SRE-SPEC §4 R2): similar past
 // incidents of the same database with their operator-verified outcomes.
@@ -32,7 +33,7 @@ export function SimilarIncidents({ database, investigationId }) {
         {items.map(s => (
           <li key={s.investigation_id} data-testid={`similar-${s.investigation_id}`}>
             {s.family || s.trigger_kind} ({s.state}
-            {s.concluded_at ? `, ${new Date(s.concluded_at).toLocaleString()}` : ''}):
+            {s.concluded_at ? `, ${formatTime(s.concluded_at)}` : ''}):
             {' '}root {s.root || 'none'}; open {(s.open || []).join(', ') || 'none'};
             {' '}overlap {Number(s.score).toFixed(2)}; {outcomeText(s.outcome)}
           </li>

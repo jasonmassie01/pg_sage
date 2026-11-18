@@ -254,7 +254,9 @@ func seedGoldenFixture(t *testing.T, ctx context.Context) {
 // probes' display SQL (playbooks-04), timestamps are UTC. cases-10
 // regenerated it: the fixture's evidence (January 2026) is past every
 // candidate's expires_at, so each candidate is blocked evidence_expired;
-// the policy's own reason stays in policy_decision.
+// the policy's own reason stays in policy_decision. lab-03a regenerated it:
+// the unused-index drop has no clone rehearsal, so the policy queues it for
+// approval (the verification ladder's entry rule).
 func TestCasesHandlerGoldenResponse(t *testing.T) {
 	pool, ctx := phase2RequireDB(t)
 	resetCaseTables(t, ctx)

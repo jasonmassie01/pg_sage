@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { TabList, TabPanel } from '../components/Tabs'
 import { combineQueries } from '../lib/queryState'
 import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
 import { RecommendationsTab } from './actions/RecommendationsTab'
 import { DecisionsTab } from './actions/DecisionsTab'
 import { ManagedChanges } from './actions/ManagedChanges'
-import { actionFocusID } from './actions/actionFocus'
+import { actionFocusID, actionTabParam, queueFocusID } from './actions/actionFocus'
 import { ActionFocusNotice } from './actions/ActionFocusNotice'
 import { caseHref, inProgress } from './actions/workflow'
 import { actionCaseScope } from './actions/actionFormat'
 import { useActionsData } from './actions/useActionsData'
 import { ExecutedTab } from './actions/ExecutedList'
 import { PendingTab } from './actions/PendingList'
+import { PlansTab } from './actions/PlansTab'
+import { planParam } from './actions/plans'
+import { landingTab, pendingCountState } from './actions/landingTab'
 
 // The Actions page shell: the scope header, the tab bar and the tab bodies.
 // The lists, their rows and their data live in pages/actions/ (dashboard-31).
@@ -23,16 +27,39 @@ const FLEET_NOTE = ' Stored recommendations require a single database; '
 const VIEWER_NOTE = ' Your role can inspect changes; '
   + 'approval requests are available to operators and admins.'
 
+// linkedTab is the link's tab= (ux-01b), else Plans for a plan= link
+// (ux-03), else ''.
+const linkedTab = () => actionTabParam() || (planParam() ? 'plans' : '')
+
+// initialTab: an executed-record focus picks its own tab (null), else the
+// link's tab, else '' until the landing tab is known (ux-05a).
+const initialTab = () => (actionFocusID() ? null : linkedTab())
+
 function useActionsNav() {
-  const [tab, setTab] = useState(() => (actionFocusID() ? null : 'recommendations'))
+  const [tab, setTab] = useState(initialTab)
   const [caseScope, setCaseScope] = useState(actionCaseScope)
   const [actionFocus, setActionFocus] = useState(actionFocusID)
+  const [queueFocus, setQueueFocus] = useState(queueFocusID)
   useEffect(() => {
-    const changed = () => { setCaseScope(actionCaseScope()); setActionFocus(actionFocusID()) }
+    const changed = () => {
+      setCaseScope(actionCaseScope())
+      setActionFocus(actionFocusID())
+      setQueueFocus(queueFocusID())
+      if (linkedTab()) setTab(linkedTab())
+    }
     window.addEventListener('hashchange', changed)
     return () => window.removeEventListener('hashchange', changed)
   }, [])
-  return { tab, setTab, caseScope, setCaseScope, actionFocus, setActionFocus }
+  return { tab, setTab, caseScope, setCaseScope, actionFocus, setActionFocus, queueFocus }
+}
+
+// useLandingTab settles a tab no link chose once the approval count is known:
+// Needs your review when approvals wait, else Proposed changes. It is set
+// once, so a count that later changes never moves the page (ux-05a win 1).
+function useLandingTab(nav, canReview, d) {
+  const landing = landingTab({ canReview, ...pendingCountState(d.q, d.pendingTotal) })
+  if (nav.tab === '' && landing.tab) nav.setTab(landing.tab)
+  return landing
 }
 
 export function Actions({ database, user, fleetData }) {
@@ -40,13 +67,17 @@ export function Actions({ database, user, fleetData }) {
   const canReview = user?.role === 'admin' || user?.role === 'operator'
   const d = useActionsData({ database, canReview, caseScope: nav.caseScope,
     actionFocus: nav.actionFocus })
+  const landing = useLandingTab(nav, canReview, d)
   const focusRow = d.ledger.focusRow
-  const chosenTab = nav.tab ?? (focusRow && inProgress(focusRow) ? 'progress' : 'executed')
+  const chosenTab = nav.tab === null
+    ? (focusRow && inProgress(focusRow) ? 'progress' : 'executed')
+    : nav.tab || 'recommendations'
   const activeTab = canReview || (chosenTab !== 'pending' && chosenTab !== 'decisions')
     ? chosenTab : 'recommendations'
   const modeForDatabase = db =>
     fleetData?.databases?.find(x => x.name === db)?.status?.trust_level || null
-  const ctx = { d, database, user, canReview, modeForDatabase, setTab: nav.setTab }
+  const ctx = { d, database, user, canReview, modeForDatabase, setTab: nav.setTab,
+    queueFocus: nav.queueFocus }
   return (
     <div className="space-y-4" data-testid="actions-page">
       <p className="text-sm" data-testid="actions-page-description"
@@ -67,8 +98,14 @@ export function Actions({ database, user, fleetData }) {
         Review Cases and proposed changes; no database changes will run in this mode.
       </p>}
       <TabBar tab={activeTab} setTab={nav.setTab} counts={d.counts} canReview={canReview} />
-      {(activeTab === 'recommendations' || activeTab === 'pending') && <NotTimeScoped />}
-      <TabBody tab={activeTab} ctx={ctx} />
+      <TabPanel id="actions" active={activeTab} className="space-y-4">
+        {activeTab === 'recommendations' && landing.error && <div
+          data-testid="actions-landing-error"><ErrorBanner onRetry={d.refreshAll}
+            message={`Approvals waiting for you could not be counted: ${landing.error}. `
+              + 'Needs your review shows what did load.'} /></div>}
+        {(activeTab === 'recommendations' || activeTab === 'pending') && <NotTimeScoped />}
+        <TabBody tab={activeTab} ctx={ctx} />
+      </TabPanel>
       <SafetyDetails database={database} />
     </div>
   )
@@ -113,21 +150,19 @@ function NotTimeScoped() {
 }
 
 function TabBar({ tab, setTab, counts, canReview }) {
-  const tabs = [{ key: 'recommendations', label: 'Proposed changes' }]
+  const tabs = [{ key: 'plans', label: 'Plans' },
+    { key: 'recommendations', label: 'Proposed changes' }]
   if (canReview) tabs.push({ key: 'pending', label: 'Needs your review' })
   tabs.push({ key: 'progress', label: 'In progress' }, { key: 'executed', label: 'History' })
-  if (canReview) tabs.push({ key: 'decisions', label: 'Decisions' })
-  return <div className="flex flex-wrap gap-2" role="tablist" aria-label="Change tasks">
-    {tabs.map(t => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
-      onClick={() => setTab(t.key)} data-testid={`actions-tab-${t.key}`}
-      className="px-3 py-1.5 rounded text-sm" style={{
-        background: tab === t.key ? 'var(--accent)' : 'var(--bg-card)',
-        color: tab === t.key ? '#fff' : 'var(--text-secondary)',
-        border: '1px solid var(--border)' }}>
-      {t.label} {counts[t.key] !== undefined && <span className="ml-1.5"
-        aria-label={`${counts[t.key]} loaded items`}>({counts[t.key]})</span>}
-    </button>)}
-  </div>
+  if (canReview) tabs.push({ key: 'decisions', label: 'Held back' })
+  const labelled = tabs.map(t => ({ ...t, testId: `actions-tab-${t.key}`,
+    label: <>{t.label} {counts[t.key] !== undefined && <span className="ml-1.5"
+      aria-label={`${counts[t.key]} loaded items`}>({counts[t.key]})</span>}</> }))
+  return <TabList id="actions" label="Change tasks" tabs={labelled} active={tab}
+    onSelect={setTab} tabStyle={selected => ({
+      background: selected ? 'var(--accent)' : 'var(--bg-card)',
+      color: selected ? '#fff' : 'var(--text-secondary)',
+      border: '1px solid var(--border)' })} />
 }
 
 function managedResponse(d) {
@@ -135,7 +170,7 @@ function managedResponse(d) {
 }
 
 function TabBody({ tab, ctx }) {
-  const { d, database, canReview, modeForDatabase, setTab } = ctx
+  const { d, database, canReview, modeForDatabase, setTab, queueFocus } = ctx
   const { caseData, recommendations } = d.q
   if (tab === 'recommendations') {
     return <RecommendationsTab database={database} items={d.proposals}
@@ -148,11 +183,13 @@ function TabBody({ tab, ctx }) {
       <ManagedChanges database={database} canDecide={canReview} response={managedResponse(d)}
         statuses={['pending']} />
       <PendingTab data={d.pendingData} query={{ ...d.q.pending, refetch: d.refreshAll }}
-        cards={d.cards} cases={d.cases} database={database} modeForDatabase={modeForDatabase} />
+        cards={d.cards} cases={d.cases} database={database} modeForDatabase={modeForDatabase}
+        queueFocus={queueFocus} />
     </>
   }
   if (tab === 'progress' || tab === 'executed') return <LedgerTab key={tab} tab={tab} ctx={ctx} />
   if (tab === 'decisions') return <DecisionsTab database={database} />
+  if (tab === 'plans') return <PlansTab database={database} canReview={canReview} />
   return null
 }
 

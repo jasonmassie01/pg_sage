@@ -24,10 +24,12 @@ export function executedRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
-// The body RollbackControl.postRollback sends today (dashboard-10 kept it
-// unchanged from the window.confirm flow); rollbackActionHandler reads
-// "reason" and the ledger kind guard reads "record_kind".
-export const rollbackBody = { reason: 'manual rollback from actions UI', record_kind: 'executed' }
+// The body RollbackControl.postRollback sends: since ux-01b the reason is
+// the one the operator types (required, 3 to 500 characters) instead of a
+// fixed string; rollbackActionHandler reads "reason" and the ledger kind
+// guard reads "record_kind".
+export const rollbackReason = 'checkout writes slowed down'
+export const rollbackBody = { reason: rollbackReason, record_kind: 'executed' }
 
 /* ---------- Scheduled approvals (GET /api/v1/actions/pending) ---------- */
 
@@ -107,6 +109,23 @@ export async function routeActions(page: Page, state: ActionsState) {
   return posts
 }
 
+/* ---------- Approval cards (GET /api/v1/approvals) ---------- */
+
+// routeApprovalCards answers the Needs your review card list with one card
+// per queue id, in the approvals list shape (cards, total, errors).
+export async function routeApprovalCards(page: Page, ids: number[]) {
+  const cards = ids.map(id => ({
+    queue_id: id, database: 'orders', title: `Approval card ${id}`,
+    action_type: 'create_index', status: 'pending', targets: ['public.t'], evidence: [],
+    predicted_effect: {}, sql: 'CREATE INDEX CONCURRENTLY i ON public.t (c)',
+    rollback: { class: 'drop_index', sql: 'DROP INDEX CONCURRENTLY IF EXISTS i' },
+    risk: { tier: 'moderate', guardrails: [], post_checks: [] }, why_approval: [],
+    expires_at: '2030-01-01T00:00:00Z', card_hash: `h${id}`,
+  }))
+  await page.route(url => url.pathname === '/api/v1/approvals', route =>
+    route.fulfill({ json: { cards, total: cards.length, errors: [] } }))
+}
+
 /* ---------- Decisions (GET /api/v1/decisions) ---------- */
 
 // budgetPark copies the entry TestDecisionsListsEntriesWithHumanReason
@@ -125,6 +144,14 @@ export const windowBlock = {
   ...budgetPark, decision_id: 8, candidate_key: 'ck_8', verdict: 'blocked',
   reason: 'outside_maintenance_window', human_reason: 'outside maintenance window',
   budget_detail: undefined, repeat_count: 1, queue_id: 9,
+}
+
+// queuedDecision is a decision the gate sent to a person (ux-05b): its
+// queue_id names the approval request its Held back link focuses.
+export const queuedDecision = {
+  ...budgetPark, decision_id: 10, candidate_key: 'ck_10', verdict: 'queue_approval',
+  reason: 'approval_required', human_reason: 'approval required', budget_detail: undefined,
+  repeat_count: 1, queue_id: 41,
 }
 
 export function decisionsBody(decisions: unknown[]) {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { formatTime } from '../../lib/time'
 import {
   actionCaseScope, actionRisk, actionRowKey, actionStatus, formatActionTime,
   lifecycleStatus, rollbackClassLabel, verificationStatus,
@@ -39,16 +40,16 @@ describe('actionRisk', () => {
 describe('verificationStatus', () => {
   it.each([
     ['improved verdict', { verification_outcome: { verdict: 'improved' } }, 'Improved'],
-    ['neutral verdict', { verification_outcome: { verdict: 'neutral' } }, 'Neutral'],
+    ['neutral verdict', { verification_outcome: { verdict: 'neutral' } }, 'No change'],
     ['regressed verdict', { verification_outcome: { verdict: 'regressed' } }, 'Regressed'],
     ['insufficient evidence',
-      { verification_outcome: { verdict: 'insufficient_evidence' } }, 'Insufficient evidence'],
+      { verification_outcome: { verdict: 'insufficient_evidence' } }, 'Inconclusive'],
     ['unverifiable', { verification_outcome: { verdict: 'unverifiable' } }, 'Unverifiable'],
     ['pending verdict', { verification_outcome: { verdict: 'pending' } }, 'Verifying'],
     ['unknown verdict', { verification_outcome: { verdict: 'odd' } }, 'odd'],
     ['empty verdict', { verification_outcome: { verdict: '' } }, 'Unknown'],
     ['outcome beats status',
-      { verification_outcome: { verdict: 'neutral' }, verification_status: 'verified' }, 'Neutral'],
+      { verification_outcome: { verdict: 'neutral' }, verification_status: 'verified' }, 'No change'],
     ['status without outcome', { verification_status: 'verified' }, 'verified'],
     ['null outcome uses status', { verification_outcome: null, verification_status: 'x' }, 'x'],
     ['empty status', { verification_status: '' }, 'not_started'],
@@ -86,11 +87,11 @@ describe('rollbackClassLabel', () => {
 })
 
 describe('formatActionTime', () => {
-  it('formats a valid timestamp in the local locale', () => {
+  it('formats a valid timestamp with its zone (ux-05d)', () => {
     const value = '2026-10-03T11:00:00Z'
     const got = formatActionTime(value)
-    expect(got).toBe(new Date(value).toLocaleString())
-    expect(got).not.toBe('')
+    expect(got).toBe(formatTime(value))
+    expect(got).toMatch(/^2026-10-0[23] \d{2}:00 \S+$/)
   })
 
   it.each([
@@ -107,7 +108,8 @@ describe('formatActionTime', () => {
   })
 
   it('accepts a numeric epoch other than zero', () => {
-    expect(formatActionTime(1000)).toBe(new Date(1000).toLocaleString())
+    expect(formatActionTime(1000)).toBe(formatTime(1000))
+    expect(formatActionTime(1000)).toMatch(/^19(69|70)-/)
   })
 })
 

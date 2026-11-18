@@ -120,7 +120,7 @@ func (e *Executor) revertReadiness(
 			DeferReason: "the action this revert item reverts is gone"}
 	}
 	outcome, _, err := e.revertState(ctx, actionID)
-	readiness := lifecycleReadiness(action, now, err == nil && outcome == "rollback_skipped")
+	readiness := lifecycleReadiness(action, now, err == nil && revertWithheld(outcome))
 	if !readiness.Eligible {
 		return readiness
 	}
@@ -142,7 +142,7 @@ func (e *Executor) runApprovedRevert(
 	if err != nil {
 		return ApprovedRun{}, err
 	}
-	if outcome != "rollback_skipped" {
+	if !revertWithheld(outcome) {
 		return ApprovedRun{}, fmt.Errorf("action %d is %s; its revert is no longer withheld",
 			actionID, outcome)
 	}
@@ -173,5 +173,12 @@ const supersedeSettledRevertsSQL = `/* pg_sage executor */ UPDATE sage.action_qu
 	FROM sage.action_log al
 	WHERE q.status = 'pending' AND q.action_type = '` + ActionTypeRevertAction + `'
 	  AND q.reverts_action_id = al.id
-	  AND al.outcome <> 'rollback_skipped'
+	  AND al.outcome NOT IN ('rollback_skipped', 'verification_expired')
 	RETURNING q.id`
+
+// revertWithheld reports an action whose revert item is still open: its
+// automatic rollback was withheld, or its verification expired unjudged
+// and verify.on_expired asked a person (lab-01c).
+func revertWithheld(outcome string) bool {
+	return outcome == "rollback_skipped" || outcome == "verification_expired"
+}

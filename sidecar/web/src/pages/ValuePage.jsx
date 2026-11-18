@@ -53,6 +53,15 @@ function EmptyState() {
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
           Verified successful actions earn credit once their outcome is proven.
         </p>
+        <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          The first credit comes from the first verified change: an action
+          pg_sage ran, with your approval or within its trust level, whose
+          outcome it then measured and verified.
+        </p>
+        <a href="#/" className="mt-3 inline-block text-sm underline"
+          style={{ color: 'var(--accent)' }}>
+          Start with the first look
+        </a>
       </div>
       <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
         No pending potential savings.
@@ -206,12 +215,12 @@ function IncidentsAvoided({ incidents }) {
                 style={{ color: 'var(--text-secondary)' }}>
                 {humanize(item.severity)}
               </span>
-              {/* No ledger route exists yet, so show the id for lookup
-                  (MCP get_ledger) instead of a dead link (SURF-14). */}
-              <span className="ml-3 text-xs font-mono"
+              {/* The outcome ledger lists the changes this evidence cites. */}
+              <a className="ml-3 text-xs font-mono underline"
+                href={`#/ledger?evidence=${encodeURIComponent(item.evidence_id)}`}
                 style={{ color: 'var(--text-secondary)' }}>
                 Evidence {item.evidence_id}
-              </span>
+              </a>
             </li>
           ))}
         </ul>

@@ -3,6 +3,7 @@ import { QueryState } from '../components/QueryState'
 import { SQLBlock } from '../components/SQLBlock'
 import { QueryCallSite } from './QueryCallSite'
 import { queryDetailParams } from '../lib/workload'
+import { formatTime } from '../lib/time'
 
 // QueryDetailPage: one statement of the workload explorer (market-01):
 // its history from the query store, one marker per plan change, the
@@ -42,7 +43,7 @@ function History({ data }) {
       <tbody>
         {data.buckets.map(b => (
           <tr key={b.start} className="border-t" style={{ borderColor: 'var(--border)' }}>
-            <td>{new Date(b.start).toLocaleString()}</td>
+            <td>{formatTime(b.start)}</td>
             <td className="text-right">{number.format(b.calls)}</td>
             <td className="text-right">{number.format(b.mean_time_ms)} ms</td>
             <td className="text-right">{number.format(b.rows)}</td>
@@ -55,7 +56,7 @@ function History({ data }) {
           {[...changes.values()].map(c => (
             <tr key={c.at} data-testid="plan-change">
               <td colSpan={5} className="pt-1" style={{ color: 'var(--yellow)' }}>
-                Plan changed at {new Date(c.at).toLocaleString()}: {c.from} → {c.to}
+                Plan changed at {formatTime(c.at)}: {c.from} → {c.to}
               </td>
             </tr>
           ))}

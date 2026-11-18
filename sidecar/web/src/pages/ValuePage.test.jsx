@@ -130,10 +130,10 @@ describe('ValuePage', () => {
     expect(within(incidents).getByText(/near miss/i)).toBeInTheDocument()
     expect(incidents).toHaveTextContent(/credited separately/i)
 
-    // SURF-14: there is no ledger route, so no dead link; the evidence
-    // id is shown for lookup via MCP get_ledger.
-    expect(within(incidents).queryByRole('link')).toBeNull()
-    expect(within(incidents).getByText(/ev-xid-7/)).toBeInTheDocument()
+    // ux-02a: the outcome ledger route exists, so the evidence id links
+    // to the ledger rows that cite it (SURF-14 showed it as plain text).
+    expect(within(incidents).getByRole('link', { name: /ev-xid-7/ }))
+      .toHaveAttribute('href', '#/ledger?evidence=ev-xid-7')
   })
 
   it('renders an accessible loading state', () => {
@@ -184,6 +184,28 @@ describe('ValuePage', () => {
       .toBeInTheDocument()
     expect(screen.getByText(/no pending potential savings/i))
       .toBeInTheDocument()
+  })
+
+  // ux-05c: the empty state says what earns the first credit and where to start.
+  it('names the first verified change and links to the first look when empty', () => {
+    api.useAPI.mockReturnValue(response({ data: {} }))
+
+    render(<ValuePage database="orders" />)
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent(/first credit comes from the first verified change/i)
+    // Auto-run actions within the trust level earn credit too, not only approved ones.
+    expect(status).toHaveTextContent(/with your approval or within its trust level/i)
+    const link = within(status).getByRole('link', { name: 'Start with the first look' })
+    expect(link).toHaveAttribute('href', '#/')
+  })
+
+  it('drops the first-credit hint once value has been credited', () => {
+    render(<ValuePage database="all" />)
+
+    expect(screen.queryByRole('link', { name: 'Start with the first look' }))
+      .not.toBeInTheDocument()
+    expect(screen.queryByText(/first verified change/i)).not.toBeInTheDocument()
   })
 
   it('propagates the selected fleet database to the value endpoint', () => {

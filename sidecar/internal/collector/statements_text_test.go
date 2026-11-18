@@ -78,12 +78,20 @@ func (f *fakeStatements) candidates(ids ...int64) {
 	}
 }
 
+// The database's statement totals every counters row carries (evid-01a).
+const (
+	counterTotalsExecMs  = 5000.5
+	counterTotalsCalls   = int64(321)
+	counterTotalsEntries = 17
+)
+
 // counterRow is one row of the base counters read (no WAL, no plan time),
 // admitted by the total ranking (collection-07 added the admitted_by
-// column).
+// column, evid-01a the three statement totals before it).
 func counterRow(id int64, total float64) []any {
 	return []any{id, int64(10), total, total / 10, 0.5, total / 2, 1.5, int64(7),
 		int64(1), int64(2), int64(3), int64(4), int64(5), int64(6), 0.75, 0.25,
+		counterTotalsExecMs, counterTotalsCalls, counterTotalsEntries,
 		[]string{"total"}}
 }
 

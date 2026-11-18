@@ -106,12 +106,15 @@ func (s *OutcomeStore) storedPrediction(ctx context.Context, actionID int64) (
 
 const upsertVerdictSQL = `/* pg_sage */ INSERT INTO sage.action_outcome
 	(action_log_id, database_id, action_class, predicted, prediction_method, verdict,
-	 tolerance, observed, evidence, reason, window_start, window_end, decided_at)
+	 tolerance, observed, evidence, reason, window_start, window_end, decided_at,
+	 verifier, other_verdict, other_evidence)
 	SELECT id, database_id, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11,
-	       now()
+	       now(), $12, NULLIF($13, ''), $14::jsonb
 	  FROM sage.action_log WHERE id = $1
 	ON CONFLICT (action_log_id) DO UPDATE SET
 	  verdict = EXCLUDED.verdict, tolerance = EXCLUDED.tolerance,
+	  verifier = EXCLUDED.verifier, other_verdict = EXCLUDED.other_verdict,
+	  other_evidence = EXCLUDED.other_evidence,
 	  observed = EXCLUDED.observed, evidence = EXCLUDED.evidence,
 	  reason = EXCLUDED.reason, window_start = EXCLUDED.window_start,
 	  window_end = EXCLUDED.window_end, decided_at = now()`
@@ -133,9 +136,13 @@ func (s *OutcomeStore) upsertVerdict(ctx context.Context, o Outcome) error {
 	if err != nil {
 		return fmt.Errorf("encode evidence for action %d: %w", o.ActionLogID, err)
 	}
+	verifier, other, err := verifierColumns(o)
+	if err != nil {
+		return err
+	}
 	tag, err := s.db.Exec(ctx, upsertVerdictSQL, o.ActionLogID, o.Class, predicted,
 		methodOf(o.Predicted), o.Verdict, o.Tolerance, observed, ev, o.Reason,
-		o.WindowStart, o.WindowEnd)
+		o.WindowStart, o.WindowEnd, verifier, o.OtherVerdict, other)
 	if err != nil {
 		return fmt.Errorf("record verdict for action %d: %w", o.ActionLogID, err)
 	}
@@ -161,7 +168,8 @@ func methodOf(p Prediction) string {
 }
 
 const outcomeColumns = `action_log_id, database_id, action_class, verdict, tolerance,
-	predicted, observed, evidence, reason, window_start, window_end, created_at, decided_at`
+	predicted, observed, evidence, reason, window_start, window_end, created_at, decided_at,
+	verifier, COALESCE(other_verdict, ''), other_evidence`
 
 // Get reads one action's outcome.
 func (s *OutcomeStore) Get(ctx context.Context, actionID int64) (Outcome, error) {
@@ -226,12 +234,15 @@ type outcomeScanner interface{ Scan(...any) error }
 
 func scanOutcome(row outcomeScanner) (Outcome, error) {
 	var o Outcome
-	var predicted, observed, evidence []byte
+	var predicted, observed, evidence, other []byte
 	err := row.Scan(&o.ActionLogID, &o.DatabaseID, &o.Class, &o.Verdict, &o.Tolerance,
 		&predicted, &observed, &evidence, &o.Reason, &o.WindowStart, &o.WindowEnd,
-		&o.CreatedAt, &o.DecidedAt)
+		&o.CreatedAt, &o.DecidedAt, &o.Verifier, &o.OtherVerdict, &other)
 	if err != nil {
 		return Outcome{}, err
+	}
+	if len(other) > 0 && json.Unmarshal(other, &o.OtherEvidence) != nil {
+		return Outcome{}, fmt.Errorf("decode other evidence of action %d", o.ActionLogID)
 	}
 	for _, part := range []struct {
 		raw  []byte
@@ -245,4 +256,26 @@ func scanOutcome(row outcomeScanner) (Outcome, error) {
 		}
 	}
 	return o, nil
+}
+
+// verifierColumns are the verifier (v1 when empty) and the other verdict's
+// evidence as JSON (NULL when none). An unknown verifier is refused.
+func verifierColumns(o Outcome) (string, []byte, error) {
+	verifier := o.Verifier
+	if verifier == "" {
+		verifier = VerifierV1
+	}
+	if verifier != VerifierV1 && verifier != VerifierV2 {
+		return "", nil, fmt.Errorf("%w: verifier %q is neither %s nor %s",
+			ErrInvalidOutcome, o.Verifier, VerifierV1, VerifierV2)
+	}
+	if o.OtherEvidence == nil {
+		return verifier, nil, nil
+	}
+	raw, err := json.Marshal(o.OtherEvidence)
+	if err != nil {
+		return "", nil, fmt.Errorf("encode other evidence for action %d: %w",
+			o.ActionLogID, err)
+	}
+	return verifier, raw, nil
 }

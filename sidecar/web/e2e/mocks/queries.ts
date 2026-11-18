@@ -97,3 +97,32 @@ export async function routeQueryDetail(page: Page, callSite: unknown = callSiteO
   })
   return urls
 }
+
+// queriesCoverage copies GET /api/v1/queries/coverage as
+// TestQueriesCoverageDB_MatchesTheGolden answers it
+// (internal/api/testdata/queries_coverage_golden.json): 28 days of hourly
+// coverage, 87% of the execution time covered, three hours with breaks.
+// over replaces fields of the one database's entry.
+export function queriesCoverage(over: Record<string, unknown> = {}) {
+  return {
+    database: 'testdb', since: '2021-05-01T00:00:00Z', until: '2021-05-29T00:00:00Z',
+    databases: [{
+      database: 'testdb', status: 'ok', covered_exec_share: 0.87, epoch_breaks: 3,
+      hours: 667, hours_missing: 5, dealloc_growth: 667,
+      epoch_source_counters_only_hours: 2, oldest_hour: '2021-05-01T00:00:00Z',
+      oldest_day: '2021-05-01', rollup_bytes: 229376, ...over,
+    }],
+  }
+}
+
+// routeQueriesCoverage answers the coverage notice with respond() and
+// records the URLs asked for.
+export async function routeQueriesCoverage(page: Page, respond: () => unknown) {
+  const urls: string[] = []
+  await page.route('**/api/v1/queries/coverage**', route => {
+    const url = new URL(route.request().url())
+    urls.push(url.pathname + url.search)
+    return route.fulfill({ json: respond() })
+  })
+  return urls
+}

@@ -6,6 +6,7 @@ import { queryBlocked } from '../lib/queryState'
 import { TrustTable } from './trust/TrustTable'
 import { ModelLift } from './trust/ModelLift'
 import { TuningCalibration } from './trust/TuningCalibration'
+import { formatTime } from '../lib/time'
 
 // One trust system (roadmap 1.2): database x family x class. Each class
 // pg_sage runs on its own initiative has one level per database, earned
@@ -138,7 +139,7 @@ function Grandfathered({ database, record }) {
   const seeded = record.seeded || []
   return (
     <div data-testid={`trust-grandfathered-${database}`} className="text-xs" style={muted}>
-      The trust ledger took over on {new Date(record.migrated_at).toLocaleString()}.
+      The trust ledger took over on {formatTime(record.migrated_at)}.
       {seeded.length === 0
         ? ' Nothing ran unattended under the time ramp, so nothing was grandfathered.'
         : ' Kept from the time ramp (grandfathered, demotes like any level): '

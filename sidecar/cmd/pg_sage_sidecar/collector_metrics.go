@@ -5,8 +5,10 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/evidence/workpack"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/metricsreg"
+	"github.com/pg-sage/sidecar/internal/querystore"
 )
 
 // collectorStatuses is every collector's health by database: each fleet
@@ -65,6 +67,8 @@ func writeCollectorMetrics(b *strings.Builder, statuses map[string]collector.Sta
 	writeCollectorFailureCounter(b, dbs, "pg_sage_collector_query_store_failures_total",
 		statuses,
 		func(s collector.Status) int64 { return s.QueryStoreFailures })
+	writeQueryRollupMetrics(b, querystore.RollupHourCounts(), querystore.RollupLags())
+	writeWorkloadPackMetrics(b, workpack.BuildCounts(), workpack.PackBytes())
 }
 
 // writeCollectorUnavailable writes 1 per category the latest snapshot

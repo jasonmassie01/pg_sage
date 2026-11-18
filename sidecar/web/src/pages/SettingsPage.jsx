@@ -2,6 +2,7 @@
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { QueryState } from '../components/QueryState'
+import { TabPanel } from '../components/Tabs'
 import { queryBlocked } from '../lib/queryState'
 import { MaskedOverridesContext } from './settings/SourceBadge'
 import { PendingRestartPanel } from './settings/PendingRestartPanel'
@@ -50,14 +51,16 @@ export function SettingsPage({ database, databaseId }) {
       <ScopeNotice s={s} database={database} />
       <LifecycleBanner supported={s.data?.restart_supported === true} restart={restart} />
       <PendingRestartPanel pending={s.data?.pending} />
-      <TabCards tab={view.tab} database={database}
-        databaseId={s.isDatabaseScope ? s.numericDatabaseId : undefined} />
-      {s.feedback && <FeedbackBanner {...s.feedback} />}
-      <div className="rounded p-5" style={CARD_STYLE}>
-        <TabContent mode={view.mode} tab={view.tab} data={s.data}
-          database={database} fieldProps={fieldProps} />
-      </div>
-      {view.tab !== 'General' && s.hasEdits && <SaveBar save={save} onDiscard={s.discard} />}
+      <TabPanel id="settings" active={view.tab} className="space-y-4">
+        <TabCards tab={view.tab} database={database}
+          databaseId={s.isDatabaseScope ? s.numericDatabaseId : undefined} />
+        {s.feedback && <FeedbackBanner {...s.feedback} />}
+        <div className="rounded p-5" style={CARD_STYLE}>
+          <TabContent mode={view.mode} tab={view.tab} data={s.data}
+            database={database} fieldProps={fieldProps} />
+        </div>
+        {view.tab !== 'General' && s.hasEdits && <SaveBar save={save} onDiscard={s.discard} />}
+      </TabPanel>
     </div></QueryState>
     </MaskedOverridesContext.Provider>
   )

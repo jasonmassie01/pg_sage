@@ -21,6 +21,7 @@ func enrichFindingCases(
 		store.NewActionStore(selected.pool), findingIDs)
 	enrichCaseRecommendations(ctx, projected, selected, findingIDs, time.Now().UTC())
 	enrichCaseProviderAdvice(ctx, projected, selected, findingIDs)
+	enrichCasePlans(ctx, projected, selected, findingIDs)
 }
 
 // enrichCaseRecommendations attaches each finding case's newest

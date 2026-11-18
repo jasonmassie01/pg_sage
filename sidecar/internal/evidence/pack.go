@@ -184,6 +184,19 @@ func Build(ctx context.Context, src Sources, scope Scope,
 	return b.pack, nil
 }
 
+// SealFiles seals files as a pack of format: the manifest lists each, in
+// name order, with its SHA-256, and key (nil: unsigned) signs it when the
+// pack is written (WriteTarGz). It carries none of an audit pack's
+// metadata (scope, chain, sources, rows); the workload evidence pack
+// (evid-02a) is sealed with it. createdAt is the manifest's created_at.
+func SealFiles(format string, files []File, key ed25519.PrivateKey,
+	createdAt time.Time) *Pack {
+	p := &Pack{key: key, meta: map[string]fileMeta{}, Files: append([]File(nil), files...),
+		Manifest: Manifest{Format: format, Generator: "pg_sage", CreatedAt: createdAt.UTC()}}
+	p.seal()
+	return p
+}
+
 // seal lists every file in the manifest, in name order, with its hash.
 func (p *Pack) seal() {
 	sort.Slice(p.Files, func(i, j int) bool { return p.Files[i].Name < p.Files[j].Name })
@@ -327,7 +340,7 @@ func (b *builder) rows(ctx context.Context, q rowQuery) (fileMeta, bool, error) 
 
 // action collects one change: request, decision and the policy it names
 // with its approvals, queue entry, verification, outcome, pgaudit
-// corroboration and chain proof.
+// corroboration, the plan a plan step's change belongs to, and chain proof.
 func (b *builder) action(ctx context.Context, id int64) error {
 	var raw []byte
 	err := b.db.q.QueryRow(ctx, `/* pg_sage evidence v1 */ SELECT to_jsonb(a)
@@ -358,6 +371,9 @@ func (b *builder) action(ctx context.Context, id int64) error {
 		}
 	}
 	if err := b.policies(ctx, id); err != nil {
+		return err
+	}
+	if err := b.plans(ctx, id); err != nil {
 		return err
 	}
 	return b.actionChain(ctx, id)

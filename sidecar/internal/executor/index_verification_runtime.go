@@ -237,6 +237,9 @@ func (e *Executor) configureIndexVerification() {
 		e.logFn("executor", "index verification unavailable: %v", err)
 		return
 	}
+	if err := engine.EnableV2(e.verificationV2Options()); err != nil {
+		e.logFn("executor", "verification v2 unavailable (v1 judges): %v", err)
+	}
 	verifier := &postgresIndexVerifier{engine: engine, exec: e}
 	e.indexVerification = newVerifiedIndexLifecycle(
 		verifier, &executorIndexActions{exec: e},

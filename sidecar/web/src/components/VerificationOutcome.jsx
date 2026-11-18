@@ -96,6 +96,49 @@ function SoftDrop({ softDrop }) {
   )
 }
 
+// pct1 is a percentage with one decimal and no forced sign.
+function pct1(value) {
+  return `${Number(value).toFixed(1)}%`
+}
+
+const V2_METHODS = { did: 'against control statements', its: 'interrupted time series' }
+
+// V2Lines (lab-01c): which verifier decided, v2's effect with its CI
+// against the control statements, and in shadow what v2 would say under
+// the acted-on verdict.
+function V2Lines({ outcome }) {
+  const record = outcome.evidence?.v2 || outcome.other_evidence?.v2
+  const measured = record && record.effect_pct !== undefined && record.effect_pct !== null &&
+    record.ci_low_pct !== undefined && record.ci_low_pct !== null &&
+    record.ci_high_pct !== undefined && record.ci_high_pct !== null
+  const controls = Number(record?.controls || 0)
+  const shadow = outcome.other_verdict && outcome.verifier !== 'v2'
+  const other = VERDICTS[outcome.other_verdict] || { label: outcome.other_verdict }
+  return (
+    <>
+      {outcome.verifier && (
+        <Row label="Method" testId="outcome-method">
+          Verifier {outcome.verifier}
+          {record?.method && V2_METHODS[record.method] ? ` (v2 ${V2_METHODS[record.method]})`
+            : ''}
+        </Row>
+      )}
+      {measured && (
+        <Row label="Effect" testId="outcome-effect">
+          {pct1(record.effect_pct)} (CI {pct1(record.ci_low_pct)} to{' '}
+          {pct1(record.ci_high_pct)})
+          {controls > 0 ? ` vs ${controls} control statements` : ', no control group'}
+        </Row>
+      )}
+      {shadow && (
+        <p data-testid="outcome-shadow" style={{ color: 'var(--text-secondary)' }}>
+          v2 would say: {other.label}
+        </p>
+      )}
+    </>
+  )
+}
+
 export function VerificationOutcome({ outcome }) {
   if (!outcome) return null
   const verdict = VERDICTS[outcome.verdict] || { label: outcome.verdict, color: 'inherit' }
@@ -123,6 +166,7 @@ export function VerificationOutcome({ outcome }) {
           queryid {targets.join(', ')}
         </Row>
       )}
+      <V2Lines outcome={outcome} />
       <ComparisonEvidence comparison={outcome.evidence?.comparison} />
       <SoftDrop softDrop={outcome.evidence?.soft_drop} />
       {outcome.reason && <p style={{ color: 'var(--text-primary)' }}>{outcome.reason}</p>}

@@ -21,6 +21,9 @@ func whyOf(in Inputs, actionType string) []Reason {
 	if r, ok := whatIfReason(in, actionType); ok {
 		out = append(out, r)
 	}
+	if r, ok := notRehearsedReason(in, actionType); ok {
+		out = append(out, r)
+	}
 	if d := in.Decision; d != nil && d.Reason != "" && d.Reason != "authorized" {
 		out = append(out, Reason{Code: "gate:" + d.Reason, Text: fmt.Sprintf(
 			"Policy gate: %s (%s risk)", humanize(d.Reason), orUnknown(d.RiskTier))})

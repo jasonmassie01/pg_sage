@@ -92,6 +92,9 @@ type Document struct {
 	// WindowStartMarginMinutes withholds a moderate or high action whose
 	// window closes within this many minutes (0-720, default 0: none).
 	WindowStartMarginMinutes int64
+	// Plans caps what plans concentrate and when their steps start
+	// (plan-02b); zero fields are the defaults (DefaultPlanCaps).
+	Plans PlanCaps
 	// Version and SHA256 name the stored policy row the document was read
 	// from: its version and the SHA-256 of its stored jsonb text
 	// (DocumentFromPolicy). Both are zero for a document read from nowhere.
@@ -112,6 +115,7 @@ type documentWire struct {
 	UnknownClassification   string          `json:"unknown_classification"`
 	SerializeMode           string          `json:"serialize_mode"`
 	WindowStartMargin       int64           `json:"window_start_margin_minutes,omitempty"`
+	Plans                   *plansWire      `json:"plans,omitempty"`
 }
 
 type budgetWire struct {
@@ -163,6 +167,10 @@ func MarshalDocument(doc Document) ([]byte, error) {
 	if doc.WindowStartMarginMinutes != 0 {
 		// Written only when set: documents without it keep their bytes.
 		wire["window_start_margin_minutes"] = doc.WindowStartMarginMinutes
+	}
+	if !doc.Plans.isDefault() {
+		// Written only when it differs from the defaults, the same way.
+		wire["plans"] = plansJSON(doc.Plans)
 	}
 	return json.Marshal(wire)
 }
@@ -228,6 +236,10 @@ func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
+	plans, err := plansFromWire(wire.Plans)
+	if err != nil {
+		return Document{}, err
+	}
 	overrides := make(map[DeadlineKind]bool, len(wire.DeadlineOverrides))
 	for kind, enabled := range wire.DeadlineOverrides {
 		overrides[DeadlineKind(kind)] = enabled
@@ -245,6 +257,7 @@ func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
 		UnknownClassification:    wire.UnknownClassification,
 		SerializeMode:            wire.SerializeMode,
 		WindowStartMarginMinutes: wire.WindowStartMargin,
+		Plans:                    plans,
 	}, nil
 }
 
@@ -264,6 +277,9 @@ func ValidateDocument(doc Document) error {
 	if doc.WindowStartMarginMinutes < 0 || doc.WindowStartMarginMinutes > maxWindowStartMargin {
 		return fmt.Errorf("window_start_margin_minutes %d must be 0-%d",
 			doc.WindowStartMarginMinutes, maxWindowStartMargin)
+	}
+	if err := ValidatePlanCaps(doc.Plans); err != nil {
+		return err
 	}
 	if err := validateRefusalSet(doc.RefusalSet); err != nil {
 		return err

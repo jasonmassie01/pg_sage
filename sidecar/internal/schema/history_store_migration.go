@@ -55,11 +55,12 @@ CREATE TABLE IF NOT EXISTS sage.history_store_databases (
 // ddlHistoryMigration holds a migration's progress and the snapshot id map
 // in the destination: the progress row commits with each batch it
 // describes, so a run resumes exactly where the last one stopped.
-const ddlHistoryMigration = `
+var ddlHistoryMigration = `
 CREATE TABLE IF NOT EXISTS sage.history_migration (
     database_id  integer NOT NULL,
     direction    text NOT NULL CHECK (direction IN ('meta', 'monitored')),
-    table_name   text NOT NULL CHECK (table_name IN ('snapshots', 'query_store')),
+    table_name   text NOT NULL CONSTRAINT history_migration_table_name_check
+                     ` + historyMigrationTables + `,
     last_id      bigint NOT NULL DEFAULT 0,
     last_at      timestamptz,
     copied       bigint NOT NULL DEFAULT 0,
@@ -89,6 +90,9 @@ type Execer interface {
 func EnsureHistoryMigrationTables(ctx context.Context, db Execer) error {
 	if _, err := db.Exec(ctx, ddlHistoryMigration); err != nil {
 		return fmt.Errorf("create history migration tables: %w", err)
+	}
+	if _, err := db.Exec(ctx, ddlHistoryMigrationRollupTables); err != nil {
+		return fmt.Errorf("admit the rollup tables in sage.history_migration: %w", err)
 	}
 	return nil
 }

@@ -10,6 +10,8 @@ import { ProfilePage } from './pages/ProfilePage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
+import { InboxPage } from './pages/InboxPage'
+import { LedgerPage } from './pages/LedgerPage'
 import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
 import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
 import { SLOsPage } from './pages/SLOsPage'
@@ -61,7 +63,7 @@ function NotFound() {
       </p>
       <a href="#/" className="inline-block mt-4 text-sm underline"
         style={{ color: 'var(--accent)' }}>
-        Go to Dashboard
+        Go to Inbox
       </a>
     </div>
   )
@@ -82,7 +84,7 @@ function PlatformProtocolUnavailable({ agents = false }) {
       </p>
       <a href="#/" className="inline-block mt-4 text-sm underline"
         style={{ color: 'var(--accent)' }}>
-        Go to Dashboard
+        Go to Inbox
       </a>
     </div>
   )
@@ -101,15 +103,18 @@ const profile = ctx => <ProfilePage user={ctx.user} authMode={ctx.authMode} />
 // authMode, fleetQuery, fleetData, databases, the Ask inventory fields,
 // selectDatabase, setSelectedDB, selectedDatabase and linkedCase.
 export const RENDERERS = Object.freeze({
-  value: ctx => (
+  // Onboarding and first look stay above the Inbox until ux-04b's wizard.
+  inbox: ctx => (
     <div className="space-y-6">
       <OnboardingPanel database={ctx.database} authMode={ctx.authMode} user={ctx.user} />
       <FirstLookPanel database={ctx.database} user={ctx.user} />
-      <ValuePage database={ctx.database} />
+      <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
     </div>
   ),
+  value: ctx => <ValuePage database={ctx.database} />,
   cases: ctx => cases(ctx),
   actions,
+  ledger: ctx => <LedgerPage key={ctx.route} database={ctx.database} />,
   queries: ctx => <QueriesPage database={ctx.database} />,
   query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
   slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,
@@ -141,7 +146,7 @@ export const RENDERERS = Object.freeze({
     <Dashboard database={ctx.database} onSelectDB={ctx.setSelectedDB} user={ctx.user}
       fleet={ctx.fleetQuery} />
   ),
-  database: ctx => <DatabasePage database={ctx.database} />,
+  database: ctx => <DatabasePage database={ctx.database} user={ctx.user} />,
   forecasts: ctx => cases(ctx, 'forecast'),
   'query-hints': ctx => cases(ctx, 'query_hint'),
   'schema-health': ctx => cases(ctx, 'schema_health'),
