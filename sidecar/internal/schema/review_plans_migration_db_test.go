@@ -21,11 +21,13 @@ func stepIndex(steps [][2]string, name string) int {
 	return -1
 }
 
-func TestReviewPlansStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// review-05a's ddlReviewGate follows this step, so the pin is its place
+// (right after ddlReviewModelRuns), not "last".
+func TestReviewPlansStep_FollowsTheModelRunsStepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewPlans" ||
-		steps[len(steps)-1][1] != ddlReviewPlans {
-		t.Fatalf("T6 steps %v, want ddlReviewPlans last", steps)
+	at := stepIndex(steps, "ddlReviewPlans")
+	if at < 1 || steps[at][1] != ddlReviewPlans || steps[at-1][0] != "ddlReviewModelRuns" {
+		t.Fatalf("T6 steps %v, want ddlReviewPlans right after ddlReviewModelRuns", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout = '5s'",
 		"CREATE TABLE IF NOT EXISTS sage.review_plan (",

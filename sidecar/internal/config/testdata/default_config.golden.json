@@ -630,7 +630,13 @@
     "ModelPass": "auto",
     "ModelRuns": 3,
     "Consensus": "majority",
-    "HashIdentifiers": false
+    "HashIdentifiers": false,
+    "Gate": {
+      "MinReviews": 50,
+      "MaxGapPoints": 10,
+      "MaxRevertPct": 2,
+      "FixtureDatabases": null
+    }
   },
   "Facts": {
     "ConfirmedAbsenceDays": 7

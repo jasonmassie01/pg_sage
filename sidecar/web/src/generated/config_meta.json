@@ -3590,6 +3590,34 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "review.gate.fixture_databases": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Database names whose reviews never count toward G-M1 or G-M2 (bench and game-day fixtures); databases named by a clone receipt never count either. Default: none.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "review.gate.max_gap_points": {
+    "type": "float64",
+    "default": 10,
+    "doc": "G-M1 passes when the model's verified-improved rate is at least the generators' rate minus this many percentage points. Range 0-100. Default: 10 (decision D11, an owner proposal).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "review.gate.max_revert_pct": {
+    "type": "float64",
+    "default": 2,
+    "doc": "G-M1 passes when at most this percent of the model's decided steps were reverted. Range 0-100. Default: 2 (decision D11, an owner proposal).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "review.gate.min_reviews": {
+    "type": "int",
+    "default": 50,
+    "doc": "Reviews on real databases, each with a finished model pass of the running model, that G-M1 and G-M2 need before they decide. Range 1-10000. Default: 50 (decision D11, an owner proposal).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "review.grade_interval_hours": {
     "type": "int",
     "default": 24,

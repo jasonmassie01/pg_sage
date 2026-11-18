@@ -411,6 +411,10 @@
 | `retention.workload_packs_days` | `restart` | `-` | `derivable` |
 | `review.consensus` | `restart` | `-` | `operator_preference` |
 | `review.enabled` | `restart` | `-` | `operator_preference` |
+| `review.gate.fixture_databases` | `restart` | `-` | `safety_critical` |
+| `review.gate.max_gap_points` | `restart` | `-` | `safety_critical` |
+| `review.gate.max_revert_pct` | `restart` | `-` | `safety_critical` |
+| `review.gate.min_reviews` | `restart` | `-` | `safety_critical` |
 | `review.grade_interval_hours` | `restart` | `-` | `operator_preference` |
 | `review.hash_identifiers` | `restart` | `-` | `safety_critical` |
 | `review.large_table_bytes` | `restart` | `-` | `operator_preference` |

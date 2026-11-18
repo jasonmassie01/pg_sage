@@ -13,12 +13,13 @@ import (
 // client's role. No concurrent-writer test here: Bootstrap holds its
 // advisory lock, and a run's rows are written by one pass.
 
-// review-03b appended ddlReviewPlans after this step, so the pin is its
-// place (just before ddlReviewPlans), not "last".
+// review-03b appended ddlReviewPlans after this step and review-05a
+// ddlReviewGate after that, so the pin is its place (just before
+// ddlReviewPlans), not "last".
 func TestReviewModelRunsStep_IsPlacedIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	if len(steps) < 2 || steps[len(steps)-2][0] != "ddlReviewModelRuns" ||
-		steps[len(steps)-1][0] != "ddlReviewPlans" {
+	at := stepIndex(steps, "ddlReviewModelRuns")
+	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewPlans" {
 		t.Fatalf("T6 steps %v, want ddlReviewModelRuns then ddlReviewPlans", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",

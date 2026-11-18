@@ -576,6 +576,10 @@ operator_preference review.model_pass
 operator_preference review.model_runs
 operator_preference review.consensus
 safety_critical review.hash_identifiers
+safety_critical review.gate.min_reviews
+safety_critical review.gate.max_gap_points
+safety_critical review.gate.max_revert_pct
+safety_critical review.gate.fixture_databases
 operator_preference facts.confirmed_absence_days
 
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the

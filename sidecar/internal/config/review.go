@@ -49,13 +49,15 @@ type ReviewConfig struct {
 	ModelRuns          int    `yaml:"model_runs" doc:"Independent model runs per review whose results are combined by review.consensus. An odd number in 1-5; 1 applies no consensus. Default: 3."`
 	Consensus          string `yaml:"consensus" doc:"How model runs combine: majority (keep what most runs keep, at the median rank) or refute (a second run must refute each kept item). Default: majority."`
 	HashIdentifiers    bool   `yaml:"hash_identifiers" doc:"Replace schema, table, index and column names with keyed pseudonyms in what the review model reads (needs encryption_key). Default: false."`
+	// Gate is the model gate's thresholds (review-05a).
+	Gate ReviewGateConfig `yaml:"gate"`
 }
 
 func defaultReviewConfig() ReviewConfig {
 	return ReviewConfig{Enabled: true, GradeIntervalHours: DefaultReviewGradeIntervalHours,
 		WindowDays: DefaultReviewWindowDays, LargeTableBytes: DefaultReviewLargeTableBytes,
 		ModelPass: ReviewModelPassAuto, ModelRuns: DefaultReviewModelRuns,
-		Consensus: ReviewConsensusMajority}
+		Consensus: ReviewConsensusMajority, Gate: defaultReviewGateConfig()}
 }
 
 // validate checks the interval's, the window's and the table size's
@@ -75,7 +77,10 @@ func (r ReviewConfig) validate() error {
 		return fmt.Errorf("review.large_table_bytes must be %d-%d, got %d",
 			minReviewLargeTableBytes, maxReviewLargeTableBytes, r.LargeTableBytes)
 	}
-	return r.validateModelPass()
+	if err := r.validateModelPass(); err != nil {
+		return err
+	}
+	return r.Gate.validate()
 }
 
 func (r ReviewConfig) validateModelPass() error {
