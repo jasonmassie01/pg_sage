@@ -117,11 +117,21 @@ func (m metaDiscoveryMembers) Enrol(ctx context.Context, from string,
 		return 0, fmt.Errorf("credential member: %w", err)
 	}
 	name := discovery.MemberName(row)
+	member := store.DiscoveredMember{Name: name, DatabaseName: row.DBName,
+		Source: row.Source, Owner: row.Owner, ExpiresAt: expiresAt, Tags: row.Tags,
+		Tier: row.Tier}
+	if row.Tier == store.TierObserveOnly {
+		// fleetpol-01d: no runtime; the observe-only sweeper visits it.
+		id, err := m.state.Store.CreateDiscovered(ctx, fromRec.ID, member)
+		if err == nil {
+			logInfo("discovery", "db %q: enrolled observe-only from %s until %s", name,
+				row.Source, expiresAt.Format(time.RFC3339))
+		}
+		return id, err
+	}
 	rec, err := applyMetaDatabaseCreateWith(ctx, m.mgr, m.state, name,
 		func(ctx context.Context) (int, error) {
-			return m.state.Store.CreateDiscovered(ctx, fromRec.ID, store.DiscoveredMember{
-				Name: name, DatabaseName: row.DBName, Source: row.Source,
-				Owner: row.Owner, ExpiresAt: expiresAt, Tags: row.Tags})
+			return m.state.Store.CreateDiscovered(ctx, fromRec.ID, member)
 		})
 	if err != nil {
 		return 0, err

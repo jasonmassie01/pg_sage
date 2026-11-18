@@ -106,7 +106,8 @@ func initMetaDB(
 	}, nil
 }
 
-// loadDatabasesFromStore reads enabled databases from the store.
+// loadDatabasesFromStore reads the databases that get a runtime: enabled
+// full members (an observe-only member is swept, fleetpol-01d).
 func loadDatabasesFromStore(
 	ctx context.Context, dbStore *store.DatabaseStore,
 ) ([]store.DatabaseRecord, error) {
@@ -117,7 +118,7 @@ func loadDatabasesFromStore(
 
 	var enabled []store.DatabaseRecord
 	for _, r := range records {
-		if r.Enabled {
+		if r.RunsRuntime() {
 			enabled = append(enabled, r)
 		}
 	}
@@ -212,6 +213,7 @@ func initMetaDBFleet(state *metaDBState) {
 	}
 
 	startFleetDiscovery(state) // fleet_discovery_wiring.go (market-06)
+	startObserveSweeper(state) // observe_only_wiring.go (fleetpol-01d)
 	go fleetReconnectLoop(shutdownCtx, state)
 }
 
