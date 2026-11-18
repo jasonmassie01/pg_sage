@@ -206,7 +206,14 @@ func (w *lockWaiters) release() {
 func TestPressureDB_LockQueueStateTransitions(t *testing.T) {
 	pool, ctx := dbPool(t)
 	exec(t, pool, "CREATE TABLE IF NOT EXISTS pressure_lq (id int)")
-	c := fastChecker(pool, nil)
+	// Only the lock queue may decide: other packages' tests share the
+	// server, and their WAL can put the default WAL rate in its slow band.
+	lockOnly := func(context.Context) (Limits, error) {
+		l := DefaultLimits(Alerts{})
+		l.Inputs[policy.PressureWALRate] = Limit{}
+		return l, nil
+	}
+	c := fastChecker(pool, lockOnly)
 	step := func(want Kind, waiters float64) {
 		t.Helper()
 		time.Sleep(30 * time.Millisecond) // past the cache period
@@ -216,8 +223,8 @@ func TestPressureDB_LockQueueStateTransitions(t *testing.T) {
 		}
 		lq := inputOf(t, v, policy.PressureLockQueue)
 		if v.Verdict != want || lq.Value == nil || *lq.Value != waiters {
-			t.Fatalf("with %v waiters = %s (lock queue %+v), want %s", waiters, v.Verdict,
-				lq, want)
+			t.Fatalf("with %v waiters = %s %v (lock queue %+v), want %s", waiters,
+				v.Verdict, v.Reasons, lq, want)
 		}
 	}
 	step(Proceed, 0)
