@@ -952,13 +952,40 @@ lower levels, incident families and carried-over levels are not re-validated, an
 demerit rule is unchanged. The cap is per database: each database's ledger compares its own
 server.
 
-The **Trust** page (and `GET /api/v1/trust?database=`) shows every database x family x class
-with its level, effective level, evidence counts, last change and why, and the path to the
-next level; an incident row also carries `bench`, the report its bench checks read (id,
+The **Autonomy** page (`#/autonomy`; `#/trust` and `#/advanced/autonomy` are aliases) and
+`GET /api/v1/trust?database=` show every database x family x class with its level,
+effective level, evidence counts, last change and why, and the path to the next level; an incident row also carries `bench`, the report its bench checks read (id,
 origin, provenance label). MCP `sre_get_autonomy` carries the same grid as `trust`. Each view is read with a
 fixed number of set-based statements per database, however many classes and outcomes it
 shows. Every approval card carries its action class's row as `trust` (level, evidence
 counts, path to the next level) and one `Trust:` line in Slack and Telegram.
+
+**One scale per class (decision D6).** Each row also carries `mode` and `mode_because`
+(additive). `mode` is one of `observes` ("watches only"), `asks_first`, `acts_then_tells`
+and `acts_in_window`. pg_sage computes it from the gate's own inputs, in the gate's order:
+the executor, the emergency stop, the replica role, `trust.level`, `execution_mode`,
+`trust.tier3_safe` / `tier3_moderate`, the trust ramp, SQL validation without cgo,
+`trust.maintenance_window`, and the class's effective earned level and reversibility. The
+first item of `mode_because` is the limiting input, for example `execution mode is approval`,
+`earned level L2`, `trust ceiling advisory` or `tier3_moderate is off`. A table test runs the
+real gate on every combination and the two never disagree. An unknown trust level or
+execution mode, or a database without an executor, watches only. The mode never reads the
+standing policy document: its allowed classes, approval classes, refusal set, windows and
+budgets can only hold a change back further, and a finding's Explain shows that decision.
+Lowering `trust.level` changes the mode on the next read, with no restart.
+`trust.tier3_high_risk` is not read: high-risk classes always ask first. A policy set's
+per-class `trust_ceiling` is not applied yet, because the gate does not enforce it.
+
+Both `trust_level` and `execution_mode` stay in config and the API. The page orders its
+sections like this: each class's sentence, why and path; **Waiting promotions**, the one
+place to Approve (admins) or Reject (admins and operators); **History, downgrades, bench and
+game days**, collapsed; and the **Shadow ledger**, collapsed and moved here from Settings
+General. The header badge counts classes per mode ("12 ask first · 3 act in window") and
+names an emergency stop first. The database form has one control, **How much may pg_sage
+do**: Watch only (observation, manual), Ask first (advisory, approval), Act, then tell
+(advisory, auto; needs `tier3_safe`) and Act in the window (autonomous, auto; needs
+`tier3_moderate`). Any other stored pair shows as Custom, read-only, and the raw fields sit
+behind **Edit raw values**.
 
 ### Shadow mode
 
@@ -3534,7 +3561,8 @@ earns nothing.
   `/outcomes` (harmful or safety_violation).
 - Admins: `POST /proposals/{id}/approve`, `/bench-results`, `/game-days` and `/rollouts`.
 
-The UI page is **Advanced > Earned autonomy**: **Evaluate now** and a **Path to next
+The UI section is **Autonomy > History, downgrades, bench and game days**: **Evaluate now**
+and a **Path to next
 level** checklist per family and class. Reviews are recorded with **Accept diagnosis** /
 **Reject diagnosis** on a finished investigation in **Cases**. With MCP enabled, agents get
 `sre_get_autonomy`, and operators also `sre_downgrade_autonomy`, `sre_review_investigation`
@@ -3589,7 +3617,7 @@ Some limits stay fixed and cannot be configured:
 Fast elevation is never silent. At startup the sidecar logs a `FAST ELEVATION` WARN line for
 each setting below the spec, including a shorter `io_baseline_days`, `safety_window_days`
 or `evaluate_interval_minutes`. The autonomy API returns them as `fast_elevation`, and
-**Advanced > Earned autonomy** shows a "Fast elevation" badge that lists them. These keys
+the Autonomy page's history section shows a "Fast elevation" badge that lists them. These keys
 are YAML-only and need a restart; the config API refuses them.
 
 To approve a promotion quickly, review investigations in **Cases**, press **Evaluate now**
