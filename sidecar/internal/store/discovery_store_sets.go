@@ -67,7 +67,9 @@ const liveDiscoveredSQL = `/* pg_sage */ SELECT count(*)
 	                    'full') = $2)`
 
 // PendingGrades is every enrolled or adopted member with a set that has
-// not reached the set's baseline yet (at most 50: sage.databases' cap).
+// not reached the set's baseline yet: at most every member sage.databases
+// holds (50 full and 2,000 observe-only, fleetpol-01d), so members that
+// never meet their set's grades never starve the rest.
 func (s *DiscoveryStore) PendingGrades(ctx context.Context) ([]DiscoveredRow, error) {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -75,7 +77,7 @@ func (s *DiscoveryStore) PendingGrades(ctx context.Context) ([]DiscoveredRow, er
 		 FROM sage.discovered_databases d
 		 WHERE d.status IN ('enrolled', 'adopted') AND d.set_name IS NOT NULL
 		   AND d.baseline_at IS NULL AND d.database_id IS NOT NULL
-		 ORDER BY d.id LIMIT 50`)
+		 ORDER BY d.id LIMIT $1`, MaxFullMembers+MaxObserveOnlyMembers)
 	if err != nil {
 		return nil, fmt.Errorf("listing discovered members awaiting a grade: %w", err)
 	}
