@@ -88,22 +88,22 @@ func (p *ApprovalPRs) retryFailed(ctx context.Context, pending map[string]Approv
 	return opened, failed, nil
 }
 
-// openOne opens the PR of a claimed row and records the outcome.
+// openOne opens the PR of a claimed row and records the outcome. A PR the
+// host opened is recorded even when a later step (its labels) failed, so
+// it is never left open untracked.
 func (p *ApprovalPRs) openOne(ctx context.Context, rec ApprovalPRRecord,
 	item ApprovalItem) (opened, failed int) {
 	content, err := renderApprovalFile(item, rec.ExpiresAt)
 	if err == nil {
 		var pr codehost.PullRequest
 		pr, err = p.Host.OpenPR(ctx, p.Config.Repo, p.prRequest(rec, item, content))
-		if err == nil {
-			_, err = transition{ID: rec.ID, From: PRStateOpening, To: PRStateOpen,
-				PRNumber: pr.Number, PRURL: pr.URL, FileHash: fileHash(content),
-				CardHash: item.Card.CardHash, Opened: true}.apply(ctx, p.Pool)
-			if err != nil {
-				slog.Error("approval PR opened but not recorded", "database", rec.Database,
-					"queue_id", rec.QueueID, "pr", pr.Number, "error", err)
-			}
+		if pr.Number > 0 {
+			p.recordOpened(ctx, rec, item, pr, content, err)
 			return 1, 0
+		}
+		if err == nil {
+			err = fmt.Errorf("%w: the code host answered no pull request number",
+				codehost.ErrUnavailable)
 		}
 	}
 	status := openFailureStatus(err)
@@ -122,6 +122,32 @@ func (p *ApprovalPRs) openOne(ctx context.Context, rec ApprovalPRRecord,
 	return 0, 1
 }
 
+// recordOpened moves a claimed row to open with the PR the host opened;
+// stepErr is a step that failed after the PR was opened (its labels).
+func (p *ApprovalPRs) recordOpened(ctx context.Context, rec ApprovalPRRecord,
+	item ApprovalItem, pr codehost.PullRequest, content string, stepErr error) {
+	if stepErr != nil {
+		slog.Warn("approval PR opened, a later step failed", "database", rec.Database,
+			"queue_id", rec.QueueID, "pr", pr.Number, "status", openFailureStatus(stepErr))
+	}
+	_, err := transition{ID: rec.ID, From: PRStateOpening, To: PRStateOpen,
+		PRNumber: pr.Number, PRURL: pr.URL, FileHash: fileHash(content),
+		CardHash: item.Card.CardHash, Opened: true}.apply(ctx, p.Pool)
+	if err != nil {
+		slog.Error("approval PR opened but not recorded", "database", rec.Database,
+			"queue_id", rec.QueueID, "pr", pr.Number, "error", err)
+	}
+}
+
+// prBranch is the branch of one open attempt: a retry uses a new branch,
+// since a failed attempt may have created its branch before failing.
+func prBranch(rec ApprovalPRRecord) string {
+	if rec.Attempts > 0 {
+		return fmt.Sprintf("pg_sage/approval-%d-%d", rec.ID, rec.Attempts+1)
+	}
+	return fmt.Sprintf("pg_sage/approval-%d", rec.ID)
+}
+
 // prRequest is the PR of one change: one branch, one file, the label.
 func (p *ApprovalPRs) prRequest(rec ApprovalPRRecord, item ApprovalItem,
 	content string) codehost.PRRequest {
@@ -136,7 +162,7 @@ func (p *ApprovalPRs) prRequest(rec ApprovalPRRecord, item ApprovalItem,
 		c.QueueID, c.Database, item.Tier, c.SQL, c.Database,
 		rec.ExpiresAt.UTC().Format("2006-01-02 15:04 MST"))
 	return codehost.PRRequest{Title: title, Body: body,
-		Branch: fmt.Sprintf("pg_sage/approval-%d", rec.ID), Base: p.Config.BaseBranch,
+		Branch: prBranch(rec), Base: p.Config.BaseBranch,
 		CommitMessage: title, Labels: []string{ApprovalPRLabel},
 		Files: []codehost.FileChange{{Path: rec.Path, Content: content}}}
 }
