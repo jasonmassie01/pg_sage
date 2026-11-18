@@ -31,7 +31,10 @@ type Dispatcher struct {
 	outbox   OutboxStore
 	policyMu sync.RWMutex
 	policy   *AlertPolicy
-	now      func() time.Time
+	// askWindow batches Ask-class deliveries per database (ux-09a); 0
+	// sends each alone. Guarded by policyMu.
+	askWindow time.Duration
+	now       func() time.Time
 }
 
 // NewDispatcher creates a Dispatcher that reads rules and channels from
@@ -85,7 +88,7 @@ func (d *Dispatcher) SubmitWithOutcomes(
 	ctx context.Context, event Event,
 ) (DispatchResult, []ChannelOutcome, error) {
 	var res DispatchResult
-	rules, err := d.loadMatchingRules(ctx, event.Type)
+	rules, err := d.matchingRules(ctx, event)
 	if err != nil {
 		return res, nil, fmt.Errorf("loading rules: %w", err)
 	}
@@ -110,6 +113,12 @@ func (d *Dispatcher) submitRule(
 			Error: RedactError(err).Error()})
 		return
 	case ch == nil:
+		return
+	case d.batchesAsk(rule, *ch):
+		before := *res
+		d.enqueueAsk(ctx, *ch, event, res)
+		*outs = append(*outs, ChannelOutcome{ChannelID: ch.ID,
+			Channel: ch.Name, Status: queuedOutcome(before, *res)})
 		return
 	case d.outbox != nil && queueable(event):
 		before := *res

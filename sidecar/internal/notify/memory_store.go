@@ -77,6 +77,22 @@ func (m *MemoryStore) MatchingRules(_ context.Context, eventType string) ([]Rule
 	return out, nil
 }
 
+// ClassRules returns the enabled class rules of class c (ux-09a).
+func (m *MemoryStore) ClassRules(_ context.Context, c Class) ([]Rule, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.FailRules != nil {
+		return nil, fmt.Errorf("query class rules: %w", m.FailRules)
+	}
+	var out []Rule
+	for _, r := range m.rules {
+		if r.DeliveryClass == string(c) && r.Enabled {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
 // Channel returns a copy of channel id.
 func (m *MemoryStore) Channel(_ context.Context, id int) (*Channel, error) {
 	m.mu.Lock()

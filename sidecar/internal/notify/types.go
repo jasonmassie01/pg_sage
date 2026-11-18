@@ -21,6 +21,9 @@ type Rule struct {
 	Enabled     bool   `json:"enabled"`
 	// ManagedBy is "config" for a rule the alerting reconciler owns.
 	ManagedBy string `json:"managed_by,omitempty"`
+	// DeliveryClass is page, ask or digest for a class rule (ux-09a);
+	// empty for a legacy rule of one event type.
+	DeliveryClass string `json:"delivery_class,omitempty"`
 }
 
 // Event is the payload dispatched through the notification system.

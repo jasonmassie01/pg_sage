@@ -251,7 +251,7 @@ func TestMigrationStatements_AreTheStepsInOrder(t *testing.T) {
 		}
 	}
 	if steps[0].name != "ddlActionLogApprovalCols" ||
-		steps[len(steps)-1].name != "ddlPlanCardDeliveries" {
+		steps[len(steps)-1].name != "ddlNotificationRuleClass" {
 		t.Fatalf("order changed: first %s, last %s", steps[0].name, steps[len(steps)-1].name)
 	}
 }
