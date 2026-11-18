@@ -3920,6 +3920,31 @@ for rows written before the upgrade that added the column) and `dedup_key`.
 database pg_sage does not monitor; `all` or no parameter lists every database). The read is
 open to admins and operators; channels and rules stay admin-only.
 
+### Notification classes
+
+Every notification event has a class, so a channel can be routed by what a person must do
+instead of one rule per event type:
+
+| Class | Events | Delivery |
+|---|---|---|
+| Page | `finding_critical`, `incident_detected`, `incident_escalated`, `custodian_escalation`, `canary_interrupted`, `investigation_concluded`; any `critical` event; `action_failed` whose rollback failed too | At once, retried through the outbox |
+| Ask | `approval_needed` (approval, plan and fact cards), `approval_outcome` | One message per database and channel per `notification_policy.ask_batch_minutes` (default 15; `0` sends each alone), listing up to 10 items and "N more in pg_sage" |
+| Digest | Everything else | Only as the daily digest (`digest_ready`, see the briefing digest); never one by one |
+
+A critical event is always Page, whatever its type, so a class never holds back a critical
+event. A class rule is a row of `sage.notification_rules` whose `delivery_class` is `page`,
+`ask` or `digest` (its `event` is `class:<class>`); a rule with no class is a legacy rule of
+one event type and works as before. A channel that a legacy rule already serves for an event
+gets no second copy from a class rule. When the first alert channel of a fresh install is
+created (no other channel and no rule yet), it gets a Page, an Ask and a Digest class rule;
+the create response says `class_rules_seeded: 3`. An install that already has rules keeps
+them. The first Ask of a window opens it and every Ask before it ends joins the one message;
+a window of one Ask sends the Ask itself. An interactive chat channel (Slack with
+`interactive` and a signing secret, Telegram with a webhook secret) is not batched, so each
+approval card still arrives with its buttons. Two Asks at the same instant, even from two
+sidecars, make one message (the batch is decided under the outbox's advisory lock). With no
+channel, classes are computed and nothing is sent.
+
 ### Notification delivery
 
 Notification rules (the Notifications page) are delivered through an outbox in the control
