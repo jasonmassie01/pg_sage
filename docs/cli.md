@@ -213,6 +213,16 @@ file on the sidecar's host). A stored override is listed even when it
 equals the file, because it wins over every later edit of the file. A
 secret prints as `<secret>`, with `(differs)` when it differs.
 
+Both also take a GitOps directory ([`policy.directory`](gitops.md)) in
+place of a file. `config validate <directory>` loads its `policy-sets/`,
+`principals/` and `grants/` files offline and prints every problem with its
+file and line (exit 2), or the counts and the directory hash. `config diff
+<directory>` reads the running sidecar's last reconcile (`GET
+/api/v1/gitops`): when the sidecar saw the same files (the same hash) it
+prints the diff still to apply or waiting for a person (exit 2) or `no
+differences` (exit 0); when the hashes differ it says the sidecar has not
+reconciled these files yet (exit 2).
+
 `config export` prints the effective settings as YAML a config file can
 hold (`GET /api/v1/config/yaml`); `--only-overrides` prints only the keys a
 stored override sets, `{}` when there is none. A secret is always written
