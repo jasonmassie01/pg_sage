@@ -77,6 +77,7 @@ var unsplitValidateOrder = []string{
 	"validateReplicas(c.Databases)",
 	"c.validateSLOOwners()",
 	"c.Prometheus.validate()",
+	"c.NotificationPolicy.validate()",
 	"c.validateRegistry()",
 	"c.validateFleetDatabases()",
 }

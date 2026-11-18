@@ -44,7 +44,16 @@ func executorDispatcher(d *notify.Dispatcher, pool *pgxpool.Pool, name string,
 		l.Waits = ex.VerificationWaits()
 	}
 	return approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper).
-		WithTrust(ex.TrustLevel)
+		WithTrust(ex.TrustLevel).WithChatCap(chatApprovalCap())
+}
+
+// chatApprovalCap is notification_policy.chat_approval_max_tier (ux-09a,
+// D7); "" (no config yet) is the default, moderate.
+func chatApprovalCap() string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.NotificationPolicy.ChatApprovalMaxTier
 }
 
 // approvalCardLoader reads a database's cards with the executor's trust
@@ -105,7 +114,8 @@ func runApprovalCardCycle(ctx context.Context, f *approvalcard.Followups,
 			continue
 		}
 		l := approvalCardLoader(inst.Pool, inst.Name, inst.Executor.TrustLevel())
-		n := approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper)
+		n := approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper).
+			WithChatCap(chatApprovalCap())
 		if _, err := approvalcard.RenotifySnoozed(ctx, l, n); err != nil {
 			logWarn("approvals", "db %q: re-send snoozed approval cards: %v", inst.Name, err)
 		}

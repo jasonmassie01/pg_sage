@@ -1,6 +1,7 @@
 package changeplan
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -62,7 +63,7 @@ func TestStepRiskTier_ReadsTheExecutorContracts(t *testing.T) {
 }
 
 func TestOfferForChat_ThreeModerateStepsOfferAllAndStepOne(t *testing.T) {
-	o := OfferForChat(offerDetail(moderate(1), moderate(2), moderate(3)))
+	o := OfferForChat(offerDetail(moderate(1), moderate(2), moderate(3)), defaultCap)
 	if !o.All || !o.Next || o.UpTo != 0 || o.BlockedAt != 0 || o.Blocked != "" {
 		t.Fatalf("offer %+v, want all and step 1 only, no up-to, nothing blocked", o)
 	}
@@ -86,7 +87,7 @@ func TestOfferForChat_HighTierBoundaries(t *testing.T) {
 		"single high step":           {offerDetail(terminateStep(1)), false, false, 0, 1},
 	}
 	for name, c := range cases {
-		o := OfferForChat(c.d)
+		o := OfferForChat(c.d, defaultCap)
 		if o.All != c.all || o.Next != c.next || o.UpTo != c.upTo ||
 			o.BlockedAt != c.blockedAt {
 			t.Errorf("%s: offer %+v, want all=%v next=%v up_to=%d blocked_at=%d", name, o,
@@ -102,7 +103,7 @@ func TestOfferForChat_NeverAutomaticStepBlocksLikeHighTier(t *testing.T) {
 	d := offerDetail(moderate(1), moderate(2), moderate(3))
 	d.Coverage[2].NeedsOwnApproval = true
 	d.Coverage[2].Reason = "rollback_missing: no rollback"
-	o := OfferForChat(d)
+	o := OfferForChat(d, defaultCap)
 	if o.All || !o.Next || o.UpTo != 2 || o.BlockedAt != 3 {
 		t.Fatalf("offer %+v, want up to 2 and step 1 only, blocked at 3", o)
 	}
@@ -110,31 +111,50 @@ func TestOfferForChat_NeverAutomaticStepBlocksLikeHighTier(t *testing.T) {
 
 func TestOfferForChat_CheckAndOperatorStepsNeverBlock(t *testing.T) {
 	o := OfferForChat(offerDetail(moderate(1), Step{Ordinal: 2, Kind: KindCheck},
-		Step{Ordinal: 3, Kind: KindOperator}))
+		Step{Ordinal: 3, Kind: KindOperator}), defaultCap)
 	if !o.All || o.BlockedAt != 0 {
 		t.Fatalf("offer %+v, want all: check and operator steps change nothing", o)
 	}
 }
 
 func TestOfferForChat_NilEmptyAndMissingCoverage(t *testing.T) {
-	if o := OfferForChat(Detail{}); o.All || o.Next || o.UpTo != 0 {
+	if o := OfferForChat(Detail{}, defaultCap); o.All || o.Next || o.UpTo != 0 {
 		t.Fatalf("an empty plan offers %+v, want nothing", o)
 	}
 	d := offerDetail(moderate(1), moderate(2), moderate(3))
 	d.Coverage = d.Coverage[:1] // steps 2 and 3 have no coverage row
-	if o := OfferForChat(d); o.All || o.BlockedAt != 2 || !o.Next {
+	if o := OfferForChat(d, defaultCap); o.All || o.BlockedAt != 2 || !o.Next {
 		t.Fatalf("missing coverage offers %+v, want blocked at 2 (fail closed)", o)
 	}
 	d = offerDetail(moderate(2), moderate(1)) // out of order in the slice
-	if o := OfferForChat(d); !o.All || !o.Next {
+	if o := OfferForChat(d, defaultCap); !o.All || !o.Next {
 		t.Fatalf("steps out of slice order offer %+v, want all", o)
 	}
 }
 
-func TestChatApprovableTiers_AreSafeAndModerate(t *testing.T) {
-	if len(ChatApprovableTiers) != 2 || !ChatApprovable(policy.RiskSafe) ||
-		!ChatApprovable(policy.RiskModerate) || ChatApprovable(policy.RiskHigh) ||
-		ChatApprovable("") {
-		t.Fatalf("chat tiers %v, want safe and moderate (D7)", ChatApprovableTiers)
+// defaultCap is notification_policy.chat_approval_max_tier's default
+// (ux-09a); plan-03b's constant became this key.
+const defaultCap = "moderate"
+
+// ux-09a: the cap narrows what a chat card of a plan offers; high is never
+// approvable from chat, whatever the cap.
+func TestOfferForChat_CapNarrowsWhatChatApproves(t *testing.T) {
+	d := offerDetail(analyzeStep(1), moderate(2), moderate(3))
+	if o := OfferForChat(d, "safe"); o.All || !o.Next || o.BlockedAt != 2 ||
+		!strings.Contains(o.Blocked, "moderate") {
+		t.Fatalf("cap safe offers %+v, want step 1 only, blocked at 2 (moderate)", o)
+	}
+	if o := OfferForChat(d, "none"); o.All || o.Next || o.BlockedAt != 1 {
+		t.Fatalf("cap none offers %+v, want no approval at all", o)
+	}
+	for _, cap := range []string{"", "safe", "moderate", "none", "high"} {
+		o := OfferForChat(offerDetail(terminateStep(1)), cap)
+		if o.All || o.Next || o.UpTo != 0 || o.BlockedAt != 1 {
+			t.Fatalf("a high step under cap %q offers %+v", cap, o)
+		}
+	}
+	if !ChatApprovable(policy.RiskModerate, "") || ChatApprovable(policy.RiskModerate, "safe") ||
+		ChatApprovable(policy.RiskHigh, "moderate") || ChatApprovable("", "moderate") {
+		t.Fatal("ChatApprovable does not follow the cap (D7)")
 	}
 }

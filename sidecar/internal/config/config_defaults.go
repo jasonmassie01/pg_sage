@@ -394,6 +394,8 @@ func defaultRetentionConfig() RetentionConfig {
 func defaultNotificationPolicyConfig() NotificationPolicyConfig {
 	return NotificationPolicyConfig{
 		AllowPrivateTargets: DefaultNotificationPolicyAllowPrivateTargets,
+		ChatApprovalMaxTier: ChatApprovalCapModerate,
+		AskBatchMinutes:     DefaultNotificationPolicyAskBatchMinutes,
 	}
 }
 

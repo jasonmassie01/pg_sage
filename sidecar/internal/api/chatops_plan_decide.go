@@ -33,6 +33,8 @@ type planCardTarget struct {
 	card   chatops.PlanCardDelivery
 	inst   *fleet.DatabaseInstance
 	detail changeplan.Detail
+	// chatCap is notification_policy.chat_approval_max_tier (ux-09a).
+	chatCap string
 }
 
 func (d *chatopsDeps) decidePlanCard(w http.ResponseWriter, r *http.Request,
@@ -72,7 +74,7 @@ func (d *chatopsDeps) decidePlanCard(w http.ResponseWriter, r *http.Request,
 // database, its plan still proposed and unchanged since the card was sent.
 func (d *chatopsDeps) checkPlanCard(w http.ResponseWriter, r *http.Request,
 	ch notify.Channel, a chatops.Action) (planCardTarget, bool) {
-	var t planCardTarget
+	t := planCardTarget{chatCap: d.chatCap}
 	var err error
 	if t.card, err = d.planCards.Lookup(r.Context(), a.PlanToken); err != nil {
 		writePlanCardError(w, r, err)
@@ -138,7 +140,7 @@ func checkPlanCardUse(w http.ResponseWriter, r *http.Request, ch notify.Channel,
 // on the plan now; reject records none.
 func chatPlanDecision(w http.ResponseWriter, ch notify.Channel, a chatops.Action,
 	t planCardTarget) (changeplan.Decision, bool) {
-	offer := changeplan.OfferForChat(t.detail)
+	offer := changeplan.OfferForChat(t.detail, t.chatCap)
 	d := changeplan.Decision{PlanHash: t.card.PlanHash, Via: changeplan.ViaChat,
 		ProposedOnly: true}
 	allowed := true

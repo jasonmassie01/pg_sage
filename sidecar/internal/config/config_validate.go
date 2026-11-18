@@ -164,6 +164,7 @@ func (c *Config) validateOperations() error {
 		func() error { return validateReplicas(c.Databases) },
 		c.validateSLOOwners,
 		func() error { return c.Prometheus.validate() },
+		func() error { return c.NotificationPolicy.validate() },
 		c.validateRegistry,
 	)
 }

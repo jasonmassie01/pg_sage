@@ -766,7 +766,9 @@
     "CDCHeartbeats": null
   },
   "NotificationPolicy": {
-    "AllowPrivateTargets": false
+    "AllowPrivateTargets": false,
+    "ChatApprovalMaxTier": "moderate",
+    "AskBatchMinutes": 15
   },
   "Checks": null,
   "Databases": null,
