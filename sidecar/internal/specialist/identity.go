@@ -18,7 +18,10 @@ type Identity struct {
 	Kind      string // "agent" or "operator"
 	Scopes    []string
 	Databases []string // nil = every database
-	Transport string   // http, mcp, pagerduty, webhook
+	// Transport is http, mcp, pagerduty, webhook, incidentio or
+	// azure_monitor; the last two are audited as http (their vendor is the
+	// record's external_ref.system) and owe no result post.
+	Transport string
 }
 
 // IdentityFromGrant is the identity a validated token grants.

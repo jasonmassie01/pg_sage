@@ -4237,3 +4237,8 @@ call (see [specialist.md](specialist.md)). It is on by default and token-only
 | `specialist.webhook.signing_secret` | | Generic webhook HMAC secret; empty disables the adapter. |
 | `specialist.webhook.result_url` | | Where signed results are posted (https, or http to loopback). |
 | `specialist.webhook.timestamp_tolerance_seconds` | `300` | Accepted age of a signed webhook request (30-900). |
+| `specialist.incidentio.signing_secret` | | incident.io endpoint secret (`whsec_...`); empty disables the adapter. |
+| `specialist.incidentio.database_field` | `Database` | incident.io custom field whose value selects the route. |
+| `specialist.incidentio.routes` | `[]` | `VALUE=database[:family]` mappings, matched without case (need `signing_secret`). |
+| `specialist.azure_monitor.shared_secret` | | Key Azure alert deliveries send in `X-Sage-Azure-Key` or `?key=`; empty disables the adapter. |
+| `specialist.azure_monitor.resources` | `[]` | `RESOURCE_ID=database[:family]` mappings, matched without case (need `shared_secret`). |

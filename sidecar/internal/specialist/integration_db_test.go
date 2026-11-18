@@ -43,6 +43,7 @@ func (lockRunner) Run(_ context.Context, id probes.ID, _ probes.Args) probes.Res
 type liveFixture struct {
 	pool    *pgxpool.Pool
 	handler http.Handler
+	spec    *Service
 	coord   *sre.Coordinator
 	svc     *sre.Service
 	tokens  map[string]string // label -> secret
@@ -80,7 +81,7 @@ func newLiveFixtureWith(t *testing.T, runner sre.ProbeRunner) *liveFixture {
 		t.Fatal(err)
 	}
 	tokens := mcptoken.NewStore(pool)
-	f := &liveFixture{pool: pool, coord: coord, svc: svc, tokens: map[string]string{},
+	f := &liveFixture{pool: pool, spec: spec, coord: coord, svc: svc, tokens: map[string]string{},
 		handler: NewHandler(spec, NewTokenAuthenticator(tokens), HandlerOptions{})}
 	for label, req := range map[string]mcptoken.CreateRequest{
 		"read": {Name: "Datadog", Scopes: []string{"read"}, Databases: []string{"orders"}},

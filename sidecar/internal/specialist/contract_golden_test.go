@@ -291,6 +291,10 @@ var contractTypes = map[string]reflect.Type{
 		InvestigatorClaim{}), "UnmodeledCause": reflect.TypeOf(UnmodeledCause{}),
 	"InvestigatorRun": reflect.TypeOf(InvestigatorRun{}), "TranscriptLink": reflect.TypeOf(
 		TranscriptLink{}), "TranscriptResponse": reflect.TypeOf(TranscriptResponse{}),
+	// Contract revision 1.2.0 (mcp-02).
+	"AgentSummary": reflect.TypeOf(AgentSummary{}), "AgentEvidence": reflect.TypeOf(
+		AgentEvidence{}), "AgentAction": reflect.TypeOf(AgentAction{}),
+	"WhyNoAction": reflect.TypeOf(WhyNoAction{}), "AgentFix": reflect.TypeOf(AgentFix{}),
 }
 
 type jsonField struct {

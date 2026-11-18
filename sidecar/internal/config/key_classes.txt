@@ -507,8 +507,14 @@ safety_critical sre.investigator.require_support_citation
 
 # Specialist API (v2.1.0): who may call pg_sage, with what credentials and how
 # much, and what identifiers leave the database are authority; which PagerDuty
-# services map onto it is the operator's routing.
+# services, incident.io field values and Azure resources map onto it is the
+# operator's routing.
+safety_critical specialist.azure_monitor.shared_secret
+operator_preference specialist.azure_monitor.resources
 safety_critical specialist.enabled
+operator_preference specialist.incidentio.database_field
+operator_preference specialist.incidentio.routes
+safety_critical specialist.incidentio.signing_secret
 safety_critical specialist.keep_identifiers
 safety_critical specialist.max_open_per_identity
 safety_critical specialist.max_open_total
