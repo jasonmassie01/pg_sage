@@ -8,9 +8,22 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
+// databasesHandler serves the fleet status, or a searched, sorted page of
+// it when the request names a list parameter (ux-10a, databases_list.go).
 func databasesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		jsonResponse(w, mgr.FleetStatus())
+		q := r.URL.Query()
+		if !isFleetListRequest(q) {
+			jsonResponse(w, mgr.FleetStatus())
+			return
+		}
+		lq, err := parseFleetListQuery(q)
+		if err != nil {
+			jsonError(w, "database list: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		ov, facets := mgr.FleetListing()
+		jsonResponse(w, listFleet(ov, facets, lq))
 	}
 }
 
