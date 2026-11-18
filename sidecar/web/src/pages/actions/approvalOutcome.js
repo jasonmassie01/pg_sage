@@ -33,3 +33,18 @@ export function approvalOutcomeMessage(status, json) {
   }
   return { ok: false, text: body.error || `Approve failed (${status})` }
 }
+
+// allowAlwaysOutcomeMessage reads an approve-and-allow response (ux-07a):
+// the action's outcome, then whether the class now runs unattended. An
+// approval whose promotion was refused says so; it is still approved.
+export function allowAlwaysOutcomeMessage(status, json) {
+  const body = json || {}
+  const action = approvalOutcomeMessage(status, body)
+  if (!action.ok) return action
+  if (body.allow_always) {
+    return { ok: true, text: `${action.text}. It now runs unattended `
+      + `(${body.autonomy_level || 'L3'}); pg_sage stops asking.` }
+  }
+  return { ok: false, text: `${action.text}. `
+    + (body.autonomy_error || 'approved; autonomy unchanged') }
+}
