@@ -36,7 +36,10 @@ var (
 		"reindex_concurrently", "promote_role_work_mem", ActionTypeSetRoleTimeout,
 		ActionTypeSetRoleConnectionLimit, "apply_query_hint", "retire_query_hint",
 		"create_statistics", "revert_created_statistics", "create_index_concurrently",
-		"alter_system_guc", "alter_database_guc", ActionTypeSetColumnStatistics}
+		"alter_system_guc", "alter_database_guc", ActionTypeSetColumnStatistics,
+		// fleetpol-02b: undone by the stored exact re-GRANT, or by turning
+		// RLS off again; enabling RLS always needs an approval besides.
+		ActionTypeRevokePublicGrant, ActionTypeEnableRLS}
 	costlyClasses = []string{"drop_unused_index", ActionTypeReplaceIndex, "alter_table",
 		"retention_delete"}
 	notGatedClasses = []string{"diagnose_lock_blockers", "diagnose_runaway_query",

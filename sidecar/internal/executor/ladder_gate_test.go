@@ -76,6 +76,8 @@ func TestRevertCost_Classes(t *testing.T) {
 		{"apply_query_hint", "INSERT INTO hint_plan.hints VALUES (1, '', 'x')", true},
 		{"create_statistics", "CREATE STATISTICS s ON a, b FROM t", true},
 		{"alter_system_guc", "ALTER SYSTEM SET work_mem = '64MB'", true},
+		{ActionTypeRevokePublicGrant, "REVOKE SELECT ON public.t FROM PUBLIC", true},
+		{ActionTypeEnableRLS, "ALTER TABLE public.t ENABLE ROW LEVEL SECURITY", true},
 		{"drop_unused_index", ladderDropSQL, false},
 		{ActionTypeReplaceIndex, "", false},
 		{"alter_table", "ALTER TABLE public.t ALTER COLUMN a TYPE bigint", false},
