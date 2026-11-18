@@ -19,9 +19,11 @@ func startObserveSweeper(state *metaDBState) {
 	if state == nil || state.Store == nil || fleetMgr == nil {
 		return
 	}
+	census := fleet.NewCensusStore(state.Pool)
 	sweeper := fleet.NewObserveSweeper(state.Store, fleet.ObserveOptions{
-		Members: fleetMgr.SetObserveOnly,
-		Promote: observePromotion(shutdownCtx, policy.NewStore(state.Pool)),
+		Members:  fleetMgr.SetObserveOnly,
+		Activity: census.RecordActivity,
+		Promote:  observePromotion(shutdownCtx, policy.NewStore(state.Pool)),
 		Logf: func(level, format string, args ...any) {
 			logStructured(level, "observe-only", format, args...)
 		},
@@ -29,6 +31,7 @@ func startObserveSweeper(state *metaDBState) {
 	logInfo("observe-only", "observe-only sweeper: every %s, %d members at once",
 		sweeper.Interval(), sweeper.Concurrency())
 	go sweeper.Run(shutdownCtx)
+	startSprawlCensus(census) // census_wiring.go (fleetpol-03)
 }
 
 // observeSetReader is what a promotion reads (a *policy.Store).
