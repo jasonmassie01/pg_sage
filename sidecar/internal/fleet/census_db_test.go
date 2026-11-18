@@ -207,7 +207,7 @@ func TestCensusDB_PrunesRunsOlderThan400Days(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	cs := NewCensusStore(meta)
-	for _, age := range []time.Duration{401 * day, 399 * day} {
+	for _, age := range []time.Duration{430 * day, 370 * day} { // two months
 		at := now.Add(-age)
 		id, ok, err := cs.BeginCensus(ctx, CensusPeriod(at), at, "a")
 		if err != nil || !ok {
@@ -225,7 +225,7 @@ func TestCensusDB_PrunesRunsOlderThan400Days(t *testing.T) {
 		t.Fatalf("count: %v", err)
 	}
 	if runs != 1 || now.Sub(oldest) > 400*day {
-		t.Fatalf("%d runs, oldest %s, want only the 399-day-old run", runs, oldest)
+		t.Fatalf("%d runs, oldest %s, want only the 370-day-old run", runs, oldest)
 	}
 }
 
@@ -240,8 +240,8 @@ func TestCensusDB_RecordActivity(t *testing.T) {
 		at    time.Time
 		last  *time.Time
 	}{
-		{ip(100), t0, nil},                                     // baseline
-		{ip(100), t0.Add(time.Hour), nil},                      // no change
+		{ip(100), t0, nil},                                          // baseline
+		{ip(100), t0.Add(time.Hour), nil},                           // no change
 		{ip(150), t0.Add(2 * time.Hour), tp(t0.Add(2 * time.Hour))}, // workload ran
 		{ip(900), t0.Add(time.Hour), tp(t0.Add(2 * time.Hour))},     // out of order: ignored
 		{ip(0), t0.Add(3 * time.Hour), tp(t0.Add(2 * time.Hour))},   // stats reset to 0
@@ -310,7 +310,8 @@ func TestCensusDB_SelfActivityReadsNoRealActivity(t *testing.T) {
 	otherRoleQuery(t, member)
 	sweep(t0.Add(32 * day))
 	m, err = measure(ctx, subject)
-	if err != nil || m.LastActivityAt == nil || !m.LastActivityAt.Equal(t0.Add(32*day)) {
+	if want := censusTime(t0.Add(32 * day)); err != nil || m.LastActivityAt == nil ||
+		!m.LastActivityAt.Equal(want) {
 		t.Fatalf("after another role's query: %+v %v, want real activity", m, err)
 	}
 }

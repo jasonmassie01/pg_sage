@@ -62,9 +62,22 @@ func (s *ObserveSweeper) visitOne(ctx context.Context, roundID int64,
 	}
 	tally.mu.Unlock()
 	if recErr := s.store.RecordObserveSweep(context.WithoutCancel(ctx), sw); recErr != nil {
-		tally.mu.Lock()
-		tally.errs = append(tally.errs, recErr)
-		tally.mu.Unlock()
+		tally.add(recErr)
+	}
+	if err == nil {
+		s.recordActivity(context.WithoutCancel(ctx), rec, grade, start, tally)
+	}
+}
+
+// recordActivity keeps a visit's census reading (fleetpol-03).
+func (s *ObserveSweeper) recordActivity(ctx context.Context, rec store.DatabaseRecord,
+	grade ObserveGrade, at time.Time, tally *roundTally) {
+	if grade.Activity == nil || s.opts.Activity == nil {
+		return
+	}
+	if err := s.opts.Activity(ctx, rec.Name, grade.Activity.WorkloadCalls,
+		grade.Activity.SizeBytes, at); err != nil {
+		tally.add(err)
 	}
 }
 
@@ -162,7 +175,11 @@ func DefaultObserveCheck(o ObserveCheckOptions) ObserveCheck {
 		in := rubric.Inputs{Provider: o.Provider, Now: now().UTC(),
 			FirstLook: rubric.FirstLookInput{Found: true, Report: report},
 			Settings:  rubric.ProbeSettings(ctx, pool, timeout)}
-		return observeGrade(in, report)
+		g, err := observeGrade(in, report)
+		if err == nil {
+			g.Activity = readObserveActivity(ctx, pool, rec, timeout)
+		}
+		return g, err
 	}
 }
 

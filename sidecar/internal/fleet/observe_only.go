@@ -51,6 +51,17 @@ type ObserveStore interface {
 type ObserveGrade struct {
 	Letter string
 	Detail json.RawMessage
+	// Activity is the visit's workload reading for the sprawl census
+	// (fleetpol-03); nil when the check took none.
+	Activity *ObserveActivity
+}
+
+// ObserveActivity is one visit's census reading: the database's
+// pg_stat_statements calls by roles other than pg_sage's (a cumulative
+// counter) and its size; either is nil when it could not be read.
+type ObserveActivity struct {
+	WorkloadCalls *int64
+	SizeBytes     *int64
 }
 
 // ObserveVisit visits one member; an error wrapping ErrObserveUnreachable
@@ -69,9 +80,12 @@ type ObserveOptions struct {
 	// Members receives the observe-only member names after each listing
 	// (DatabaseManager.SetObserveOnly), so their actions are refused.
 	Members func(names []string)
-	After   func(time.Duration) <-chan time.Time // nil: time.After
-	Now     func() time.Time
-	Logf    func(level, format string, args ...any)
+	// Activity stores a visit's census reading (CensusDB.RecordActivity);
+	// nil: readings are not kept.
+	Activity func(ctx context.Context, key string, calls, size *int64, at time.Time) error
+	After    func(time.Duration) <-chan time.Time // nil: time.After
+	Now      func() time.Time
+	Logf     func(level, format string, args ...any)
 }
 
 // ObserveSweeper visits the observe-only members in rounds.
@@ -214,6 +228,12 @@ type roundTally struct {
 	ok, unreach, failed int
 	errs                []error
 	active, peak        atomic.Int64
+}
+
+func (t *roundTally) add(err error) {
+	t.mu.Lock()
+	t.errs = append(t.errs, err)
+	t.mu.Unlock()
 }
 
 // visitAll visits members, at most Concurrency at once, until ctx ends.
