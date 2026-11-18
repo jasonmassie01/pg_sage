@@ -46,9 +46,16 @@ function useWhyNot(url) {
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState('')
-  const copy = () => navigator.clipboard.writeText(text)
-    .then(() => setCopied('Copied'))
-    .catch(err => setCopied(`Copy failed (${err?.message || 'no clipboard'}); select it`))
+  // Plain http (not localhost) exposes no clipboard: say so, never throw.
+  const copy = () => {
+    if (!navigator.clipboard?.writeText) {
+      setCopied('Copy is unavailable here; select it')
+      return
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => setCopied('Copied'))
+      .catch(err => setCopied(`Copy failed (${err?.message || 'no clipboard'}); select it`))
+  }
   return <button type="button" onClick={copy} className="underline text-xs" style={accent}>
     {copied || 'Copy'}</button>
 }
