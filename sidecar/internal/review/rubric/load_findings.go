@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/histstore"
 )
 
 // maxOpenFindings bounds the findings read for one grade; evidence cites
@@ -59,18 +61,26 @@ func findingCategories(r Rubric) []string {
 // as run once a snapshot was collected, never before. The cost and cloud
 // telemetry producers leave no run record here, so their checks pass only
 // when cost.rates says right-sizing is graded; cloud backup checks stay
-// unknown without an open finding.
+// unknown without an open finding. The snapshots are read through the
+// database's history store (histstore.Resolve), so in meta mode a grade
+// reads this database's history, never an empty table or another
+// database's rows.
 func (l *DBLoader) producersRan(ctx context.Context) (map[string]bool, error) {
 	var snapshot, history, advisor bool
-	err := l.Pool.QueryRow(ctx, `/* pg_sage review v1 */
-		SELECT EXISTS (SELECT 1 FROM sage.snapshots),
-		       EXISTS (SELECT 1 FROM sage.snapshots
-		               WHERE collected_at < now() - interval '1 day'),
-		       EXISTS (SELECT 1 FROM sage.advisor_runs
-		               WHERE database_name = $1 AND last_success_at IS NOT NULL)`,
-		l.Database).Scan(&snapshot, &history, &advisor)
+	err := histstore.Resolve(l.Pool).QueryRow(ctx, `/* pg_sage review v1 */
+		SELECT EXISTS (SELECT 1 FROM sage.snapshots s WHERE {db:s}),
+		       EXISTS (SELECT 1 FROM sage.snapshots s
+		               WHERE {db:s} AND s.collected_at < now() - interval '1 day')`).
+		Scan(&snapshot, &history)
 	if err != nil {
-		return nil, fmt.Errorf("read the producers' run records: %w", err)
+		return nil, fmt.Errorf("read the snapshot history of %s: %w", l.Database, err)
+	}
+	err = l.Pool.QueryRow(ctx, `/* pg_sage review v1 */
+		SELECT EXISTS (SELECT 1 FROM sage.advisor_runs
+		               WHERE database_name = $1 AND last_success_at IS NOT NULL)`,
+		l.Database).Scan(&advisor)
+	if err != nil {
+		return nil, fmt.Errorf("read the advisor run records of %s: %w", l.Database, err)
 	}
 	return map[string]bool{"analyzer": snapshot, "upgradecheck": snapshot,
 		"forecaster": history, "runway": history, "advisor": advisor, "migration": snapshot,
