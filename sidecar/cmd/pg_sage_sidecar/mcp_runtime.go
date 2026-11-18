@@ -63,10 +63,9 @@ func mcpDependencies() mcp.ProductionDependencies {
 			migrationFactory: configuredMCPMigrationRuntime,
 		},
 		Policy: access, Ledger: access, Value: access, Guarantees: access,
-		// SRE reads (sre_list_incidents, sre_get_investigation, sre_get_evidence).
-		Investigations: access,
-		// SLO and change-feed read tools (sre_list_slos, sre_get_slo, sre_list_changes).
-		Signals: access,
+		// SRE reads (sre_list_incidents, sre_get_investigation, sre_get_evidence) and
+		// SLO and change-feed reads (sre_list_slos, sre_get_slo, sre_list_changes).
+		Investigations: access, Signals: access,
 		// Sage SRE action tools (sre_propose_action, sre_request_execution)
 		// propose and queue; they never execute.
 		Actions: access,
@@ -77,6 +76,8 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Autonomy: autonomyMCPBackend{registry: processAutonomy().registry, manager: fleetMgr},
 		// Binding facts: read, propose (stays proposed), decide (a person).
 		Facts: factsMCPBackend{manager: fleetMgr},
+		// Plans: read and propose (stays proposed); no MCP path approves.
+		Plans: plansMCPBackend{manager: fleetMgr},
 		// Fleet findings across the databases the caller may see.
 		FleetLearning: fleetFindingsMCP{},
 		// A workload pack's model tier, never its local tier (evid-02c).
@@ -93,6 +94,7 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Grants: agentGrantMCP(cfg, fleetMgr, globalMetaState),
 		// tools/list hides a tool family where it cannot be served (mcp-09).
 		Availability: newMCPAvailability(fleetMgr), ReviewGrade: api.ReviewGradeMCP(fleetMgr),
+		ReviewScorecard: api.ReviewScorecardMCP(fleetMgr, cfg), // review-05a
 		// The latest-briefing resource of each database (llm-06b).
 		Briefings: fleetBriefingsMCP{manager: fleetMgr},
 		// upgrade_readiness (market-05): read-only, on the resolved database.

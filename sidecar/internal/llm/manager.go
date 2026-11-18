@@ -10,8 +10,12 @@ import (
 type Manager struct {
 	General   *Client
 	Optimizer *Client // nil if not configured
+	Review    *Client // nil if not configured (review-03a)
 	fallback  bool
 }
+
+// PurposeReview labels Sage Review's model pass (review-03a).
+const PurposeReview = "review"
 
 // NewManager creates a Manager. If optClient is nil, all requests
 // go to the general client.
@@ -23,9 +27,24 @@ func NewManager(general *Client, optClient *Client, fallback bool) *Manager {
 	}
 }
 
-// ForPurpose returns the right client for the given purpose.
+// WithReview sets the dedicated review client (nil: none) and returns m.
+// Call it before m is shared.
+func (m *Manager) WithReview(review *Client) *Manager {
+	m.Review = review
+	return m
+}
+
+// ForPurpose returns the right client for the given purpose. The review
+// goes to its own client, else the optimizer's, else the general one.
 func (m *Manager) ForPurpose(purpose string) *Client {
 	switch purpose {
+	case PurposeReview:
+		if m.Review != nil {
+			return m.Review
+		}
+		if m.Optimizer != nil {
+			return m.Optimizer
+		}
 	case "index_optimization", "query_tuning":
 		if m.Optimizer != nil {
 			return m.Optimizer
@@ -73,12 +92,15 @@ type ClientStatus struct {
 
 // TokenStatus returns the token budget status for all clients.
 func (m *Manager) TokenStatus() map[string]ClientStatus {
-	result := make(map[string]ClientStatus, 2)
+	result := make(map[string]ClientStatus, 3)
 	if m.General != nil {
 		result["general"] = clientStatus(m.General)
 	}
 	if m.Optimizer != nil {
 		result["optimizer"] = clientStatus(m.Optimizer)
+	}
+	if m.Review != nil {
+		result["review"] = clientStatus(m.Review)
 	}
 	return result
 }
@@ -91,6 +113,9 @@ func (m *Manager) ResetBudgets() {
 	}
 	if m.Optimizer != nil {
 		m.Optimizer.ResetBudget()
+	}
+	if m.Review != nil {
+		m.Review.ResetBudget()
 	}
 }
 

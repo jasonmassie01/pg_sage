@@ -1,117 +1,147 @@
 package report
 
 import (
-	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/review/candidate"
 	"github.com/pg-sage/sidecar/internal/review/rubric"
 )
 
-// review-01b: the templated report of a graded run, the one the Review
-// page shows when no model pass ran. No concurrent access tests: FromRun
-// is a pure function of its argument.
+// The deterministic ranking and the templated text of a review that has
+// no model (review-03a).
+// No concurrent access tests: Score, Deterministic and Sections are pure
+// functions; the templates are parsed once at init and only executed.
+// No integration tests: nothing here reads a database.
 
-func check(id string, s rubric.Status, w int, critical bool) rubric.CheckResult {
-	return rubric.CheckResult{Check: id, Status: s, Weight: w, Critical: critical,
-		Evidence: []string{"finding:" + id}, Reason: "reason of " + id}
+func pct(v float64) *float64 { return &v }
+
+func cand(id, dim string, size *float64, tier, approval, action string,
+	reversible bool) candidate.Candidate {
+	return candidate.Candidate{ID: id, Dimension: dim, Kind: "k" + id, Target: "public.t" + id,
+		ActionType: action, EvidenceIDs: []string{"index/idx/" + id},
+		Prediction: candidate.Prediction{SizePct: size, Tier: tier},
+		Approval:   approval, Reversible: reversible}
 }
 
-func gradedRun(kind rubric.Kind) rubric.Run {
-	return rubric.Run{ID: 42, Database: "orders", Kind: kind, Status: rubric.RunDone,
-		Grade: rubric.Grade{RubricVersion: rubric.Version, Dimensions: []rubric.DimensionGrade{
-			{Dimension: "recoverability", Title: "Recoverability", Checks: []rubric.CheckResult{
-				check("recoverability.drill", rubric.StatusWarn, 20, false),
-				check("recoverability.wal", rubric.StatusFail, 5, true),
-				check("recoverability.pass", rubric.StatusPass, 50, false),
-			}},
-			{Dimension: "schema", Title: "Schema", Checks: []rubric.CheckResult{
-				check("schema.unknown", rubric.StatusUnknown, 90, false),
-				check("schema.fk_index", rubric.StatusFail, 10, false),
-				check("schema.dup", rubric.StatusFail, 10, false),
-				check("schema.na", rubric.StatusNotApplicable, 10, false),
-			}},
-		}}}
-}
-
-func TestFromRun_RanksFailsBeforeWarnsCriticalFirstThenWeightThenRubricOrder(t *testing.T) {
-	r := FromRun(gradedRun(rubric.KindGrade))
-	want := []struct {
-		check, dim, title string
-		status            rubric.Status
+func TestScore_EffectTimesConfidenceOverRisk(t *testing.T) {
+	cases := []struct {
+		name string
+		c    candidate.Candidate
+		want float64
 	}{
-		{"recoverability.wal", "recoverability", "Recoverability", rubric.StatusFail},
-		{"schema.fk_index", "schema", "Schema", rubric.StatusFail},
-		{"schema.dup", "schema", "Schema", rubric.StatusFail},
-		{"recoverability.drill", "recoverability", "Recoverability", rubric.StatusWarn},
+		{"canary automatic reversible", cand("a", "d", pct(-40), "canary",
+			candidate.ApprovalAutomatic, "create_index", true), 36},
+		{"approval needed halves", cand("b", "d", pct(40), "canary",
+			candidate.ApprovalRequired, "create_index", true), 18},
+		{"irreversible executed step thirds", cand("c", "d", pct(30), "fleet",
+			candidate.ApprovalRequired, "drop_index", false), 10},
+		{"advice is not executed", cand("d", "d", pct(30), "fleet",
+			candidate.ApprovalRequired, candidate.ActionAdvice, false), 15},
+		{"unknown size counts 1", cand("e", "d", nil, "plan_only",
+			candidate.ApprovalAutomatic, "create_index", true), 0.5},
+		{"unknown tier counts as none", cand("f", "d", pct(10), "lab",
+			candidate.ApprovalAutomatic, "create_index", true), 2.5},
+		{"zero size counts 1", cand("g", "d", pct(0), candidate.TierNone,
+			candidate.ApprovalAutomatic, "create_index", true), 0.25},
+		{"NaN size counts 1", cand("h", "d", pct(math.NaN()), "clone",
+			candidate.ApprovalAutomatic, "create_index", true), 0.75},
+		{"empty approval fails closed", cand("i", "d", pct(10), "clone", "",
+			"create_index", true), 3.75},
 	}
-	if r.RunID != 42 || len(r.Findings) != len(want) {
-		t.Fatalf("report = %+v, want run 42 with %d findings", r, len(want))
+	for _, tc := range cases {
+		if got := Score(tc.c); got != tc.want {
+			t.Errorf("%s: score %v, want %v", tc.name, got, tc.want)
+		}
 	}
+}
+
+func TestDeterministic_OrdersByScoreThenID(t *testing.T) {
+	cands := []candidate.Candidate{
+		cand("b", "d", pct(10), "clone", candidate.ApprovalAutomatic, "create_index", true),
+		cand("a", "d", pct(10), "clone", candidate.ApprovalAutomatic, "create_index", true),
+		cand("c", "d", pct(90), "fleet", candidate.ApprovalAutomatic, "create_index", true),
+	}
+	got := Deterministic(cands)
+	if len(got) != 3 || got[0].CandidateID != "c" || got[1].CandidateID != "a" ||
+		got[2].CandidateID != "b" {
+		t.Fatalf("order = %+v, want c, a, b", got)
+	}
+	for i, r := range got {
+		if r.Rank != i+1 || r.Decision != DecisionKeep || r.Origin != OriginDeterministic ||
+			len(r.EvidenceIDs) != 1 || r.Target == "" {
+			t.Errorf("entry %d = %+v", i, r)
+		}
+	}
+	got[0].EvidenceIDs[0] = "changed"
+	if cands[2].EvidenceIDs[0] != "index/idx/c" {
+		t.Fatal("the ranking shares the candidate's evidence slice")
+	}
+	if len(Deterministic(nil)) != 0 {
+		t.Fatal("no candidates gave a ranking")
+	}
+}
+
+func grade() *rubric.Grade {
+	return &rubric.Grade{RubricVersion: "v1", Overall: "B", Dimensions: []rubric.DimensionGrade{
+		{Dimension: "indexes", Title: "Indexes", Letter: "C", Score: 61.5, Coverage: 80},
+		{Dimension: "vacuum", Title: "Vacuum", Letter: "A", Score: 100, Coverage: 100}}}
+}
+
+func TestSections_GradeTextPerDimensionWithItsCandidates(t *testing.T) {
+	ranked := Deterministic([]candidate.Candidate{
+		cand("a", "indexes", pct(50), "clone", candidate.ApprovalAutomatic, "x", true),
+		cand("b", "indexes", pct(5), "clone", candidate.ApprovalAutomatic, "x", true),
+		cand("z", "schema", pct(5), "clone", candidate.ApprovalAutomatic, "x", true),
+	})
+	secs, err := Sections(grade(), ranked)
+	if err != nil {
+		t.Fatalf("Sections: %v", err)
+	}
+	if len(secs) != 3 {
+		t.Fatalf("sections = %+v, want indexes, vacuum and the ungraded schema", secs)
+	}
+	want := []string{"Indexes: grade C, 61.5% of the applicable checks passed with 80% of " +
+		"them run. 2 candidates ranked here; first: ka on public.ta.",
+		"Vacuum: grade A, 100% of the applicable checks passed with 100% of them run. " +
+			"No candidate for this dimension.",
+		"schema: not graded by this review's rubric. 1 candidate ranked here; first: kz on " +
+			"public.tz."}
 	for i, w := range want {
-		f := r.Findings[i]
-		if f.Rank != i+1 || f.Check != w.check || f.Dimension != w.dim ||
-			f.DimensionTitle != w.title || f.Status != w.status {
-			t.Errorf("finding %d = %+v, want rank %d %s", i, f, i+1, w.check)
-		}
-		if len(f.Evidence) != 1 || f.Evidence[0] != "finding:"+w.check ||
-			f.Reason != "reason of "+w.check {
-			t.Errorf("finding %d evidence/reason = %v %q", i, f.Evidence, f.Reason)
+		if secs[i].Text != w || secs[i].Origin != OriginDeterministic {
+			t.Errorf("section %d = %q (%s), want %q", i, secs[i].Text, secs[i].Origin, w)
 		}
 	}
-	if !r.Findings[0].Critical || r.Findings[1].Critical || r.Findings[0].Weight != 5 {
-		t.Errorf("critical/weight not carried: %+v", r.Findings[0])
+	if secs[0].Letter != "C" || secs[1].Dimension != "vacuum" {
+		t.Errorf("section fields = %+v", secs[:2])
 	}
 }
 
-func TestFromRun_PassUnknownAndNotApplicableAreNotFindings(t *testing.T) {
-	for _, f := range FromRun(gradedRun(rubric.KindGrade)).Findings {
-		switch f.Status {
-		case rubric.StatusPass, rubric.StatusUnknown, rubric.StatusNotApplicable:
-			t.Errorf("finding %s has status %s", f.Check, f.Status)
-		}
+func TestSections_NoGradeAndNoCandidates(t *testing.T) {
+	secs, err := Sections(nil, nil)
+	if err != nil || len(secs) != 1 || secs[0].Text != "This review has no grade yet." {
+		t.Fatalf("no grade, no candidates: %+v %v", secs, err)
+	}
+	ranked := Deterministic([]candidate.Candidate{cand("a", "indexes", nil, "none",
+		candidate.ApprovalRequired, "x", true)})
+	secs, err = Sections(nil, ranked)
+	if err != nil || len(secs) != 2 ||
+		!strings.Contains(secs[0].Text, "1 candidates were ranked without one") {
+		t.Fatalf("no grade with a candidate: %+v %v", secs, err)
+	}
+	secs, err = Sections(grade(), nil)
+	if err != nil || len(secs) != 2 || !strings.Contains(secs[0].Text, "No candidate") {
+		t.Fatalf("grade without candidates: %+v %v", secs, err)
 	}
 }
 
-func TestFromRun_ModelPassIsSkippedWithTheReasonOfItsKind(t *testing.T) {
-	grade := FromRun(gradedRun(rubric.KindGrade)).ModelPass
-	if grade.Status != PassSkipped || !strings.Contains(grade.Reason, "grade-only run") ||
-		grade.Model != "" {
-		t.Fatalf("grade-only model pass = %+v, want skipped: grade-only run", grade)
-	}
-	review := FromRun(gradedRun(rubric.KindReview)).ModelPass
-	if review.Status != PassSkipped || !strings.Contains(review.Reason, "no model pass") {
-		t.Fatalf("review model pass = %+v, want skipped: no model pass recorded", review)
-	}
-}
-
-func TestFromRun_EmptyGradeHasAnEmptyFindingListNotNull(t *testing.T) {
-	r := FromRun(rubric.Run{ID: 1, Kind: rubric.KindGrade})
-	if r.Findings == nil || len(r.Findings) != 0 {
-		t.Fatalf("findings = %#v, want an empty list", r.Findings)
-	}
-	b, err := json.Marshal(r)
-	if err != nil || !strings.Contains(string(b), `"findings":[]`) {
-		t.Fatalf("json = %s %v, want findings []", b, err)
-	}
-}
-
-func TestFromRun_NilEvidenceIsAnEmptyList(t *testing.T) {
-	run := rubric.Run{ID: 2, Kind: rubric.KindGrade, Grade: rubric.Grade{
-		Dimensions: []rubric.DimensionGrade{{Dimension: "schema", Title: "Schema",
-			Checks: []rubric.CheckResult{{Check: "schema.x", Status: rubric.StatusFail,
-				Weight: 1}}}}}}
-	b, err := json.Marshal(FromRun(run))
-	if err != nil || !strings.Contains(string(b), `"evidence":[]`) {
-		t.Fatalf("json = %s %v, want evidence []", b, err)
-	}
-}
-
-func TestFromRun_DoesNotShareTheRunsEvidenceSlices(t *testing.T) {
-	run := gradedRun(rubric.KindGrade)
-	r := FromRun(run)
-	r.Findings[0].Evidence[0] = "changed"
-	if run.Grade.Dimensions[0].Checks[1].Evidence[0] != "finding:recoverability.wal" {
-		t.Fatal("the report aliases the run's evidence slice")
+// A target is data: template syntax inside it is printed, not executed.
+func TestSections_TargetTextIsNotExecuted(t *testing.T) {
+	c := cand("a", "indexes", nil, "none", candidate.ApprovalRequired, "x", true)
+	c.Target = `{{template "nograde" 1}}`
+	secs, err := Sections(grade(), Deterministic([]candidate.Candidate{c}))
+	if err != nil || !strings.Contains(secs[0].Text, `on {{template "nograde" 1}}.`) {
+		t.Fatalf("section = %+v %v, want the target printed as text", secs, err)
 	}
 }

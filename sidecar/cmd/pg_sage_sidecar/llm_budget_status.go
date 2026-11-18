@@ -65,10 +65,7 @@ func (r *llmClientRegistry) ProbeLLM(ctx context.Context) llm.ProbeResult {
 }
 
 func llmStatusKey(entry llmRegistryEntry) string {
-	role := "general"
-	if entry.role == llmRoleOptimizer {
-		role = "optimizer"
-	}
+	role := entry.role.String()
 	if entry.database == "" {
 		return role
 	}

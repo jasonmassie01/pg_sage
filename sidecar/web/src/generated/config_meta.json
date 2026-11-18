@@ -1021,12 +1021,26 @@
     "class": "operator_preference",
     "lifecycle": "reconfigure"
   },
+  "briefing.dba_hour_rate_usd": {
+    "type": "float64",
+    "default": 0,
+    "doc": "Operator-supplied cost of one DBA hour in US dollars; the digest's Saved line shows dollars beside hours when set. 0 (default) shows hours only: pg_sage ships no rates.",
+    "class": "operator_preference",
+    "lifecycle": "reconfigure"
+  },
   "briefing.fleet_mode": {
     "type": "string",
     "default": "rollup",
     "doc": "Fleet and meta-db modes: rollup (default) posts one briefing message covering every database; per_database posts one per database. Each database still stores its own briefing. Restart to change.",
     "class": "operator_preference",
     "lifecycle": "restart"
+  },
+  "briefing.only_when_changed": {
+    "type": "bool",
+    "default": true,
+    "doc": "Send the digest only when it differs from the last one delivered (and never an empty one); it is still stored. false sends every scheduled digest, \"Nothing changed\" included. Default: true.",
+    "class": "operator_preference",
+    "lifecycle": "reconfigure"
   },
   "briefing.schedule": {
     "type": "string",
@@ -2658,6 +2672,70 @@
     "class": "safety_critical",
     "lifecycle": "reconfigure"
   },
+  "llm.review_llm.api_key": {
+    "type": "string",
+    "default": null,
+    "doc": "API key of the review model. Prefer SAGE_REVIEW_LLM_API_KEY or its _FILE form over a literal value.",
+    "secret": true,
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.cooldown_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "As llm.cooldown_seconds, for the review client; 0 uses llm.cooldown_seconds.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Use a dedicated model for Sage Review's model pass. When false the review uses the optimizer model when enabled, else the general llm.* client. Default: false.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.endpoint": {
+    "type": "string",
+    "default": "",
+    "doc": "Base URL of the review model's provider; empty uses llm.endpoint. The general API key is sent only to the same origin.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.fallback_to_general": {
+    "type": "bool",
+    "default": true,
+    "doc": "Fall back to the general llm.* client when the review model is unavailable or over budget. Default: true.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.max_output_tokens": {
+    "type": "int",
+    "default": 0,
+    "doc": "Upper bound on output tokens accepted from the review model per call; 0 leaves the review's own step cap.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.model": {
+    "type": "string",
+    "default": "",
+    "doc": "Review model identifier; empty uses llm.model. Must support tool calls or JSON replies.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.timeout_seconds": {
+    "type": "int",
+    "default": 0,
+    "doc": "Per-request timeout of review model calls; 0 uses llm.timeout_seconds.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "llm.review_llm.token_budget_daily": {
+    "type": "int",
+    "default": 0,
+    "doc": "Daily token cap of the review model, separate from llm.token_budget_daily; 0 uses llm.token_budget_daily.",
+    "class": "derivable",
+    "lifecycle": "restart"
+  },
   "llm.timeout_seconds": {
     "type": "int",
     "default": 30,
@@ -3498,6 +3576,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "review.consensus": {
+    "type": "string",
+    "default": "majority",
+    "doc": "How model runs combine: majority (keep what most runs keep, at the median rank) or refute (a second run must refute each kept item). Default: majority.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "review.enabled": {
     "type": "bool",
     "default": true,
@@ -3505,10 +3590,73 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "review.gate.fixture_databases": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Database names whose reviews never count toward G-M1 or G-M2 (bench and game-day fixtures); databases named by a clone receipt never count either. Default: none.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "review.gate.max_gap_points": {
+    "type": "float64",
+    "default": 10,
+    "doc": "G-M1 passes when the model's verified-improved rate is at least the generators' rate minus this many percentage points. Range 0-100. Default: 10 (decision D11, an owner proposal).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "review.gate.max_revert_pct": {
+    "type": "float64",
+    "default": 2,
+    "doc": "G-M1 passes when at most this percent of the model's decided steps were reverted. Range 0-100. Default: 2 (decision D11, an owner proposal).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "review.gate.min_reviews": {
+    "type": "int",
+    "default": 50,
+    "doc": "Reviews on real databases, each with a finished model pass of the running model, that G-M1 and G-M2 need before they decide. Range 1-10000. Default: 50 (decision D11, an owner proposal).",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "review.grade_interval_hours": {
     "type": "int",
     "default": 24,
     "doc": "Hours between two grades of one database. Range 1-720. Default: 24.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.hash_identifiers": {
+    "type": "bool",
+    "default": false,
+    "doc": "Replace schema, table, index and column names with keyed pseudonyms in what the review model reads (needs encryption_key). Default: false.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "review.large_table_bytes": {
+    "type": "int64",
+    "default": 10737418240,
+    "doc": "Bytes from which Sage Review advises partitioning an unpartitioned table with a time-ordered key. Range 1073741824-1125899906842624 (1 GiB-1 PiB). Default: 10737418240 (10 GiB).",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.model_pass": {
+    "type": "string",
+    "default": "auto",
+    "doc": "Model pass that ranks, attacks and links the review's candidates: auto (when a model is usable), on (no model is a failed pass) or off (deterministic ranking only). Default: auto.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.model_runs": {
+    "type": "int",
+    "default": 3,
+    "doc": "Independent model runs per review whose results are combined by review.consensus. An odd number in 1-5; 1 applies no consensus. Default: 3.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.window_days": {
+    "type": "int",
+    "default": 90,
+    "doc": "Days of history the review generators judge (index portfolio, ...); a pack shorter than this, as retention allows, is partial coverage. Range 14-100. Default: 90.",
     "class": "operator_preference",
     "lifecycle": "restart"
   },
@@ -3969,6 +4117,13 @@
     "type": "float64",
     "default": 10,
     "doc": "Regression that halts and rolls back the rollout, 0-100. Default: 10.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "sre.autonomy.canary.stage_wait_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between a database's verdict and the next change, 0-720. Default: 24.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

@@ -198,6 +198,7 @@ func defaultLLMConfig() LLMConfig {
 			MaxOutputTokens:   DefaultOptLLMMaxOutputTokens,
 			FallbackToGeneral: true,
 		},
+		ReviewLLM: ReviewLLMConfig{FallbackToGeneral: true},
 	}
 }
 
@@ -219,9 +220,10 @@ func defaultAdvisorConfig() AdvisorConfig {
 // defaultBriefingConfig returns the briefing defaults.
 func defaultBriefingConfig() BriefingConfig {
 	return BriefingConfig{
-		Schedule:  DefaultBriefingSchedule,
-		Channels:  []string{"stdout"},
-		FleetMode: BriefingFleetRollup,
+		Schedule:        DefaultBriefingSchedule,
+		Channels:        []string{"stdout"},
+		FleetMode:       BriefingFleetRollup,
+		OnlyWhenChanged: true,
 	}
 }
 

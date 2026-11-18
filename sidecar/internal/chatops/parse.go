@@ -51,6 +51,8 @@ type Action struct {
 	Outdated    bool   // a retired proposal button: answered, never applied
 	CardToken   string // an approval-card button
 	FactToken   string // a fact-card button (roadmap 2.3)
+	PlanToken   string // a plan-card button (plan-03b)
+	PlanChoice  PlanChoice
 	Nonce       string // replay key, unique per delivery
 	ResponseURL string // Slack follow-up URL
 	CallbackID  string // Telegram callback query id
@@ -119,6 +121,9 @@ var slackCardActions = map[string]Decision{
 // setSlackDecision reads a button: a card button carries a card token; a
 // retired proposal button (a proposal id) is marked outdated.
 func (out *Action) setSlackDecision(actionID, value string) error {
+	if c, ok := slackPlanActions[actionID]; ok {
+		return out.setPlan(c, value)
+	}
 	if d, ok := slackFactActions[actionID]; ok {
 		if !ValidCardToken(value) {
 			return fmt.Errorf("%w: bad fact card token", ErrMalformed)
@@ -189,6 +194,8 @@ func ParseTelegram(body []byte) (Action, error) {
 		err = a.setFactData(c.Data)
 	case strings.HasPrefix(c.Data, cardDataPrefix):
 		err = a.setCardData(c.Data)
+	case strings.HasPrefix(c.Data, planDataPrefix):
+		err = a.setPlanData(c.Data)
 	default:
 		a.Decision, err = parseLegacyData(c.Data)
 		a.Outdated = err == nil

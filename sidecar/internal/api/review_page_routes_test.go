@@ -24,8 +24,8 @@ type reviewPageBody struct {
 		Kind      rubric.Kind `json:"kind"`
 		StartedAt time.Time   `json:"started_at"`
 	} `json:"running"`
-	Report   *report.Report `json:"report"`
-	ViewedAt *time.Time     `json:"viewed_at"`
+	Report   *report.RunReport `json:"report"`
+	ViewedAt *time.Time        `json:"viewed_at"`
 }
 
 // goldenGradeResults is every V1 check passing on a self-managed server

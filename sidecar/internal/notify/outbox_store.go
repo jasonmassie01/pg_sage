@@ -105,10 +105,13 @@ func decodeEvent(b []byte) (Event, error) {
 // tokens, reply ids) that do not survive the outbox's JSON: an event
 // carrying one is delivered at once, as before.
 var syncOnlyData = []string{dataApprovalCard, dataFactCard, DataCardToken, DataFactToken,
-	DataReplyTo}
+	dataPlanCard, DataPlanToken, DataReplyTo}
 
 // queueable reports whether evt may wait in the outbox.
 func queueable(evt Event) bool {
+	if syncEvents[evt.Type] {
+		return false
+	}
 	for _, k := range syncOnlyData {
 		if _, ok := evt.Data[k]; ok {
 			return false

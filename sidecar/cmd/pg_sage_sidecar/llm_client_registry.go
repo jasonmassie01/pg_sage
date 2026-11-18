@@ -14,12 +14,18 @@ type llmClientRole int
 const (
 	llmRoleGeneral llmClientRole = iota
 	llmRoleOptimizer
+	// llmRoleReview is Sage Review's dedicated model (review-03a).
+	llmRoleReview
 )
 
-// String is the role's client label on /metrics.
+// String is the role's client label on /metrics, the status key and the
+// usage ledger's role.
 func (r llmClientRole) String() string {
-	if r == llmRoleOptimizer {
+	switch r {
+	case llmRoleOptimizer:
 		return "optimizer"
+	case llmRoleReview:
+		return "review"
 	}
 	return "general"
 }
@@ -210,8 +216,11 @@ func derivedLLMConfig(
 	parent config.LLMConfig, role llmClientRole, allowed bool,
 ) config.LLMConfig {
 	derived := parent
-	if role == llmRoleOptimizer {
+	switch role {
+	case llmRoleOptimizer:
 		derived = optimizerLLMConfig(parent)
+	case llmRoleReview:
+		derived = reviewLLMConfig(parent)
 	}
 	if !allowed {
 		derived.Enabled = false
@@ -258,4 +267,25 @@ func firstPositive(values ...int) int {
 		}
 	}
 	return 0
+}
+
+// reviewLLMConfig is optimizerLLMConfig's rule for llm.review_llm: its
+// fields win, empty ones inherit from the general llm config, the key is
+// never sent to another origin and the global switch still applies.
+func reviewLLMConfig(parent config.LLMConfig) config.LLMConfig {
+	rev := parent.ReviewLLM
+	merged := config.LLMConfig{
+		Auth:                parent.ReviewAuth(),
+		Enabled:             rev.Enabled && parent.Enabled,
+		Endpoint:            firstNonEmpty(rev.Endpoint, parent.Endpoint),
+		APIKey:              llm.ReviewAPIKey(parent),
+		Model:               firstNonEmpty(rev.Model, parent.Model),
+		TimeoutSeconds:      firstPositive(rev.TimeoutSeconds, parent.TimeoutSeconds),
+		TokenBudgetDaily:    firstPositive(rev.TokenBudgetDaily, parent.TokenBudgetDaily),
+		CooldownSeconds:     firstPositive(rev.CooldownSeconds, parent.CooldownSeconds),
+		JSONMode:            parent.JSONMode,
+		TokenParameter:      parent.TokenParameter,
+		ToolReasoningEffort: parent.ToolReasoningEffort,
+	}
+	return merged
 }

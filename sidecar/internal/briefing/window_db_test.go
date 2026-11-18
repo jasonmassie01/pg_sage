@@ -3,14 +3,13 @@ package briefing
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/notify"
 )
 
 // llm-06 integration: windows, content_json and delivery_status on a real
@@ -174,18 +173,21 @@ func TestBriefingContentJSONIsThePayload(t *testing.T) {
 	}
 }
 
-// Error propagation: a Slack 500 is stored as the row's delivery status,
-// with the HTTP status and without the webhook URL.
+// Error propagation: a channel's failure is stored as the row's delivery
+// status, without the webhook URL. (ux-02b: the failure now comes from the
+// Notifications channel the digest went through; the briefing's own Slack
+// post this test drove before is deleted.)
 func TestBriefingRunStoresDeliveryStatus(t *testing.T) {
 	pool, ctx := requireDB(t)
 	clearBriefings(t, pool, ctx)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
+	clearDigestClaims(t, ctx)
+	n := &recordingNotifier{result: []notify.ChannelOutcome{{ChannelID: 4,
+		Channel: notify.BriefingChannelName, Status: notify.OutcomeError,
+		Error: "send failed: slack rejected the message: HTTP 500"}}}
 	cfg := &config.Config{Briefing: config.BriefingConfig{Schedule: "0 6 * * *",
-		Channels: []string{"slack"}, SlackWebhookURL: srv.URL + secretHookPath}}
-	w := New(pool, cfg, nil, noopLog)
+		Channels: []string{"slack"}, SlackWebhookURL: "https://x.test" + secretHookPath,
+		OnlyWhenChanged: true}}
+	w := New(pool, cfg, nil, noopLog).WithNotifier(n)
 	if err := w.Run(ctx); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -194,12 +196,11 @@ func TestBriefingRunStoresDeliveryStatus(t *testing.T) {
 	if err := json.Unmarshal(got.deliveryJSON, &status); err != nil {
 		t.Fatalf("delivery_status %q: %v", got.deliveryJSON, err)
 	}
-	slack := status["slack"]
-	if slack.Status != DeliveryError || slack.HTTPStatus != http.StatusInternalServerError {
-		t.Fatalf("delivery_status.slack = %+v, want error with HTTP 500", slack)
+	slack := status[notify.BriefingChannelName]
+	if slack.Status != DeliveryError || !strings.Contains(slack.Error, "HTTP 500") {
+		t.Fatalf("delivery_status = %+v, want the channel's error with HTTP 500", status)
 	}
-	if strings.Contains(string(got.deliveryJSON), "SECRET") ||
-		strings.Contains(string(got.deliveryJSON), srv.URL) {
+	if strings.Contains(string(got.deliveryJSON), "SECRET") {
 		t.Fatalf("delivery_status leaks the webhook URL: %s", got.deliveryJSON)
 	}
 	if !w.lastRun.Equal(got.generatedAt) {

@@ -63,9 +63,12 @@ func TestReviewViewsMigration_BootstrapTwiceAndConstraints(t *testing.T) {
 
 func TestReviewViewsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
+	// Merged after review-05a's ddlReviewGate; it still follows ddlReviewRuns,
+	// the table its rows reference.
+	runs := stepIndex(steps, "ddlReviewRuns")
 	if len(steps) < 2 || steps[len(steps)-1][0] != "ddlReviewViews" ||
-		steps[len(steps)-2][0] != "ddlReviewRuns" {
-		t.Fatalf("T6 steps = %v, want ddlReviewRuns then ddlReviewViews last", steps)
+		steps[len(steps)-2][0] != "ddlReviewGate" || runs < 0 {
+		t.Fatalf("T6 steps = %v, want ddlReviewGate then ddlReviewViews last", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_view",

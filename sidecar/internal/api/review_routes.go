@@ -33,12 +33,12 @@ const (
 )
 
 type reviewGradeResponse struct {
-	Latest   *rubric.Run     `json:"latest"`
-	Previous *rubric.Run     `json:"previous"`
-	Delta    *rubric.Changes `json:"delta"`
-	Running  *reviewRunning  `json:"running"`
-	Report   *report.Report  `json:"report"`
-	ViewedAt *time.Time      `json:"viewed_at"`
+	Latest   *rubric.Run       `json:"latest"`
+	Previous *rubric.Run       `json:"previous"`
+	Delta    *rubric.Changes   `json:"delta"`
+	Running  *reviewRunning    `json:"running"`
+	Report   *report.RunReport `json:"report"`
+	ViewedAt *time.Time        `json:"viewed_at"`
 }
 
 // reviewRunning is the run in progress, shown as a banner.
