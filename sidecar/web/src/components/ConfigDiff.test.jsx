@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { ConfigDiff } from './ConfigDiff'
+import { ConfigDiff, SavedYAML, savedYAMLUrl } from './ConfigDiff'
 
 // dashboard-10c: the configuration review runs on the shared Dialog (a
 // native <dialog> opened with showModal()). jsdom has no layout, so the
@@ -202,5 +202,67 @@ describe('ConfigDiff on the shared Dialog', () => {
     await user.keyboard('{Escape}')
     expect(screen.queryByTestId('config-diff-modal')).toBeNull()
     expect(document.activeElement).toBe(opener)
+  })
+})
+
+// cli-01b: after a save, the saved change as the YAML a config file would
+// hold, from GET /api/v1/config/yaml (secrets come back as placeholders).
+describe('SavedYAML after a save', () => {
+  const YAML = 'retention:\n    snapshots_days: 21\n'
+  const answer = (status, body) => Promise.resolve({
+    ok: status < 400, status, json: async () => body,
+  })
+
+  it('builds the route for the saved keys', () => {
+    expect(savedYAMLUrl(['retention.snapshots_days', 'collector.batch_size']))
+      .toBe('/api/v1/config/yaml?keys=retention.snapshots_days%2Ccollector.batch_size')
+  })
+
+  it('says the save is a stored override and fetches only when asked', async () => {
+    globalThis.fetch = vi.fn(() => answer(200, { yaml: YAML }))
+    render(<SavedYAML keys={['retention.snapshots_days']} onDismiss={vi.fn()} />)
+    expect(screen.getByTestId('config-saved-yaml'))
+      .toHaveTextContent(/stored override.*config file/i)
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByTestId('config-saved-yaml-show'))
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/v1/config/yaml?keys=retention.snapshots_days', { credentials: 'include' })
+    expect((await screen.findByTestId('config-saved-yaml-text')).textContent).toBe(YAML)
+  })
+
+  it('copies the YAML and says so', async () => {
+    globalThis.fetch = vi.fn(() => answer(200, { yaml: YAML }))
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<SavedYAML keys={['retention.snapshots_days']} onDismiss={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('config-saved-yaml-show'))
+    await userEvent.click(await screen.findByTestId('config-saved-yaml-copy'))
+    expect(writeText).toHaveBeenCalledWith(YAML)
+    expect(screen.getByTestId('config-saved-yaml-copy')).toHaveTextContent('Copied')
+  })
+
+  it('shows the server error and no snippet when the route refuses', async () => {
+    globalThis.fetch = vi.fn(() => answer(400, { error: 'unknown configuration key "x"' }))
+    render(<SavedYAML keys={['x']} onDismiss={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('config-saved-yaml-show'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('unknown configuration key')
+    expect(screen.queryByTestId('config-saved-yaml-text')).toBeNull()
+  })
+
+  it('shows a network failure as an error', async () => {
+    globalThis.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')))
+    render(<SavedYAML keys={['retention.snapshots_days']} onDismiss={vi.fn()} />)
+    await userEvent.click(screen.getByTestId('config-saved-yaml-show'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to fetch')
+  })
+
+  it('renders nothing for no keys and dismisses on request', async () => {
+    const { container } = render(<SavedYAML keys={[]} onDismiss={vi.fn()} />)
+    expect(container).toBeEmptyDOMElement()
+    const onDismiss = vi.fn()
+    render(<SavedYAML keys={['retention.snapshots_days']} onDismiss={onDismiss} />)
+    await userEvent.click(screen.getByTestId('config-saved-yaml-dismiss'))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
   })
 })

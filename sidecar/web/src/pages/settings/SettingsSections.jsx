@@ -1,5 +1,5 @@
 import { Save, RotateCcw } from 'lucide-react'
-import { ConfigDiff } from '../../components/ConfigDiff'
+import { ConfigDiff, SavedYAML } from '../../components/ConfigDiff'
 import { ShadowModePage } from '../ShadowModePage'
 import { AuditCard } from './AuditCard'
 import { DatabricksStatusCard } from './DatabricksStatusCard'
@@ -133,6 +133,15 @@ export function TabCards({ tab, database, databaseId }) {
 }
 
 export function SaveBar({ save, onDiscard }) {
+  return (
+    <div className="space-y-3">
+      <SavedYAML keys={save.savedKeys} onDismiss={save.dismissSaved} />
+      <SaveButtons save={save} onDiscard={onDiscard} />
+    </div>
+  )
+}
+
+function SaveButtons({ save, onDiscard }) {
   return (
     <div className="flex gap-3">
       <button onClick={save.requestSave} disabled={save.saving}

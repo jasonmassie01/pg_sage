@@ -98,6 +98,8 @@ export function useSettingsSave(s) {
   const [saving, setSaving] = useState(false)
   const [showDiff, setShowDiff] = useState(false)
   const [saveError, setSaveError] = useState(null)
+  // cli-01b: the keys of the last global save, for its equivalent YAML.
+  const [savedKeys, setSavedKeys] = useState(null)
   const savingRef = useRef(false)
   const failSave = msg => {
     setSaveError(msg)
@@ -128,7 +130,9 @@ export function useSettingsSave(s) {
     try {
       const failure = await putEdits(s)
       if (failure) return failSave(failure)
-      const count = Object.keys(s.edits).length
+      const keys = Object.keys(s.edits).sort()
+      const count = keys.length
+      setSavedKeys(s.isDatabaseScope ? null : keys)
       toast.success(`Saved ${count} ${scopeWord(s)}configuration change(s)`)
       s.discard()
       setShowDiff(false)
@@ -142,5 +146,9 @@ export function useSettingsSave(s) {
     }
   }
   const resetField = useResetField(s, toast)
-  return { saving, showDiff, saveError, requestSave, cancelSave, confirmSave, resetField }
+  const dismissSaved = () => setSavedKeys(null)
+  return {
+    saving, showDiff, saveError, requestSave, cancelSave, confirmSave, resetField,
+    savedKeys, dismissSaved,
+  }
 }
