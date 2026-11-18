@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/rollout"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // autonomyAPIDeps wires the autonomy routes: the ledgers, game days and,
@@ -28,10 +29,12 @@ func autonomyAPIDeps(mgr *fleet.DatabaseManager, control *pgxpool.Pool) *api.Aut
 		return deps
 	}
 	opts := rollout.CanaryOptions{CanaryInstances: 1, RegressionLimitPct: 10,
-		Log: func(format string, args ...any) { logWarn("rollout", format, args...) }}
+		StageWait: 24 * time.Hour,
+		Log:       func(format string, args ...any) { logWarn("rollout", format, args...) }}
 	if cfg != nil {
 		c := cfg.SRE.Autonomy.Canary
 		opts.CanaryInstances, opts.RegressionLimitPct = c.CanaryInstances, c.RegressionLimitPct
+		opts.StageWait = time.Duration(c.StageWaitHours) * time.Hour
 	}
 	svc, err := rollout.NewCanaryService(fleetCanaryResolver(mgr),
 		rollout.NewPostgresRunStore(control), opts)
@@ -68,6 +71,12 @@ func fleetCanaryResolver(mgr *fleet.DatabaseManager) rollout.TargetResolver {
 // fleetCanaryTarget is one fleet database: its action log, verification,
 // recommendations and executor (the operator-approved path, gated).
 type fleetCanaryTarget struct{ inst *fleet.DatabaseInstance }
+
+// A fleet database measures its effect and records its tier-4 ladder.
+var (
+	_ rollout.EffectReader        = fleetCanaryTarget{}
+	_ rollout.FleetLadderRecorder = fleetCanaryTarget{}
+)
 
 func (t fleetCanaryTarget) Name() string { return t.inst.Name }
 
@@ -134,6 +143,24 @@ func (t fleetCanaryTarget) ActionResult(ctx context.Context, actionLogID int64) 
 	string, error) {
 	a, err := t.SourceAction(ctx, actionLogID)
 	return a.Outcome, a.Verification, err
+}
+
+// ActionEffect reads the action's own v2 verdict (lab-03b).
+func (t fleetCanaryTarget) ActionEffect(ctx context.Context, actionLogID int64) (
+	rollout.MemberEffect, error) {
+	return rollout.NewPoolEffects(t.inst.Pool).ActionEffect(ctx, actionLogID)
+}
+
+// QueryChange reads the database's change of the queries (lab-03b).
+func (t fleetCanaryTarget) QueryChange(ctx context.Context, queries []string, from,
+	to time.Time) (float64, bool, error) {
+	return rollout.NewPoolEffects(t.inst.Pool).QueryChange(ctx, queries, from, to)
+}
+
+// RecordFleetLadder sets the action's tier-4 ladder record (lab-03b).
+func (t fleetCanaryTarget) RecordFleetLadder(ctx context.Context, actionLogID int64,
+	rec verify.LadderRecord) error {
+	return rollout.NewPoolEffects(t.inst.Pool).RecordFleetLadder(ctx, actionLogID, rec)
 }
 
 // MonitorDeadline is when the database's own monitor of the action ends.

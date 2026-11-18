@@ -436,6 +436,7 @@ operator_preference sre.automatic_start
 safety_critical sre.autonomy.bench_results_path
 safety_critical sre.autonomy.canary.canary_instances
 safety_critical sre.autonomy.canary.regression_limit_pct
+safety_critical sre.autonomy.canary.stage_wait_hours
 safety_critical sre.autonomy.class_promotion.min_success_rate_pct
 safety_critical sre.autonomy.class_promotion.min_successes_l2
 safety_critical sre.autonomy.class_promotion.min_successes_l3
@@ -558,6 +559,8 @@ operator_preference ask.max_seconds_per_question
 operator_preference ask.retention_days
 operator_preference review.enabled
 operator_preference review.grade_interval_hours
+operator_preference review.window_days
+operator_preference review.large_table_bytes
 operator_preference facts.confirmed_absence_days
 
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the

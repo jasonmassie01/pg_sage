@@ -56,11 +56,18 @@ func TestReviewRunsMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
-func TestReviewRunsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// review-02a appends ddlReviewCandidates, whose rows reference review_run,
+// so ddlReviewRuns must come right before it; later items append after.
+func TestReviewRunsStep_IsAT6StepIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	// fleetpol-01a appended ddlPolicySets after this step.
-	if len(steps) < 2 || steps[len(steps)-2][0] != "ddlReviewRuns" {
-		t.Fatalf("T6 steps %v, want ddlReviewRuns just before ddlPolicySets", steps)
+	at := -1
+	for i, s := range steps {
+		if s[0] == "ddlReviewRuns" {
+			at = i
+		}
+	}
+	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewCandidates" {
+		t.Fatalf("T6 steps %v, want ddlReviewRuns then ddlReviewCandidates", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_run",

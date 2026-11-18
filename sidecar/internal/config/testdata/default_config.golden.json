@@ -386,7 +386,8 @@
       },
       "Canary": {
         "CanaryInstances": 1,
-        "RegressionLimitPct": 10
+        "RegressionLimitPct": 10,
+        "StageWaitHours": 24
       },
       "ClassPromotion": {
         "MinSuccessesL2": 3,
@@ -610,7 +611,9 @@
   },
   "Review": {
     "Enabled": true,
-    "GradeIntervalHours": 24
+    "GradeIntervalHours": 24,
+    "WindowDays": 90,
+    "LargeTableBytes": 10737418240
   },
   "Facts": {
     "ConfirmedAbsenceDays": 7

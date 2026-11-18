@@ -251,15 +251,19 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlWorkloadPseudonymKey", ddlWorkloadPseudonymKey},                 // evid-02c
 		{"ddlActionQueueLadder", ddlActionQueueLadder},                       // lab-03a
 		{"ddlCloneInstancesHolder", ddlCloneInstancesHolder},                 // lab-05a
+		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},               // lab-03b
 	}
 }
 
 // trancheSixMigrations are the T6 steps, after trancheFiveMigrations.
 func trancheSixMigrations() []namedStep {
 	return []namedStep{
-		{"ddlRestoreDrills", ddlRestoreDrills},               // drill-01a
-		{"ddlExposureRemediations", ddlExposureRemediations}, // fleetpol-02b
-		{"ddlReviewRuns", ddlReviewRuns},                     // review-01a
-		{"ddlPolicySets", ddlPolicySets},                     // fleetpol-01a
+		{"ddlRestoreDrills", ddlRestoreDrills},                     // drill-01a
+		{"ddlExposureRemediations", ddlExposureRemediations},       // fleetpol-02b
+		{"ddlReviewRuns", ddlReviewRuns},                           // review-01a
+		{"ddlReviewCandidates", ddlReviewCandidates},               // review-02a
+		{"ddlReviewCandidateOperator", ddlReviewCandidateOperator}, // review-02b
+		{"ddlReviewCapacityForecast", ddlReviewCapacityForecast},   // review-02f
+		{"ddlPolicySets", ddlPolicySets},                           // fleetpol-01a
 	}
 }

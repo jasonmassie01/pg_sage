@@ -117,6 +117,14 @@ func (s *hypopgSession) evaluateDrop(ctx context.Context, ix IndexRef, queries [
 // maxGuardedRegressionPct without it, in workload order.
 func guardedRegressions(queries []QueryInfo, before measurement, after map[int64]float64,
 ) (int, []QueryRegression) {
+	return guardedRegressionsAbove(queries, before, after, maxGuardedRegressionPct)
+}
+
+// guardedRegressionsAbove is guardedRegressions at a caller's bar: a rise
+// of more than maxPct percent is a regression.
+func guardedRegressionsAbove(queries []QueryInfo, before measurement,
+	after map[int64]float64, maxPct float64,
+) (int, []QueryRegression) {
 	var guarded int
 	var regs []QueryRegression
 	seen := make(map[int64]bool, len(queries))
@@ -130,7 +138,7 @@ func guardedRegressions(queries []QueryInfo, before measurement, after map[int64
 		if _, ok := after[q.QueryID]; !ok || cost <= 0 {
 			continue
 		}
-		if pct := (next - cost) * 100 / cost; pct > maxGuardedRegressionPct {
+		if pct := (next - cost) * 100 / cost; pct > maxPct {
 			regs = append(regs, QueryRegression{QueryID: q.QueryID, Pct: pct})
 		}
 	}

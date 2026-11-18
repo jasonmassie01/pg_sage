@@ -15,7 +15,8 @@ var fullCategories = map[string]string{
 		"move every cycle; a delta would carry almost the whole document",
 	"workload_sessions": "session groups whose ages move every cycle and long sessions " +
 		"keyed by a reused pid, bounded at 200 groups, 50 sessions (tags only, no " +
-		"statement text) and 200 roles (market-08)",
+		"statement text) and 200 roles (market-08), with connection ages by state and " +
+		"by application minute, bounded at 500 rows (evid-02b, review-02e)",
 	"archiver": "the server's one pg_stat_archiver row (a few hundred bytes) whose " +
 		"archive age and current WAL file move every cycle",
 	"wait_events": "a few rows (active sessions by wait class) that change every cycle; " +

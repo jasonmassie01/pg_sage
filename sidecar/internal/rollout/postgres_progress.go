@@ -85,17 +85,15 @@ func (store *PostgresRunStore) SaveProgress(ctx context.Context, runID string,
 	}
 	tag, err := store.pool.Exec(ctx, `INSERT INTO sage.rollout_instance
 		(run_evidence_id, instance_id, ordinal, status, evidence_id, action_log_id,
-		 regression_pct, detail, updated_at)
-		SELECT $1, $2, $3, $4, NULLIF($5, ''), $6, $7, NULLIF($8, ''), $9
+		 regression_pct, detail, updated_at, effect_pct, control_pct, effect_method)
+		SELECT $1, $2, $3, $4, NULLIF($5, ''), $6, $7, NULLIF($8, ''), $9, $10, $11,
+		       NULLIF($12, '')
 		WHERE EXISTS (SELECT 1 FROM sage.rollout_run
 		              WHERE evidence_id = $1 AND state = 'canary')
-		ON CONFLICT (run_evidence_id, instance_id) DO UPDATE SET
-		  ordinal = EXCLUDED.ordinal, status = EXCLUDED.status,
-		  evidence_id = EXCLUDED.evidence_id, action_log_id = EXCLUDED.action_log_id,
-		  regression_pct = EXCLUDED.regression_pct, detail = EXCLUDED.detail,
-		  updated_at = EXCLUDED.updated_at`,
+		ON CONFLICT (run_evidence_id, instance_id) DO UPDATE SET `+instanceUpsertSet,
 		runID, r.InstanceID, r.Ordinal, r.Status, r.EvidenceID, actionLogID,
-		r.RegressionPct, truncateDetail(r.Detail), r.UpdatedAt)
+		r.RegressionPct, truncateDetail(r.Detail), r.UpdatedAt, r.EffectPct, r.ControlPct,
+		r.EffectMethod)
 	if err != nil {
 		return fmt.Errorf("record canary progress of %s on %s: %w", runID, r.InstanceID, err)
 	}
@@ -194,7 +192,7 @@ func interruptRun(ctx context.Context, tx pgx.Tx, id string, at time.Time) (
 // instanceColumns are the rollout_instance columns scanInstances reads.
 const instanceColumns = `instance_id, ordinal, status, COALESCE(evidence_id, ''),
 	COALESCE(action_log_id, 0), COALESCE(regression_pct, 0),
-	COALESCE(detail, ''), updated_at`
+	COALESCE(detail, ''), updated_at, effect_pct, control_pct, COALESCE(effect_method, '')`
 
 // interruptInstances marks a run's in-flight instances interrupted.
 func interruptInstances(ctx context.Context, tx pgx.Tx, id string, at time.Time) (
@@ -235,7 +233,8 @@ func scanInstances(rows pgx.Rows) ([]InstanceRecord, error) {
 	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (InstanceRecord, error) {
 		var r InstanceRecord
 		err := row.Scan(&r.InstanceID, &r.Ordinal, &r.Status, &r.EvidenceID,
-			&r.ActionLogID, &r.RegressionPct, &r.Detail, &r.UpdatedAt)
+			&r.ActionLogID, &r.RegressionPct, &r.Detail, &r.UpdatedAt, &r.EffectPct,
+			&r.ControlPct, &r.EffectMethod)
 		return r, err
 	})
 	if err != nil {

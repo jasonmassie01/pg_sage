@@ -3512,6 +3512,20 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "review.large_table_bytes": {
+    "type": "int64",
+    "default": 10737418240,
+    "doc": "Bytes from which Sage Review advises partitioning an unpartitioned table with a time-ordered key. Range 1073741824-1125899906842624 (1 GiB-1 PiB). Default: 10737418240 (10 GiB).",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "review.window_days": {
+    "type": "int",
+    "default": 90,
+    "doc": "Days of history the review generators judge (index portfolio, ...); a pack shorter than this, as retention allows, is partial coverage. Range 14-100. Default: 90.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "runaway.enabled": {
     "type": "bool",
     "default": false,
@@ -3969,6 +3983,13 @@
     "type": "float64",
     "default": 10,
     "doc": "Regression that halts and rolls back the rollout, 0-100. Default: 10.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "sre.autonomy.canary.stage_wait_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between a database's verdict and the next change, 0-720. Default: 24.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

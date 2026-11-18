@@ -213,15 +213,15 @@ func lostPlans(queries []QueryInfo, before, after map[int64]float64) []int64 {
 	return lost
 }
 
-// measureCosts plans every explainable workload query and, when guard
-// names an index, records the statements whose plan uses it. Each EXPLAIN runs
-// in its own savepoint, so a query that fails (a dropped column, a type
+// measureCosts plans every explainable workload query and, when guards
+// name indexes, records the statements whose plan uses any of them. Each
+// EXPLAIN runs in its own savepoint, so a query that fails (a dropped column, a type
 // it cannot plan) is named in the unplanned queryids and skipped instead
 // of aborting the shared transaction. A cancelled context or a lock
 // timeout (the table is locked: every other statement on it would wait
 // as long) aborts the measurement.
 func (s *hypopgSession) measureCosts(ctx context.Context, queries []QueryInfo,
-	guard string,
+	guards ...string,
 ) (measurement, error) {
 	m := measurement{costs: make(map[int64]float64), uses: make(map[int64]bool)}
 	for _, query := range queries {
@@ -250,7 +250,7 @@ func (s *hypopgSession) measureCosts(ctx context.Context, queries []QueryInfo,
 		}
 		if cost := extractTotalCost(plan); cost > 0 {
 			m.costs[query.QueryID] = cost
-			m.uses[query.QueryID] = planhash.UsesIndex(plan, guard)
+			m.uses[query.QueryID] = usesAny(plan, guards)
 		}
 	}
 	return m, nil
@@ -331,4 +331,14 @@ func (s *hypopgSession) close() error {
 	}
 	s.conn.Release()
 	return nil
+}
+
+// usesAny reports a plan that uses any of the named indexes.
+func usesAny(plan []byte, names []string) bool {
+	for _, name := range names {
+		if planhash.UsesIndex(plan, name) {
+			return true
+		}
+	}
+	return false
 }

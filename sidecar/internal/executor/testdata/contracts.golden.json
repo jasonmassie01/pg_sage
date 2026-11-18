@@ -1195,6 +1195,57 @@
     "Narrowing": false
   },
   {
+    "ActionType": "set_column_statistics",
+    "BaseRiskTier": "moderate",
+    "ProviderSupport": [
+      "postgres",
+      "rds",
+      "aurora",
+      "cloud-sql",
+      "alloydb",
+      "neon",
+      "supabase",
+      "azure",
+      "azure-cosmos",
+      "cnpg"
+    ],
+    "RequiredPermissions": [
+      "table ownership (or MAINTAIN on PostgreSQL 17+)"
+    ],
+    "Prechecks": [
+      "column exists and is not dropped",
+      "prior pg_attribute.attstattarget captured for the rollback"
+    ],
+    "Guardrails": [
+      "one ALTER COLUMN ... SET STATISTICS clause, target 1..10000 or -1 (default)",
+      "SHARE UPDATE EXCLUSIVE on the table",
+      "lock_timeout",
+      "statement_timeout",
+      "identifiers quoted by sqlident"
+    ],
+    "ExecutionPlan": [
+      "ALTER TABLE schema.table ALTER COLUMN column SET STATISTICS n",
+      "the next ANALYZE (a separate analyze_table step) builds the larger sample"
+    ],
+    "SuccessCriteria": [
+      "pg_attribute.attstattarget reads the requested target",
+      "the target query's row estimate moves toward its actual rows"
+    ],
+    "PostChecks": [
+      "read back pg_attribute.attstattarget"
+    ],
+    "RollbackClass": "reversible",
+    "Cooldown": "configured rollback cooldown",
+    "AuditFields": [
+      "table",
+      "column",
+      "target",
+      "prior_target",
+      "case_id"
+    ],
+    "Narrowing": false
+  },
+  {
     "ActionType": "prepare_parameterized_query",
     "BaseRiskTier": "moderate",
     "ProviderSupport": [

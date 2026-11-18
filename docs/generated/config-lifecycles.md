@@ -400,6 +400,8 @@
 | `retention.workload_packs_days` | `restart` | `-` | `derivable` |
 | `review.enabled` | `restart` | `-` | `operator_preference` |
 | `review.grade_interval_hours` | `restart` | `-` | `operator_preference` |
+| `review.large_table_bytes` | `restart` | `-` | `operator_preference` |
+| `review.window_days` | `restart` | `-` | `operator_preference` |
 | `runaway.enabled` | `restart` | `-` | `safety_critical` |
 | `runaway.policies` | `restart` | `-` | `safety_critical` |
 | `runaway.safe_patterns` | `restart` | `-` | `safety_critical` |
@@ -458,6 +460,7 @@
 | `sre.autonomy.bench_results_path` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.canary.canary_instances` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.canary.regression_limit_pct` | `restart` | `-` | `safety_critical` |
+| `sre.autonomy.canary.stage_wait_hours` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.class_promotion.min_success_rate_pct` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.class_promotion.min_successes_l2` | `restart` | `-` | `safety_critical` |
 | `sre.autonomy.class_promotion.min_successes_l3` | `restart` | `-` | `safety_critical` |

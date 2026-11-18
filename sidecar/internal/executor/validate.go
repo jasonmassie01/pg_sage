@@ -131,6 +131,9 @@ func checkSecondary(upper, prefix string) error {
 		if exposureActionType(upper) != "" {
 			return checkExposureSQL(upper)
 		}
+		if stmt, ok := ParseSetColumnStatistics(upper); ok {
+			return checkColumnStatisticsSQL(stmt)
+		}
 		return checkAlterTableSubcmd(upper)
 	case "REVOKE ", "GRANT ":
 		return checkExposureSQL(upper)
