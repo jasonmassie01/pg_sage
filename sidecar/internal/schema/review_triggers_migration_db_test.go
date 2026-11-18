@@ -15,10 +15,17 @@ import (
 // internal/review/trigger.
 
 func TestReviewTriggersStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+	// review-04b appended ddlReviewFleet after this step, so the pin is its
+	// place (just before ddlReviewFleet), not "last".
 	steps := trancheSixMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlReviewTriggers" ||
-		steps[len(steps)-1][1] != ddlReviewTriggers {
-		t.Fatalf("T6 steps %v, want ddlReviewTriggers last", steps)
+	at := -1
+	for i, s := range steps {
+		if s[0] == "ddlReviewTriggers" && s[1] == ddlReviewTriggers {
+			at = i
+		}
+	}
+	if at < 0 || at+1 >= len(steps) || steps[at+1][0] != "ddlReviewFleet" {
+		t.Fatalf("T6 steps %v, want ddlReviewTriggers just before ddlReviewFleet", steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout = '5s'",
 		"CREATE TABLE IF NOT EXISTS sage.review_trigger (",

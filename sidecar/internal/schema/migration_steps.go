@@ -268,5 +268,6 @@ func trancheSixMigrations() []namedStep {
 		{"ddlReviewModelRuns", ddlReviewModelRuns},                 // review-03a
 		{"ddlReviewPlans", ddlReviewPlans},                         // review-03b
 		{"ddlReviewTriggers", ddlReviewTriggers},                   // review-04a
+		{"ddlReviewFleet", ddlReviewFleet},                         // review-04b
 	}
 }

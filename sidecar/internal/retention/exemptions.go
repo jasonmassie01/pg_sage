@@ -103,6 +103,8 @@ var coreExemptions = map[string]string{
 		"evidence behind each derived value",
 	"review_trigger_state": "current state, one row per database and polling source " +
 		"(what the review trigger sources last saw)",
+	"review_fleet_member": "the members of a fleet pass, deleted with their pass " +
+		"(ON DELETE CASCADE from review_fleet_pass)",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",
