@@ -137,6 +137,10 @@ What the page shows, top to bottom:
   "Model pass: skipped: grade-only run". When a model pass is done, the page adds its
   cross-dimension links, its hypotheses labelled as advice (pg_sage does not act on them),
   its text per dimension, and a "Review the plan" link to the plan in Actions.
+- **The review scorecard** (review-05b): the model gate card and the scorecard by origin. It
+  is read on its own, so a scorecard that cannot be read is named in its section with Retry
+  and the rest of the page stays; see
+  [On the Review and Value pages](#on-the-review-and-value-pages).
 
 Letters are written out on a colour with at least 4.5:1 contrast, so colour is never the
 only signal. A dimension or overall without a letter reads "Unknown: <reason>" (for example
@@ -424,3 +428,27 @@ the table's CHECK.
 **The thresholds are proposals for the owner** (decision D11: 50 reviews, 10 points, 2%).
 Measuring them takes 50 or more reviews on real databases, which is calendar time on real
 deployments; they ship as proposals until the owner confirms or changes them.
+
+### On the Review and Value pages
+
+The Review page shows the scorecard under the report; the Value page (`#/value`) shows a
+compact section for the database picked in the header (the whole fleet has none, and says so),
+with a link to the review. Both read `GET /api/v1/databases/{db}/review/scorecard` each minute.
+
+- **The gate card** is the newest G-M1 evaluation: "Model gate: 32 of 50 reviews; model 78%
+  improved vs generators 84%; reverts 0%", then its verdict (`Not eligible`, `Waiting for an
+  admin's approval`, `Granted by an admin` with the approver, `Revoked`) and its reason, and the
+  newest G-M2 reason. An evaluation without its counts shows its reason instead. Before the
+  first evaluation it reads "Model gate: 0 of 50 reviews; not evaluated yet".
+- **Approval** happens in the Inbox, like every autonomy promotion: a pending G-M1 shows an
+  admin "Approve in the Inbox", and the Inbox's Approve (typed-phrase confirm, high risk)
+  posts `POST /api/v1/databases/{db}/review/gate/{id}/approve`. Other roles see the verdict
+  only.
+- **The table by origin** (generators, model, people): proposed; accepted of proposed;
+  improved and reverted of decided, each with its rate; no change, regressed and pending.
+  The Value page shows proposed, improved and reverted.
+
+Every count is shown with its denominator. A rate whose denominator is under 10 reads "too
+few to judge", never a percentage. A count that cannot be one (negative, fractional, or more
+than its denominator, a rate above 100%) reads "invalid", never the number. No reviews in the
+window reads "No reviews yet".
