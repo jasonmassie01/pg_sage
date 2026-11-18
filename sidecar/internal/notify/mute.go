@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Mutes (ux-09b). A mute silences one class of one database's messages,
@@ -25,8 +26,12 @@ import (
 // MaxMuteDuration is the longest mute: a forgotten mute must end.
 const MaxMuteDuration = 90 * 24 * time.Hour
 
-// maxMuteReason bounds a mute's reason.
-const maxMuteReason = 500
+// maxMuteReason bounds a mute's reason, and maxMuteField its database
+// and actor, as the table's checks do (in characters).
+const (
+	maxMuteReason = 500
+	maxMuteField  = 256
+)
 
 // OutcomeMuted is a channel outcome for a message a mute held back.
 const OutcomeMuted = "muted"
@@ -66,6 +71,8 @@ func ValidateMute(m Mute, now time.Time) error {
 	switch {
 	case strings.TrimSpace(m.Database) == "":
 		return fmt.Errorf("a mute needs a database")
+	case utf8.RuneCountInString(m.Database) > maxMuteField:
+		return fmt.Errorf("a mute's database name is at most %d characters", maxMuteField)
 	case m.Class != "" && !Class(m.Class).Valid():
 		return fmt.Errorf("unknown mute class %q: use page, ask, digest or none (every class)",
 			m.Class)
@@ -78,7 +85,9 @@ func ValidateMute(m Mute, now time.Time) error {
 			m.Until.UTC().Format(time.RFC3339))
 	case strings.TrimSpace(m.Actor) == "":
 		return fmt.Errorf("a mute needs an actor")
-	case len(m.Reason) > maxMuteReason:
+	case utf8.RuneCountInString(m.Actor) > maxMuteField:
+		return fmt.Errorf("a mute's actor is at most %d characters", maxMuteField)
+	case utf8.RuneCountInString(m.Reason) > maxMuteReason:
 		return fmt.Errorf("a mute reason is at most %d characters", maxMuteReason)
 	}
 	return nil

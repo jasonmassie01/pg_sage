@@ -321,3 +321,26 @@ func TestMute_ConcurrentMutesKeepOneRowWithTheLaterUntil(t *testing.T) {
 		t.Fatalf("a shorter mute returned %+v, %v; want the +8h mute kept", got, err)
 	}
 }
+
+// Review (ux-09b): a database or actor longer than the table allows is
+// refused with its field named (not a 500 from the CHECK); the limits
+// count characters, so 256 runes of a multibyte name are allowed.
+func TestValidateMute_FieldLengthsMatchTheTable(t *testing.T) {
+	now := stateT0
+	ok := Mute{Database: "orders", Until: now.Add(time.Hour), Actor: "admin@example.com"}
+	long := strings.Repeat("d", 257)
+	for name, m := range map[string]Mute{
+		"database": {Database: long, Until: ok.Until, Actor: ok.Actor},
+		"actor":    {Database: ok.Database, Until: ok.Until, Actor: long},
+	} {
+		if err := ValidateMute(m, now); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("a 257-character %s: error %v, want it named", name, err)
+		}
+	}
+	m := ok
+	m.Database, m.Actor = strings.Repeat("é", 256), strings.Repeat("é", 256)
+	m.Reason = strings.Repeat("é", 500)
+	if err := ValidateMute(m, now); err != nil {
+		t.Fatalf("256-character names and a 500-character reason were refused: %v", err)
+	}
+}
