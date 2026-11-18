@@ -25,7 +25,12 @@ when, and `GET /api/v1/config/global` lists it in `masked_by_override` (an empty
 nothing is masked; secret values are redacted). Settings shows a **masked** badge on the
 key. The source badge says `override`, `db_override` or `file/default`: the file, an
 environment variable, a flag or the built-in default (the sidecar does not track which).
-Reset in Settings, or `DELETE /api/v1/config/global/<key>`, removes a stored override. In
+Reset in Settings, or `DELETE /api/v1/config/global/<key>`, removes a stored override.
+`pg_sage_sidecar config diff <file>` lists every key a stored override sets or where the
+running value differs from the file, and `config export --only-overrides` prints the
+overrides as YAML to copy into the file ([CLI](cli.md#config)). After a save, Settings
+offers the same YAML for the saved keys (`GET /api/v1/config/yaml?keys=a,b`; `?overrides=1`
+renders only the stored overrides; secrets are always `${NAME}` placeholders). In
 meta-db and fleet mode the same rule applies to the global overrides; per-database trust
 already takes the stricter of the database's level and the global ceiling.
 

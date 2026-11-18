@@ -3,7 +3,8 @@
 `pg_sage_sidecar` is also a small command-line client of a running
 sidecar. The decision-loop commands (`plan`, `approve`, `apply`,
 `explain`) call the sidecar's API; `ledger` and `doctor` read a database
-directly. None of them changes a monitored database itself: an approval
+directly. `config validate` checks a config file offline, and `config diff`
+and `config export` read a running sidecar's settings. None of them changes a monitored database itself: an approval
 goes through the sidecar's approval route, and so through the executor's
 policy gate, trust, verification, rollback and audit, exactly as an
 approval in the dashboard does.
@@ -180,6 +181,58 @@ Exit codes:
 | 1 | The sidecar refused or could not be reached. |
 | 2 | A usage error (no `--database`, both `--finding` and `--object`). |
 | 3 | The token was rejected or lacks the read scope. |
+
+## config
+
+`config` checks a config file without starting the sidecar and shows what
+a running sidecar's settings are as file YAML, so stored Settings
+overrides (which win over the file) are visible and can be moved into the
+file. All three only read: nothing is written to the file, the sidecar or
+a database.
+
+```text
+usage: pg_sage_sidecar config validate <file>
+       pg_sage_sidecar config diff <file> [--url URL]
+       pg_sage_sidecar config export [--url URL] [--only-overrides]
+```
+
+`config validate <file>` loads the file as the sidecar would (the
+environment overlay and `${NAME}` expansion included) and validates it,
+offline: no database is opened and no sidecar is called. An invalid file
+prints every unknown key, wrong type and out-of-range value with its key
+path and line, for example `collector.batch_size (line 2): must be
+1-1073741824, got 0`; a check across keys reports its first failure. An
+empty file is valid and says that every setting is its default.
+
+`config diff <file>` compares the file with the running sidecar's
+effective settings (`GET /api/v1/config/global`, the keys Settings shows)
+and prints each key where they part, with the file's value, the effective
+value and its source: `stored override` (saved in Settings or `PUT
+/api/v1/config/global`) or `env` (a `SAGE_*` variable, a flag or another
+file on the sidecar's host). A stored override is listed even when it
+equals the file, because it wins over every later edit of the file. A
+secret prints as `<secret>`, with `(differs)` when it differs.
+
+`config export` prints the effective settings as YAML a config file can
+hold (`GET /api/v1/config/yaml`); `--only-overrides` prints only the keys a
+stored override sets, `{}` when there is none. A secret is always written
+as the `${NAME}` placeholder the loader expands from the environment (for
+example `api_key: ${SAGE_LLM_API_KEY}`), never its value or a masked form.
+
+`diff` and `export` connect as above with an operator token holding the
+read scope, whose owner is an admin (the routes are admin-only). A token
+limited to some databases is refused with `fleet_token_required`: these
+settings are process-wide.
+
+Exit codes:
+
+| Exit | Meaning |
+|---|---|
+| 0 | `validate`: the file is valid. `diff`: no differences. `export`: printed. |
+| 1 | The file could not be read (the OS error and path are printed), `diff` was given an invalid file, or the sidecar refused or could not be reached (its host is printed). |
+| 2 | `validate`: the file is invalid. `diff`: the file and the running settings differ. |
+| 3 | The token was rejected, lacks the read scope, its owner is not an admin, or it is limited to some databases. |
+| 64 | A usage error. |
 
 ## ledger
 
