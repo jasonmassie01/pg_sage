@@ -262,6 +262,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_DRILL_ID` | (none) | Set by pg_sage, never read: the drill id a `drill.command.restore_argv` program restores under ([restore drills](restore-drills.md)) |
 | `SAGE_DRILL_DATABASE` | (none) | Set by pg_sage, never read: the pg_sage name of the database a `drill.command.restore_argv` program restores ([restore drills](restore-drills.md)) |
 | `SAGE_CLONE_ID` | (none) | Set by pg_sage, never read: the restore id a `drill.command.destroy_argv` program removes ([restore drills](restore-drills.md)) |
+| `SAGE_TARGET_MAJOR` | (none) | Set by pg_sage, never read: the PostgreSQL major version the restore command's `upgrade_argv` program upgrades the rehearsal clone named by SAGE_CLONE_ID to ([upgrade rehearsal](findings.md#upgrade-rehearsal)) |
 | `SAGE_DATA_DIR` | (none) | Persistent directory; without an encryption key, pg_sage generates `encryption.key` there ([secrets at rest](security.md#secrets-at-rest)) |
 | `SAGE_BREAK_GLASS_PASSWORD_HASH` / `_FILE` | (none) | bcrypt hash of the [break-glass admin](security.md#break-glass-admin) password |
 | `SAGE_BOOTSTRAP_ADMIN_EMAIL` | (none) | Email of the first admin, created only when the users table is empty |

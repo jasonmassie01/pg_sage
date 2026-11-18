@@ -116,6 +116,10 @@ var runtimeEnvVars = []EnvVar{
 	{Name: "SAGE_CLONE_ID", Default: envNone, Doc: "Set by pg_sage, never read: the " +
 		"restore id a `drill.command.destroy_argv` program removes " +
 		"([restore drills](restore-drills.md))"},
+	{Name: "SAGE_TARGET_MAJOR", Default: envNone, Doc: "Set by pg_sage, never read: " +
+		"the PostgreSQL major version the restore command's `upgrade_argv` program " +
+		"upgrades the rehearsal clone named by SAGE_CLONE_ID to " +
+		"([upgrade rehearsal](findings.md#upgrade-rehearsal))"},
 	{Name: "SAGE_DATA_DIR", Default: envNone, Doc: "Persistent directory; without an " +
 		"encryption key, pg_sage generates `encryption.key` there " +
 		"([secrets at rest](security.md#secrets-at-rest))"},
