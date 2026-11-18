@@ -50,6 +50,33 @@ func TestProject_LinearGiBPerDay_NinetyDaysWithinOnePercentWithBand(t *testing.T
 	}
 }
 
+// The band is pinned to values worked out by hand (outside the code under
+// test) for y = 10, 13, 11, 14, 12, 16, 15 on days 0..6: slope 11/14,
+// residual standard error 1.46385, and twice the standard error of a new
+// observation at each horizon.
+func TestProject_BandIsTwiceThePredictionStandardError(t *testing.T) {
+	ys := []float64{10, 13, 11, 14, 12, 16, 15}
+	vals := make([]*float64, len(ys))
+	for i := range ys {
+		vals[i] = &ys[i]
+	}
+	p, err := Project(series(dbID, "", vals), window.From)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(p.SlopePerDay-11.0/14) > 1e-9 || math.Abs(p.RMSE-1.4638501094) > 1e-9 {
+		t.Fatalf("slope %v rmse %v, want 11/14 and 1.4638501094", p.SlopePerDay, p.RMSE)
+	}
+	want := map[int][2]float64{30: {38.9285714286, 18.5246664020},
+		90: {86.0714285714, 51.5504508185}, 365: {302.1428571429, 203.6323217198}}
+	for h, w := range want {
+		a, ok := p.At(h)
+		if !ok || math.Abs(a.Bytes-w[0]) > 1e-6 || math.Abs(a.Band-w[1]) > 1e-6 {
+			t.Fatalf("%d days: %+v (ok %v), want %v bytes +/- %v", h, a, ok, w[0], w[1])
+		}
+	}
+}
+
 func TestProject_ExactLineHasAZeroBand(t *testing.T) {
 	p, err := Project(series(dbID, "", linear(10, 10*gib, gib, 0)), window.From)
 	if err != nil {

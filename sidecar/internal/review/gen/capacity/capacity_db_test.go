@@ -170,6 +170,31 @@ func TestDBCallSource_EmptyHistoryIsUnobserved(t *testing.T) {
 	}
 }
 
+// The collector leaves pg_sage's own statements out, so a truly idle
+// database can have no rollup row at all: its days are observed through
+// the rollup's coverage hours alone, and they count as quiet.
+func TestDBCallSource_CoverageHoursAloneObserveADay(t *testing.T) {
+	pool, ctx := livePool(t, "capacity_coverage")
+	first := seedDays(t, ctx, pool, 20, 4)
+	cut := first.AddDate(0, 0, 4)
+	if _, err := pool.Exec(ctx, "DELETE FROM sage.query_rollup_hourly WHERE hour >= $1",
+		cut); err != nil {
+		t.Fatal(err)
+	}
+	days, err := NewDBCallSource(pool).Read(ctx, first, first.AddDate(0, 0, 20))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	for i, d := range days {
+		if !d.Observed || (d.WorkloadCalls > 0) != (i < 4) {
+			t.Fatalf("day %d = %+v, want observed by its coverage hour", i, d)
+		}
+	}
+	if got := QuietDays(days); got != 16 || !Idle(days) {
+		t.Fatalf("QuietDays %d, want 16 days observed by coverage alone", got)
+	}
+}
+
 func TestDBCallSource_ReadErrorNamesTheRead(t *testing.T) {
 	pool, ctx := livePool(t, "capacity_readerr")
 	if _, err := pool.Exec(ctx, "DROP TABLE sage.query_rollup_daily CASCADE"); err != nil {
@@ -218,16 +243,7 @@ func TestForecastLog_TheErrorIsWrittenOnceWhenTheThirtyDayMarkPasses(t *testing.
 	if err != nil || len(got) != 0 {
 		t.Fatalf("the second pass at the mark: %+v, %v; want a no-op", got, err)
 	}
-	var measured float64
-	var n int
-	if err := pool.QueryRow(ctx, `SELECT measured_bytes, count(*) OVER ()
-		FROM sage.review_capacity_forecast WHERE database_name = 'app'`).Scan(&measured,
-		&n); err != nil {
-		t.Fatal(err)
-	}
-	if measured != 150*gib || n != 1 {
-		t.Fatalf("stored %v bytes in %d rows, want the first measure kept", measured, n)
-	}
+	requireOneMeasure(t, ctx, pool, "app", 150*gib)
 	other, err := log.Settle(ctx, "other", at)
 	if err != nil || len(other) != 0 {
 		t.Fatalf("another database settled app's record: %+v, %v", other, err)
@@ -267,6 +283,22 @@ func TestGenerate_LiveLogSettlesThenRecords(t *testing.T) {
 	if n != 1 || !target.Equal(day(27).AddDate(0, 0, 30)) {
 		t.Fatalf("%d records targeting %s, want one for %s", n, target,
 			day(27).AddDate(0, 0, 30))
+	}
+}
+
+// requireOneMeasure is database's only forecast row, measured once at want.
+func requireOneMeasure(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
+	database string, want float64) {
+	t.Helper()
+	var measured float64
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT measured_bytes, count(*) OVER ()
+		FROM sage.review_capacity_forecast WHERE database_name = $1`,
+		database).Scan(&measured, &n); err != nil {
+		t.Fatal(err)
+	}
+	if measured != want || n != 1 {
+		t.Fatalf("stored %v bytes in %d rows, want the first measure kept", measured, n)
 	}
 }
 
