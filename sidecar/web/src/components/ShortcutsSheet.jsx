@@ -62,7 +62,7 @@ export function ShortcutsSheet({ onClose }) {
         <div data-testid="approval-shortcuts" className="mt-3 pt-3"
           style={{ borderTop: '1px solid var(--border)' }}>
           <h3 className="text-xs font-semibold mb-1" style={{ color: 'var(--text-secondary)' }}>
-            On the Waiting on you cards
+            On the Waiting on you cards and the Inbox
           </h3>
           <ShortcutsRows entries={APPROVAL_KEYMAP} testId="approval-shortcut-row" />
         </div>
