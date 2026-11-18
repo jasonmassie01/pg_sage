@@ -65,9 +65,14 @@ func (p *planner) planSets(ctx context.Context, tx pgx.Tx) error {
 		return nil
 	}
 	p.holdLayout(layout, widened)
-	// Only a set the file already owns keeps its document step: a new set
-	// was not created, and an API set's adopt was held, so its document
-	// stays the API's.
+	p.keepOwnedDocuments(docs)
+	return nil
+}
+
+// keepOwnedDocuments plans the document steps of a held layout: only a
+// set the file already owns keeps its step. A new set was not created,
+// and an API set's adopt was held, so its document stays the API's.
+func (p *planner) keepOwnedDocuments(docs []step) {
 	for _, d := range docs {
 		if cur, exists := p.st.sets[d.change.Name]; exists &&
 			cur.ManagedBy == policy.ManagedByConfig {
@@ -78,7 +83,6 @@ func (p *planner) planSets(ctx context.Context, tx pgx.Tx) error {
 		c.Detail, c.Op = c.Op+" held with its set's layout change", OpHold
 		p.note(c)
 	}
-	return nil
 }
 
 func sortedSets(m map[string]policy.SetDocument) []policy.SetDocument {
