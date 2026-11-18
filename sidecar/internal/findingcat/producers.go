@@ -178,6 +178,8 @@ var otherEntries = []Category{
 		"User accounts whose emails differ only in case, blocking case-insensitive sign-in."),
 	e("sre_action", "sre", "sre", sevC, nil, act("cancel_backend"),
 		"A backend cancel the SRE agent proposes, held for an operator's approval."),
+	e("pressure_job", "sre", "pressure", sevW, nil, act("cancel_backend"),
+		"A backfill job writing through two stop verdicts: a cancel held for approval."),
 	e("sre_maintenance", "sre", "sre", sevW, nil, act("create_statistics"),
 		"Operator-requested extended statistics queued for approval."),
 }

@@ -1503,6 +1503,7 @@ and config keys are in the [generated catalog](generated/finding-catalog.md).
 | <a id="siem_event_undeliverable"></a>`siem_event_undeliverable` | Audit job | An audit event a SIEM sink refused. |
 | <a id="auth_email_case_duplicates"></a>`auth_email_case_duplicates` | Schema migration | User accounts whose emails differ only in case, which block case-insensitive sign-in until an admin merges or renames them. |
 | <a id="sre_action"></a>`sre_action` | SRE agent | A backend cancel the SRE agent proposes; it waits for an operator to approve or deny it. |
+| <a id="pressure_job"></a>`pressure_job` | Backfill pressure | A registered backfill job that kept writing through two consecutive stop verdicts under `enforce`: a `cancel_backend` proposal that runs only after a person approves it ([backfill pressure](backfill-pressure.md#enforcement-approval-gated-never-automatic)). |
 | <a id="sre_maintenance"></a>`sre_maintenance` | SRE agent | Operator-requested extended statistics, queued for approval. |
 
 ### Instance right-sizing
