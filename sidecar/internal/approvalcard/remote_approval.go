@@ -62,6 +62,10 @@ func RemoteApprovalRefusal(reason string, queueID int) string {
 		"still takes Reject.", remoteApprovalLink(queueID), reason)
 }
 
+// ApprovalLink is the inbox entry of a queue item in pg_sage, where an
+// approval above the remote cap is made (the CLI's refusal names it).
+func ApprovalLink(queueID int) string { return remoteApprovalLink(queueID) }
+
 // remoteApprovalLink is the inbox entry of a queue item.
 func remoteApprovalLink(queueID int) string {
 	return fmt.Sprintf("#/inbox?kind=change_approval&queue=%d", queueID)
