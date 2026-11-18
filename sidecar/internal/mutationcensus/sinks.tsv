@@ -27,3 +27,4 @@ internal/migration/runtime/postgres_rehearsal.go#PostgresRehearsalRunner.applySt
 internal/optimizer/hypopg_session.go#hypopgSession.createIndex	out_of_gate:hypothetical_index_session	hypopg_create_index inside the what-if transaction: backend-local, no catalog change, gone when the session closes
 internal/retention/purge.go#Cleaner.purgeRows	sage_schema	relation is always sage.<table> or one of its partitions (purge.go, partitions.go callers)
 internal/schema/deferred_index_build.go#buildDeferredIndex	sage_schema	config-04c background build of the decision-ledger indexes: DROP/CREATE INDEX CONCURRENTLY of a fixed ledgerIndex on sage.<table>, names quoted with pgx.Identifier
+internal/upgradecheck/rehearsal_run.go#rehearsalRun.analyze	clone_only	ANALYZE of the upgraded rehearsal clone through clone.GuardedConnect, which refuses the production target; never the monitored pool
