@@ -63,6 +63,9 @@ const GATE_REASONS = {
   observe_only: 'Observe only: pg_sage reports this and does not change the database.',
   autonomy_level: 'The autonomy level does not let pg_sage run this on its own.',
   autonomy_downgraded: 'Autonomy was lowered after a problem, so a person must approve it.',
+  // fleetpol-02b: exposure fixes only report until the policy says enforce.
+  exposure_shadow: 'Exposure fixes are in shadow mode, so pg_sage only reports this one. ' +
+    'Set the exposure mode to enforce in the standing policy to allow them.',
 }
 
 // The agent governance reasons and the executor's own escalation.
