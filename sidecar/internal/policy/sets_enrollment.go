@@ -21,6 +21,12 @@ type SetEnrollment struct {
 	// "owner" tag) or creator (its creator). A missing tag or creator
 	// falls back to the source's owner, so a member always has one.
 	Owner string `json:"owner,omitempty"`
+	// Tier is the tier the set enrolls members at (fleetpol-01d): full
+	// (a runtime, counted against the 50) or observe_only (swept, never
+	// acted on, up to 2,000). "" is observe_only for the agent-created
+	// set and full for any other. Only an explicit full promotes an
+	// observe-only member the set matches.
+	Tier string `json:"tier,omitempty"`
 }
 
 // Enrollment owner rules and bounds.
@@ -34,6 +40,13 @@ const (
 	maxEnrollIntervalMinutes     = 1440
 	DefaultEnrollPerCycle        = 5
 	MaxEnrollPerCycle            = 20
+
+	EnrollTierFull        = "full"
+	EnrollTierObserveOnly = "observe_only"
+
+	// AgentCreatedSet is the seeded set of agent-created databases
+	// (creator agent:*), observe-only unless it says otherwise.
+	AgentCreatedSet = "agent-created"
 )
 
 var enrollOwnerRules = []string{EnrollOwnerSource, EnrollOwnerTag, EnrollOwnerCreator}
@@ -62,6 +75,23 @@ func (e SetEnrollment) OwnerRule() string {
 	return e.Owner
 }
 
+// EnrollTier is the tier the set enrolls its members at.
+func (p PolicySet) EnrollTier() string {
+	switch {
+	case p.Requirements.Enrollment.Tier != "":
+		return p.Requirements.Enrollment.Tier
+	case p.Name == AgentCreatedSet:
+		return EnrollTierObserveOnly
+	}
+	return EnrollTierFull
+}
+
+// PromotesToFull reports whether the set promotes an observe-only member
+// it matches to full: only when it says enrollment.tier: full.
+func (p PolicySet) PromotesToFull() bool {
+	return p.Requirements.Enrollment.Tier == EnrollTierFull
+}
+
 func validateEnrollment(e SetEnrollment) error {
 	if e.IntervalMinutes != 0 && (e.IntervalMinutes < MinEnrollIntervalMinutes ||
 		e.IntervalMinutes > maxEnrollIntervalMinutes) {
@@ -76,6 +106,10 @@ func validateEnrollment(e SetEnrollment) error {
 	if e.Owner != "" && !slices.Contains(enrollOwnerRules, e.Owner) {
 		return invalidSet("enrollment.owner %q must be one of %s", e.Owner,
 			strings.Join(enrollOwnerRules, ", "))
+	}
+	if e.Tier != "" && e.Tier != EnrollTierFull && e.Tier != EnrollTierObserveOnly {
+		return invalidSet("enrollment.tier %q must be %s or %s", e.Tier, EnrollTierFull,
+			EnrollTierObserveOnly)
 	}
 	return nil
 }

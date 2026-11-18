@@ -12,8 +12,8 @@ import (
 // store's rules (claim per source and set within maxLive; milestones keep
 // their first time).
 
-func (s *fakeStore) ClaimSet(_ context.Context, source, set string, limit, maxLive int,
-	_ time.Time) ([]store.DiscoveredRow, error) {
+func (s *fakeStore) ClaimSet(_ context.Context, source, set, tier string, limit,
+	maxLive int, _ time.Time) ([]store.DiscoveredRow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.claimErr != nil {
@@ -23,7 +23,10 @@ func (s *fakeStore) ClaimSet(_ context.Context, source, set string, limit, maxLi
 	for _, r := range s.rows {
 		switch r.Status {
 		case store.DiscoveryEnrolling, store.DiscoveryEnrolled, store.DiscoveryAdopted:
-			live++
+			// fleetpol-01d: the real store counts the members of tier.
+			if r.Tier == tier || (r.Tier == "" && tier == store.TierFull) {
+				live++
+			}
 		}
 	}
 	room := min(limit, maxLive-live)
@@ -33,7 +36,7 @@ func (s *fakeStore) ClaimSet(_ context.Context, source, set string, limit, maxLi
 			break
 		}
 		if r.Source == source && r.SetName == set && r.Status == store.DiscoveryCandidate {
-			r.Status = store.DiscoveryEnrolling
+			r.Status, r.Tier = store.DiscoveryEnrolling, tier
 			out = append(out, *r)
 			room--
 		}

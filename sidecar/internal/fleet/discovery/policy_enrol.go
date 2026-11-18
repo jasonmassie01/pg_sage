@@ -177,7 +177,13 @@ func (r *Runner) enrolSets(ctx context.Context, sets []policy.PolicySet,
 func (r *Runner) enrolSet(ctx context.Context, b Binding, set policy.PolicySet, budget int,
 	now time.Time, rep *Report) int {
 	name := b.Source.Name()
-	rows, err := r.store.ClaimSet(ctx, name, set.Name, budget, r.cfg.MaxEnrolled, now)
+	tier, maxLive := set.EnrollTier(), r.cfg.MaxEnrolled
+	if tier == policy.EnrollTierObserveOnly {
+		// Observe-only members count against their own 2,000, which the
+		// member store enforces; max_enrolled bounds the full members.
+		maxLive += store.MaxObserveOnlyMembers
+	}
+	rows, err := r.store.ClaimSet(ctx, name, set.Name, tier, budget, maxLive, now)
 	if err != nil {
 		rep.Errors = append(rep.Errors, fmt.Errorf("claiming %s candidates of %s: %w",
 			set.Name, name, err))
@@ -185,7 +191,7 @@ func (r *Runner) enrolSet(ctx context.Context, b Binding, set policy.PolicySet, 
 	}
 	expires := now.Add(r.setTTL(set))
 	for _, row := range rows {
-		row.Owner = enrolOwner(set, row, b.Owner)
+		row.Owner, row.Tier = enrolOwner(set, row, b.Owner), tier
 		if !r.enrolRow(ctx, b, row, expires, rep) {
 			continue
 		}

@@ -52,7 +52,8 @@ type Store interface {
 	DueForExpiry(ctx context.Context, now time.Time) ([]store.DiscoveredRow, error)
 	SetStatus(ctx context.Context, rowID int64, status, reason string) error
 	// Enrollment by policy set (fleetpol-01b).
-	ClaimSet(ctx context.Context, source, set string, limit, maxLive int, now time.Time) (
+	ClaimSet(ctx context.Context, source, set, tier string, limit, maxLive int,
+		now time.Time) (
 		[]store.DiscoveredRow, error)
 	PendingGrades(ctx context.Context) ([]store.DiscoveredRow, error)
 	MarkMilestone(ctx context.Context, rowID int64, m store.Milestone, at time.Time) error

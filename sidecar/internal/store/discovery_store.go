@@ -88,6 +88,9 @@ type DiscoveredRow struct {
 	GradeRequestedAt *time.Time
 	FirstGradedAt    *time.Time
 	BaselineAt       *time.Time
+	// Tier is the tier enrollment creates the member at (fleetpol-01d):
+	// the runner sets it from the set; it is not stored on the row.
+	Tier string
 }
 
 // DiscoverySourceStatus is a source's last run.
@@ -286,10 +289,10 @@ const claimDiscoveredSQL = `/* pg_sage */ WITH claimed AS (
 // first, so a database the role cannot connect to never starves the rest.
 func (s *DiscoveryStore) Claim(ctx context.Context, source string, limit, maxLive int,
 	now time.Time) ([]DiscoveredRow, error) {
-	return s.claim(ctx, source, nil, limit, maxLive, now)
+	return s.claim(ctx, source, nil, nil, limit, maxLive, now)
 }
 
-func (s *DiscoveryStore) claim(ctx context.Context, source string, set *string,
+func (s *DiscoveryStore) claim(ctx context.Context, source string, set, tier *string,
 	limit, maxLive int, now time.Time) ([]DiscoveredRow, error) {
 	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -300,10 +303,7 @@ func (s *DiscoveryStore) claim(ctx context.Context, source string, set *string,
 	defer func() { _ = tx.Rollback(qctx) }()
 	stale := now.Add(-staleClaim)
 	var live int
-	if err := tx.QueryRow(qctx, `/* pg_sage */ SELECT count(*)
-		 FROM sage.discovered_databases WHERE status IN ('enrolled', 'adopted')
-		    OR (status = 'enrolling' AND status_changed_at >= $1)`, stale,
-	).Scan(&live); err != nil {
+	if err := tx.QueryRow(qctx, liveDiscoveredSQL, stale, tier).Scan(&live); err != nil {
 		return nil, fmt.Errorf("count live discovered members: %w", err)
 	}
 	room := min(limit, maxLive-live)

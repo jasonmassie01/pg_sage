@@ -44,11 +44,27 @@ type EnrollStat struct {
 	Eligible, AtBaseline   int
 }
 
-// ClaimSet is Claim kept to the candidates of policy set set.
-func (s *DiscoveryStore) ClaimSet(ctx context.Context, source, set string, limit,
+// ClaimSet is Claim kept to the candidates of policy set set, enrolling at
+// tier: maxLive counts the live discovered members of that tier only
+// (fleetpol-01d), and a member still enrolling counts against both.
+func (s *DiscoveryStore) ClaimSet(ctx context.Context, source, set, tier string, limit,
 	maxLive int, now time.Time) ([]DiscoveredRow, error) {
-	return s.claim(ctx, source, &set, limit, maxLive, now)
+	if !ValidTier(tier) {
+		return nil, fmt.Errorf("%w: claim tier %q must be %s or %s", ErrValidation, tier,
+			TierFull, TierObserveOnly)
+	}
+	return s.claim(ctx, source, &set, &tier, limit, maxLive, now)
 }
+
+// liveDiscoveredSQL counts the live discovered members ($2: of one tier,
+// or all when NULL). An enrolling row has no member yet: it counts.
+const liveDiscoveredSQL = `/* pg_sage */ SELECT count(*)
+	 FROM sage.discovered_databases d
+	 WHERE (d.status IN ('enrolled', 'adopted')
+	        OR (d.status = 'enrolling' AND d.status_changed_at >= $1))
+	   AND ($2::text IS NULL OR d.database_id IS NULL
+	        OR COALESCE((SELECT m.tier FROM sage.databases m WHERE m.id = d.database_id),
+	                    'full') = $2)`
 
 // PendingGrades is every enrolled or adopted member with a set that has
 // not reached the set's baseline yet (at most 50: sage.databases' cap).
