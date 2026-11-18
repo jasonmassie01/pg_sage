@@ -139,6 +139,7 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 		// Election first: the leader-only loops below read its result.
 		startFleetLearning(shutdownCtx, authPool, fleetMgr)
 		startAgentGovernance(shutdownCtx, authPool, fleetMgr)
+		startGitopsReconciler(shutdownCtx, authPool, fleetMgr) // cli-02a, after election
 		startCloneReaper(shutdownCtx, cfg, fleetMgr, globalMetaState)
 		startCommandDrillReaper(shutdownCtx, cfg, fleetMgr, globalMetaState)
 		startAgentGate(cfg, fleetMgr, globalMetaState, agentEnvSvc)

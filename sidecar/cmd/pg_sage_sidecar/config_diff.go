@@ -41,6 +41,9 @@ func runConfigDiff(ctx context.Context, args []string, env cliEnv) int {
 	if done {
 		return code
 	}
+	if isDirectory(file) {
+		return diffDirectory(ctx, file, f, env) // a policy.directory (cli-02a)
+	}
 	check, err := config.CheckFile(file)
 	if err != nil {
 		_, _ = fmt.Fprintf(env.stderr, "config diff: %v\n", err)

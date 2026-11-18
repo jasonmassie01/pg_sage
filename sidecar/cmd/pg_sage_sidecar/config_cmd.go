@@ -33,8 +33,8 @@ const (
 )
 
 const (
-	configValidateUsage = "usage: pg_sage_sidecar config validate <file>"
-	configDiffUsage     = "usage: pg_sage_sidecar config diff <file> [--url URL]"
+	configValidateUsage = "usage: pg_sage_sidecar config validate <file|directory>"
+	configDiffUsage     = "usage: pg_sage_sidecar config diff <file|directory> [--url URL]"
 	configExportUsage   = "usage: pg_sage_sidecar config export [--url URL] [--only-overrides]"
 	configUsage         = configValidateUsage + "\n" + configDiffUsage + "\n" +
 		configExportUsage
@@ -87,6 +87,9 @@ func runConfigValidate(args []string, env cliEnv) int {
 	file, code, done := parseFileArgs(fs, args, configValidateUsage, env)
 	if done {
 		return code
+	}
+	if isDirectory(file) {
+		return validateDirectory(file, env) // a policy.directory (cli-02a)
 	}
 	check, err := config.CheckFile(file)
 	if err != nil {

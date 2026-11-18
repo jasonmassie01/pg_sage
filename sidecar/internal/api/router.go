@@ -381,6 +381,7 @@ func registerControlPoolRoutes(
 		return cfg != nil && cfg.Agents.SingleOperatorMode
 	})
 	registerPolicySetRoutes(apiMux, policy.NewStore(pool)) // fleetpol-01a
+	registerGitopsRoutes(apiMux)                           // cli-02a
 	registerDecommissionRoutes(apiMux, pool)
 	registerSecurityPostureRoutes(apiMux, rt.SecretsPosture)
 	registerInboxSeenRoutes(apiMux, pool) // the Inbox seen time (ux-01b)
