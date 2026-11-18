@@ -229,16 +229,34 @@ const (
 	DefaultWALIOCeilingPct        = 70
 	DefaultCloneProvider          = "none"
 	DefaultCloneMaxAgeMinutes     = 1440
+	// DefaultCloneRehearsalsPerHour is clone.rehearsals_per_hour (lab-04a).
+	DefaultCloneRehearsalsPerHour = 2
+	// DefaultCloneMaxCreatesPerHour is clone.max_creates_per_hour (lab-05a).
+	DefaultCloneMaxCreatesPerHour = 4
+	// DefaultCloneRehearsalStatementTimeoutSeconds is
+	// clone.rehearsal_statement_timeout_seconds (lab-04a).
+	DefaultCloneRehearsalStatementTimeoutSeconds = 5
 	// DefaultCloneLakebaseTTLMinutes is clone.lakebase.ttl_minutes: the
 	// rehearsal bound (1 h), so a leaked branch lives no longer than one.
 	DefaultCloneLakebaseTTLMinutes = 60
 	// DefaultCloneLakebaseEndpointMaxCU is clone.lakebase.endpoint_max_cu.
 	DefaultCloneLakebaseEndpointMaxCU = 1.0
-	DefaultFreezeRedBufferPct         = 25.0
-	DefaultWALAbandonAfterMinutes     = 1440
-	DefaultWALRetainedDiskPctCeiling  = 10.0
-	DefaultMCPEnabled                 = true
-	DefaultMCPTransport               = "http"
+	// DefaultCloneNeonTTLMinutes is clone.neon.ttl_minutes: the rehearsal
+	// bound (1 h), so a leaked branch lives no longer than one.
+	DefaultCloneNeonTTLMinutes = 60
+	// DefaultCloneNeonEndpointMaxCU is clone.neon.endpoint_max_cu.
+	DefaultCloneNeonEndpointMaxCU = 1.0
+	// DefaultCloneAuroraTTLMinutes is clone.aurora.ttl_minutes: the
+	// rehearsal bound (1 h), clone creation included.
+	DefaultCloneAuroraTTLMinutes = 60
+	// DefaultCloneRestoreDeadlineMinutes is clone.restore_deadline_minutes:
+	// how long a full-copy restore may take to become available.
+	DefaultCloneRestoreDeadlineMinutes = 120
+	DefaultFreezeRedBufferPct          = 25.0
+	DefaultWALAbandonAfterMinutes      = 1440
+	DefaultWALRetainedDiskPctCeiling   = 10.0
+	DefaultMCPEnabled                  = true
+	DefaultMCPTransport                = "http"
 	// mcp.call_timeout_seconds: default and accepted range.
 	DefaultMCPCallTimeoutSeconds = 90
 	MinMCPCallTimeoutSeconds     = 5

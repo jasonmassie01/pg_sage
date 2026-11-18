@@ -34,6 +34,9 @@ type AWSOptions struct {
 	// Endpoint overrides (tests, VPC endpoints); default: AWS public ones.
 	CloudWatchEndpoint, PIEndpoint, RDSEndpoint string
 	Now                                         func() time.Time
+	// IsolationMaxAge is how recent a manual snapshot must be to count as a
+	// backup that survives a delete (backup.max_age_hours); 0 is 26 h.
+	IsolationMaxAge time.Duration
 }
 
 // AWSSource collects CloudWatch and Performance Insights telemetry.
@@ -45,6 +48,7 @@ type AWSSource struct {
 
 	mu       sync.Mutex
 	resolved awsIdentity // as of the last resolved instance
+	records  *rdsRecordsRead
 }
 
 // awsIdentity is what DescribeDBInstances (and, for an Aurora instance
@@ -165,6 +169,11 @@ func (s *AWSSource) resolve(ctx context.Context) (rdsInstance, awsIdentity, erro
 	if cluster.LatestRestorable != nil {
 		inst.LatestRestorable = cluster.LatestRestorable
 	}
+	if cluster.Writer != "" {
+		inst.EarliestRestorable = cluster.EarliestRestorable
+		inst.AWSBackupARN = cluster.AWSBackupARN
+		inst.ClusterDeletionProtection = cluster.DeletionProtection
+	}
 	s.mu.Lock()
 	s.resolved = ident
 	s.mu.Unlock()
@@ -230,8 +239,12 @@ func (s *AWSSource) Collect(ctx context.Context, now time.Time) (Sample, error) 
 		return Sample{}, err
 	}
 	s.applyStorage(&sample, inst, aurora, now)
-	sample.Backup = rdsBackup(inst.BackupRetention, inst.DeletionProtection, aurora,
-		inst.LatestRestorable)
+	deletionProtection := inst.DeletionProtection
+	if aurora {
+		deletionProtection = inst.ClusterDeletionProtection
+	}
+	sample.Backup = rdsBackup(inst.BackupRetention, deletionProtection, inst.LatestRestorable)
+	s.applyIsolation(ctx, sample.Backup, inst, ident.cluster, now)
 	if err := s.applyPI(ctx, &sample, inst, now); err != nil {
 		return Sample{}, err
 	}

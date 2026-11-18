@@ -95,6 +95,10 @@ type Finding struct {
 	FixScript      string
 	Caveat         string
 	Evidence       []Evidence
+	// DataAPIExposed is whether the Supabase Data API serves the finding's
+	// schema (AP-03, AP-04): DataAPIExposed, DataAPINotExposed or
+	// DataAPIUnknown; "" off Supabase (fleetpol-02c).
+	DataAPIExposed string
 }
 
 // Category is the finding's category in sage.findings.
@@ -140,6 +144,11 @@ type Spec struct {
 	Title    string
 	Severity Severity
 	Arms     []Arm
+	// ReadsSessions marks a detector that needs the session list:
+	// pg_stat_activity or the client-hint agent roles read from it. When
+	// that list is unreadable (Env.SessionsErr), the detector does not
+	// complete, so its open findings stay open.
+	ReadsSessions bool
 }
 
 // Detector is one posture check.

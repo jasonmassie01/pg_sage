@@ -162,6 +162,23 @@ func DecodeLadderValue(v any) ([]LadderRecord, error) {
 	return ParseLadder(raw)
 }
 
+// LadderValue is recs as a decoded JSON document, the form a finding's
+// detail["ladder"] holds (DecodeLadderValue reads it back); nil for none.
+func LadderValue(recs ...LadderRecord) []any {
+	if len(recs) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(recs)
+	if err != nil {
+		return nil
+	}
+	var out []any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
 // LadderBuildError is a tier whose record could not be built: skipped,
 // with the error, so it never counts as a pass.
 func LadderBuildError(tier int, method string, err error, at time.Time) LadderRecord {

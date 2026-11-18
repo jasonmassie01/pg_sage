@@ -41,6 +41,10 @@ var forwardRollbackSamples = []rollbackSample{
 		"SELECT 42, '', $h$IndexScan(o)$h$ WHERE NOT EXISTS (SELECT 1 FROM " +
 		"hint_plan.hints WHERE query_id = 42 AND application_name = '')",
 		"DELETE FROM hint_plan.hints WHERE query_id = 42 AND application_name = ''"},
+	{ActionTypeRevokePublicGrant, "REVOKE SELECT, UPDATE ON TABLE public.leads FROM PUBLIC",
+		"GRANT SELECT, UPDATE ON TABLE public.leads TO PUBLIC"},
+	{ActionTypeEnableRLS, "ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY",
+		"ALTER TABLE public.leads DISABLE ROW LEVEL SECURITY"},
 }
 
 // rollbackContractFor is the contract the automatic rollback of a forward
@@ -55,6 +59,9 @@ func rollbackContractFor(forwardSQL, rollbackSQL string) (ActionContract, bool) 
 			return ActionContract{}, false
 		}
 		return restoreDroppedIndexContract(), true
+	}
+	if exposureActionType(forwardSQL) != "" {
+		return exposureRollbackContract(forwardSQL, rollbackSQL)
 	}
 	return contractForFinding(analyzer.Finding{RecommendedSQL: rollbackSQL})
 }

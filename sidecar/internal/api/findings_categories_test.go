@@ -84,10 +84,14 @@ func TestNewSubsystemsFilterTheirCategories(t *testing.T) {
 	}
 	_, args, ok = buildSourceClause("cloud", 1)
 	if !ok || !slices.Equal(args[0].([]string),
-		[]string{"backup_retention_below_policy", "backup_stale", // market-07
+		[]string{"backup_retention_below_policy", "backup_shares_delete_path", // drill-01b
+			"backup_stale",             // market-07
 			"cnpg_target_unconfigured", // market-12
+			"deletion_protection_off",  // drill-01b
 			"instance_rightsize",       // market-04
-			"managed_parameter_drift", "managed_storage_runway"}) {
+			"managed_parameter_drift", "managed_storage_runway",
+			"pitr_window_below_policy",                          // drill-01b
+			"recoverability_unknown", "restore_drill_failed"}) { // drill-01a
 		t.Errorf("cloud = (%v, %v), want the cloud categories", args, ok)
 	}
 }

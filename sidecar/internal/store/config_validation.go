@@ -66,13 +66,40 @@ func validateSpec(spec config.KeySpec, value string) error {
 	return nil
 }
 
-// validateAPICloneProvider refuses lakebase_branch on save: that provider
-// needs the clone.lakebase project binding, which is YAML only and
-// restart-bound, so the API cannot switch to it.
+// validateAPICloneProvider refuses lakebase_branch, neon_branch,
+// aurora_clone, rds_restore, cloudsql_clone, alloydb_restore and
+// azure_restore on save: they need the clone.lakebase or clone.neon
+// project binding (and Neon's API key), the clone.aurora or clone.rds
+// region, the clone.cloudsql project and instance, the clone.alloydb
+// project, location and cluster, or the clone.azure subscription, resource
+// group and server, which are YAML or env only and restart-bound, so the
+// API cannot switch to them.
 func validateAPICloneProvider(value string) error {
-	if value == "lakebase_branch" {
+	switch value {
+	case "lakebase_branch":
 		return fmt.Errorf("validate: clone.provider lakebase_branch is set in YAML " +
 			"with its clone.lakebase project, not through the API")
+	case config.CloneNeonBranch:
+		return fmt.Errorf("validate: clone.provider neon_branch is set in YAML with its " +
+			"clone.neon project and API key, not through the API")
+	case config.CloneAuroraClone:
+		return fmt.Errorf("validate: clone.provider aurora_clone is set in YAML with its " +
+			"clone.aurora region, not through the API")
+	case config.CloneRDSRestore:
+		return fmt.Errorf("validate: clone.provider rds_restore is set in YAML with its " +
+			"clone.rds region and clone.allow_full_copy, not through the API")
+	case config.CloneCloudSQLClone:
+		return fmt.Errorf("validate: clone.provider cloudsql_clone is set in YAML with " +
+			"its clone.cloudsql project and instance and clone.allow_full_copy, not " +
+			"through the API")
+	case config.CloneAlloyDBRestore:
+		return fmt.Errorf("validate: clone.provider alloydb_restore is set in YAML with " +
+			"its clone.alloydb project, location and cluster and clone.allow_full_copy, " +
+			"not through the API")
+	case config.CloneAzureRestore:
+		return fmt.Errorf("validate: clone.provider azure_restore is set in YAML with " +
+			"its clone.azure subscription_id, resource_group and server and " +
+			"clone.allow_full_copy, not through the API")
 	}
 	return nil
 }

@@ -50,8 +50,8 @@ func newDefaults() *Config {
 		Fleet:              defaultFleetConfig(),
 		HA:                 defaultHAConfig(),
 		Backup:             defaultBackupConfig(),
-		Agents:             defaultAgentsConfig(),
-		Audit:              defaultAuditConfig(),
+		Agents:             defaultAgentsConfig(), Review: defaultReviewConfig(),
+		Audit: defaultAuditConfig(), Drill: defaultDrillConfig(),
 	}
 }
 
@@ -435,10 +435,17 @@ func defaultVerifyConfig() VerifyConfig {
 // defaultCloneConfig returns the clone defaults.
 func defaultCloneConfig() CloneProviderConfig {
 	return CloneProviderConfig{
-		Provider:           DefaultCloneProvider,
-		MaxCloneAgeMinutes: DefaultCloneMaxAgeMinutes,
+		Provider:                         DefaultCloneProvider,
+		MaxCloneAgeMinutes:               DefaultCloneMaxAgeMinutes,
+		RehearsalsPerHour:                DefaultCloneRehearsalsPerHour,
+		MaxCreatesPerHour:                DefaultCloneMaxCreatesPerHour,
+		RehearsalStatementTimeoutSeconds: DefaultCloneRehearsalStatementTimeoutSeconds,
 		Lakebase: CloneLakebaseConfig{TTLMinutes: DefaultCloneLakebaseTTLMinutes,
 			EndpointMaxCU: DefaultCloneLakebaseEndpointMaxCU},
+		Neon: CloneNeonConfig{TTLMinutes: DefaultCloneNeonTTLMinutes,
+			EndpointMaxCU: DefaultCloneNeonEndpointMaxCU},
+		Aurora:                 CloneAuroraConfig{TTLMinutes: DefaultCloneAuroraTTLMinutes},
+		RestoreDeadlineMinutes: DefaultCloneRestoreDeadlineMinutes,
 	}
 }
 

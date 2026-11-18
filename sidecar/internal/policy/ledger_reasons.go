@@ -25,6 +25,7 @@ var ledgerReasons = []Reason{
 	ReasonBoundByFact, ReasonFactsUnavailable, ReasonAutonomyUnavailable,
 	ReasonObserveOnly, ReasonAutonomyLevel, ReasonAutonomyDowngraded,
 	ReasonAgentLevel0, ReasonAgentProposalRecorded, ReasonAgentL3Envelope,
+	ReasonExposureShadow,
 	// Agent governance (agentguard and agentguard/decide).
 	"agent_frozen", "agent_unsponsored", "agent_retired", "agent_env_ceiling",
 	"agent_capability", "agent_classification", "agent_change_freeze", "agent_no_pitr",

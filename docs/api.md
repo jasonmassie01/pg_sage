@@ -226,3 +226,26 @@ not read (the error goes to stderr and nothing to stdout).
 `pg_sage_outcomes_measured_ratio{database}` is the share of the last 24 hours'
 changes with a measured effect at the last complete ledger read of that window
 ([Metrics](metrics.md)).
+
+## Sage Review grade
+
+### `GET /api/v1/databases/{db}/review/grade`
+
+Viewer; read scope on `{db}`. The latest graded run of the database (`done` or `partial`),
+the one before it and the delta between them (see [Sage Review](review.md)). Before the
+first grade, `latest`, `previous` and `delta` are null; the first grade's delta is the
+whole report (`first_run: true`). It never starts a grade. The MCP tool `review_grade` is
+the same read. A database that is not connected is 503 `database_unavailable`; one that is
+not monitored is 404.
+
+```json
+{"latest": {"id": 12, "database": "orders", "kind": "grade", "triggers": ["daily"],
+  "rubric_version": "pg_sage-rubric/1", "status": "done",
+  "grade": {"overall": "B", "overall_score": 84.5, "coverage_pct": 77.1,
+    "known_dimensions": 6, "dimensions": [{"dimension": "schema", "letter": "A",
+      "score": 92.31, "coverage": 100, "checks": [{"check": "schema.duplicate_index",
+        "status": "pass", "weight": 2, "evidence": ["first_look:40#duplicate_index"]}]}]}},
+ "previous": {"id": 11},
+ "delta": {"first_run": false, "rubric_changed": false, "from_overall": "B",
+  "to_overall": "B", "dimensions": []}}
+```

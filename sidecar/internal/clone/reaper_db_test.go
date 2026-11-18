@@ -174,7 +174,7 @@ func TestReaper_InvalidAndEmpty(t *testing.T) {
 	}
 }
 
-func TestReceiptStore_ExpiredIsBounded(t *testing.T) {
+func TestReceiptStore_ReapableIsBounded(t *testing.T) {
 	s, pool, ctx := receiptStore(t)
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.clone_instances (deployment_id, adapter,
 		scope, ref, name, purpose, status, expires_at)
@@ -183,9 +183,10 @@ func TestReceiptStore_ExpiredIsBounded(t *testing.T) {
 		FROM generate_series(1, $2::int) g`, testDeployment, MaxExpiredPerPass+5); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Expired(ctx, reaperScope, PurposeRehearsal)
+	got, err := s.Reapable(ctx, ReapQuery{Scope: reaperScope, Purpose: PurposeRehearsal,
+		StaleAfter: DefaultHolderStaleAfter})
 	if err != nil || len(got) != MaxExpiredPerPass {
-		t.Fatalf("expired: %d receipts, %v; want %d", len(got), err, MaxExpiredPerPass)
+		t.Fatalf("reapable: %d receipts, %v; want %d", len(got), err, MaxExpiredPerPass)
 	}
 	if got[0].Ref != "c-1" || got[len(got)-1].Ref != "c-100" {
 		t.Fatalf("not the oldest first: %s .. %s", got[0].Ref, got[len(got)-1].Ref)

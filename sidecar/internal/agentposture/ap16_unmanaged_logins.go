@@ -18,7 +18,8 @@ func init() { Register(ap16{}) }
 type ap16 struct{}
 
 func (ap16) Spec() Spec {
-	return Spec{ID: "AP-16", Title: "Agent-like logins outside agent governance", Severity: Warning}
+	return Spec{ID: "AP-16", Title: "Agent-like logins outside agent governance",
+		Severity: Warning, ReadsSessions: true}
 }
 
 var ap16SQL = Statement("AP-16", `SELECT r.oid, r.rolname::text

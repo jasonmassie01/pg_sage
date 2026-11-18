@@ -1,0 +1,12 @@
+{
+  "kind": "sql#operation",
+  "targetLink": "https://sqladmin.googleapis.com/v1/projects/acme-prod-1234/instances/sage-rehearsal-0a1b2c3d",
+  "status": "DONE",
+  "user": "pg-sage@acme-prod-1234.iam.gserviceaccount.com",
+  "insertTime": "2026-11-16T12:00:01.123Z",
+  "operationType": "UPDATE",
+  "name": "3f6c1a2e-7d4b-4c8a-9e1f-000000000002",
+  "targetId": "sage-rehearsal-0a1b2c3d",
+  "selfLink": "https://sqladmin.googleapis.com/v1/projects/acme-prod-1234/operations/3f6c1a2e-7d4b-4c8a-9e1f-000000000002",
+  "targetProject": "acme-prod-1234"
+}

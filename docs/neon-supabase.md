@@ -98,6 +98,36 @@ finding's case. A 401 is recorded as the source's error and leaves earlier advic
 Neon has no advisor API, so pg_sage's own index findings stand alone there. See
 [Provider advice](managed-clouds.md#provider-advice).
 
+## Data API exposure
+
+A table `anon` can read is reachable from the internet only when the project's Data API
+(PostgREST) serves its schema, and SQL can't see which schemas it serves. With
+`SAGE_SUPABASE_OBSERVABILITY_TOKEN` set, pg_sage reads it from the Management API
+(`GET /v1/projects/{ref}/postgrest`, its `db_schema` list) for the project the endpoint names:
+one read an hour, read only. The response also carries the project's JWT secret; pg_sage
+decodes only `db_schema` and never keeps, logs or shows anything else.
+
+AP-03 and AP-04 findings then carry `detail.data_api_exposed` for their schema:
+
+| Value | Meaning | Severity |
+| --- | --- | --- |
+| `true` | the Data API serves the schema | unchanged (AP-03 stays critical) |
+| `false` | the Data API does not serve the schema | critical drops to warning |
+| `unknown` | not read: no token, a custom domain that names no project, a 401 or 429, or a response without `db_schema` | unchanged, never inferred safe |
+
+- A 401 (or 403) and a 429 are each logged once until a read succeeds. Any failure waits an
+  hour before the next read.
+- A change of the served schemas re-runs the exposure detectors at the next exposure sweep,
+  even when the catalog did not change.
+- Projects created from 30 May 2026 no longer expose new tables in `public` to the Data API
+  automatically. Where that shows as missing grants to `anon` and `authenticated`, AP-03
+  already sees it. pg_sage reads no separate "expose new tables" setting: no such field was
+  verified against a real project.
+- Off Supabase the field is absent.
+- The share of AP-03 findings with a known state is
+  `count(*) FILTER (WHERE detail->>'data_api_exposed' IN ('true', 'false'))` over the open
+  `agent_posture:AP-03` rows of `sage.findings`.
+
 ## Verified limitations and remaining integrations
 
 The Free Supabase organization used for verification reported no branch entitlement and no managed
@@ -115,6 +145,55 @@ offer pg_hint_plan in its extension catalog. These results apply to the tested p
 Backup checks describe completed backups or the configured restoration window and explicitly do
 not claim a restore drill. Free Supabase needs logical exports for backup assurance.
 
+## Branch rehearsal on Neon
+
+`clone.provider: neon_branch` rehearses migrations and index changes on a copy-on-write Neon
+branch of production (lab-05b). Each rehearsal creates branch `sage-<purpose>-<8 hex>` from
+`clone.neon.parent_branch`, or from the branch of the monitored endpoint (found by its host; a
+`-pooler` host counts as its endpoint), with one read-write endpoint that autoscales from 0.25
+to `clone.neon.endpoint_max_cu` compute units. A branch is typically ready in under a minute.
+The clone connects as the monitored database's role with `sslmode=require`; its password is
+never logged.
+
+```yaml
+clone:
+  provider: neon_branch
+  neon:
+    project_id: shiny-wind-028834   # the monitored database's project
+    # parent_branch: br-aged-salad-637688   # default: the monitored endpoint's branch
+    # api_key: set SAGE_CLONE_NEON_API_KEY or SAGE_CLONE_NEON_API_KEY_FILE instead
+    endpoint_max_cu: 1
+    ttl_minutes: 60
+```
+
+**API key.** The key creates and deletes branches, so treat it as a write credential for the
+project. Use a project-scoped key (an organization key limited to the project) where your plan
+offers one, never a personal key with access to other projects. Without a key the provider is
+unavailable: rehearsals are recommendation-only (`clone_unavailable`) and startup logs a warning.
+A 401 or 403 from Neon names `clone.neon.api_key`. The API refuses `clone.provider: neon_branch`;
+set it in the config file.
+
+**Cleanup.** pg_sage asks Neon for an `expires_at` of now plus `clone.neon.ttl_minutes` on every
+branch, as the Neon branch API documents; it has not been verified against a live project in
+this build (OWNER ACTION). The receipt and its reaper are the backstop either way: a branch
+whose create timed out is left `create_uncertain`, found by its name and deleted by the next
+reaper pass, and a failed create deletes its branch before it returns. A create reply lost in
+transport or a 5xx (which a gateway can send after Neon made the branch) is followed by a lookup
+by name, and a branch found is deleted. A rehearsal ends within `clone.neon.ttl_minutes` when
+that is shorter than the 1-hour rehearsal bound, so it never outlives its branch. pg_sage deletes only
+branches named `sage-*` that are neither the default nor protected. Neon throttles branch
+creation: a 429 or 5xx backs creates off (one minute doubling to an hour), and
+`clone.max_creates_per_hour` caps creates per deployment. Each branch is billed for its compute
+and written data while it lives.
+
+**What it cannot do.** A branch starts with empty statistics, and Neon resets
+`pg_stat_statements` when a compute suspends, so a rehearsal compares before and after on the
+same branch only, never with production's counters. The rehearsal still checks that the clone
+is not the production server before the first statement.
+
+**Supabase gets no clone provider**: new Supabase branches start without data, so a rehearsal
+on one would show neither realistic plans nor timings.
+
 ## Backup and rehearsal evidence
 
 Application-schema logical export and restore were verified live for both providers using
@@ -124,8 +203,8 @@ and identity sequence state. Negative foreign-key and check-constraint writes fa
 This test excludes provider-owned schemas, roles and ACLs; it does not claim a complete platform
 restore, automated restore drill or managed PITR execution.
 
-The existing MCP snapshot factory remains unconfigured for all native providers;
-its clone-unavailable path yields a recommendation rather than a successful rehearsal. These are
+Without `clone.provider: neon_branch` (above), the clone-unavailable path yields a
+recommendation rather than a successful rehearsal. These are
 implementation gaps, not provider impossibilities. A configured external DLE provider remains a
 separate option. Do not claim full migration rehearsal or automatic backup restoration from a
 successful connection or create/status/delete test.

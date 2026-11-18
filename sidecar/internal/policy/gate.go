@@ -75,6 +75,9 @@ func (gate *authorizationGate) evaluateRequest(ctx context.Context, req ActionRe
 	if rollbackMitigation(req) {
 		return gate.rollbackDecision(ctx, runtime, req)
 	}
+	if decision, stop := gate.exposureDecision(ctx, req); stop {
+		return decision
+	}
 	if req.OperatorApproved {
 		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
 	}

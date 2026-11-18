@@ -40,6 +40,24 @@ var excludedPrefixes = []string{
 	// market-03: the Lakebase project rehearsal branches are made in and
 	// their limits: YAML only, restart-bound, the project safety-critical
 	"clone.lakebase.",
+	// lab-05b: the Neon project, parent branch and API key of rehearsal
+	// branches: YAML or env only, restart-bound, the key a secret
+	"clone.neon.",
+	// lab-05c: the Aurora region and clone size: YAML only, restart-bound,
+	// the region safety-critical
+	"clone.aurora.",
+	// lab-05d: the RDS region and class and the full-copy restore deadline:
+	// YAML only, restart-bound, the region safety-critical
+	"clone.rds.", "clone.restore_deadline_minutes",
+	// lab-05e: the Cloud SQL project and instance: YAML only, restart-bound,
+	// safety-critical
+	"clone.cloudsql.",
+	// lab-05f: the AlloyDB project, location and cluster: YAML only,
+	// restart-bound, safety-critical
+	"clone.alloydb.",
+	// lab-05g: the Azure subscription, resource group and server: YAML
+	// only, restart-bound, safety-critical
+	"clone.azure.",
 	"sre.read_policy.", // trusted observation boundary; never a model-derived grant
 	"self_config.",     // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound
@@ -133,6 +151,9 @@ var excludedExactKeys = map[string]bool{
 	"backup.max_age_hours":           true,
 	"backup.max_archive_gap_minutes": true,
 	"backup.min_retention_days":      true,
+	// The backup isolation policy (drill-01b) likewise.
+	"backup.min_pitr_hours":  true,
+	"backup.external_source": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,

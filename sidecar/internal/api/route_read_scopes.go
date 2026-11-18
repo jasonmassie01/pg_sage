@@ -47,7 +47,11 @@ var readRouteScopes = map[string]readScope{
 		pathDB),
 	"GET /api/v1/databases/{db}/investigations/{id}/transcript": readDatabase(
 		pathDB),
-	"GET /api/v1/databases/{db}/runbooks":                 readDatabase(pathDB),
+	"GET /api/v1/databases/{db}/runbooks": readDatabase(pathDB),
+	// drill-01d: a database's restore drill history.
+	"GET /api/v1/databases/{db}/restore-drills": readDatabase(pathDB),
+	// review-01a: a database's latest grade, the previous one and the delta.
+	"GET /api/v1/databases/{db}/review/grade":             readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/runbooks/{id}":            readDatabase(pathDB),
 	"GET /api/v1/databases/{db}/runbooks/{id}/runs":       readDatabase(pathDB),
 	"GET /api/v1/agent-classifications/{database}":        readDatabase(classDB),
@@ -65,6 +69,10 @@ var readRouteScopes = map[string]readScope{
 	"GET /api/v1/model-lift":                    readFleetOnly,
 	"GET /api/v1/policy":                        readFleetOnly,
 	"GET /api/v1/policy/history":                readFleetOnly,
+	"GET /api/v1/policy-sets":                   readFleetOnly, // fleetpol-01a
+	"GET /api/v1/policy-sets/{name}/members":    readFleetOnly,
+	"GET /api/v1/policy-sets/{name}/export":     readFleetOnly,
+	"GET /api/v1/policy-exceptions":             readFleetOnly,
 	"GET /api/v1/trust":                         readFleetOnly,
 	"GET /api/v1/upgrade-readiness":             readFleetOnly,
 	"GET /api/v1/case-tickets":                  readFleetOnly,

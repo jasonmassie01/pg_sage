@@ -1,0 +1,110 @@
+{
+  "database": "orders",
+  "status": "passed",
+  "latest": {
+    "id": 2,
+    "database": "orders",
+    "provider": "rds_restore",
+    "kind": "full_copy",
+    "requested_at": "2026-11-15T11:49:00Z",
+    "ready_at": "2026-11-15T11:59:00Z",
+    "finished_at": "2026-11-15T12:00:00Z",
+    "recovery_point": "2026-11-15T11:45:00Z",
+    "rto_seconds": 660,
+    "rpo_seconds": 240,
+    "invariants": [
+      {
+        "name": "catalog",
+        "table": "app.orders",
+        "status": "pass",
+        "evidence": "same 4 columns"
+      },
+      {
+        "name": "marker",
+        "status": "pass",
+        "evidence": "sage.snapshots 4m0s before the recovery point"
+      }
+    ],
+    "passed": true,
+    "cost_label": "about $1.40 (estimate)"
+  },
+  "last_pass": {
+    "id": 2,
+    "database": "orders",
+    "provider": "rds_restore",
+    "kind": "full_copy",
+    "requested_at": "2026-11-15T11:49:00Z",
+    "ready_at": "2026-11-15T11:59:00Z",
+    "finished_at": "2026-11-15T12:00:00Z",
+    "recovery_point": "2026-11-15T11:45:00Z",
+    "rto_seconds": 660,
+    "rpo_seconds": 240,
+    "invariants": [
+      {
+        "name": "catalog",
+        "table": "app.orders",
+        "status": "pass",
+        "evidence": "same 4 columns"
+      },
+      {
+        "name": "marker",
+        "status": "pass",
+        "evidence": "sage.snapshots 4m0s before the recovery point"
+      }
+    ],
+    "passed": true,
+    "cost_label": "about $1.40 (estimate)"
+  },
+  "window_days": 35,
+  "drills": [
+    {
+      "id": 2,
+      "database": "orders",
+      "provider": "rds_restore",
+      "kind": "full_copy",
+      "requested_at": "2026-11-15T11:49:00Z",
+      "ready_at": "2026-11-15T11:59:00Z",
+      "finished_at": "2026-11-15T12:00:00Z",
+      "recovery_point": "2026-11-15T11:45:00Z",
+      "rto_seconds": 660,
+      "rpo_seconds": 240,
+      "invariants": [
+        {
+          "name": "catalog",
+          "table": "app.orders",
+          "status": "pass",
+          "evidence": "same 4 columns"
+        },
+        {
+          "name": "marker",
+          "status": "pass",
+          "evidence": "sage.snapshots 4m0s before the recovery point"
+        }
+      ],
+      "passed": true,
+      "cost_label": "about $1.40 (estimate)"
+    },
+    {
+      "id": 1,
+      "database": "orders",
+      "provider": "rds_restore",
+      "kind": "full_copy",
+      "requested_at": "2026-11-07T11:51:00Z",
+      "finished_at": "2026-11-07T12:00:00Z",
+      "invariants": [
+        {
+          "name": "row_count",
+          "table": "app.orders",
+          "status": "fail",
+          "evidence": "90 rows, source 100"
+        }
+      ],
+      "passed": false,
+      "failure": "row_count app.orders: 90 rows, source 100",
+      "cost_label": "about $1.40 (estimate)"
+    }
+  ],
+  "isolation": null,
+  "next_full_copy_cost_label": "about $1.40 (estimate)"
+}
+

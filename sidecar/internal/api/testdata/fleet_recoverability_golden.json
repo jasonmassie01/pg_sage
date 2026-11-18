@@ -1,0 +1,250 @@
+{
+  "window_days": 35,
+  "total": 6,
+  "passed": 2,
+  "failed": 1,
+  "stale": 1,
+  "never_drilled": 1,
+  "unknown": 1,
+  "median_rto_seconds": 780,
+  "databases": [
+    {
+      "database": "archive",
+      "status": "stale",
+      "reason": "the newest passed restore drill is more than 35 days old",
+      "latest": {
+        "id": 6,
+        "database": "archive",
+        "provider": "rds_restore",
+        "kind": "full_copy",
+        "requested_at": "2026-10-13T11:54:59Z",
+        "ready_at": "2026-10-13T11:58:59Z",
+        "finished_at": "2026-10-13T11:59:59Z",
+        "recovery_point": "2026-10-13T11:50:59Z",
+        "rto_seconds": 300,
+        "rpo_seconds": 240,
+        "invariants": [
+          {
+            "name": "catalog",
+            "table": "app.orders",
+            "status": "pass",
+            "evidence": "same 4 columns"
+          },
+          {
+            "name": "marker",
+            "status": "pass",
+            "evidence": "sage.snapshots 4m0s before the recovery point"
+          }
+        ],
+        "passed": true,
+        "cost_label": "about $1.40 (estimate)"
+      },
+      "last_pass": {
+        "id": 6,
+        "database": "archive",
+        "provider": "rds_restore",
+        "kind": "full_copy",
+        "requested_at": "2026-10-13T11:54:59Z",
+        "ready_at": "2026-10-13T11:58:59Z",
+        "finished_at": "2026-10-13T11:59:59Z",
+        "recovery_point": "2026-10-13T11:50:59Z",
+        "rto_seconds": 300,
+        "rpo_seconds": 240,
+        "invariants": [
+          {
+            "name": "catalog",
+            "table": "app.orders",
+            "status": "pass",
+            "evidence": "same 4 columns"
+          },
+          {
+            "name": "marker",
+            "status": "pass",
+            "evidence": "sage.snapshots 4m0s before the recovery point"
+          }
+        ],
+        "passed": true,
+        "cost_label": "about $1.40 (estimate)"
+      }
+    },
+    {
+      "database": "billing",
+      "status": "failed",
+      "reason": "row_count app.orders: 90 rows, source 100",
+      "latest": {
+        "id": 4,
+        "database": "billing",
+        "provider": "rds_restore",
+        "kind": "full_copy",
+        "requested_at": "2026-11-16T11:51:00Z",
+        "finished_at": "2026-11-16T12:00:00Z",
+        "invariants": [
+          {
+            "name": "row_count",
+            "table": "app.orders",
+            "status": "fail",
+            "evidence": "90 rows, source 100"
+          }
+        ],
+        "passed": false,
+        "failure": "row_count app.orders: 90 rows, source 100",
+        "cost_label": "about $1.40 (estimate)"
+      },
+      "last_pass": {
+        "id": 3,
+        "database": "billing",
+        "provider": "rds_restore",
+        "kind": "full_copy",
+        "requested_at": "2026-10-08T11:50:00Z",
+        "ready_at": "2026-10-08T11:59:00Z",
+        "finished_at": "2026-10-08T12:00:00Z",
+        "recovery_point": "2026-10-08T11:46:00Z",
+        "rto_seconds": 600,
+        "rpo_seconds": 240,
+        "invariants": [
+          {
+            "name": "catalog",
+            "table": "app.orders",
+            "status": "pass",
+            "evidence": "same 4 columns"
+          },
+          {
+            "name": "marker",
+            "status": "pass",
+            "evidence": "sage.snapshots 4m0s before the recovery point"
+          }
+        ],
+        "passed": true,
+        "cost_label": "about $1.40 (estimate)"
+      }
+    },
+    {
+      "database": "ledger",
+      "status": "passed",
+      "latest": {
+        "id": 5,
+        "database": "ledger",
+        "provider": "rds_restore",
+        "kind": "full_copy",
+        "requested_at": "2026-10-13T11:45:00Z",
+        "ready_at": "2026-10-13T11:59:00Z",
+        "finished_at": "2026-10-13T12:00:00Z",
+        "recovery_point": "2026-10-13T11:41:00Z",
+        "rto_seconds": 900,
+        "rpo_seconds": 240,
+        "invariants": [
+          {
+            "name": "catalog",
+            "table": "app.orders",
+            "status": "pass",
+            "evidence": "same 4 columns"
+          },
+          {
+            "name": "marker",
+            "status": "pass",
+            "evidence": "sage.snapshots 4m0s before the recovery point"
+          }
+        ],
+        "passed": true,
+        "cost_label": "about $1.40 (estimate)"
+      },
+      "last_pass": {
+        "id": 5,
+        "database": "ledger",
+        "provider": "rds_restore",
+        "kind": "full_copy",
+        "requested_at": "2026-10-13T11:45:00Z",
+        "ready_at": "2026-10-13T11:59:00Z",
+        "finished_at": "2026-10-13T12:00:00Z",
+        "recovery_point": "2026-10-13T11:41:00Z",
+        "rto_seconds": 900,
+        "rpo_seconds": 240,
+        "invariants": [
+          {
+            "name": "catalog",
+            "table": "app.orders",
+            "status": "pass",
+            "evidence": "same 4 columns"
+          },
+          {
+            "name": "marker",
+            "status": "pass",
+            "evidence": "sage.snapshots 4m0s before the recovery point"
+          }
+        ],
+        "passed": true,
+        "cost_label": "about $1.40 (estimate)"
+      }
+    },
+    {
+      "database": "orders",
+      "status": "passed",
+      "latest": {
+        "id": 2,
+        "database": "orders",
+        "provider": "rds_restore",
+        "kind": "full_copy",
+        "requested_at": "2026-11-15T11:49:00Z",
+        "ready_at": "2026-11-15T11:59:00Z",
+        "finished_at": "2026-11-15T12:00:00Z",
+        "recovery_point": "2026-11-15T11:45:00Z",
+        "rto_seconds": 660,
+        "rpo_seconds": 240,
+        "invariants": [
+          {
+            "name": "catalog",
+            "table": "app.orders",
+            "status": "pass",
+            "evidence": "same 4 columns"
+          },
+          {
+            "name": "marker",
+            "status": "pass",
+            "evidence": "sage.snapshots 4m0s before the recovery point"
+          }
+        ],
+        "passed": true,
+        "cost_label": "about $1.40 (estimate)"
+      },
+      "last_pass": {
+        "id": 2,
+        "database": "orders",
+        "provider": "rds_restore",
+        "kind": "full_copy",
+        "requested_at": "2026-11-15T11:49:00Z",
+        "ready_at": "2026-11-15T11:59:00Z",
+        "finished_at": "2026-11-15T12:00:00Z",
+        "recovery_point": "2026-11-15T11:45:00Z",
+        "rto_seconds": 660,
+        "rpo_seconds": 240,
+        "invariants": [
+          {
+            "name": "catalog",
+            "table": "app.orders",
+            "status": "pass",
+            "evidence": "same 4 columns"
+          },
+          {
+            "name": "marker",
+            "status": "pass",
+            "evidence": "sage.snapshots 4m0s before the recovery point"
+          }
+        ],
+        "passed": true,
+        "cost_label": "about $1.40 (estimate)"
+      }
+    },
+    {
+      "database": "reports",
+      "status": "never_drilled",
+      "reason": "no restore drill has run yet: drills run hourly once the policy document's drill block turns them on and one falls due"
+    },
+    {
+      "database": "search",
+      "status": "unknown",
+      "reason": "clone.provider is none",
+      "advice": "pg_sage cannot prove this database restores without a clone. Set clone.provider (lakebase_branch, neon_branch, aurora_clone or dle run drills by default; a full copy needs clone.allow_full_copy and full_copy in the policy document's drill.kinds) and grant it what the provider's section of docs/managed-clouds.md lists. Until then D7 keeps agent writes at L2."
+    }
+  ]
+}
+

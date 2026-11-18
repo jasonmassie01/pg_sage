@@ -145,3 +145,109 @@ func TestCloneProviderUnknownNamesEveryAdapter(t *testing.T) {
 		t.Fatalf("unknown provider = %v", err)
 	}
 }
+
+// lab-05a: clone.provider snapshot was replaced by the full-copy provider
+// names, a full copy needs clone.allow_full_copy, and every deployment
+// makes at most clone.max_creates_per_hour clones.
+
+func TestCloneProviderSnapshotNamesItsReplacements(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Clone.Provider = "snapshot"
+	err := cfg.validateAgentNative()
+	if err == nil {
+		t.Fatal("clone.provider snapshot was accepted")
+	}
+	for _, name := range CloneFullCopyProviders {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("the snapshot refusal %q does not name %s", err, name)
+		}
+	}
+	if len(CloneFullCopyProviders) != 4 {
+		t.Fatalf("full-copy providers = %v, want rds_restore, cloudsql_clone, "+
+			"alloydb_restore and azure_restore", CloneFullCopyProviders)
+	}
+}
+
+// lab-05g built the last full-copy adapter: every full-copy provider is
+// in this build, and each refuses to start without clone.allow_full_copy.
+func TestEveryFullCopyProviderNeedsAllowFullCopy(t *testing.T) {
+	for _, name := range CloneFullCopyProviders {
+		cfg := DefaultConfig()
+		cfg.Clone.Provider = name
+		err := cfg.validateAgentNative()
+		if err == nil || !strings.Contains(err.Error(), name) ||
+			!strings.Contains(err.Error(), "clone.allow_full_copy") ||
+			strings.Contains(err.Error(), "not in this build") {
+			t.Errorf("clone.provider %s without allow_full_copy: %v", name, err)
+		}
+	}
+}
+
+func TestCloneAllowFullCopyWithoutAFullCopyProviderWarns(t *testing.T) {
+	for _, provider := range []string{"none", "dle"} {
+		cfg := DefaultConfig()
+		cfg.Clone.Provider = provider
+		cfg.Clone.DLEEndpoint = "https://dle.invalid"
+		cfg.Clone.AllowFullCopy = true
+		if err := cfg.validateAgentNative(); err != nil {
+			t.Fatalf("%s with allow_full_copy is an error, want a warning: %v", provider, err)
+		}
+		w := cfg.Clone.Warnings()
+		if len(w) != 1 || !strings.Contains(w[0], "clone.allow_full_copy") ||
+			!strings.Contains(w[0], provider) {
+			t.Fatalf("%s warnings = %v", provider, w)
+		}
+	}
+	cfg := DefaultConfig()
+	if w := cfg.Clone.Warnings(); len(w) != 0 {
+		t.Fatalf("defaults warn: %v", w)
+	}
+}
+
+func TestCloneLifecycleDefaults(t *testing.T) {
+	c := DefaultConfig().Clone
+	if c.AllowFullCopy || c.MaxCreatesPerHour != 4 || DefaultCloneMaxCreatesPerHour != 4 {
+		t.Fatalf("defaults allow_full_copy %v, max_creates_per_hour %d; want false, 4",
+			c.AllowFullCopy, c.MaxCreatesPerHour)
+	}
+	cfg := loadFromYAML(t, `
+postgres:
+  host: localhost
+  user: postgres
+  database: app
+clone:
+  provider: dle
+  dle_endpoint: https://dle.invalid
+`)
+	if cfg.Clone.MaxCreatesPerHour != 4 || cfg.Clone.AllowFullCopy {
+		t.Fatalf("a clone block without the keys loaded %+v", cfg.Clone)
+	}
+	cfg = loadFromYAML(t, `
+postgres:
+  host: localhost
+  user: postgres
+  database: app
+clone:
+  provider: dle
+  dle_endpoint: https://dle.invalid
+  allow_full_copy: true
+  max_creates_per_hour: 9
+`)
+	if cfg.Clone.MaxCreatesPerHour != 9 || !cfg.Clone.AllowFullCopy {
+		t.Fatalf("explicit keys loaded %+v", cfg.Clone)
+	}
+}
+
+func TestCloneMaxCreatesPerHourBounds(t *testing.T) {
+	for n, ok := range map[int]bool{-1: false, 0: true, 1: true, 60: true, 61: false} {
+		cfg := DefaultConfig()
+		cfg.Clone.MaxCreatesPerHour = n
+		err := cfg.validateAgentNative()
+		if (err == nil) != ok {
+			t.Errorf("max_creates_per_hour %d: %v", n, err)
+		}
+		if err != nil && !strings.Contains(err.Error(), "clone.max_creates_per_hour") {
+			t.Errorf("max_creates_per_hour %d error does not name the key: %v", n, err)
+		}
+	}
+}

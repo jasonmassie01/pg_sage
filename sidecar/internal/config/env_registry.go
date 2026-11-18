@@ -102,6 +102,15 @@ var runtimeEnvVars = []EnvVar{
 		"([secrets at rest](security.md#secrets-at-rest))"},
 	{Name: "SAGE_ENCRYPTION_KEY_PREVIOUS", Default: envNone, File: true,
 		Doc: "The previous passphrase during a key rotation"},
+	{Name: "SAGE_DRILL_ID", Default: envNone, Doc: "Set by pg_sage, never read: the " +
+		"drill id a `drill.command.restore_argv` program restores under " +
+		"([restore drills](restore-drills.md))"},
+	{Name: "SAGE_DRILL_DATABASE", Default: envNone, Doc: "Set by pg_sage, never read: " +
+		"the pg_sage name of the database a `drill.command.restore_argv` program restores " +
+		"([restore drills](restore-drills.md))"},
+	{Name: "SAGE_CLONE_ID", Default: envNone, Doc: "Set by pg_sage, never read: the " +
+		"restore id a `drill.command.destroy_argv` program removes " +
+		"([restore drills](restore-drills.md))"},
 	{Name: "SAGE_DATA_DIR", Default: envNone, Doc: "Persistent directory; without an " +
 		"encryption key, pg_sage generates `encryption.key` there " +
 		"([secrets at rest](security.md#secrets-at-rest))"},
@@ -169,11 +178,15 @@ var runtimeEnvVars = []EnvVar{
 	{Name: "SAGE_VERIFY_MIN_SAMPLES", Default: envCode(DefaultVerifyMinSamples),
 		Doc: "Minimum verification samples (`verify.min_samples`)"},
 	{Name: "SAGE_CLONE_PROVIDER", Default: envCode(DefaultCloneProvider),
-		Doc: "Clone provider (`clone.provider`): `none`, `dle` or `lakebase_branch`"},
+		Doc: "Clone provider (`clone.provider`): `none`, `dle`, `lakebase_branch`, " +
+			"`neon_branch`, `aurora_clone`, `rds_restore`, `cloudsql_clone`, " +
+			"`alloydb_restore` or `azure_restore`"},
 	{Name: "SAGE_CLONE_DLE_ENDPOINT", Default: envNone,
 		Doc: "Database Lab Engine API endpoint (`clone.dle_endpoint`)"},
 	{Name: "SAGE_CLONE_DLE_TOKEN", Default: envNone, File: true,
 		Doc: "Database Lab bearer token (`clone.dle_token`)"},
+	{Name: "SAGE_CLONE_NEON_API_KEY", Default: envNone, File: true,
+		Doc: "Neon API key for `neon_branch` rehearsal branches (`clone.neon.api_key`)"},
 	{Name: "SAGE_CLONE_MAX_AGE_MINUTES", Default: envCode(DefaultCloneMaxAgeMinutes),
 		Doc: "Maximum source snapshot age (`clone.max_clone_age_minutes`)"},
 	{Name: "SAGE_CUSTODIAN_FREEZE_RED_BUFFER_PCT", Default: envCode(DefaultFreezeRedBufferPct),

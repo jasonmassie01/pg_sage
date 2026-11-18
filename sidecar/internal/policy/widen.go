@@ -19,7 +19,8 @@ func Widens(base, next Document) bool {
 		base.UnknownClassification != next.UnknownClassification ||
 		base.SerializeMode != next.SerializeMode ||
 		next.WindowStartMarginMinutes < base.WindowStartMarginMinutes ||
-		plansWiden(base.Plans, next.Plans)
+		plansWiden(base.Plans, next.Plans) ||
+		exposureWidens(base, next)
 }
 
 // plansWiden: a plan cap raised (zero fields compare as their defaults)

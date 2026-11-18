@@ -62,7 +62,7 @@ func (p *DLEProvider) Create(ctx context.Context, spec CloneSpec) (Clone, error)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusCreated {
-		return Clone{}, fmt.Errorf("DLE create failed with status %d", response.StatusCode)
+		return Clone{}, &ProviderStatusError{Op: "DLE create", StatusCode: response.StatusCode}
 	}
 	var result Clone
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {

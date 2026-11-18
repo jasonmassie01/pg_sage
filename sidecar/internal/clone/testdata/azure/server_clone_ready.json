@@ -1,0 +1,71 @@
+{
+  "sku": {
+    "name": "Standard_D4ds_v5",
+    "tier": "GeneralPurpose"
+  },
+  "systemData": {
+    "createdAt": "2026-01-10T08:00:00.0000000Z"
+  },
+  "identity": {
+    "type": "UserAssigned",
+    "userAssignedIdentities": {
+      "/subscriptions/0f1e2d3c-4b5a-4697-8877-665544332211/resourceGroups/rg-shop-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/pg-cmk": {
+        "principalId": "11111111-2222-4333-8444-555555555555",
+        "clientId": "66666666-7777-4888-9999-000000000000"
+      }
+    }
+  },
+  "properties": {
+    "dataEncryption": {
+      "type": "AzureKeyVault",
+      "primaryKeyURI": "https://shop-kv.vault.azure.net/keys/pg/0123456789abcdef",
+      "primaryUserAssignedIdentityId": "/subscriptions/0f1e2d3c-4b5a-4697-8877-665544332211/resourceGroups/rg-shop-prod/providers/Microsoft.ManagedIdentity/userAssignedIdentities/pg-cmk"
+    },
+    "fullyQualifiedDomainName": "sage-rehearsal-0a1b2c3d.postgres.database.azure.com",
+    "version": "16",
+    "minorVersion": "4",
+    "administratorLogin": "app",
+    "state": "Ready",
+    "availabilityZone": "1",
+    "storage": {
+      "storageSizeGB": 512,
+      "autoGrow": "Enabled",
+      "tier": "P20"
+    },
+    "authConfig": {
+      "activeDirectoryAuth": "Enabled",
+      "passwordAuth": "Enabled"
+    },
+    "backup": {
+      "backupRetentionDays": 7,
+      "geoRedundantBackup": "Disabled",
+      "earliestRestoreDate": "2026-11-16T12:40:00.0000000+00:00"
+    },
+    "network": {
+      "publicNetworkAccess": "Disabled",
+      "delegatedSubnetResourceId": "/subscriptions/0f1e2d3c-4b5a-4697-8877-665544332211/resourceGroups/rg-shop-prod/providers/Microsoft.Network/virtualNetworks/prod/subnets/postgres",
+      "privateDnsZoneArmResourceId": "/subscriptions/0f1e2d3c-4b5a-4697-8877-665544332211/resourceGroups/rg-shop-prod/providers/Microsoft.Network/privateDnsZones/shop.private.postgres.database.azure.com"
+    },
+    "highAvailability": {
+      "mode": "Disabled",
+      "state": "NotEnabled"
+    },
+    "maintenanceWindow": {
+      "customWindow": "Disabled",
+      "dayOfWeek": 0,
+      "startHour": 0,
+      "startMinute": 0
+    },
+    "replicationRole": "Primary",
+    "replicaCapacity": 5
+  },
+  "location": "East US",
+  "tags": {
+    "team": "shop",
+    "pg-sage-receipt": "sage-rehearsal-0a1b2c3d",
+    "pg-sage-expires-at": "1763306100"
+  },
+  "id": "/subscriptions/0f1e2d3c-4b5a-4697-8877-665544332211/resourceGroups/rg-shop-prod/providers/Microsoft.DBforPostgreSQL/flexibleServers/sage-rehearsal-0a1b2c3d",
+  "name": "sage-rehearsal-0a1b2c3d",
+  "type": "Microsoft.DBforPostgreSQL/flexibleServers"
+}

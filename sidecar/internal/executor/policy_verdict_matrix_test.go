@@ -115,6 +115,15 @@ var baselineVerdicts = []matrixRow{
 	{"operator", "drop_unused_index", "execute", "operator_approved"},
 	{"operator", "alter_table", "execute", "operator_approved"},
 	{"operator", "ddl_preflight", "blocked", "change_class_not_allowed"},
+	// fleetpol-02b: the default profiles' exposure mode is shadow, so the
+	// exposure contracts are observe-only in every scenario, approved ones
+	// included, until an operator sets exposure.mode to enforce.
+	{"autonomous", "revoke_public_grant", "observe_only", "exposure_shadow"},
+	{"autonomous", "enable_row_level_security", "observe_only", "exposure_shadow"},
+	{"advisory", "revoke_public_grant", "observe_only", "exposure_shadow"},
+	{"advisory", "enable_row_level_security", "observe_only", "exposure_shadow"},
+	{"operator", "revoke_public_grant", "observe_only", "exposure_shadow"},
+	{"operator", "enable_row_level_security", "observe_only", "exposure_shadow"},
 	// Intent-level contracts built outside the executor catalog (MCP
 	// candidates and the online-migration runtime).
 	{"autonomous", "mcp_create_index", "execute", "authorized"},

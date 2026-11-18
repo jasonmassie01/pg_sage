@@ -23,7 +23,6 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	var b strings.Builder
 
 	writeBuildMetrics(&b, cfg.Mode)
-
 	writeModeMetric(&b, cfg.Mode)
 	writeMetricsListenerMetric(&b)
 	writeLoginLimiterMetric(&b, api.LoginLimiterSaturatedTotal())
@@ -31,6 +30,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeSSODiscoveryMetrics(&b, api.CurrentSSODiscoveryStatus())
 	writeDeferredIndexMetrics(&b, deferredIndexGauges)
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
+	writeReviewMetrics(&b, reviewFirstGrades)
 	writeConnectionMetric(&b, views)
 
 	// Every family renders whenever its data exists, in every mode

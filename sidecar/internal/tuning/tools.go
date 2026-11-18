@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // The read-only tools the model may call while it examines a case. Each
@@ -26,13 +29,51 @@ const (
 	maxHintExplainPerCase = 3
 )
 
-// cycleTools is tool state shared by the cases of one cycle.
+// cycleTools is tool state shared by the cases of one cycle: whether the
+// cycle's rehearsal was used, and its tier-2 ladder record by index shape.
 type cycleTools struct {
-	mu        sync.Mutex
-	rehearsed bool
+	mu         sync.Mutex
+	rehearsed  bool
+	rehearsals map[string]verify.LadderRecord
 }
 
 func (a *Agent) cycleTools() *cycleTools { return &cycleTools{} }
+
+// rehearsalKey is an index's shape (table and fingerprint), so the record
+// of a rehearsed DDL finds the proposal of the same index.
+func rehearsalKey(ddl string) string {
+	spec, err := optimizer.ParseIndexDDL(ddl)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(spec.TableSchema+"."+spec.TableName) + "|" + spec.Fingerprint()
+}
+
+func (c *cycleTools) recordRehearsal(ddl string, rec verify.LadderRecord) {
+	key := rehearsalKey(ddl)
+	if c == nil || key == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rehearsals == nil {
+		c.rehearsals = map[string]verify.LadderRecord{}
+	}
+	c.rehearsals[key] = rec
+}
+
+// rehearsalOf is the tier-2 record of the index ddl creates, if the cycle
+// rehearsed it.
+func (c *cycleTools) rehearsalOf(ddl string) (verify.LadderRecord, bool) {
+	key := rehearsalKey(ddl)
+	if c == nil || key == "" {
+		return verify.LadderRecord{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rec, ok := c.rehearsals[key]
+	return rec, ok
+}
 
 // toolbox runs the tools for one case.
 type toolbox struct {
@@ -164,6 +205,16 @@ const (
 		`"hint":{"type":"string","description":"pg_hint_plan directives, no comment ` +
 		`markers"}},"required":["queryid","hint"]}`
 )
+
+// ToolNames are the names of the tools the agent offers the model.
+func (a *Agent) ToolNames() []string {
+	specs := a.toolSpecs()
+	out := make([]string, len(specs))
+	for i, s := range specs {
+		out[i] = s.Name
+	}
+	return out
+}
 
 // toolSpecs are the tools offered to the model; rehearse only with a
 // clone provider.

@@ -174,11 +174,13 @@ func (tb *toolbox) rehearse(ctx context.Context, args toolArgs) toolResult {
 			Text: s.Text})
 	}
 	res, err := tb.a.deps.Rehearse.Rehearse(ctx, req)
+	rec := RehearsalLadder(res, err, tb.a.now())
+	tb.cycle.recordRehearsal(ddl, rec)
 	if err != nil {
 		return refused("rehearsal failed: %v", err)
 	}
 	return toolResult{ref: table, text: fmt.Sprintf("built in %d ms", res.BuildMs),
 		fields: map[string]any{"ddl": ddl, "build_ms": res.BuildMs,
 			"size_delta_bytes": res.SizeDeltaBytes, "queries": res.Queries,
-			"note": strings.TrimSpace(res.Note)}}
+			"ladder_result": rec.Result, "note": strings.TrimSpace(res.Note)}}
 }

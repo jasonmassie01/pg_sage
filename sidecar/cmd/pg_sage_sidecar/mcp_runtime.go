@@ -94,14 +94,14 @@ func mcpDependencies() mcp.ProductionDependencies {
 		// agent_request_capability (agent_grants_wiring.go).
 		Grants: agentGrantMCP(cfg, fleetMgr, globalMetaState),
 		// tools/list hides a tool family where it cannot be served (mcp-09).
-		Availability: newMCPAvailability(fleetMgr),
+		Availability: newMCPAvailability(fleetMgr), ReviewGrade: api.ReviewGradeMCP(fleetMgr),
 		// The latest-briefing resource of each database (llm-06b).
 		Briefings: fleetBriefingsMCP{manager: fleetMgr},
 		// upgrade_readiness (market-05): read-only, on the resolved database.
 		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
-		// get_inbox (ux-01a): the inbox's read, never a decision.
+		// get_inbox, get_outcomes, restore_drills, review_grade: reads, never a decision.
 		Inbox:    api.InboxMCP(fleetMgr, processAutonomy().registry),
-		Outcomes: api.OutcomesMCP(fleetMgr),
+		Outcomes: api.OutcomesMCP(fleetMgr), RestoreDrills: mcpRestoreDrills(fleetMgr),
 	}
 }
 

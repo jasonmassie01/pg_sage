@@ -53,6 +53,7 @@ func migrationSteps() []migrationStep {
 	steps = append(steps, namedSteps(trancheThreeMigrations())...)
 	steps = append(steps, namedSteps(trancheFourMigrations())...)
 	steps = append(steps, namedSteps(trancheFiveMigrations())...)
+	steps = append(steps, namedSteps(trancheSixMigrations())...)
 	return append(steps, namedSteps(trancheSevenMigrations())...)
 }
 
@@ -255,7 +256,18 @@ func trancheFiveMigrations() []namedStep {
 	}
 }
 
-// trancheSevenMigrations are the T7 steps, after trancheFiveMigrations.
+// trancheSixMigrations are the T6 steps, after trancheFiveMigrations.
+func trancheSixMigrations() []namedStep {
+	return []namedStep{
+		{"ddlCloneInstancesHolder", ddlCloneInstancesHolder}, // lab-05a
+		{"ddlRestoreDrills", ddlRestoreDrills},               // drill-01a
+		{"ddlExposureRemediations", ddlExposureRemediations}, // fleetpol-02b
+		{"ddlReviewRuns", ddlReviewRuns},                     // review-01a
+		{"ddlPolicySets", ddlPolicySets},                     // fleetpol-01a
+	}
+}
+
+// trancheSevenMigrations are the T7 steps, after trancheSixMigrations.
 func trancheSevenMigrations() []namedStep {
 	return []namedStep{
 		{"ddlNotificationRuleClass", ddlNotificationRuleClass}, // ux-09a

@@ -46,12 +46,14 @@ type Config struct {
 	Custodian   CustodianConfig     `yaml:"custodian"`
 	MCP         MCPConfig           `yaml:"mcp"`
 	Ask         AskConfig           `yaml:"ask"`
-	Facts       FactsConfig         `yaml:"facts"`
-	SelfBudget  SelfBudgetConfig    `yaml:"self_budget"`
-	Baseline    BaselineConfig      `yaml:"baseline"`
-	History     HistoryConfig       `yaml:"history"`
-	Debug       DebugConfig         `yaml:"debug"`
-	SelfConfig  SelfConfigConfig    `yaml:"self_config"`
+	// Review is Sage Review's grade (review.go, review-01a).
+	Review     ReviewConfig     `yaml:"review"`
+	Facts      FactsConfig      `yaml:"facts"`
+	SelfBudget SelfBudgetConfig `yaml:"self_budget"`
+	Baseline   BaselineConfig   `yaml:"baseline"`
+	History    HistoryConfig    `yaml:"history"`
+	Debug      DebugConfig      `yaml:"debug"`
+	SelfConfig SelfConfigConfig `yaml:"self_config"`
 	// Specialist is the Postgres-specialist contract other agents call.
 	Specialist SpecialistConfig `yaml:"specialist"`
 	// Budgets are the workload budgets (workload_budgets.go, market-08).
@@ -64,6 +66,8 @@ type Config struct {
 	HA HAConfig `yaml:"ha"`
 	// Backup is the backup freshness policy (backup.go, market-07).
 	Backup BackupConfig `yaml:"backup"`
+	// Drill is the fleet-wide restore drill cap (drill.go, drill-01a).
+	Drill DrillConfig `yaml:"drill"`
 	// CloudTelemetry is managed-cloud host telemetry (cloud_telemetry.go).
 	CloudTelemetry        CloudTelemetryConfig        `yaml:"cloud_telemetry"`
 	LakebaseObservability LakebaseObservabilityConfig `yaml:"lakebase_observability"`
