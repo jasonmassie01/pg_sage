@@ -83,9 +83,8 @@ func (s *fakeStore) Upsert(_ context.Context, source, owner string, cands []Cand
 		k := s.key(source, c.ExternalID)
 		if r, ok := s.rows[k]; ok {
 			r.LastSeen, r.Owner = now, owner
-			r.Tags, r.Creator = c.Tags, c.Creator
 			if r.Status == store.DiscoveryCandidate || r.Status == store.DiscoveryEnrolling {
-				r.SetName = c.SetName
+				r.Tags, r.Creator, r.SetName = c.Tags, c.Creator, c.SetName
 			}
 			continue
 		}

@@ -138,8 +138,10 @@ func scanDiscovered(rows pgx.Rows) ([]DiscoveredRow, error) {
 }
 
 // Upsert records a listing: new candidates are inserted, known ones get
-// last_seen, owner and attributes refreshed, and their set while they
-// are not yet enrolled. It returns how many rows were new. The
+// last_seen and owner refreshed, and their tags, creator and set while
+// they are not yet enrolled: an enrolled member keeps what it was
+// enrolled under, so a later database comment cannot move it to another
+// policy set (the gate reads the creator from this row). It returns how many rows were new. The
 // unique (source, external_id) key keeps concurrent sidecars from making
 // duplicates.
 func (s *DiscoveryStore) Upsert(ctx context.Context, source, owner string,
@@ -183,8 +185,12 @@ const upsertDiscoveredSQL = `/* pg_sage */ INSERT INTO sage.discovered_databases
 	 VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11)
 	 ON CONFLICT (source, external_id) DO UPDATE SET
 	    host = EXCLUDED.host, port = EXCLUDED.port, dbname = EXCLUDED.dbname,
-	    owner = EXCLUDED.owner, tags = EXCLUDED.tags, creator = EXCLUDED.creator,
+	    owner = EXCLUDED.owner,
 	    created_at = COALESCE(EXCLUDED.created_at, d.created_at),
+	    tags = CASE WHEN d.status IN ('candidate', 'enrolling')
+	                THEN EXCLUDED.tags ELSE d.tags END,
+	    creator = CASE WHEN d.status IN ('candidate', 'enrolling')
+	                   THEN EXCLUDED.creator ELSE d.creator END,
 	    set_name = CASE WHEN d.status IN ('candidate', 'enrolling')
 	                    THEN EXCLUDED.set_name ELSE d.set_name END,
 	    last_seen = GREATEST(d.last_seen, EXCLUDED.last_seen)
