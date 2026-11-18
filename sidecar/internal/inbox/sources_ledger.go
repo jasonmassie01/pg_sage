@@ -30,11 +30,17 @@ func Promotions(reg *earned.Registry) Source {
 			if p.To >= earned.L3 {
 				risk = RiskHigh // L3 runs unattended
 			}
+			title := fmt.Sprintf("Promote %s/%s from %s to %s", p.Family, p.Class, p.From,
+				p.To)
+			why := "the trust ledger's evidence supports a promotion; an admin decides"
+			// ux-07a: a promotion your approvals earned asks in your words;
+			// Not now (reject) puts the ask off for 30 days.
+			if ask, ok := earned.ApprovalAsk(p, db); ok {
+				title, why = ask, "your approvals with no rollback; Approve, or Not now "+
+					"to be asked again in 30 days"
+			}
 			out = append(out, Item{Kind: KindAutonomyPromotion, ID: p.ID, Database: db,
-				Title: fmt.Sprintf("Promote %s/%s from %s to %s", p.Family, p.Class,
-					p.From, p.To),
-				Why:  "the trust ledger's evidence supports a promotion; an admin decides",
-				Risk: risk, CreatedAt: p.ProposedAt, DueAt: &due,
+				Title: title, Why: why, Risk: risk, CreatedAt: p.ProposedAt, DueAt: &due,
 				Href:   href("trust", "database", db, "proposal", p.ID),
 				Source: "sage.sre_autonomy_proposals"})
 		}

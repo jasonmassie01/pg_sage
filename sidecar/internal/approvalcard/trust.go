@@ -37,7 +37,15 @@ type Trust struct {
 	Bench       string `json:"bench,omitempty"`
 	BenchOrigin string `json:"bench_origin,omitempty"`
 	BenchID     string `json:"bench_id,omitempty"`
-	Line        string `json:"line"`
+	// AllowAlways offers "Approve, and stop asking for <class> on
+	// <database>" (ux-07a), labelled AllowAlwaysLabel; AllowAlwaysWhy is
+	// why it is offered or not. ApprovalHistory is the class's person
+	// approvals in the window.
+	AllowAlways      bool                    `json:"allow_always"`
+	AllowAlwaysLabel string                  `json:"allow_always_label,omitempty"`
+	AllowAlwaysWhy   string                  `json:"allow_always_why,omitempty"`
+	ApprovalHistory  *earned.ApprovalHistory `json:"approval_history,omitempty"`
+	Line             string                  `json:"line"`
 }
 
 // trustRead is one read of a database's Trust view.
@@ -106,8 +114,24 @@ func trustOf(in Inputs) *Trust {
 		t.NextLevel = row.Next.Target.String()
 		t.Path = pathOf(*row.Next)
 	}
+	t.ApprovalHistory = row.ApprovalHistory
+	allowAlwaysOf(t, *row, in)
 	t.Line = trustLine(t)
 	return t
+}
+
+// allowAlwaysOf decides the card's allow-always button by the ledger's
+// rule against the database's gate inputs; without them (no executor)
+// it is never offered.
+func allowAlwaysOf(t *Trust, row earned.TrustRow, in Inputs) {
+	if in.Ceiling == nil {
+		t.AllowAlwaysWhy = "the gate's inputs are not known (no executor)"
+		return
+	}
+	t.AllowAlways, t.AllowAlwaysWhy = earned.AllowAlways(row, *in.Ceiling)
+	if t.AllowAlways {
+		t.AllowAlwaysLabel = earned.AllowAlwaysLabel(row.Class, in.Database)
+	}
 }
 
 // pathOf lists what the next level still needs.
