@@ -47,8 +47,10 @@ func (s *PoolStore) ClassRules(ctx context.Context, c Class) ([]Rule, error) {
 
 // SeedClassRules gives channelID the Page, Ask and Digest class rules when
 // it is the install's only alert channel and no rule exists yet (a fresh
-// install). It reports how many rules it wrote: 3, or 0 when the install
-// already routes. The rows are API rules, so the Rules tab edits them.
+// install). A pager (digestRuleExcludedTypes) gets no Digest rule: a daily
+// summary must not page anyone. It reports how many rules it wrote: 3 (2
+// for a pager), or 0 when the install already routes. The rows are API
+// rules, so the Rules tab edits them.
 func SeedClassRules(ctx context.Context, db execer, channelID int) (int, error) {
 	tag, err := db.Exec(ctx, `/* pg_sage */ INSERT INTO sage.notification_rules
 		(channel_id, event, min_severity, enabled, delivery_class)
@@ -56,9 +58,11 @@ func SeedClassRules(ctx context.Context, db execer, channelID int) (int, error) 
 		  FROM unnest($2::text[]) AS c
 		 WHERE (SELECT count(*) FROM sage.notification_channels WHERE type <> 'jira') = 1
 		   AND EXISTS (SELECT 1 FROM sage.notification_channels
-		                WHERE id = $1 AND type <> 'jira')
+		                WHERE id = $1 AND type <> 'jira'
+		                  AND (c <> $3 OR type <> ALL ($4::text[])))
 		   AND NOT EXISTS (SELECT 1 FROM sage.notification_rules)`,
-		channelID, []string{string(ClassPage), string(ClassAsk), string(ClassDigest)})
+		channelID, []string{string(ClassPage), string(ClassAsk), string(ClassDigest)},
+		string(ClassDigest), digestRuleExcludedTypes)
 	if err != nil {
 		return 0, fmt.Errorf("seed class rules for channel %d: %w", channelID, err)
 	}

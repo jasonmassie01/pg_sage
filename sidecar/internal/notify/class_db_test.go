@@ -180,3 +180,41 @@ func TestClassDB_SeedClassRulesSkipsAnInstallWithRules(t *testing.T) {
 		t.Fatalf("an install with rules seeded %d, %v; want 0", n, err)
 	}
 }
+
+// A pager (PagerDuty, Opsgenie, incident.io) as the first channel gets the
+// Page and Ask class rules but no Digest rule: a daily summary must not
+// page anyone (the same rule as the default digest rule, ux-02b).
+func TestClassDB_SeedClassRulesGiveAPagerNoDigest(t *testing.T) {
+	pool := connectTestDB(t)
+	ctx := context.Background()
+	for _, typ := range digestRuleExcludedTypes {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, q := range []string{`DELETE FROM sage.notification_rules`,
+			`DELETE FROM sage.notification_channels`} {
+			if _, err := tx.Exec(ctx, q); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var id int
+		if err := tx.QueryRow(ctx, `INSERT INTO sage.notification_channels
+			(name, type, config) VALUES ('seed-pager', $1, '{}') RETURNING id`,
+			typ).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		n, err := SeedClassRules(ctx, tx, id)
+		var classes string
+		if err == nil {
+			err = tx.QueryRow(ctx, `SELECT COALESCE(string_agg(delivery_class, ','
+				ORDER BY delivery_class), '') FROM sage.notification_rules
+				WHERE channel_id = $1`, id).Scan(&classes)
+		}
+		_ = tx.Rollback(ctx)
+		if err != nil || n != 2 || classes != "ask,page" {
+			t.Fatalf("%s first channel seeded %d (%q), %v; want ask and page only", typ,
+				n, classes, err)
+		}
+	}
+}

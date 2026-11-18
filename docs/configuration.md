@@ -3937,8 +3937,9 @@ event. A class rule is a row of `sage.notification_rules` whose `delivery_class`
 one event type and works as before. A channel that a legacy rule already serves for an event
 gets no second copy from a class rule. When the first alert channel of a fresh install is
 created (no other channel and no rule yet), it gets a Page, an Ask and a Digest class rule;
-the create response says `class_rules_seeded: 3`. An install that already has rules keeps
-them. The first Ask of a window opens it and every Ask before it ends joins the one message;
+the create response says `class_rules_seeded: 3`. A pager (PagerDuty, Opsgenie or
+incident.io) gets the Page and Ask rules only (`class_rules_seeded: 2`), because a daily
+summary must not page anyone. An install that already has rules keeps them. The first Ask of a window opens it and every Ask before it ends joins the one message;
 a window of one Ask sends the Ask itself. An interactive chat channel (Slack with
 `interactive` and a signing secret, Telegram with a webhook secret) is not batched, so each
 approval card still arrives with its buttons. Two Asks at the same instant, even from two
