@@ -36,8 +36,9 @@ async function settle(page: Page) {
 }
 
 async function openActions(page: Page) {
-  await page.goto('/#/actions')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Actions')
+  // ux-11: Actions is Changes at #/changes.
+  await page.goto('/#/changes')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Changes')
   await expect(page.getByTestId('freshness-indicator')).toHaveAttribute('data-status', 'live')
   await settle(page)
 }

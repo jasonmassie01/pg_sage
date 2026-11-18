@@ -1,4 +1,5 @@
 import { caseID } from './casePresentation'
+import { findRoute } from '../../routes'
 
 // caseFocus: what the Cases page focuses from its hash. A case link names
 // the case (case=<id>); an Ask Sage citation names the finding
@@ -10,10 +11,11 @@ import { caseID } from './casePresentation'
 const FOCUS_KINDS = ['case', 'finding', 'investigation']
 const FINDING_SOURCES = new Set(['finding', 'forecast', 'schema_health'])
 
-// focusFromHash is {kind, id, database} for a focused Cases hash, else null.
+// focusFromHash is {kind, id, database} for a focused Issues hash (#/issues
+// or one of its old paths, ux-11), else null.
 export function focusFromHash(hash = window.location.hash) {
-  const [path, query = ''] = String(hash || '').split('?')
-  if (path !== '#/cases') return null
+  const [, query = ''] = String(hash || '').split('?')
+  if (!hash || findRoute(hash)?.id !== 'cases') return null
   const params = new URLSearchParams(query)
   for (const kind of FOCUS_KINDS) {
     const id = params.get(kind)

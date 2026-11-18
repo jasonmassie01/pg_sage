@@ -18,7 +18,7 @@ const nextStep = (card: Locator) => card.locator('p').filter({ hasText: /^Next s
 
 async function showCases(page: Page, cases: unknown[]) {
   await routeCases(page, () => ({ cases, total: cases.length }))
-  await page.goto('/#/cases')
+  await page.goto('/#/issues')
   await expect(page.getByTestId('cases-page')).toBeVisible()
 }
 
