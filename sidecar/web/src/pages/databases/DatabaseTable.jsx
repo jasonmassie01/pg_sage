@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { useCursorPages } from '../../lib/listPaging'
 import { LoadMore } from '../../components/LoadMore'
-import { BulkBar, FleetCount, FleetSearch, NoMatch } from './FleetControls'
+import { BulkBar, FleetCount, FleetSearch, NoMatch, SortHeader } from './FleetControls'
 import { DatabaseRow } from './DatabaseRow'
-import { DEFAULT_SORT, ariaSort, fleetListURL, fleetRows, nextSort } from './fleetList'
+import { fleetRows } from './fleetList'
+import { useFleetView } from './fleetView'
 import { RUNTIME_HEADERS } from './runtimeStatus'
 
 // DatabaseTable is the fleet table of the managed registrations (ux-10a):
@@ -14,7 +15,6 @@ import { RUNTIME_HEADERS } from './runtimeStatus'
 // registrations; runtimeFor maps one to its row of the whole runtime
 // inventory, runtimeKnown is false when that inventory could not be read.
 
-const SEARCH_DELAY_MS = 250
 const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
 const muted = { color: 'var(--text-secondary)' }
 
@@ -52,44 +52,6 @@ function useConnectionTests(onError) {
     if (dbs.length > 1) setSummary(`Tested ${dbs.length}: ${ok} connected, ${failed} failed`)
   }, [onError])
   return { testing, results, summary, run }
-}
-
-function useDebounced(value, delay) {
-  const [settled, setSettled] = useState(value)
-  useEffect(() => {
-    const id = setTimeout(() => setSettled(value), delay)
-    return () => clearTimeout(id)
-  }, [value, delay])
-  return settled
-}
-
-// useFleetView is the search, tags and sort, the page URL they make, and
-// the selection, which a change of view clears.
-function useFleetView() {
-  const [query, setQuery] = useState('')
-  const [tags, setTags] = useState([])
-  const [sort, setSort] = useState(DEFAULT_SORT)
-  const [selected, setSelected] = useState(() => new Set())
-  const q = useDebounced(query, SEARCH_DELAY_MS)
-  const url = fleetListURL({ q, tags, sort })
-  const [viewURL, setViewURL] = useState(url)
-  if (viewURL !== url) {
-    setViewURL(url)
-    setSelected(new Set())
-  }
-  const filtered = q.trim() !== '' || tags.length > 0
-  function clear() {
-    setQuery('')
-    setTags([])
-  }
-  const toggle = useCallback(id => setSelected(prev => {
-    const next = new Set(prev)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    return next
-  }), [])
-  return { query, setQuery, tags, setTags, sort, setSort, selected, setSelected,
-    url, filtered, clear, toggle }
 }
 
 export function DatabaseTable({
@@ -161,21 +123,6 @@ function FleetBody({ list, listFailed, filtered, onClear, ...rest }) {
   }
   if (!listFailed && list.data.total === 0 && filtered) return <NoMatch onClear={onClear} />
   return <FleetRows {...rest} />
-}
-
-function SortHeader({ label, sort, onSort }) {
-  const state = ariaSort(sort, label)
-  if (!state) {
-    return <th className="text-left px-4 py-2 text-xs whitespace-nowrap" style={muted}>{label}</th>
-  }
-  return (
-    <th aria-sort={state} className="text-left px-4 py-2 text-xs whitespace-nowrap" style={muted}>
-      <button type="button" data-testid={`db-sort-${label}`}
-        onClick={() => onSort(nextSort(sort, label))}>
-        {label}{state === 'ascending' ? ' ▲' : state === 'descending' ? ' ▼' : ''}
-      </button>
-    </th>
-  )
 }
 
 function SelectAll({ rows, selected, onToggle }) {

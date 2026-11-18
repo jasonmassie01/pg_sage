@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { addTag } from './fleetList'
+import { addTag, ariaSort, nextSort } from './fleetList'
 
 // FleetControls: the fleet table's server-side search box, its tag filter
-// chips and the bulk-action bar for the selected rows (ux-10a).
+// chips, its sortable headers and the bulk-action bar for the selected rows
+// (ux-10a).
 
 const muted = { color: 'var(--text-secondary)' }
 const inputStyle = {
@@ -39,7 +40,7 @@ export function FleetSearch({ query, onQuery, tags, onTags }) {
               style={chipStyle} data-testid="db-tag-chip">
               {tag}
               <button type="button" aria-label={`Remove tag filter ${tag}`}
-                onClick={() => onTags(tags.filter(t => t !== tag))}>×</button>
+                onClick={() => onTags(tags.filter(t => t !== tag))}>Ã—</button>
             </li>
           ))}
         </ul>
@@ -71,7 +72,7 @@ export function BulkBar({ count, running, summary, onTest, onClear }) {
         <button type="button" onClick={onTest} disabled={running}
           data-testid="db-bulk-test" className="px-2 py-1 rounded text-xs"
           style={{ color: 'var(--accent)', border: '1px solid var(--border)' }}>
-          {running ? 'Testing…' : 'Test connection'}
+          {running ? 'Testingâ€¦' : 'Test connection'}
         </button>
       )}
       {count > 0 && (
@@ -92,5 +93,22 @@ export function NoMatch({ onClear }) {
       No databases match; <button type="button" className="underline"
         data-testid="db-filter-clear" onClick={onClear}>clear filters</button>
     </div>
+  )
+}
+
+// SortHeader is a column title: a button that sorts the server list, with
+// aria-sort, for the columns in FLEET_SORTS, plain text for the others.
+export function SortHeader({ label, sort, onSort }) {
+  const state = ariaSort(sort, label)
+  if (!state) {
+    return <th className="text-left px-4 py-2 text-xs whitespace-nowrap" style={muted}>{label}</th>
+  }
+  return (
+    <th aria-sort={state} className="text-left px-4 py-2 text-xs whitespace-nowrap" style={muted}>
+      <button type="button" data-testid={`db-sort-${label}`}
+        onClick={() => onSort(nextSort(sort, label))}>
+        {label}{state === 'ascending' ? ' ▲' : state === 'descending' ? ' ▼' : ''}
+      </button>
+    </th>
   )
 }

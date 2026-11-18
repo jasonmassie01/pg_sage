@@ -5,9 +5,9 @@ import { CSVImport } from './databases/CSVImport'
 import { DeleteConfirm } from './databases/DeleteConfirm'
 import { FleetFindings } from './databases/FleetFindings'
 import { DiscoveredDatabases } from './databases/DiscoveredDatabases'
-import { RuntimeCells } from './databases/RuntimeCells'
 import { LeaderBadge } from './databases/LeaderBadge'
-import { RUNTIME_HEADERS, joinRuntime } from './databases/runtimeStatus'
+import { joinRuntime } from './databases/runtimeStatus'
+import { ReadOnlyFleet, ReadOnlyFleetTable } from './databases/ReadOnlyFleet'
 import { TabList, TabPanel } from '../components/Tabs'
 
 export function DatabasesPage({ onSelectDatabase }) {
@@ -231,7 +231,7 @@ export function DatabasesPage({ onSelectDatabase }) {
       )}
 
       {!loading && readOnly && (
-        <ReadOnlyFleet databases={databases} onSelectDatabase={onSelectDatabase} />
+        <ReadOnlyFleetTable databases={databases} onSelectDatabase={onSelectDatabase} />
       )}
 
       {!loading && inventoryComplete && inventory.length === 0 && (
@@ -290,40 +290,6 @@ function InventoryMetric({ label, value, detail }) {
       <p className="text-xs uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>{label}</p>
       <p className="text-xl font-semibold font-mono mt-2" style={{ color: 'var(--text-primary)' }}>{value}</p>
       <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{detail}</p>
-    </div>
-  )
-}
-
-function ReadOnlyFleet({ databases, testId = 'yaml-fleet-list', onSelectDatabase }) {
-  if (!databases.length) return null
-  return (
-    <div className="rounded-lg overflow-x-auto"
-      data-testid={testId}
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-      }}>
-      <table className="w-full text-sm">
-        <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-          {['Database', 'Platform / Postgres', ...RUNTIME_HEADERS].map(label => (
-            <th key={label} className="text-left px-4 py-3 text-xs whitespace-nowrap"
-              style={{ color: 'var(--text-secondary)' }}>{label}</th>
-          ))}
-        </tr></thead>
-        <tbody>{databases.map(database => {
-          const status = database.status || {}
-          return (
-            <tr key={database.name} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td className="px-4 py-4 font-mono font-semibold"
-                style={{ color: 'var(--text-primary)' }}>{database.name}</td>
-              <td className="px-4 py-4" style={{ color: 'var(--text-secondary)' }}>
-                {status.platform || 'Postgres'}{status.pg_version ? ` / ${status.pg_version}` : ''}
-              </td>
-              <RuntimeCells runtime={database} onSelectDatabase={onSelectDatabase} />
-            </tr>
-          )
-        })}</tbody>
-      </table>
     </div>
   )
 }

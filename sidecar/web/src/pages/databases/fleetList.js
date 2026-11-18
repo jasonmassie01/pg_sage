@@ -6,11 +6,13 @@ import { joinRuntime } from './runtimeStatus'
 
 export const FLEET_PAGE_SIZE = 50
 
-// FLEET_SORTS maps a sortable column to its server sort and the order the
+// FLEET_SORTS maps a sortable column (Database is the read-only table's
+// name column) to its server sort and the order the
 // server uses when none is given (problems first: lowest health, most
 // open findings).
 export const FLEET_SORTS = {
   Name: { sort: 'name', order: 'asc' },
+  Database: { sort: 'name', order: 'asc' },
   'Execution Mode': { sort: 'mode', order: 'asc' },
   Findings: { sort: 'open_issues', order: 'desc' },
   Health: { sort: 'health', order: 'asc' },

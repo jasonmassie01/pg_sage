@@ -37,6 +37,9 @@ describe('nextSort and ariaSort', () => {
   it('names the sorted column and its direction', () => {
     expect(ariaSort(DEFAULT_SORT, 'Name')).toBe('ascending')
     expect(ariaSort({ sort: 'name', order: 'desc' }, 'Name')).toBe('descending')
+    expect(ariaSort({ sort: 'name', order: 'desc' }, 'Database')).toBe('descending')
+    expect(nextSort({ sort: 'health', order: 'asc' }, 'Database'))
+      .toEqual({ sort: 'name', order: 'asc' })
     expect(ariaSort(DEFAULT_SORT, 'Health')).toBe('none')
   })
 })
