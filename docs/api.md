@@ -235,8 +235,10 @@ Viewer; read scope on `{db}`. The latest graded run of the database (`done` or `
 the one before it and the delta between them (see [Sage Review](review.md)). Before the
 first grade, `latest`, `previous` and `delta` are null; the first grade's delta is the
 whole report (`first_run: true`). It never starts a grade. The MCP tool `review_grade` is
-the same read. A database that is not connected is 503 `database_unavailable`; one that is
-not monitored is 404.
+the same read. `why_now` is the triggers the latest run consumed or coalesced, oldest first,
+each with its `kind`, `detail`, `fired_at`, `state`, `run_id` and `coalesced_into` (empty
+for a grade and before the first run). A database that is not connected is 503
+`database_unavailable`; one that is not monitored is 404.
 
 ```json
 {"latest": {"id": 12, "database": "orders", "kind": "grade", "triggers": ["daily"],
@@ -247,7 +249,8 @@ not monitored is 404.
         "status": "pass", "weight": 2, "evidence": ["first_look:40#duplicate_index"]}]}]}},
  "previous": {"id": 11},
  "delta": {"first_run": false, "rubric_changed": false, "from_overall": "B",
-  "to_overall": "B", "dimensions": []}}
+  "to_overall": "B", "dimensions": []},
+ "why_now": []}
 ```
 
 The Review page reads three more fields. `running` is the run in progress (`id`, `kind`,

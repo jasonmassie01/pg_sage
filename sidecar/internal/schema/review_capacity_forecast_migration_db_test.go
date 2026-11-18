@@ -36,6 +36,8 @@ func TestReviewCapacityForecastMigration_BootstrapTwice(t *testing.T) {
 	}
 }
 
+// review-03a and review-03b appended steps after this one (merged after
+// review-02f), so the pin is its place: just after ddlReviewCandidateOperator.
 func TestReviewCapacityForecastStep_IsPlacedAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
 	at := stepIndex(steps, "ddlReviewCapacityForecast")

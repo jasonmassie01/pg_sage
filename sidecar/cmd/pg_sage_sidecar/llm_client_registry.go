@@ -16,6 +16,10 @@ const (
 	llmRoleOptimizer
 	// llmRoleReview is Sage Review's dedicated model (review-03a).
 	llmRoleReview
+	// llmRoleTriage is the fleet triage's model (review-04b): the general
+	// config with review.triage_model as its model. It is charged to the
+	// usage ledger as general; its purpose names the tier.
+	llmRoleTriage
 )
 
 // String is the role's client label on /metrics, the status key and the
@@ -225,6 +229,8 @@ func derivedLLMConfig(
 		derived = optimizerLLMConfig(parent)
 	case llmRoleReview:
 		derived = reviewLLMConfig(parent)
+	case llmRoleTriage:
+		derived.Model = firstNonEmpty(reviewTriageModel(), parent.Model)
 	}
 	if !allowed {
 		derived.Enabled = false

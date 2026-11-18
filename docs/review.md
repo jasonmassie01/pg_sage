@@ -102,7 +102,7 @@ letters across versions.
 ## Runs
 
 `sage.review_run` holds one row per run: `kind` (`grade`, or `review` for a Sage Review),
-`triggers` (`first_look`, `daily`), `rubric_version`, `status`, `overall_grade`,
+`triggers` (`first_look`, `daily`, or the trigger kinds of a review, see [Triggers](#triggers)), `rubric_version`, `status`, `overall_grade`,
 `overall_score`, `coverage_pct`, `started_at`, `finished_at` and `error`. A run is `running`
 until it ends `done`, `partial` (a producer could not be read: its checks are unknown and the
 error names it) or `failed`; a finished run never moves again. One run per database can be
@@ -170,6 +170,96 @@ FROM sage.review_run r
 WHERE r.status IN ('done', 'partial') AND r.finished_at < now() - interval '7 days'
 GROUP BY r.database_name;
 ```
+## Triggers
+
+A review is worth most when someone has a decision to make, so events start one and the
+calendar is the fallback (`internal/review/trigger`). Each trigger is a row of
+`sage.review_trigger` in the database's own sage schema: `kind`, `detail` (a JSON object: the
+"why now"), `fired_at`, `state`, the `run_id` that consumed it and `coalesced_into`.
+
+| Kind | Fires when | Source |
+|---|---|---|
+| `enrollment` | The rollups hold two complete weekly cycles: the oldest coverage hour is 14 days old and at least 80% of the last 336 hours have a `sage.query_rollup_coverage` row. Once, and only before the first full review. The grade itself runs on day one. | polled hourly |
+| `pre_upgrade` | An upgrade readiness check (`GET /api/v1/upgrade-readiness`) succeeds; once per target major and UTC day. Bypasses the interval: the review starts at the next tick. | the route |
+| `unresolved_regression` | A `query_regression` or `plan_regression` finding open for 72 hours or more whose action was reverted, or that has no verified action (one that ran and that verification judged `improved` in `sage.action_outcome`). Once per finding. | polled hourly |
+| `cost_growth_anomaly` | The newest whole day's database size growth (system snapshots, one value a day, 29 days) is a robust z of 4 or more over the earlier days (`baseline.Judge`, at least 7 days of history) and at least 256 MiB over their median. A missing day breaks the series. Attributed cost is not judged yet. | polled hourly |
+| `large_migration` | A live migration lint (`POST /api/v1/migrations/lint`, not `static`) measured a table larger than `review.large_table_bytes`; once per table set and UTC day. | the route |
+| `instance_change` | The instance class, vCPU count or memory that cloud telemetry reports differs from the last value seen (`sage.review_trigger_state`). A fact unknown on either side is not a change; the first observation is recorded, not fired. Without a cloud adapter (self-managed, Neon, Supabase, serverless) this kind is unavailable: pg_sage does not guess. | polled hourly |
+| `calendar` | `review.calendar_days` (default 30) after the last full review finished. | polled hourly |
+| `fleet_outlier` | The fleet triage picked the database for a deep review ([fleet tiering](#fleet-tiering)); once per calendar month (key `fleet:YYYY-MM`). | the fleet pass |
+
+**Coalescing.** The oldest waiting trigger opens a window of `review.min_interval_hours`
+(default 24). Every trigger fired inside it joins one review run, and the run starts when the
+window closes: two triggers 23 h 59 min apart give one run, 24 h apart give two. A
+`pre_upgrade` starts the run at once with everything waiting. A trigger fired while a review
+runs waits for the next run. The run's `triggers` lists the distinct kinds; the first trigger
+is `consumed` and the rest `coalesced` into it, each with the run's id.
+
+**Leader, restart and claims.** The loop ticks every 5 minutes, on the leader only. It claims
+the due triggers with `FOR UPDATE SKIP LOCKED` (two sidecars never claim one trigger), records
+the run id on the claim as soon as the run is recorded, and holds the claim for 35 minutes (the
+stale-run reaper's 30 minutes, plus margin). A claim whose sidecar died goes back to `fired`
+when its lease ends, keeping its run id: the next leader consumes it into that run if the run
+finished, waits while it runs, and starts a new run if it failed or has been running for
+longer than the lease (its sidecar died mid-run; the new run's reaper fails it). So a trigger
+gets one finished run. A grade that is already running makes the loop release the claim and
+retry at the next tick.
+
+**What a run does.** Today a trigger-started run is a `review` run graded against the rubric,
+read-only, carrying its triggers. Nothing runs on the monitored database: a review reads and
+proposes. The grade route's `why_now` lists the triggers the latest run consumed or coalesced,
+with their details.
+
+**Errors.** A failed trigger insert names the kind and the database and is returned to the
+source. The routes log it and answer as before; it is counted in
+`pg_sage_review_trigger_fire_errors_total{kind}`. `pg_sage_review_runs_total{cause}` counts
+the runs started by an `event` or by the `calendar`. The median time from trigger to finished
+run is `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY r.finished_at - t.fired_at) FROM
+sage.review_trigger t JOIN sage.review_run r ON r.id = t.run_id`.
+
+## Fleet tiering
+
+A full agentic review of every member of a large fleet costs more than the databases do: an
+estimated $3,000 to $18,000 a month for 1,000 small agent-created databases, against $100 to
+$300 for a tiered pass. In fleet and meta mode, with `review.enabled`, the leader runs one
+tiered pass of the fleet a calendar month (UTC) on the control database
+(`internal/review/fleet`). Single-database installs never run it.
+
+1. **Rollup**, deterministic, for every member, read-only from its own sage schema: the newest
+   grade and the one before it, coverage, the newest run's candidates by generator and their
+   best deterministic score, the idle rule (no workload calls for 14 days, pg_sage's own
+   excluded), the database size and, only with operator rates in `cost.rates`, its monthly
+   cost. Eight members are read at a time.
+2. **Triage**, a low-cost model over the rollup (`review.triage_model`, default the general
+   client's model), 200 members a call, each call's prompt under about 50K tokens, purpose
+   `review_triage`. The model names outliers by rollup id (`R1`..) and cites the rollup ids its
+   reason rests on. An item naming an unknown member, citing an unknown id, citing nothing or
+   naming a member twice is dropped with its reason. A batch whose call fails (the error class
+   is stored: `timeout`, `rate`, ...), whose reply is empty, or whose reply is not JSON
+   (markdown fences are fine) is triaged deterministically instead: a grade drop of 5 points or
+   more, an F, a candidate scoring 10 or more, or a cost of 3 times the fleet median, ranked in
+   that order. With llm disabled the whole triage is deterministic.
+3. **Fleet review**, once over the rollup, its answers computed in code: the abandoned members
+   (the idle rule), the anti-patterns shared by two or more members with the same candidate
+   kind (`generator/kind`) and the same schema fingerprint (fleet learning's table shapes),
+   and what retiring the idle members would save a month (only priced members carry dollars;
+   the rest are counted as unpriced). The general client writes a short summary over those
+   facts (purpose `review_fleet`); without it the summary is a template. A fleet of one skips
+   this tier and the model triage.
+4. **Deep reviews** only for the top outliers, at most `review.fleet_deep_max` (default 30) a
+   calendar month; members waiting from an earlier month go first, then by need. The month's
+   tokens (200,000 a review on average) are split by need with `fleet.AllocateByNeed` (each
+   between half and three times the even share). A deep review is a `fleet_outlier` trigger in
+   the member's own queue, with its tokens in `detail`; the member's trigger loop runs it. The
+   31st outlier waits for the next month. A member gets one fleet deep review a month.
+
+Each member moves `rollup` -> `triaged` -> `deep_scheduled` -> `reviewed` in
+`sage.review_fleet_member`; `reviewed` comes when a run consumed its trigger. A fleet-wide
+emergency stop halts scheduling: the outliers stay `triaged` and are scheduled at the next
+hourly tick after the release. The pass row (`sage.review_fleet_pass`) keeps the triage mode,
+its reasons and error class, the fleet review and the per-tier tokens and cost (`tier_tokens`,
+priced from `llm.pricing`); `sage.llm_usage` attributes the tiers' spend by purpose
+(`review_triage`, `review_fleet`, `review`). Nothing here changes a monitored database.
 
 ## Candidates
 
@@ -419,6 +509,7 @@ The review's number is the forecast error: each review records its 30-day databa
 projection in `sage.review_capacity_forecast`, and the first later review whose pack holds the
 target day's size measures it once, as (projected - measured) / measured. A second pass at the
 same mark changes nothing. `capacity.Idle` is the idle rule fleetpol-03 reuses.
+
 ## Model pass
 
 After the generators, a model **ranks** the candidates, **attacks** each one (what could make
@@ -525,6 +616,7 @@ hypothesis must also cite evidence ids that resolve in the pack.
 | `create_statistics` | `public.orders(region, country)` | `CREATE STATISTICS public.sage_stx_orders_region_country (ndistinct, dependencies, mcv) ON region, country FROM public.orders` |
 | `alter_database_guc` | `work_mem=64MB` | `ALTER DATABASE "shop" SET work_mem = '64MB'`, rollback to the database's value or `RESET`; inside the executor allowlist and `pgconf` bounds, never a restart-bound setting |
 | `set_column_statistics`, `set_table_autovacuum`, `set_role_timeout`, `set_role_connection_limit` | `public.orders(region) statistics=1000`, `public.orders autovacuum_vacuum_scale_factor=0.05`, `app statement_timeout=30s`, `app connection_limit=20` | advice: the pack does not hold the value they would replace, so no exact rollback can be written (`set_column_statistics` also has no executor contract yet) |
+| `set_column_statistics`, `set_table_autovacuum`, `set_role_timeout`, `set_role_connection_limit` | `public.orders(region) statistics=1000`, `public.orders autovacuum_vacuum_scale_factor=0.05`, `app statement_timeout=30s`, `app connection_limit=20` | advice: the pack does not hold the value they would replace, so no exact rollback can be written |
 
 Today the HypoPG what-if is the only tier the planner can call, so in practice only index
 hypotheses become model steps; statistics and setting hypotheses stay advice

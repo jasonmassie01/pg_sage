@@ -138,6 +138,7 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 	if authPool != nil {
 		// Election first: the leader-only loops below read its result.
 		startFleetLearning(shutdownCtx, authPool, fleetMgr)
+		startReviewFleet(shutdownCtx, authPool, fleetMgr)
 		startAgentGovernance(shutdownCtx, authPool, fleetMgr)
 		startCloneReaper(shutdownCtx, cfg, fleetMgr, globalMetaState)
 		startCommandDrillReaper(shutdownCtx, cfg, fleetMgr, globalMetaState)

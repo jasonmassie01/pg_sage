@@ -61,14 +61,15 @@ func TestReviewViewsMigration_BootstrapTwiceAndConstraints(t *testing.T) {
 	}
 }
 
-func TestReviewViewsStep_IsTheLastT6StepIdempotentAndBounded(t *testing.T) {
+// review-04a and review-04b appended steps after this one, so the pin is
+// its place: right after review-05a's ddlReviewGate, and after ddlReviewRuns,
+// the table its rows reference.
+func TestReviewViewsStep_IsPlacedIdempotentAndBounded(t *testing.T) {
 	steps := trancheSixMigrations()
-	// Merged after review-05a's ddlReviewGate; it still follows ddlReviewRuns,
-	// the table its rows reference.
-	runs := stepIndex(steps, "ddlReviewRuns")
-	if len(steps) < 2 || steps[len(steps)-1][0] != "ddlReviewViews" ||
-		steps[len(steps)-2][0] != "ddlReviewGate" || runs < 0 {
-		t.Fatalf("T6 steps = %v, want ddlReviewGate then ddlReviewViews last", steps)
+	runs, at := stepIndex(steps, "ddlReviewRuns"), stepIndex(steps, "ddlReviewViews")
+	if runs < 0 || at <= runs || steps[at-1][0] != "ddlReviewGate" {
+		t.Fatalf("T6 steps = %v, want ddlReviewRuns, then ddlReviewGate and ddlReviewViews",
+			steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.review_view",

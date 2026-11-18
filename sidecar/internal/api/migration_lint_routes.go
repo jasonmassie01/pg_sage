@@ -71,6 +71,9 @@ type migrationLintDeps struct {
 	slots        chan struct{}
 	// budget bounds one review; 0 is migrationLintBudget.
 	budget time.Duration
+	// trigger publishes a live review's measured tables for the
+	// large_migration review trigger (nil: none).
+	trigger lintTriggerFunc
 }
 
 func (d migrationLintDeps) reviewBudget() time.Duration {
@@ -103,7 +106,7 @@ func newMigrationLintDeps(mgr *fleet.DatabaseManager, cfg *config.Config) migrat
 			return resolveFleetDatabase(mgr, database)
 		},
 		limiter: newLintLimiter(config.DefaultMigrationLintRatePerMinute, time.Minute),
-		slots:   make(chan struct{}, migrationLintSlots)}
+		slots:   make(chan struct{}, migrationLintSlots), trigger: fleetLintTrigger(mgr)}
 	if cfg != nil {
 		deps.rowThreshold = int64(cfg.Migration.DDLRowThreshold)
 		deps.limiter = newLintLimiter(cfg.API.MigrationLintRate(), time.Minute)
@@ -201,6 +204,11 @@ func migrationLintHandler(d migrationLintDeps) http.Handler {
 		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			err = fmt.Errorf("the review took longer than its %s budget: %w",
 				d.reviewBudget(), err)
+		}
+		if tables := lintTables(rep); err == nil && !req.Static && len(tables) > 0 &&
+			d.trigger != nil {
+			publishTrigger(r.Context(), migrationLintPath, database,
+				func(ctx context.Context) error { return d.trigger(ctx, database, tables) })
 		}
 		writeMigrationLint(w, rep, err)
 	})

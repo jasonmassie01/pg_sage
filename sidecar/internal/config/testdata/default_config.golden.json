@@ -630,7 +630,11 @@
     "ModelPass": "auto",
     "ModelRuns": 3,
     "Consensus": "majority",
+    "CalendarDays": 30,
+    "MinIntervalHours": 24,
     "HashIdentifiers": false,
+    "TriageModel": "",
+    "FleetDeepMax": 30,
     "Gate": {
       "MinReviews": 50,
       "MaxGapPoints": 10,

@@ -30,8 +30,9 @@ func TestPlansStep_FollowsTheBacktestStep(t *testing.T) {
 	// plan-02a's ddlPlanStepRun adds the engine's run columns; plan-02b's
 	// ddlPlanStepApproval widens the state vocabulary; plan-02d's
 	// ddlPlanOperatorSteps adds the operator step columns; plan-03a's
-	// ddlPlanApprovalModes adds resumed_at and sage.plan_step_approval;
-	// review-03b's ddlReviewPlans adds sage.plan_step_origin.
+	// ddlPlanApprovalModes adds resumed_at and sage.plan_step_approval.
+	// review-03b's ddlReviewPlans adds sage.plan_step_origin, which
+	// references sage.plan_step and alters nothing of it.
 	want := "ddlPlans,ddlPlanStepRun,ddlPlanStepApproval,ddlPlanOperatorSteps," +
 		"ddlPlanApprovalModes,ddlReviewPlans"
 	if strings.Join(naming, ",") != want {

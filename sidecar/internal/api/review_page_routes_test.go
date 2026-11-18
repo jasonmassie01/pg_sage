@@ -134,7 +134,7 @@ func TestReviewRoutes_NoGradeYetHasNullLatestReportAndDelta(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `{"latest":null,"previous":null,"delta":null,"running":null,"report":null,` +
-		`"viewed_at":null}`
+		`"viewed_at":null,"why_now":[]}`
 	if string(b) != want {
 		t.Fatalf("no grade = %s, want %s", b, want)
 	}

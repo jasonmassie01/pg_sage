@@ -65,6 +65,8 @@ One series per monitored database, from the fleet manager's in-memory status: re
 | `pg_sage_time_to_first_finding_seconds` | gauge | `database` | seconds | all | v2.1.0 | Seconds from start to the first finding (first look or analyzer) |
 | `pg_sage_setup_within_hour_ratio` | gauge | `part` | - | all | v2.8.0 | Share of new installs this process monitors whose model (part=model) or notification channel (part=channel) was set within one hour of install |
 | `pg_sage_review_first_grade_seconds` | gauge | `database` | seconds | all | v2.8.0 | Seconds from the database's registration to its first Sage Review grade |
+| `pg_sage_review_trigger_fire_errors_total` | counter | `kind` | - | all | v2.8.0 | Sage Review trigger inserts that failed, by trigger kind |
+| `pg_sage_review_runs_total` | counter | `cause` | - | all | v2.8.0 | Sage Review runs the trigger queue started, by cause (event or calendar) |
 | `pg_sage_trust_level` | gauge | `database`, `level` | - | all | v2.6.0 | Effective trust level of the database (one-hot) |
 | `pg_sage_schema_deferred_indexes` | gauge | `database`, `state` | - | all | v2.7.0 | Large sage indexes the background builder has still to build, by state (missing, building, invalid); 0 once all are built |
 

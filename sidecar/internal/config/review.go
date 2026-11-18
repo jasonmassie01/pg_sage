@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Sage Review (review-01a): the deterministic, read-only grade of each
 // database against the versioned rubric. On by default: it reads the
@@ -20,6 +23,31 @@ const (
 	maxReviewWindowDays            = 100
 	minReviewLargeTableBytes int64 = 1 << 30
 	maxReviewLargeTableBytes int64 = 1 << 50
+)
+
+// The review triggers (review-04a).
+const (
+	// DefaultReviewCalendarDays is how long after the last full review
+	// the calendar trigger fires.
+	DefaultReviewCalendarDays = 30
+	// DefaultReviewMinIntervalHours is the window inside which triggers
+	// join one review run.
+	DefaultReviewMinIntervalHours = 24
+
+	minReviewCalendarDays     = 1
+	maxReviewCalendarDays     = 365
+	minReviewMinIntervalHours = 1
+	maxReviewMinIntervalHours = 168
+)
+
+// Fleet tiering (review-04b).
+const (
+	// DefaultReviewFleetDeepMax caps the deep reviews a fleet schedules
+	// per calendar month.
+	DefaultReviewFleetDeepMax = 30
+
+	maxReviewFleetDeepMax   = 1000
+	maxReviewTriageModelLen = 200
 )
 
 // The model review pass (review-03a).
@@ -48,7 +76,11 @@ type ReviewConfig struct {
 	ModelPass          string `yaml:"model_pass" doc:"Model pass that ranks, attacks and links the review's candidates: auto (when a model is usable), on (no model is a failed pass) or off (deterministic ranking only). Default: auto."`
 	ModelRuns          int    `yaml:"model_runs" doc:"Independent model runs per review whose results are combined by review.consensus. An odd number in 1-5; 1 applies no consensus. Default: 3."`
 	Consensus          string `yaml:"consensus" doc:"How model runs combine: majority (keep what most runs keep, at the median rank) or refute (a second run must refute each kept item). Default: majority."`
+	CalendarDays       int    `yaml:"calendar_days" doc:"Days after the last full review at which the calendar trigger starts the next one; event triggers start one sooner. Range 1-365. Default: 30."`
+	MinIntervalHours   int    `yaml:"min_interval_hours" doc:"Hours inside which review triggers join one review run, counted from the first trigger; pre_upgrade starts a run at once. Range 1-168. Default: 24."`
 	HashIdentifiers    bool   `yaml:"hash_identifiers" doc:"Replace schema, table, index and column names with keyed pseudonyms in what the review model reads (needs encryption_key). Default: false."`
+	TriageModel        string `yaml:"triage_model" doc:"Model id, served by the general llm endpoint, that triages a fleet's rollup (fleet and meta mode only). Empty uses the general client's model. Default: empty (the general client)."`
+	FleetDeepMax       int    `yaml:"fleet_deep_max" doc:"Most deep reviews a fleet schedules for its triage outliers per calendar month (UTC); the rest wait for the next month. 0 schedules none. Range 0-1000. Default: 30."`
 	// Gate is the model gate's thresholds (review-05a).
 	Gate ReviewGateConfig `yaml:"gate"`
 }
@@ -57,7 +89,9 @@ func defaultReviewConfig() ReviewConfig {
 	return ReviewConfig{Enabled: true, GradeIntervalHours: DefaultReviewGradeIntervalHours,
 		WindowDays: DefaultReviewWindowDays, LargeTableBytes: DefaultReviewLargeTableBytes,
 		ModelPass: ReviewModelPassAuto, ModelRuns: DefaultReviewModelRuns,
-		Consensus: ReviewConsensusMajority, Gate: defaultReviewGateConfig()}
+		Consensus: ReviewConsensusMajority, CalendarDays: DefaultReviewCalendarDays,
+		MinIntervalHours: DefaultReviewMinIntervalHours, FleetDeepMax: DefaultReviewFleetDeepMax,
+		Gate: defaultReviewGateConfig()}
 }
 
 // validate checks the interval's, the window's and the table size's
@@ -77,10 +111,44 @@ func (r ReviewConfig) validate() error {
 		return fmt.Errorf("review.large_table_bytes must be %d-%d, got %d",
 			minReviewLargeTableBytes, maxReviewLargeTableBytes, r.LargeTableBytes)
 	}
+	if err := r.validateTriggers(); err != nil {
+		return err
+	}
+	if err := r.validateFleet(); err != nil {
+		return err
+	}
 	if err := r.validateModelPass(); err != nil {
 		return err
 	}
 	return r.Gate.validate()
+}
+
+func (r ReviewConfig) validateTriggers() error {
+	if r.CalendarDays < minReviewCalendarDays || r.CalendarDays > maxReviewCalendarDays {
+		return fmt.Errorf("review.calendar_days must be %d-%d, got %d", minReviewCalendarDays,
+			maxReviewCalendarDays, r.CalendarDays)
+	}
+	if r.MinIntervalHours < minReviewMinIntervalHours ||
+		r.MinIntervalHours > maxReviewMinIntervalHours {
+		return fmt.Errorf("review.min_interval_hours must be %d-%d, got %d",
+			minReviewMinIntervalHours, maxReviewMinIntervalHours, r.MinIntervalHours)
+	}
+	return nil
+}
+
+func (r ReviewConfig) validateFleet() error {
+	if r.FleetDeepMax < 0 || r.FleetDeepMax > maxReviewFleetDeepMax {
+		return fmt.Errorf("review.fleet_deep_max must be 0-%d, got %d", maxReviewFleetDeepMax,
+			r.FleetDeepMax)
+	}
+	if r.TriageModel != "" && strings.TrimSpace(r.TriageModel) == "" {
+		return fmt.Errorf("review.triage_model must name a model or be empty, got a blank")
+	}
+	if len(r.TriageModel) > maxReviewTriageModelLen {
+		return fmt.Errorf("review.triage_model must be at most %d bytes, got %d",
+			maxReviewTriageModelLen, len(r.TriageModel))
+	}
+	return nil
 }
 
 func (r ReviewConfig) validateModelPass() error {

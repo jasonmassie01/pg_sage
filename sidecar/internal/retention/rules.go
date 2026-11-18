@@ -179,6 +179,17 @@ var restoreDrillsRule = purgeRule{table: "restore_drills", timeCol: "finished_at
 var reviewRunRule = purgeRule{table: "review_run", timeCol: "started_at", days: 400,
 	extra: "AND status <> 'running'"}
 
+// reviewTriggerRule keeps 400 days of done review triggers (review-04a),
+// as long as their runs; a waiting or claimed trigger is never purged.
+var reviewTriggerRule = purgeRule{table: "review_trigger", timeCol: "fired_at", days: 400,
+	extra: "AND state IN ('consumed', 'coalesced')"}
+
+// reviewFleetPassRule keeps 400 days of finished fleet passes (review-04b),
+// as long as the review runs; their member rows go with them by ON DELETE
+// CASCADE. A running pass is never purged.
+var reviewFleetPassRule = purgeRule{table: "review_fleet_pass", timeCol: "started_at",
+	days: 400, extra: "AND status <> 'running'"}
+
 func purgeRules(cfg *config.Config) []purgeRule {
 	r := cfg.Retention
 	rules := []purgeRule{
@@ -285,7 +296,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
 	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule,
-		restoreDrillsRule, reviewRunRule)
+		restoreDrillsRule, reviewRunRule, reviewTriggerRule, reviewFleetPassRule)
 	return append(rules, planPurgeRule(r))
 }
 

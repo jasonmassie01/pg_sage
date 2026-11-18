@@ -46,6 +46,8 @@ type upgradeReadinessDeps struct {
 	provider func(database string) string
 	run      upgradeRunner
 	slots    chan struct{}
+	// trigger publishes the pre_upgrade review trigger (nil: none).
+	trigger upgradeTriggerFunc
 }
 
 func registerUpgradeReadinessRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
@@ -66,8 +68,9 @@ func registerUpgradeReadinessRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManag
 		provider: func(database string) string {
 			return memberProvider(mgr, cfg, database)
 		},
-		run:   upgradecheck.Run,
-		slots: make(chan struct{}, upgradeReadinessSlots),
+		run:     upgradecheck.Run,
+		slots:   make(chan struct{}, upgradeReadinessSlots),
+		trigger: fleetUpgradeTrigger(mgr),
 	}
 	route(mux, "GET "+upgradeReadinessPath, gateViewer, upgradeReadinessHandler(deps))
 }
@@ -155,6 +158,12 @@ func upgradeReadinessHandler(d upgradeReadinessDeps) http.Handler {
 		ctx, cancel := context.WithTimeout(r.Context(), upgradeReadinessBudget)
 		defer cancel()
 		rep, err := d.run(ctx, pool, req.target, opts)
+		if err == nil && d.trigger != nil {
+			publishTrigger(r.Context(), upgradeReadinessPath, req.database,
+				func(ctx context.Context) error {
+					return d.trigger(ctx, req.database, req.target)
+				})
+		}
 		writeUpgradeReadiness(w, rep, err)
 	})
 }

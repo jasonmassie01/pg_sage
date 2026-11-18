@@ -7,17 +7,21 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/review/report"
 	"github.com/pg-sage/sidecar/internal/review/rubric"
+	"github.com/pg-sage/sidecar/internal/review/trigger"
 )
 
 // Sage Review's grade (review-01a), read-only:
 //   - GET /api/v1/databases/{db}/review/grade is the latest graded run of
 //     the database (done or partial), the one before it, and the delta
 //     between them; the first grade's delta is the full report. Before
-//     the first grade, latest is null.
+//     the first grade, latest is null. why_now is the triggers the latest
+//     run consumed, with their details (review-04a; empty for a grade).
 //
 // The Review page (review-01b) reads three more fields: running (the run
 // in progress, polled until it finishes), report (the latest grade's
@@ -39,6 +43,9 @@ type reviewGradeResponse struct {
 	Running  *reviewRunning    `json:"running"`
 	Report   *report.RunReport `json:"report"`
 	ViewedAt *time.Time        `json:"viewed_at"`
+	// WhyNow is the triggers the latest run consumed or coalesced, oldest
+	// first: their kinds and details (review-04a).
+	WhyNow []trigger.Trigger `json:"why_now"`
 }
 
 // reviewRunning is the run in progress, shown as a banner.
@@ -66,7 +73,7 @@ func reviewGradeHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), reviewGradeReadTimeout)
 		defer cancel()
 		store := rubric.NewStore(inst.Pool)
-		out, err := readReviewGrade(ctx, store, inst.Name)
+		out, err := readReviewGrade(ctx, inst.Pool, inst.Name)
 		if err != nil {
 			slog.Error("review grade read failed", "database", inst.Name, "error", err)
 			jsonError(w, "the review grade of "+inst.Name+" could not be read",
@@ -79,9 +86,10 @@ func reviewGradeHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 }
 
 // readReviewGrade is database's two newest graded runs, their delta, the
-// latest one's report and the run in progress.
-func readReviewGrade(ctx context.Context, s *rubric.Store, database string) (
+// latest one's report and triggers, and the run in progress.
+func readReviewGrade(ctx context.Context, pool *pgxpool.Pool, database string) (
 	reviewGradeResponse, error) {
+	s := rubric.NewStore(pool)
 	runs, err := s.Latest(ctx, database, 2)
 	if err != nil {
 		return reviewGradeResponse{}, err
@@ -90,13 +98,25 @@ func readReviewGrade(ctx context.Context, s *rubric.Store, database string) (
 	if err != nil {
 		return reviewGradeResponse{}, err
 	}
-	return buildReviewGrade(runs, running), nil
+	out := buildReviewGrade(runs, running)
+	if out.Latest == nil {
+		return out, nil
+	}
+	why, err := trigger.NewStore(pool).WhyNow(ctx, out.Latest.ID)
+	if err != nil {
+		return reviewGradeResponse{}, err
+	}
+	if why != nil {
+		out.WhyNow = why
+	}
+	return out, nil
 }
 
 // buildReviewGrade is the response of runs (newest first; two are read)
-// and the running run, if any.
+// and the running run, if any; why_now is empty until readReviewGrade
+// reads the latest run's triggers.
 func buildReviewGrade(runs []rubric.Run, running *rubric.Run) reviewGradeResponse {
-	var out reviewGradeResponse
+	out := reviewGradeResponse{WhyNow: []trigger.Trigger{}}
 	if running != nil {
 		out.Running = &reviewRunning{ID: running.ID, Kind: running.Kind,
 			StartedAt: running.StartedAt.UTC()}
@@ -152,5 +172,5 @@ func (b reviewGradeMCP) ReviewGrade(ctx context.Context, req mcp.ReviewGradeRequ
 	}
 	ctx, cancel := context.WithTimeout(ctx, reviewGradeReadTimeout)
 	defer cancel()
-	return readReviewGrade(ctx, rubric.NewStore(inst.Pool), inst.Name)
+	return readReviewGrade(ctx, inst.Pool, inst.Name)
 }
