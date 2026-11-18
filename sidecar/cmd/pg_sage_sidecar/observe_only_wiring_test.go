@@ -28,8 +28,8 @@ func (f fakeObserveSets) Sets(context.Context) ([]policy.SetDocument, error) {
 }
 
 func setDoc(name, tier string) policy.SetDocument {
-	return policy.SetDocument{Set: policy.PolicySet{Name: name, Requirements: policy.SetRequirements{
-		Enrollment: policy.SetEnrollment{Tier: tier}}}}
+	return policy.SetDocument{Set: policy.PolicySet{Name: name,
+		Requirements: policy.SetRequirements{Enrollment: policy.SetEnrollment{Tier: tier}}}}
 }
 
 // A promotion needs a set that says tier: full; every read failure, no
