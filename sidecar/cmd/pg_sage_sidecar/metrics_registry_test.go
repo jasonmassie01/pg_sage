@@ -35,11 +35,13 @@ var registryModes = []string{metricsreg.ModeStandalone, metricsreg.ModeFleet,
 // fullScrape is a scrape of mode plus the families that render only with
 // state the contract fixture has no global for: API TLS, leases, the
 // metrics listener, SSO, self cost and budget, the tuning agent, SLOs, the
-// Sage SRE backlog and the setup wizard's within-the-hour ratio.
+// Sage SRE backlog, the setup wizard's within-the-hour ratio, and the
+// Sage Review and policy-set enrollment numbers (registry_review_test.go).
 func fullScrape(t *testing.T, mode string) string {
 	t.Helper()
 	installContractFleet(t, mode, "zeta", "alpha")
-	return renderFullScrape(t)
+	out := renderFullScrape(t)
+	return out + reviewAndEnrollFixtures(out, mode)
 }
 
 // renderFullScrape scrapes the installed contract fleet and appends the

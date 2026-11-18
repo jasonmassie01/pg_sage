@@ -60,7 +60,13 @@ func (f *firstGrades) forget(name string) {
 // writeReviewMetrics exports each database's seconds to its first grade,
 // then the review trigger counters (review-04a).
 func writeReviewMetrics(b *strings.Builder, f *firstGrades) {
-	defer writeReviewTriggerMetrics(b)
+	writeFirstGradeMetrics(b, f)
+	writeReviewTriggerMetrics(b)
+}
+
+// writeFirstGradeMetrics exports each database's seconds to its first
+// grade; nothing before the first grade.
+func writeFirstGradeMetrics(b *strings.Builder, f *firstGrades) {
 	f.mu.Lock()
 	names := make([]string, 0, len(f.secs))
 	for n := range f.secs {

@@ -137,7 +137,14 @@ const (
 // writeReviewTriggerMetrics exports the failed trigger inserts by kind and
 // the trigger-started runs by cause.
 func writeReviewTriggerMetrics(b *strings.Builder) {
-	if errs := trigger.FireErrors(); len(errs) > 0 {
+	writeReviewTriggerCounts(b, trigger.FireErrors(), trigger.RunsStarted())
+}
+
+// writeReviewTriggerCounts exports errs by kind and runs by cause; an
+// empty map writes no family.
+func writeReviewTriggerCounts(b *strings.Builder, errs map[trigger.Kind]int64,
+	runs map[string]int64) {
+	if len(errs) > 0 {
 		kinds := make([]string, 0, len(errs))
 		for k := range errs {
 			kinds = append(kinds, string(k))
@@ -150,7 +157,7 @@ func writeReviewTriggerMetrics(b *strings.Builder) {
 		}
 		b.WriteString("\n")
 	}
-	if runs := trigger.RunsStarted(); len(runs) > 0 {
+	if len(runs) > 0 {
 		metricsreg.Header(b, reviewRunsMetric)
 		for _, cause := range []string{"calendar", "event"} {
 			if n, ok := runs[cause]; ok {

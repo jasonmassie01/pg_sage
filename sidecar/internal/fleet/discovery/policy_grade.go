@@ -161,6 +161,12 @@ func (r *Runner) WriteMetrics(b *strings.Builder) {
 	r.statsMu.Lock()
 	stats := append([]store.EnrollStat(nil), r.stats...)
 	r.statsMu.Unlock()
+	WriteEnrollMetrics(b, stats)
+}
+
+// WriteEnrollMetrics exports stats, one sample set per policy set; it
+// writes nothing for no stats.
+func WriteEnrollMetrics(b *strings.Builder, stats []store.EnrollStat) {
 	if len(stats) == 0 {
 		return
 	}
