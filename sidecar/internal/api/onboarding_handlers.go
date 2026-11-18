@@ -21,11 +21,14 @@ type onboardingDatabase struct {
 	FirstLook  *firstlook.ReportSummary
 }
 
-// grantTarget tells the UI how trust.level is changed in this mode.
+// grantTarget tells the UI how trust.level is changed in this mode, and
+// whether that config URL also stores execution_mode (a database's row
+// does; the global config strips it).
 type grantTarget struct {
-	Method    string `json:"method"` // "api" or "yaml"
-	ConfigURL string `json:"config_url,omitempty"`
-	Key       string `json:"key"`
+	Method                string `json:"method"` // "api" or "yaml"
+	ConfigURL             string `json:"config_url,omitempty"`
+	Key                   string `json:"key"`
+	ExecutionModeWritable bool   `json:"execution_mode_writable"`
 }
 
 // onboardingReader is where the handlers read from (the fleet in
@@ -43,6 +46,11 @@ type onboardingReader interface {
 	MCP(ctx context.Context) (bool, *bool)
 	Notifications(ctx context.Context) *bool
 	Guide(ctx context.Context, name string) (onboarding.GuideInput, grantTarget, error)
+	// Model is the status of the model the database's LLM features use
+	// (nil: unknown); RecordSetup stores a setup wizard step's first-done
+	// time and reports whether it stored one (ux-04b).
+	Model(ctx context.Context, name string) *onboarding.ModelStatus
+	RecordSetup(ctx context.Context, name, step string, at time.Time) (bool, error)
 }
 
 type firstLookSummary struct {
@@ -73,6 +81,7 @@ type onboardingEntry struct {
 	TTFFSeconds *float64          `json:"time_to_first_finding_seconds"`
 	FirstLook   firstLookSummary  `json:"first_look"`
 	Steps       []onboarding.Step `json:"steps"`
+	Setup       setupTimes        `json:"setup"`
 	// Error is why this database could not be read (no_runtime,
 	// unreachable, read_failed); the other entries are unaffected.
 	Error string `json:"error,omitempty"`
@@ -114,22 +123,25 @@ func onboardingHandler(reader onboardingReader) http.Handler {
 			if code == entryUnreachable || code == entryNoRuntime {
 				db.Connected = false
 			}
-			out[i] = entryFor(db, mcpOn, token, notifications)
+			out[i] = entryFor(db, mcpOn, token, notifications, reader.Model(ctx, name))
 			out[i].Error = code
 		})
 		jsonResponse(w, map[string]any{"databases": out})
 	})
 }
 
-func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool) onboardingEntry {
+func entryFor(db onboardingDatabase, mcpOn bool, token, notifications *bool,
+	model *onboarding.ModelStatus) onboardingEntry {
 	e := onboardingEntry{Database: db.Name, Connected: db.Connected,
-		TrustLevel: db.TrustLevel}
+		TrustLevel: db.TrustLevel, Setup: setupTimesOf(db.State)}
 	in := onboarding.ChecklistInput{Connected: db.Connected, MCPEnabled: mcpOn,
-		MCPToken: token, Notifications: notifications, TrustLevel: db.TrustLevel}
+		MCPToken: token, Notifications: notifications, TrustLevel: db.TrustLevel,
+		Model: model}
 	if db.State != nil {
 		e.InstallKind = string(db.State.InstallKind)
 		e.TTFFSeconds = db.State.TTFFSeconds
 		in.TTFFSeconds = db.State.TTFFSeconds
+		in.AutonomyChosen = db.State.AutonomyChosenAt != nil
 	}
 	if fl := db.FirstLook; fl != nil {
 		n := fl.Checks
@@ -194,8 +206,8 @@ func trustGuideHandler(reader onboardingReader) http.Handler {
 			return
 		}
 		jsonResponse(w, map[string]any{"database": names[0], "current": in.Current,
-			"levels": onboarding.TrustGuide(in), "grant": target,
-			"grants": in.Grants, "action_grants": in.ActionGrants,
+			"execution_mode": in.ExecutionMode, "levels": onboarding.TrustGuide(in),
+			"grant": target, "grants": in.Grants, "action_grants": in.ActionGrants,
 			"scripts": onboarding.GrantScripts(in)})
 	})
 }

@@ -140,7 +140,7 @@ test.describe('Dashboard page', () => {
       await expect(hero).toContainText('Need Attention')
     })
 
-  test('onboarding welcome shows when no databases exist',
+  test('the Snapshot page points to setup when no databases exist',
     async ({ page }) => {
       // Override databases to return empty.
       await page.route('**/api/v1/databases', route => {
@@ -163,9 +163,12 @@ test.describe('Dashboard page', () => {
 
       await page.goto('/#/advanced')
 
-      const welcome = page.locator('[data-testid="onboarding-welcome"]')
-      await expect(welcome).toBeVisible()
-      await expect(welcome).toContainText('Welcome to pg_sage')
-      await expect(welcome).toContainText('Add your first database')
+      // ux-04b: the welcome moved to the setup wizard on the home page; the
+      // Snapshot page points there.
+      const empty = page.getByTestId('snapshot-no-databases')
+      await expect(empty).toBeVisible()
+      await expect(empty).toContainText('No database is connected yet')
+      await expect(empty.getByRole('link', { name: 'Set up pg_sage' }))
+        .toHaveAttribute('href', '#/')
     })
 })

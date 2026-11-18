@@ -70,9 +70,12 @@ function Buttons({ canConfirm, onCancel, onConfirm }) {
   )
 }
 
-export function TrustLevelConfirm({ from, to, database, onConfirm, onCancel }) {
+// phrase, when given, is the phrase to ask for instead (the setup wizard's
+// "Do safe things" asks for the database name although trust stays
+// advisory, since it turns execution_mode to auto; ux-04b).
+export function TrustLevelConfirm({ from, to, database, phrase: asked, onConfirm, onCancel }) {
   const [typed, setTyped] = useState('')
-  const phrase = trustConfirmPhrase(to, database)
+  const phrase = asked !== undefined ? asked : trustConfirmPhrase(to, database)
   const canConfirm = phrase === null || typed === phrase
   const confirm = () => { if (canConfirm) onConfirm() }
   return (

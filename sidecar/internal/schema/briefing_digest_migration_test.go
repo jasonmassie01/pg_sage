@@ -11,10 +11,22 @@ import (
 // INSERT ... ON CONFLICT. The concurrent send is covered by
 // briefing.TestDigestDB_TwoFlapsSendOnce.
 
-func TestBriefingsDigestHashStep_IsLastBoundedAndIdempotent(t *testing.T) {
+// Other T5 steps follow it once the T5 chains merge, so its place is
+// pinned after ddlWorkloadPseudonymKey rather than "last".
+func TestBriefingsDigestHashStep_IsInPlaceBoundedAndIdempotent(t *testing.T) {
 	steps := trancheFiveMigrations()
-	if len(steps) == 0 || steps[len(steps)-1][0] != "ddlBriefingsDigestHash" {
-		t.Fatalf("T5 steps = %v, want ddlBriefingsDigestHash last", steps)
+	at, after := -1, -1
+	for i, s := range steps {
+		switch s[0] {
+		case "ddlBriefingsDigestHash":
+			at = i
+		case "ddlWorkloadPseudonymKey":
+			after = i
+		}
+	}
+	if at < 0 || after < 0 || at < after {
+		t.Fatalf("T5 steps = %v, want ddlBriefingsDigestHash after ddlWorkloadPseudonymKey",
+			steps)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"ALTER TABLE sage.briefings ADD COLUMN IF NOT EXISTS digest_hash text",

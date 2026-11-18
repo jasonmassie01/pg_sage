@@ -39,6 +39,27 @@ That is all a read-only install needs. The privileges that changes need (table o
 CREATE on the schemas that hold your tables, `pg_signal_backend`, parameter changes) come
 later, from the **"Grant more"** step.
 
+### Run pg_sage doctor first
+
+Before you start pg_sage (and any time after), `doctor` checks the role you just made. It
+runs read-only checks on one connection, executes nothing, and prints each result with a
+fix you can copy:
+
+```bash
+docker run --rm ghcr.io/jasonmassie01/pg_sage:latest doctor --pg-url "postgres://sage_agent:YOUR_PASSWORD@db.example.com:5432/mydb"
+```
+
+With the binary it is `pg_sage doctor --pg-url "..."`. It checks the connection, the
+PostgreSQL version (14 to 18), the role's grants (each missing one with its exact
+`GRANT`), `pg_stat_statements` and HypoPG, the provider, query text visibility, the
+meta database's schema and the clock skew between this host and the server. Add
+`--config sage.yaml` to also probe the model key, `--send-test` to send one test alert
+through each channel in the `alerting:` block (PagerDuty included), and `--json` for the
+report as JSON. It exits 0 when nothing failed, 1 when a check failed and 2 on a usage
+error. The connection string is never printed, and passwords are masked. An admin can
+read the same report for a monitored database from `GET /api/v1/doctor`
+(`?database=<name>` in a fleet; `?probe_model=true` sends the model probe).
+
 ## 2. Start pg_sage
 
 With Docker, in one line:
@@ -64,6 +85,39 @@ Have no database at hand? [Try pg_sage locally](try-it-out.md) starts one with D
 
 ## 3. What you will see
 
+### Minute 0: the setup wizard
+
+A new install opens on **"Set up pg_sage"**, four steps an admin can each skip (the wizard
+says what skipping costs). With no database yet it is the only thing on the home page;
+viewers are told that an admin connects the first one.
+
+1. **Connect**: paste a connection URL. The browser parses it into the Add Database form
+   (the password stays in its masked field, and a bad host, scheme or `sslmode` is a field
+   error that saves nothing), detects the provider from the host (RDS, Aurora, Azure,
+   Neon, Supabase, Lakebase; Cloud SQL and AlloyDB are chosen by hand) and shows that
+   provider's role SQL to copy. Once pg_sage is connected the doctor report
+   (`GET /api/v1/doctor`) follows; only a failed connection check blocks Next. Lakebase
+   shows its Databricks OAuth path instead of a password.
+2. **Model**: the provider endpoint, model and key from Settings; **Test** saves them
+   through the config API and calls `POST /api/v1/llm/test`, and the result (a refused
+   key, rate limiting, a timeout) shows beside the field. Skipped, LLM features stay off
+   until a model is set.
+3. **Where to reach you**: one notification channel, then **Send test**; a failed test
+   shows the HTTP status.
+4. **How much may I do**: **Watch only** (`trust.level: observation`,
+   `execution_mode: manual`), **Ask me first** (`advisory`, `approval`) or **Do safe
+   things and tell me** (`advisory`, `auto`, which asks you to type the database name).
+   The write carries the config generation, so a second admin's write first is refused
+   with 409. High-risk actions always wait for approval. Where only `trust.level` can be
+   written (the global configuration, whose `execution_mode` is `auto`), **Ask me first**
+   is refused, since it would act without asking; choose another option there.
+
+In a YAML-configured fleet the Connect, Model and autonomy steps show the YAML to paste
+instead of saving. Each finished step is recorded once (`POST /api/v1/onboarding/setup`,
+admins), and `pg_sage_setup_within_hour_ratio{part="model"|"channel"}` reports the share of
+new installs that set a model or a channel within an hour of install. An install that
+existed before pg_sage measured it, or whose setup is done, never sees the wizard.
+
 ### Minute 1: the first look
 
 The landing page is the **Inbox** (decisions waiting on you, then the changes made since
@@ -75,9 +129,10 @@ opens with **"Getting started"**, a checklist with live status:
 | **"Connected"** | pg_sage reaches the database |
 | **"Extensions"** | pg_stat_statements is ready; HypoPG and auto_explain are listed as optional |
 | **"First look ready"** | the catalog-only first look has finished |
+| **"Model"** | a model is configured and its last call answered (optional) |
 | **"MCP token"** | an active token exists for coding agents (optional) |
 | **"Notifications"** | a notification channel is configured (optional) |
-| **"Grant more"** | you have granted a trust level above observation |
+| **"Grant more"** | you have granted a trust level above observation, or chose **Watch only** in the wizard |
 
 Below it, **"First look"** lists what a DBA would flag on day one. Each finding cites the
 catalog evidence it rests on, for example `pg_index.indisvalid = false`:

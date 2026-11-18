@@ -28,7 +28,7 @@ func step(steps []Step, id string) Step {
 
 func TestChecklistOrderAndIDs(t *testing.T) {
 	steps := Checklist(ChecklistInput{})
-	want := []string{StepConnected, StepExtensions, StepFirstLook, StepMCPToken,
+	want := []string{StepConnected, StepExtensions, StepFirstLook, StepModel, StepMCPToken,
 		StepNotifications, StepGrantMore}
 	if len(steps) != len(want) {
 		t.Fatalf("steps = %+v", steps)
@@ -53,7 +53,8 @@ func TestChecklistAllDone(t *testing.T) {
 	in := ChecklistInput{Connected: true, Capabilities: readyCaps(), FirstLookReady: true,
 		FirstLookCounts: firstlook.ItemCounts{Findings: 4},
 		MCPEnabled:      true, MCPToken: bp(true), Notifications: bp(true),
-		TrustLevel: "advisory", TTFFSeconds: fp(11)}
+		TrustLevel: "advisory", TTFFSeconds: fp(11),
+		Model: &ModelStatus{Configured: true, Answered: true}}
 	for _, s := range Checklist(in) {
 		if !s.Done {
 			t.Fatalf("step %+v not done", s)

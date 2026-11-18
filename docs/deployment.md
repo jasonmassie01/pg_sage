@@ -559,6 +559,7 @@ database from `sage.databases`.
 | `pg_sage_trust_level{database,level}` | One-hot effective trust level (`observation`, `advisory`, `autonomous`); no samples before the database starts |
 | `pg_sage_database_size_bytes{database}` | Size from the collector's last snapshot; absent until measured (gained the `database` label in v2.6.0) |
 | `pg_sage_time_to_first_finding_seconds{database}` | Seconds from start to the first finding: a warning or critical catalog item of the first look, else the analyzer's first open warning or critical finding. Setup and posture notes and info findings do not count; absent until a finding exists |
+| `pg_sage_setup_within_hour_ratio{part}` | Of the new installs this process monitors, the share whose model (`part="model"`) or notification channel (`part="channel"`) the setup wizard recorded within one hour of install (exactly 3,600 s counts); absent until a new install is known |
 | `pg_sage_first_look_items{database}` | Every item of the catalog-only first look (findings, setup and posture notes) |
 | `pg_sage_first_look_findings{database}` | The first look's findings only: warning or critical catalog items, without setup or posture notes |
 | `pg_sage_first_look_duration_seconds{database}` | How long the first look took |

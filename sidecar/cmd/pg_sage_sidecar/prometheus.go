@@ -10,6 +10,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/changeplan"
 	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/migration"
+	"github.com/pg-sage/sidecar/internal/onboarding"
 	"github.com/pg-sage/sidecar/internal/outcomes"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -31,6 +32,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeDeferredIndexMetrics(&b, deferredIndexGauges)
 	writeFirstLookMetrics(&b, firstLookTracker.Snapshot())
 	writeReviewMetrics(&b, reviewFirstGrades)
+	writeSetupMetrics(&b, onboarding.SetupRatios())
 	writeConnectionMetric(&b, views)
 
 	// Every family renders whenever its data exists, in every mode

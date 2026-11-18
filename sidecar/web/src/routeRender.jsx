@@ -12,7 +12,7 @@ import { DatabasesPage } from './pages/DatabasesPage'
 import { ValuePage } from './pages/ValuePage'
 import { InboxPage } from './pages/InboxPage'
 import { LedgerPage } from './pages/LedgerPage'
-import { OnboardingPanel } from './components/onboarding/OnboardingPanel'
+import { HomeSetup } from './components/setup/HomeSetup'
 import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
 import { DigestCard } from './components/DigestCard'
 import { SLOsPage } from './pages/SLOsPage'
@@ -109,16 +109,16 @@ const profile = ctx => <ProfilePage user={ctx.user} authMode={ctx.authMode} />
 // authMode, fleetQuery, fleetData, databases, the Ask inventory fields,
 // selectDatabase, setSelectedDB, selectedDatabase and linkedCase.
 export const RENDERERS = Object.freeze({
-  // Onboarding and first look stay above the Inbox until ux-04b's wizard.
+  // Setup (ux-04b): the wizard, or the checklist, above the first look and
+  // the Inbox; with zero databases the wizard is the only content.
   inbox: ctx => (
-    <div className="space-y-6">
-      <OnboardingPanel database={ctx.database} authMode={ctx.authMode} user={ctx.user}
-        onSelectDatabase={ctx.selectDatabase} />
+    <HomeSetup database={ctx.database} user={ctx.user} authMode={ctx.authMode}
+      fleet={ctx.fleetQuery} onSelectDatabase={ctx.selectDatabase}>
       <FirstLookPanel database={ctx.database} user={ctx.user}
         onSelectDatabase={ctx.selectDatabase} />
       <DigestCard database={ctx.database} />
       <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
-    </div>
+    </HomeSetup>
   ),
   value: ctx => <ValuePage database={ctx.database} />,
   cases: ctx => cases(ctx),

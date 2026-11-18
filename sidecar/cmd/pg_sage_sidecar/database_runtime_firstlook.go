@@ -130,6 +130,7 @@ func (rt *databaseRuntime) startFirstLook() {
 		run.runOnce(rt.ctx)
 		<-rt.ctx.Done()
 		run.tracker.ForgetRun(run.name, run.started)
+		onboarding.ForgetSetup(run.name)
 	})
 	rt.note("first-look")
 }

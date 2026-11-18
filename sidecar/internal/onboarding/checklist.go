@@ -47,12 +47,16 @@ type ChecklistInput struct {
 	Notifications      *bool
 	TrustLevel         string
 	TTFFSeconds        *float64
+	// Model is the model step's status (nil: unknown); AutonomyChosen is
+	// true once the setup wizard recorded an autonomy choice (ux-04b).
+	Model          *ModelStatus
+	AutonomyChosen bool
 }
 
 // Checklist is the first-run checklist for one database.
 func Checklist(in ChecklistInput) []Step {
-	return []Step{connectedStep(in), extensionsStep(in), firstLookStep(in), mcpStep(in),
-		notificationsStep(in), grantStep(in)}
+	return []Step{connectedStep(in), extensionsStep(in), firstLookStep(in), modelStep(in),
+		mcpStep(in), notificationsStep(in), grantStep(in)}
 }
 
 func connectedStep(in ChecklistInput) Step {
@@ -229,6 +233,12 @@ func grantStep(in ChecklistInput) Step {
 		s.Detail = fmt.Sprintf("Trust level %s: pg_sage acts within it and verifies "+
 			"every action.", in.TrustLevel)
 	case LevelObservation:
+		if in.AutonomyChosen {
+			s.Done = true
+			s.Detail = "You chose Watch only: pg_sage observes and records what it " +
+				"would do; nothing changes outside its sage schema. Grant more any time."
+			return s
+		}
 		s.Detail = "Read-only: pg_sage observes and records what it would do; nothing " +
 			"changes outside its sage schema until you grant more."
 	default:

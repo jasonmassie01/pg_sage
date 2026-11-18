@@ -151,8 +151,8 @@ func main() {
 }
 
 // runSubcommandAndExit handles the vector-lab, bench, history, evidence,
-// verifier-backtest, lint-migration, plan and healthcheck subcommands and
-// --version, which exit without starting the sidecar.
+// verifier-backtest, lint-migration, plan, doctor and healthcheck subcommands
+// and --version, which exit without starting the sidecar.
 func runSubcommandAndExit() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(runHealthcheck(os.Args[2:], os.Stdout, os.Stderr))
@@ -177,6 +177,9 @@ func runSubcommandAndExit() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == evidenceSubcommand {
 		os.Exit(runEvidenceCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == doctorSubcommand {
+		os.Exit(runDoctorCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
 	}
 	if len(os.Args) > 1 && os.Args[1] == verifierBacktestSubcommand {
 		os.Exit(runVerifierBacktestCommand(context.Background(), os.Args[2:], os.Stdout,

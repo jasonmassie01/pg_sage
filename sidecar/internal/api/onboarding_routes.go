@@ -21,11 +21,14 @@ import (
 // registerOnboardingRoutes serves the first-run checklist, the first look
 // and the trust guide to every signed-in role; which MCP tokens and
 // notification channels exist stays visible to admins only. Operators and
-// admins may re-check a database's first look.
+// admins may re-check a database's first look. Admins record the setup
+// wizard's steps (ux-04b); budgets is where the Model step reads the model.
 func registerOnboardingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	cfg *config.Config, control *pgxpool.Pool) {
-	reader := newFleetOnboardingReader(mgr, cfg, control)
+	cfg *config.Config, control *pgxpool.Pool, budgets LLMBudgetRegistry) {
+	reader := newFleetOnboardingReader(mgr, cfg, control, budgets)
 	route(mux, "GET /api/v1/onboarding", gateViewer, onboardingHandler(reader))
+	route(mux, "POST /api/v1/onboarding/setup", gateAdmin,
+		onboardingSetupHandler(reader, time.Now))
 	route(mux, "GET /api/v1/onboarding/trust", gateViewer, trustGuideHandler(reader))
 	route(mux, "GET /api/v1/first-look", gateViewer, firstLookHandler(reader))
 	registerFirstLookRecheck(mux, fleetRecheckSource{mgr: mgr},
@@ -38,14 +41,15 @@ type fleetOnboardingReader struct {
 	mgr     *fleet.DatabaseManager
 	cfg     *config.Config
 	control *pgxpool.Pool
+	budgets LLMBudgetRegistry
 }
 
 func newFleetOnboardingReader(mgr *fleet.DatabaseManager, cfg *config.Config,
-	control *pgxpool.Pool) onboardingReader {
+	control *pgxpool.Pool, budgets LLMBudgetRegistry) onboardingReader {
 	if mgr == nil || cfg == nil {
 		return nil
 	}
-	return &fleetOnboardingReader{mgr: mgr, cfg: cfg, control: control}
+	return &fleetOnboardingReader{mgr: mgr, cfg: cfg, control: control, budgets: budgets}
 }
 
 func (f *fleetOnboardingReader) Names(database string) ([]string, bool) {
@@ -193,6 +197,7 @@ func (f *fleetOnboardingReader) target(inst *fleet.DatabaseInstance) grantTarget
 	switch {
 	case f.cfg.HasMetaDB() && inst.DatabaseID > 0:
 		t.ConfigURL = fmt.Sprintf("/api/v1/config/databases/%d", inst.DatabaseID)
+		t.ExecutionModeWritable = true
 	case f.cfg.IsFleet():
 		t = grantTarget{Method: "yaml", Key: "trust.level"}
 	}

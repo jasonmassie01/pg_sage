@@ -72,10 +72,11 @@ test.describe('fleet-07: health scores on the database tiles', () => {
     await expect(tile(page, 'legacy').getByTestId('health-reasons')).toHaveCount(0)
   })
 
-  test('an empty fleet shows the welcome state, not an empty grid', async ({ page }) => {
+  test('an empty fleet shows the empty state, not an empty grid', async ({ page }) => {
     await routeInventory(page, () => inventory([]))
     await page.goto('/#/advanced')
-    await expect(page.getByTestId('onboarding-welcome')).toBeVisible()
+    // ux-04b: the welcome moved to the setup wizard on the home page.
+    await expect(page.getByTestId('snapshot-no-databases')).toBeVisible()
     await expect(page.getByTestId('db-tile-grid')).toHaveCount(0)
   })
 })

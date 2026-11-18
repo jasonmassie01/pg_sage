@@ -254,6 +254,7 @@ func trancheFiveMigrations() []namedStep {
 		{"ddlRolloutInstanceEffect", ddlRolloutInstanceEffect},               // lab-03b
 		{"ddlCloneInstancesHolder", ddlCloneInstancesHolder},                 // lab-05a
 		{"ddlBriefingsDigestHash", ddlBriefingsDigestHash},                   // ux-02b
+		{"ddlOnboardingSetupSteps", ddlOnboardingSetupSteps},                 // ux-04b
 	}
 }
 

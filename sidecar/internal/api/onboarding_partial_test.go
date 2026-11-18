@@ -96,12 +96,12 @@ func TestOnboardingHandlerKeepsOtherDatabasesWhenOneFails(t *testing.T) {
 	a := entryNamed(t, body, "a")
 	if _, has := a["error"]; has || a["connected"] != true ||
 		a["first_look"].(map[string]any)["items"] != float64(1) ||
-		len(a["steps"].([]any)) != 6 {
+		len(a["steps"].([]any)) != 7 {
 		t.Fatalf("healthy entry = %v", a)
 	}
 	b := entryNamed(t, body, "b")
 	if b["connected"] != false || b["error"] != "read_failed" ||
-		b["trust_level"] != "advisory" || len(b["steps"].([]any)) != 6 {
+		b["trust_level"] != "advisory" || len(b["steps"].([]any)) != 7 {
 		t.Fatalf("failed entry = %v", b)
 	}
 	connected := onboardingStep(t, b, onboarding.StepConnected)
@@ -197,7 +197,7 @@ func TestFleetOnboardingReaderNilPool(t *testing.T) {
 	mgr := fleet.NewManager(cfg)
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "down",
 		Status: &fleet.InstanceStatus{Connected: false, TrustLevel: "observation"}})
-	reader := newFleetOnboardingReader(mgr, cfg, nil)
+	reader := newFleetOnboardingReader(mgr, cfg, nil, nil)
 	rec, body := obGet(t, onboardingHandler(reader), "/api/v1/onboarding")
 	if rec.Code != 200 {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)

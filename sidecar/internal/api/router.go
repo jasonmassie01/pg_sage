@@ -296,7 +296,8 @@ func registerFleetScopedRoutes(
 			agentguard.NewStore(pool))
 	}
 	registerFleetReadRoutes(apiMux, mgr, cfg, pool, rt.DatabricksAppAuth)
-	registerOnboardingRoutes(apiMux, mgr, cfg, pool)
+	registerOnboardingRoutes(apiMux, mgr, cfg, pool, llmBudgetSource(rt.LLMBudgets, llmMgr))
+	registerDoctorRoute(apiMux, mgr, cfg, pool, llmBudgetSource(rt.LLMBudgets, llmMgr))
 }
 
 // registerFleetReadRoutes registers value and briefings (llm-06b), read
