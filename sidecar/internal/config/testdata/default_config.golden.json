@@ -109,6 +109,7 @@
     "RollbackThresholdPct": 10,
     "RollbackWindowMinutes": 15,
     "RollbackCooldownDays": 7,
+    "AskAfterApprovals": 10,
     "CascadeCooldownCycles": 3
   },
   "LLM": {

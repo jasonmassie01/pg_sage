@@ -232,6 +232,7 @@ type TrustConfig struct {
 	RollbackThresholdPct  int    `yaml:"rollback_threshold_pct" doc:"Latency regression percentage (0-100) that triggers automatic rollback of a recently applied action. Lower = more sensitive." api:"pct"`
 	RollbackWindowMinutes int    `yaml:"rollback_window_minutes" doc:"How many minutes after applying an action pg_sage watches for regressions before considering it stable." api:"int_pos"`
 	RollbackCooldownDays  int    `yaml:"rollback_cooldown_days" doc:"After a rollback, the same action family is blocked for this many days to prevent flap. Default 3 days." api:"int_pos"`
+	AskAfterApprovals     int    `yaml:"ask_after_approvals" doc:"Person approvals of a class on one database, with no rollback in 30 days, before pg_sage asks to run it unattended (a person still approves L3). 0 turns the ask off. 0-1000. Default: 10."`
 	CascadeCooldownCycles int    `yaml:"cascade_cooldown_cycles" doc:"If N consecutive cycles each propose new actions, throttle to observe impact. Prevents storm-like cascades of small changes." api:"int_pos" zero:"default"`
 }
 

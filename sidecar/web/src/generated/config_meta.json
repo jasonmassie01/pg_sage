@@ -3972,6 +3972,13 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "sre.autonomy.canary.stage_wait_hours": {
+    "type": "int",
+    "default": 24,
+    "doc": "Hours between a database's verdict and the next change, 0-720. Default: 24.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "sre.autonomy.class_promotion.min_success_rate_pct": {
     "type": "float64",
     "default": 80,
@@ -4680,6 +4687,13 @@
     "default": 15,
     "doc": "Seconds between checks for new triggers and pending investigations, 5-600. Default: 15.",
     "class": "derivable",
+    "lifecycle": "restart"
+  },
+  "trust.ask_after_approvals": {
+    "type": "int",
+    "default": 10,
+    "doc": "Person approvals of a class on one database, with no rollback in 30 days, before pg_sage asks to run it unattended (a person still approves L3). 0 turns the ask off. 0-1000. Default: 10.",
+    "class": "safety_critical",
     "lifecycle": "restart"
   },
   "trust.cascade_cooldown_cycles": {
