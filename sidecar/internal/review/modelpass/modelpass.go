@@ -72,8 +72,8 @@ type Recorder interface {
 // spent or its breaker open); Store records every run (nil records
 // nothing); Mode is the live review.model_pass, read before each run
 // (nil: Settings.Mode); Parallel bounds the runs in flight (0: all);
-// OnState sees every state the pass enters. Budget's zero value is
-// BudgetFor(0).
+// OnState sees every state the pass enters; Dropped says whether G-M2
+// dropped a model. Budget's zero value is BudgetFor(0).
 type Deps struct {
 	Model        agentloop.Model
 	ModelName    string
@@ -87,6 +87,8 @@ type Deps struct {
 	Parallel     int
 	OnState      func(report.PassStatus)
 	Now          func() time.Time
+	// Dropped is review-05a's G-M2 for a model id (nil: never dropped).
+	Dropped func(ctx context.Context, model string) (bool, string, error)
 }
 
 // DefaultBudget bounds one run.
@@ -129,6 +131,9 @@ func Review(ctx context.Context, s Settings, d Deps, in Input) (report.Report, e
 		return base, err
 	}
 	d, status, reason := gate(s, d, in)
+	if status == "" {
+		status, reason = droppedByGate(ctx, s, d)
+	}
 	if status != "" {
 		return finishFallback(tr, base, status, reason), nil
 	}
@@ -184,6 +189,20 @@ func gate(s Settings, d Deps, in Input) (Deps, report.PassStatus, string) {
 			"reads only the model tier"
 	}
 	return d, "", ""
+}
+
+// droppedByGate skips the pass when review.model_pass is auto and G-M2
+// dropped the model it would run on. An operator's on always runs it, and
+// a gate that cannot be read changes nothing (G-M2 only narrows).
+func droppedByGate(ctx context.Context, s Settings, d Deps) (report.PassStatus, string) {
+	if s.Mode != config.ReviewModelPassAuto || d.Dropped == nil {
+		return "", ""
+	}
+	off, why, err := d.Dropped(ctx, d.ModelName)
+	if err != nil || !off {
+		return "", ""
+	}
+	return report.PassSkipped, why
 }
 
 // What a model (*llm.Client) can say about itself.
