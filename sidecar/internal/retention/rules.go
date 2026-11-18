@@ -179,6 +179,11 @@ var restoreDrillsRule = purgeRule{table: "restore_drills", timeCol: "finished_at
 var reviewRunRule = purgeRule{table: "review_run", timeCol: "started_at", days: 400,
 	extra: "AND status <> 'running'"}
 
+// pressureJobsRule ages a backfill job out 90 days after it expired
+// (guard-01b): an active job is never purged, and a quarter of history
+// keeps the weekly count of registered jobs.
+var pressureJobsRule = purgeRule{table: "pressure_jobs", timeCol: "expires_at", days: 90}
+
 func purgeRules(cfg *config.Config) []purgeRule {
 	r := cfg.Retention
 	rules := []purgeRule{
@@ -283,7 +288,7 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
 	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule,
-		restoreDrillsRule, reviewRunRule)
+		restoreDrillsRule, reviewRunRule, pressureJobsRule)
 	return append(rules, planPurgeRule(r))
 }
 
