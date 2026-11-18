@@ -558,6 +558,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`get_inbox`](#get_inbox) | `read` | always |
 | [`get_workload_pack`](#get_workload_pack) | `read` | always |
 | [`get_outcomes`](#get_outcomes) | `read` | always |
+| [`why_not`](#why_not) | `read` | always |
 
 ### `get_policy`
 
@@ -1308,5 +1309,18 @@ Scope: `read`
 | `limit` | integer | no | rows returned (default 500); the summary covers the window; value 1-10000 |
 | `since` | string | no | window as a duration from 1s to 9600h (default 24h), such as 24h or 168h |
 | `verdict` | string | no | one of `pending`, `improved`, `no_change`, `regressed`, `inconclusive`, `unverifiable`, `expired` |
+
+### `why_not`
+
+Use when a change you expected has not happened, or nothing was proposed for a database, finding, object or category. Returns ten checks from observed to emergency stop, each pass, fail, unknown or not applicable, with one sentence and at most one fix (a GRANT, a setting, a page or a time); the first failure is marked. Never changes anything; unknown is never a pass.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `category` | string | no | a finding category, such as unused_index; length <= 64 |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `finding_id` | integer | no | one finding; give it alone; value >= 1 |
+| `object` | string | no | an unquoted schema.name; length <= 127 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

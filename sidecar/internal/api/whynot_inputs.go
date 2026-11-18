@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -81,14 +80,16 @@ var explainWhyNotCandidates = func(
 	return out, nil
 }
 
+// whyNotNow is the chain's clock; a seam for tests that compare answers.
+var whyNotNow = func() time.Time { return time.Now().UTC() }
+
 // gatherWhyNot reads the chain's inputs: the fleet's view of the
 // database, its open findings and their candidates' verdicts, and the
 // privilege probe. A read that fails leaves its links unknown.
-func gatherWhyNot(r *http.Request, mgr *fleet.DatabaseManager, sel namedPool,
+func gatherWhyNot(ctx context.Context, mgr *fleet.DatabaseManager, sel namedPool,
 	q whyNotQuery, rows []map[string]any, readErr error) whynot.Inputs {
-	ctx := r.Context()
 	inst := mgr.GetInstance(sel.name)
-	in := whynot.Inputs{Now: time.Now().UTC(), Database: sel.name,
+	in := whynot.Inputs{Now: whyNotNow(), Database: sel.name,
 		Findings: whynot.Findings{Category: q.category, FindingID: q.findingID, Err: readErr}}
 	applyFleetFacts(&in, mgr, inst)
 	if readErr == nil {

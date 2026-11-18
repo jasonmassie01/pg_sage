@@ -89,6 +89,8 @@ type ProductionDependencies struct {
 	Inbox InboxBackend
 	// Outcomes serves get_outcomes (ux-02a); optional.
 	Outcomes OutcomesBackend
+	// WhyNot serves why_not (ux-08b); optional.
+	WhyNot WhyNotBackend
 }
 
 type ProductionBackend struct {

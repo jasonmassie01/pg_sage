@@ -1,15 +1,18 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/whynot"
 )
 
@@ -60,7 +63,12 @@ func validWhyNotCategory(category string) bool {
 // parseWhyNotQuery reads the question; a bad or conflicting parameter is
 // an error naming it.
 func parseWhyNotQuery(r *http.Request) (whyNotQuery, error) {
-	values := r.URL.Query()
+	return parseWhyNotValues(r.URL.Query())
+}
+
+// parseWhyNotValues reads the question from the route's parameters (the
+// MCP tool passes its arguments the same way).
+func parseWhyNotValues(values url.Values) (whyNotQuery, error) {
 	var q whyNotQuery
 	q.object, q.category = values.Get("object"), values.Get("category")
 	if raw := values.Get("finding_id"); raw != "" {
@@ -103,21 +111,33 @@ func whyNotHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 			jsonError(w, "database not found", http.StatusNotFound)
 			return
 		}
-		rows, err := readWhyNotFindings(r.Context(), selected, q)
-		if q.findingID > 0 && errors.Is(err, pgx.ErrNoRows) {
+		out, err := answerWhyNot(r.Context(), mgr, selected, q)
+		if errors.Is(err, mcp.ErrWhyNotFindingNotFound) {
 			jsonError(w, "finding not found", http.StatusNotFound)
 			return
 		}
-		if err != nil {
-			slog.Warn("whynot: finding read failed", "database", selected.name,
-				"error", err)
-		}
-		in := gatherWhyNot(r, mgr, selected, q, rows, err)
-		out := whyNotResponse{Database: selected.name, Object: q.object,
-			Category: q.category, Result: whynot.Chain(r.Context(), in)}
-		if q.findingID > 0 {
-			out.FindingID = strconv.FormatInt(q.findingID, 10)
-		}
 		writeJSONStatus(w, http.StatusOK, out)
 	}
+}
+
+// answerWhyNot reads one question's inputs on sel and runs the chain;
+// the route and the why_not tool both answer through it. A finding asked
+// about that is not in the database is mcp.ErrWhyNotFindingNotFound; any
+// other failed read leaves its links unknown.
+func answerWhyNot(ctx context.Context, mgr *fleet.DatabaseManager, sel namedPool,
+	q whyNotQuery) (whyNotResponse, error) {
+	rows, err := readWhyNotFindings(ctx, sel, q)
+	if q.findingID > 0 && errors.Is(err, pgx.ErrNoRows) {
+		return whyNotResponse{}, mcp.ErrWhyNotFindingNotFound
+	}
+	if err != nil {
+		slog.Warn("whynot: finding read failed", "database", sel.name, "error", err)
+	}
+	in := gatherWhyNot(ctx, mgr, sel, q, rows, err)
+	out := whyNotResponse{Database: sel.name, Object: q.object, Category: q.category,
+		Result: whynot.Chain(ctx, in)}
+	if q.findingID > 0 {
+		out.FindingID = strconv.FormatInt(q.findingID, 10)
+	}
+	return out, nil
 }
