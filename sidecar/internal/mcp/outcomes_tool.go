@@ -44,7 +44,7 @@ func outcomesTools() []Tool {
 		verdicts = append(verdicts, fmt.Sprintf("%q", v))
 	}
 	return []Tool{{Name: toolGetOutcomes, Description: "List what pg_sage changed in a " +
-		"window: one row per executed change with what, why, origin, the expected and " +
+		"window. Returns one row per executed change with what, why, origin, the expected and " +
 		"measured effect, the verdict (pending until judged) and whether it can still be " +
 		"rolled back, plus a summary with the share of changes with a measured effect. " +
 		"Read-only. Without database it reads every database you may read; a database " +

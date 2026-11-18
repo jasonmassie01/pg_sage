@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/agentguard/readapi"
@@ -50,7 +51,7 @@ func (s *Server) callAgentBrokerTool(ctx context.Context, name string,
 	arguments json.RawMessage) (any, *rpcError) {
 	backend, ok := s.backend.(AgentBrokerBackend)
 	if !ok {
-		return nil, failure(codeUnavailable, "agent governance is not configured")
+		return nil, unconfigured("agent governance is not configured")
 	}
 	if name == "agent_whoami" {
 		return agentWhoAmI(ctx, backend, arguments)
@@ -86,7 +87,7 @@ func (s *Server) callAgentBrokerTool(ctx context.Context, name string,
 		return nil, brokerFailure(err)
 	}
 	if result.ReasonCode == reasonAgentRate {
-		return rateLimited(result), nil
+		return nil, rateLimited(result)
 	}
 	return fencedResult(result), nil
 }
@@ -96,13 +97,9 @@ const reasonAgentRate = "agent_rate"
 
 // rateLimited reports agent_rate with the existing rate_limited code and
 // retry_after, so clients see one rate-limit signal (spec §6.2.2 D9).
-func rateLimited(result readapi.Result) map[string]any {
-	out := toolError(failure(codeRateLimited, "rate limited: "+result.Detail))
-	structured, _ := out["structuredContent"].(map[string]any)
-	if failure, ok := structured["error"].(map[string]any); ok {
-		failure["retry_after"] = result.RetryAfterSeconds
-	}
-	return out
+func rateLimited(result readapi.Result) *rpcError {
+	return failure(codeRateLimited, "rate limited: "+result.Detail).withRetryAfter(
+		time.Duration(result.RetryAfterSeconds) * time.Second)
 }
 
 // scalarParam decodes one parameter, keeping numbers exact.
