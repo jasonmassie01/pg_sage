@@ -92,6 +92,26 @@ test('playbooks-10: signing shows the structural diff from the newest signed ver
     expect(writes).toEqual([{ path: '/rb-1/sign', body: { version: 2, content_hash: HASH_V2 } }])
   })
 
+test('ux-12: a 500 on sign keeps the dialog open with the server error inside it',
+  async ({ page }) => {
+    const name = 'Idle holder'
+    const state = { rb: runbook(name, [version(1, name, true), version(2, name, false)],
+      'draft') }
+    const writes = await openRunbook(page, state,
+      path => (path.endsWith('/sign')
+        ? { status: 500, json: { error: 'runbook store unavailable' } } : null))
+    await page.getByTestId('runbook-sign').click()
+    const dialog = page.getByRole('dialog', { name: 'Sign runbook' })
+    await dialog.getByTestId('runbook-sign-confirm').click()
+    await expect(dialog.getByTestId('runbook-dialog-problems'))
+      .toContainText('runbook store unavailable')
+    await expect(dialog.getByTestId('runbook-dialog-problems')).toBeVisible()
+    await expect(dialog.getByTestId('runbook-sign-confirm')).toBeEnabled()
+    await expect(page.getByTestId('runbook-running-status'))
+      .toHaveText('v1 signed and running; v2 draft awaiting signature')
+    expect(writes).toHaveLength(1)
+  })
+
 test('a first signature says no version was signed before', async ({ page }) => {
   const state = { rb: runbook('Fresh', [version(1, 'Fresh', false)], 'draft') }
   await openRunbook(page, state)

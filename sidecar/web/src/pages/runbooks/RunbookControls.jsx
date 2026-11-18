@@ -7,12 +7,43 @@ import { canOperate } from './runbookStatus'
 // list, revising (a draft staged beside the signed version), signing after
 // a structural diff from the newest signed version, and retiring only
 // after the runbook's name is typed. Sign and retire confirm in the shared
-// modal Dialog (ux-12).
+// modal Dialog (ux-12), which shows a refusal inside it.
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
 const box = { borderColor: 'var(--border)' }
 const button = { ...strong, border: '1px solid var(--border)' }
+
+// Problems shows what the server refused: its message, its reason and each
+// problem it named. The page shows it under the forms, and a confirmation
+// dialog shows it inside, because the modal hides the page behind it.
+export function Problems({ problems, testId = 'runbook-problems' }) {
+  if (!problems) return null
+  return (
+    <div data-testid={testId} role="alert" style={strong}>
+      {problems.message}{problems.reason ? ` (${problems.reason})` : ''}
+      <ul className="list-disc pl-4" style={muted}>
+        {(problems.items || []).map(p => (
+          <li key={`${p.code}-${p.path}`}>{p.code} at {p.path}: {p.detail}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// useConfirm sends a dialog's write once at a time. run resolves to null
+// when the write succeeded (the page then closes the dialog) or to the
+// problems it was refused with, which stay in the dialog.
+function useConfirm(run) {
+  const [state, setState] = useState({ busy: false, problems: null })
+  async function send() {
+    if (state.busy) return
+    setState({ busy: true, problems: null })
+    const problems = await run()
+    setState({ busy: false, problems: problems || null })
+  }
+  return { ...state, send }
+}
 
 function versionText(v, running) {
   const signature = v.signed_at
@@ -49,12 +80,13 @@ function newestSigned(rb) {
 }
 
 export function SignDialog({ rb, onSign, onCancel }) {
+  const { busy, problems, send } = useConfirm(onSign)
   const v = rb.latest
   const base = newestSigned(rb)
   const changes = base ? diffDefinitions(base.definition, v.definition) : []
   return (
-    <Dialog open title="Sign runbook" onClose={onCancel} testId="runbook-sign-dialog"
-      width={560}>
+    <Dialog open title="Sign runbook" onClose={onCancel} busy={busy}
+      testId="runbook-sign-dialog" width={560}>
       <div style={strong}>Sign version {v.version}</div>
       {base ? (
         <div>
@@ -70,13 +102,14 @@ export function SignDialog({ rb, onSign, onCancel }) {
       <div style={muted} className="break-all">
         Content hash: <code>{v.content_hash}</code>
       </div>
+      <Problems problems={problems} testId="runbook-dialog-problems" />
       <div className="flex gap-2">
         <button type="button" data-testid="runbook-sign-confirm" style={button}
-          className="rounded px-2 py-1" onClick={onSign}>
+          className="rounded px-2 py-1" disabled={busy} aria-busy={busy} onClick={send}>
           Sign
         </button>
         <button type="button" style={button} className="rounded px-2 py-1"
-          onClick={onCancel}>
+          disabled={busy} onClick={onCancel}>
           Cancel
         </button>
       </div>
@@ -86,9 +119,11 @@ export function SignDialog({ rb, onSign, onCancel }) {
 
 export function RetireDialog({ name, onRetire, onCancel }) {
   const [typed, setTyped] = useState('')
+  const { busy, problems, send } = useConfirm(onRetire)
   const matches = typed === name
   return (
-    <Dialog open title="Retire runbook" onClose={onCancel} testId="runbook-retire-dialog">
+    <Dialog open title="Retire runbook" onClose={onCancel} busy={busy}
+      testId="runbook-retire-dialog">
       <div style={strong}>
         Retiring stops every version of {name} for good; it cannot be undone.
       </div>
@@ -97,14 +132,15 @@ export function RetireDialog({ name, onRetire, onCancel }) {
         <input data-testid="runbook-retire-name" className="ml-2 rounded border p-1"
           style={box} value={typed} onChange={e => setTyped(e.target.value)} />
       </label>
+      <Problems problems={problems} testId="runbook-dialog-problems" />
       <div className="flex gap-2">
         <button type="button" data-testid="runbook-retire-confirm" style={button}
-          className="rounded px-2 py-1" disabled={!matches}
-          onClick={() => { if (matches) onRetire() }}>
+          className="rounded px-2 py-1" disabled={!matches || busy} aria-busy={busy}
+          onClick={() => { if (matches) send() }}>
           Retire for good
         </button>
         <button type="button" style={button} className="rounded px-2 py-1"
-          onClick={onCancel}>
+          disabled={busy} onClick={onCancel}>
           Cancel
         </button>
       </div>

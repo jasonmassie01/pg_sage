@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { RunbookActions } from './RunbookControls'
@@ -14,11 +14,21 @@ const rb = { name: 'vacuum-bloat', status: 'active', latest: version, latest_ver
   running_version: 0, versions: [version] }
 const admin = { role: 'admin' }
 
-function Harness() {
+function Harness({ write = vi.fn() }) {
   const [open, setOpen] = useState(null)
-  return <RunbookActions rb={rb} user={admin} open={open} setOpen={setOpen} act={vi.fn()}
+  // The page's act closes the dialog after a write and resolves to null, or
+  // resolves to the problems the server refused it with.
+  async function act(...args) {
+    const problems = await write(...args)
+    if (!problems) setOpen(null)
+    return problems
+  }
+  return <RunbookActions rb={rb} user={admin} open={open} setOpen={setOpen} act={act}
     onProblems={vi.fn()} />
 }
+
+const refusal = { message: 'content hash changed', reason: 'stale',
+  items: [{ code: 'hash_mismatch', path: 'content_hash', detail: 'v2 was revised' }] }
 
 function open(testId) {
   const opener = screen.getByTestId(testId)
@@ -50,5 +60,63 @@ describe('Runbook dialogs', () => {
     fireEvent.keyDown(dialog, { key: 'Escape' })
     expect(screen.queryByTestId('runbook-retire-dialog')).toBeNull()
     expect(opener).toHaveFocus()
+  })
+})
+
+// ux-12 review: the modal makes the page inert and dims it, so a refused
+// sign or retire must say why inside the dialog, and a write in flight
+// must not be sent twice or cancelled by Escape.
+describe('Runbook dialogs: a refused or running write', () => {
+  it('sign: a refusal stays in the dialog with its reason and problems', async () => {
+    const write = vi.fn(async () => refusal)
+    render(<Harness write={write} />)
+    open('runbook-sign')
+    fireEvent.click(screen.getByTestId('runbook-sign-confirm'))
+    const shown = await screen.findByTestId('runbook-dialog-problems')
+    const dialog = screen.getByRole('dialog', { name: 'Sign runbook' })
+    expect(dialog.contains(shown)).toBe(true)
+    expect(shown).toHaveAttribute('role', 'alert')
+    expect(shown).toHaveTextContent('content hash changed (stale)')
+    expect(within(shown).getByText('hash_mismatch at content_hash: v2 was revised'))
+      .toBeInTheDocument()
+    expect(screen.getByTestId('runbook-sign-confirm')).toBeEnabled()
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(write).toHaveBeenCalledWith('sign', { version: 2, content_hash: 'h2' },
+      'Runbook signed')
+  })
+
+  it('sign: sends once while running, ignores Escape, then closes on success', async () => {
+    let release
+    const write = vi.fn(() => new Promise(r => { release = r }))
+    render(<Harness write={write} />)
+    open('runbook-sign')
+    const confirm = screen.getByTestId('runbook-sign-confirm')
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(confirm).toBeDisabled()
+    expect(confirm).toHaveAttribute('aria-busy', 'true')
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Sign runbook' }), { key: 'Escape' })
+    expect(screen.getByTestId('runbook-sign-dialog')).toBeInTheDocument()
+    await act(async () => release(null))
+    await waitFor(() => expect(screen.queryByTestId('runbook-sign-dialog')).toBeNull())
+    expect(screen.queryByTestId('runbook-dialog-problems')).toBeNull()
+  })
+
+  it('retire: a refusal stays in the dialog and a retry clears it', async () => {
+    const write = vi.fn(async () => refusal)
+    render(<Harness write={write} />)
+    open('runbook-retire')
+    fireEvent.change(screen.getByTestId('runbook-retire-name'),
+      { target: { value: 'vacuum-bloat' } })
+    fireEvent.click(screen.getByTestId('runbook-retire-confirm'))
+    const dialog = screen.getByRole('dialog', { name: 'Retire runbook' })
+    expect(await within(dialog).findByTestId('runbook-dialog-problems'))
+      .toHaveTextContent('content hash changed')
+    expect(write).toHaveBeenCalledWith('retire', undefined, 'Runbook retired')
+    write.mockImplementationOnce(async () => null)
+    fireEvent.click(screen.getByTestId('runbook-retire-confirm'))
+    await waitFor(() => expect(screen.queryByTestId('runbook-retire-dialog')).toBeNull())
+    expect(write).toHaveBeenCalledTimes(2)
   })
 })

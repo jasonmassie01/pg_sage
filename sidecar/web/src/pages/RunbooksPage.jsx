@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { useToast } from '../components/Toast'
-import { RunbookActions, VersionList } from './runbooks/RunbookControls'
+import { Problems, RunbookActions, VersionList } from './runbooks/RunbookControls'
 import { canOperate, runningStatus } from './runbooks/runbookStatus'
 
 // Typed runbooks (AI-SRE-SPEC §7.1): a database's runbooks, each a
@@ -103,6 +103,8 @@ function RunbookDetail({ database, id, user, onChanged, onProblems }) {
   const rb = fresh.rb && fresh.over === data ? fresh.rb : data
   if (!rb?.latest) return null
   const v = rb.latest
+  // act resolves to null after a write, or to the problems it was refused
+  // with, so a confirmation dialog can show them (ux-12).
   async function act(path, body, done) {
     onProblems(null)
     try {
@@ -111,8 +113,11 @@ function RunbookDetail({ database, id, user, onChanged, onProblems }) {
       toast.success(done)
       refetch()
       onChanged()
+      return null
     } catch (err) {
-      onProblems({ message: err.message, items: err.problems })
+      const problems = { message: err.message, reason: err.reason, items: err.problems }
+      onProblems(problems)
+      return problems
     }
   }
   return (
@@ -229,19 +234,5 @@ function DraftForms({ database, onCreated, onProblems }) {
         Store the draft
       </button>
     </section>
-  )
-}
-
-function Problems({ problems }) {
-  if (!problems) return null
-  return (
-    <div data-testid="runbook-problems" style={strong}>
-      {problems.message}{problems.reason ? ` (${problems.reason})` : ''}
-      <ul className="list-disc pl-4" style={muted}>
-        {(problems.items || []).map(p => (
-          <li key={`${p.code}-${p.path}`}>{p.code} at {p.path}: {p.detail}</li>
-        ))}
-      </ul>
-    </div>
   )
 }
