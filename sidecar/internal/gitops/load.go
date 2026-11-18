@@ -89,6 +89,9 @@ func readFiles(root string) ([]rawFile, []Problem, error) {
 			if e.IsDir() || (ext != ".yaml" && ext != ".yml") {
 				continue
 			}
+			if sub.dir == DirPrincipals && isUsersFile(e.Name()) {
+				continue // the approval PR login map (cli-02b), not a principal
+			}
 			rel := sub.dir + "/" + e.Name()
 			body, err := readBounded(filepath.Join(root, sub.dir, e.Name()))
 			if errors.Is(err, errTooLarge) {
