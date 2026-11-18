@@ -128,6 +128,9 @@ type Item struct {
 	DueAt     *time.Time `json:"due_at,omitempty"`
 	Href      string     `json:"href"`
 	Source    string     `json:"source"`
+	// Class is a change approval's action class (its action type), so a
+	// list can offer "select all <class> on <db>" (ux-07b); "" otherwise.
+	Class string `json:"class,omitempty"`
 	// Actionable: the reader may decide it on its page. The service leaves
 	// it false; the API sets it from the caller's role (CanDecide).
 	Actionable bool `json:"actionable"`
