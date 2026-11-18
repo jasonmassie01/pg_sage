@@ -48,7 +48,7 @@ type Filter struct {
 
 const eventColumns = `id::text, source, event_id, kind, database_id IS NOT NULL,
 	COALESCE(service, ''), summary, COALESCE(link, ''), objects::text, occurred_at,
-	received_at, signature_status, change_hash`
+	received_at, signature_status, change_hash, COALESCE(attribution, '')`
 
 // Record stores an event once per (source, event id). A replay returns
 // the stored event with created false; the same id with other content
@@ -74,13 +74,13 @@ func (s *Store) Record(ctx context.Context, scope sre.Scope, scoped bool,
 	}
 	row := s.pool.QueryRow(ctx, `INSERT INTO sage.sre_change_events
 		(deployment_id, id, database_id, source, event_id, kind, service, summary, link,
-		 objects, occurred_at, received_at, signature_status, change_hash)
+		 objects, occurred_at, received_at, signature_status, change_hash, attribution)
 		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, NULLIF($9, ''), $10::jsonb,
-		        $11, $12, $13, $14)
+		        $11, $12, $13, $14, NULLIF($15, ''))
 		ON CONFLICT (deployment_id, source, event_id) DO NOTHING
 		RETURNING `+eventColumns, string(scope.DeploymentID), string(sre.NewUUID()), db,
 		e.Source, e.EventID, string(e.Kind), e.Service, e.Summary, e.Link, string(objects),
-		e.OccurredAt, e.ReceivedAt, e.Signature, hash)
+		e.OccurredAt, e.ReceivedAt, e.Signature, hash, e.Attribution)
 	stored, err := scanEvent(row)
 	if err == nil {
 		return stored, true, nil
@@ -159,7 +159,7 @@ func scanEvent(row pgx.Row) (Event, error) {
 	var id, kind, objects string
 	var hash []byte
 	err := row.Scan(&id, &e.Source, &e.EventID, &kind, &e.Scoped, &e.Service, &e.Summary,
-		&e.Link, &objects, &e.OccurredAt, &e.ReceivedAt, &e.Signature, &hash)
+		&e.Link, &objects, &e.OccurredAt, &e.ReceivedAt, &e.Signature, &hash, &e.Attribution)
 	if err != nil {
 		return Event{}, err
 	}

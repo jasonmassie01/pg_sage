@@ -107,6 +107,11 @@ func (g routeGate) wrap(h http.Handler) http.Handler {
 	if ts, ok := h.(*planTokenOrSession); ok && ts.gate == g {
 		return ts
 	}
+	// The pressure route gates its session requests itself and takes a
+	// read-scope API token instead (guard-01a, pressure_routes.go).
+	if ts, ok := h.(*readTokenOrSession); ok && g == gateViewer {
+		return ts
+	}
 	switch g {
 	case gatePublic, gateSelfAuth:
 		return h

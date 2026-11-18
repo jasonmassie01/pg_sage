@@ -11,13 +11,17 @@ import (
 // upgrade_readiness (market-05) checks the resolved database for a
 // major-version upgrade: each check's pass/warn/block/unknown verdict with
 // its evidence. It only reads (one bounded read-only transaction) and
-// writes nothing.
+// writes nothing. With brief: true (drill-02a) it returns the upgrade
+// brief instead, which pg_sage keeps in the database's sage schema when it
+// changed; target_major is then optional (the newest major).
 
 // UpgradeReadinessRequest are the typed arguments of upgrade_readiness.
 type UpgradeReadinessRequest struct {
 	TargetMajor    int    `json:"target_major"`
 	Method         string `json:"method,omitempty"`
 	TargetDatabase string `json:"target_database,omitempty"`
+	// Brief asks for the upgrade brief (drill-02a) instead of the checks.
+	Brief bool `json:"brief,omitempty"`
 	// Database is the resolved database the server injects; backends read
 	// DatabaseFromContext.
 	Database string `json:"database,omitempty"`
@@ -37,15 +41,21 @@ func upgradeTools() []Tool {
 		"extensions against a target member, logical slots and subscriptions, data " +
 		"checksums against PG18's initdb default, collation versions and indexes to " +
 		"reindex, removed settings and dated support windows. Each check is pass, warn, " +
-		"block or unknown with up to 50 evidence rows. Read-only; it changes nothing",
+		"block or unknown with up to 50 evidence rows. Read-only on the database. With " +
+		"brief: true it returns the upgrade brief instead: blockers, extension path, " +
+		"slot and CDC plan, collation reindex list, cost of waiting and an ordered " +
+		"checklist (the upgrade itself stays with the operator); pg_sage keeps a " +
+		"changed brief in its own sage schema",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"target_major":{"type":"integer","minimum":1,"description":"the major to ` +
-			`upgrade to (above the server's, at most the newest pg_sage knows)"},` +
+			`upgrade to (above the server's, at most the newest pg_sage knows); ` +
+			`optional with brief"},` +
+			`"brief":{"type":"boolean","description":"return the upgrade brief"},` +
 			`"method":{"type":"string","enum":["pg_upgrade","blue_green","logical"],` +
 			`"description":"default pg_upgrade"},` +
 			`"target_database":{"type":"string","maxLength":63,"description":"a ` +
 			`monitored database already at target_major to compare extensions against"}},` +
-			`"required":["target_major"],"additionalProperties":false}`)}}
+			`"additionalProperties":false}`)}}
 }
 
 func (s *Server) callUpgradeTool(ctx context.Context, _ string,
@@ -53,9 +63,12 @@ func (s *Server) callUpgradeTool(ctx context.Context, _ string,
 	var req UpgradeReadinessRequest
 	if !decodeStrict(raw, &req) {
 		return nil, failure(codeInvalidParams, "invalid arguments: upgrade_readiness takes "+
-			"target_major, method and target_database")
+			"target_major, method, target_database and brief")
 	}
 	target := upgradecheck.Target{Major: req.TargetMajor, Method: req.Method}
+	if req.Brief && req.TargetMajor == 0 {
+		target.Major = upgradecheck.DefaultTargetMajor(0) // checks the method alone
+	}
 	if err := target.ValidateStatic(); err != nil {
 		return nil, failure(codeInvalidParams, "invalid arguments: "+err.Error())
 	}

@@ -262,21 +262,24 @@ func trancheFiveMigrations() []namedStep {
 // trancheSixMigrations are the T6 steps, after trancheFiveMigrations.
 func trancheSixMigrations() []namedStep {
 	return []namedStep{
-		{"ddlRestoreDrills", ddlRestoreDrills},                     // drill-01a
-		{"ddlExposureRemediations", ddlExposureRemediations},       // fleetpol-02b
-		{"ddlReviewRuns", ddlReviewRuns},                           // review-01a
-		{"ddlReviewCandidates", ddlReviewCandidates},               // review-02a
-		{"ddlReviewCandidateOperator", ddlReviewCandidateOperator}, // review-02b
-		{"ddlReviewCapacityForecast", ddlReviewCapacityForecast},   // review-02f
-		{"ddlReviewModelRuns", ddlReviewModelRuns},                 // review-03a
-		{"ddlReviewPlans", ddlReviewPlans},                         // review-03b
-		{"ddlReviewGate", ddlReviewGate},                           // review-05a
-		{"ddlReviewViews", ddlReviewViews},                         // review-01b
-		{"ddlReviewTriggers", ddlReviewTriggers},                   // review-04a
-		{"ddlReviewFleet", ddlReviewFleet},                         // review-04b
-		{"ddlPolicySets", ddlPolicySets},                           // fleetpol-01a
-		{"ddlDiscoveredAttributes", ddlDiscoveredAttributes},       // fleetpol-01b
-		{"ddlObserveOnlyMembers", ddlObserveOnlyMembers},           // fleetpol-01d
-		{"ddlSprawlCensus", ddlSprawlCensus},                       // fleetpol-03
+		{"ddlRestoreDrills", ddlRestoreDrills},                       // drill-01a
+		{"ddlExposureRemediations", ddlExposureRemediations},         // fleetpol-02b
+		{"ddlReviewRuns", ddlReviewRuns},                             // review-01a
+		{"ddlReviewCandidates", ddlReviewCandidates},                 // review-02a
+		{"ddlReviewCandidateOperator", ddlReviewCandidateOperator},   // review-02b
+		{"ddlReviewCapacityForecast", ddlReviewCapacityForecast},     // review-02f
+		{"ddlReviewModelRuns", ddlReviewModelRuns},                   // review-03a
+		{"ddlReviewPlans", ddlReviewPlans},                           // review-03b
+		{"ddlReviewGate", ddlReviewGate},                             // review-05a
+		{"ddlReviewViews", ddlReviewViews},                           // review-01b
+		{"ddlReviewTriggers", ddlReviewTriggers},                     // review-04a
+		{"ddlReviewFleet", ddlReviewFleet},                           // review-04b
+		{"ddlPolicySets", ddlPolicySets},                             // fleetpol-01a
+		{"ddlDiscoveredAttributes", ddlDiscoveredAttributes},         // fleetpol-01b
+		{"ddlObserveOnlyMembers", ddlObserveOnlyMembers},             // fleetpol-01d
+		{"ddlSprawlCensus", ddlSprawlCensus},                         // fleetpol-03
+		{"ddlUpgradeBriefs", ddlUpgradeBriefs},                       // drill-02a
+		{"ddlChangeFeedProviderEvents", ddlChangeFeedProviderEvents}, // guard-02b
+		{"ddlPressureJobs", ddlPressureJobs},                         // guard-01b
 	}
 }

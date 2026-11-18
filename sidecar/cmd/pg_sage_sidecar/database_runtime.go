@@ -26,6 +26,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/managedparam"
 	"github.com/pg-sage/sidecar/internal/notify"
+	"github.com/pg-sage/sidecar/internal/pressure"
 	"github.com/pg-sage/sidecar/internal/providerobs"
 	"github.com/pg-sage/sidecar/internal/rca"
 	"github.com/pg-sage/sidecar/internal/selfbudget"
@@ -131,6 +132,10 @@ type databaseRuntime struct {
 	brief        *briefing.Worker
 	features     []string
 	inst         *fleet.DatabaseInstance
+	// pressure and pressureJobs are check_pressure and the backfill job
+	// store (guard-01a, guard-01b); nil without a pool.
+	pressure     *pressure.Checker
+	pressureJobs pressure.JobRegistry
 	// firstLook is the database's first look, kept for operator re-checks
 	// (firstlook-05).
 	firstLook *firstLookRun
@@ -208,6 +213,7 @@ func buildDatabaseRuntime(
 	rt.startSourceFixVerifier() // mcp-06: verdicts decided in the background
 	rt.startSelfConfig()
 	rt.logExecutorSettings()
+	rt.startPressure() // guard-01a, guard-01b
 	rt.inst = rt.instance()
 	rt.startMetricsRefresher() // metrics_refresher.go
 	rt.startCapabilityRefresh()
@@ -376,6 +382,8 @@ func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 		FirstLookRecheck: rt.firstLookRecheck(),
 		PlanCaps:         rt.planCaps(),
 		DiskCapacity:     rt.forecastCapacity(),
+		Pressure:         rt.pressure,     // guard-01a
+		PressureJobs:     rt.pressureJobs, // guard-01b
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			Platform:     rt.provider,

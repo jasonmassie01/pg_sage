@@ -173,6 +173,11 @@ bare GET /api/v1/databases/{db}/review/grade gate:viewer scope:database:path:db
 bare POST /api/v1/databases/{db}/review/runs/{id}/viewed gate:viewer-write scope:-
 bare GET /api/v1/databases/{db}/review/scorecard gate:viewer scope:database:path:db
 bare POST /api/v1/databases/{db}/review/gate/{id}/approve gate:admin scope:-
+bare GET /api/v1/databases/{db}/upgrade-brief gate:viewer scope:database:path:db
+bare GET /api/v1/databases/{db}/pressure gate:viewer scope:database:path:db
+bare GET /api/v1/databases/{db}/pressure-jobs gate:viewer scope:database:path:db
+bare POST /api/v1/databases/{db}/pressure-jobs gate:operator scope:database:path:db
+bare POST /api/v1/databases/{db}/pressure-jobs/{id}/end gate:operator scope:database:path:db
 standalone POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 standalone POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 standalone /ready gate:public scope:-
@@ -456,6 +461,11 @@ standalone GET /api/v1/databases/{db}/review/grade gate:viewer scope:database:pa
 standalone POST /api/v1/databases/{db}/review/runs/{id}/viewed gate:viewer-write scope:-
 standalone GET /api/v1/databases/{db}/review/scorecard gate:viewer scope:database:path:db
 standalone POST /api/v1/databases/{db}/review/gate/{id}/approve gate:admin scope:-
+standalone GET /api/v1/databases/{db}/upgrade-brief gate:viewer scope:database:path:db
+standalone GET /api/v1/databases/{db}/pressure gate:viewer scope:database:path:db
+standalone GET /api/v1/databases/{db}/pressure-jobs gate:viewer scope:database:path:db
+standalone POST /api/v1/databases/{db}/pressure-jobs gate:operator scope:database:path:db
+standalone POST /api/v1/databases/{db}/pressure-jobs/{id}/end gate:operator scope:database:path:db
 fleet-readonly POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 fleet-readonly POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 fleet-readonly /ready gate:public scope:-
@@ -725,6 +735,11 @@ fleet-readonly GET /api/v1/databases/{db}/review/grade gate:viewer scope:databas
 fleet-readonly POST /api/v1/databases/{db}/review/runs/{id}/viewed gate:viewer-write scope:-
 fleet-readonly GET /api/v1/databases/{db}/review/scorecard gate:viewer scope:database:path:db
 fleet-readonly POST /api/v1/databases/{db}/review/gate/{id}/approve gate:admin scope:-
+fleet-readonly GET /api/v1/databases/{db}/upgrade-brief gate:viewer scope:database:path:db
+fleet-readonly GET /api/v1/databases/{db}/pressure gate:viewer scope:database:path:db
+fleet-readonly GET /api/v1/databases/{db}/pressure-jobs gate:viewer scope:database:path:db
+fleet-readonly POST /api/v1/databases/{db}/pressure-jobs gate:operator scope:database:path:db
+fleet-readonly POST /api/v1/databases/{db}/pressure-jobs/{id}/end gate:operator scope:database:path:db
 store-only-actions /ready gate:public scope:-
 store-only-actions /health gate:public scope:-
 store-only-actions / gate:public scope:-
@@ -909,6 +924,11 @@ store-only-actions GET /api/v1/databases/{db}/review/grade gate:viewer scope:dat
 store-only-actions POST /api/v1/databases/{db}/review/runs/{id}/viewed gate:viewer-write scope:-
 store-only-actions GET /api/v1/databases/{db}/review/scorecard gate:viewer scope:database:path:db
 store-only-actions POST /api/v1/databases/{db}/review/gate/{id}/approve gate:admin scope:-
+store-only-actions GET /api/v1/databases/{db}/upgrade-brief gate:viewer scope:database:path:db
+store-only-actions GET /api/v1/databases/{db}/pressure gate:viewer scope:database:path:db
+store-only-actions GET /api/v1/databases/{db}/pressure-jobs gate:viewer scope:database:path:db
+store-only-actions POST /api/v1/databases/{db}/pressure-jobs gate:operator scope:database:path:db
+store-only-actions POST /api/v1/databases/{db}/pressure-jobs/{id}/end gate:operator scope:database:path:db
 optional POST /api/v1/chatops/slack/{channel} gate:self-auth scope:-
 optional POST /api/v1/chatops/telegram/{channel} gate:self-auth scope:-
 optional /ready gate:public scope:-
@@ -1194,6 +1214,11 @@ optional GET /api/v1/databases/{db}/review/grade gate:viewer scope:database:path
 optional POST /api/v1/databases/{db}/review/runs/{id}/viewed gate:viewer-write scope:-
 optional GET /api/v1/databases/{db}/review/scorecard gate:viewer scope:database:path:db
 optional POST /api/v1/databases/{db}/review/gate/{id}/approve gate:admin scope:-
+optional GET /api/v1/databases/{db}/upgrade-brief gate:viewer scope:database:path:db
+optional GET /api/v1/databases/{db}/pressure gate:viewer scope:database:path:db
+optional GET /api/v1/databases/{db}/pressure-jobs gate:viewer scope:database:path:db
+optional POST /api/v1/databases/{db}/pressure-jobs gate:operator scope:database:path:db
+optional POST /api/v1/databases/{db}/pressure-jobs/{id}/end gate:operator scope:database:path:db
 databricks-app /ready gate:public scope:-
 databricks-app /health gate:public scope:-
 databricks-app / gate:public scope:-
@@ -1424,3 +1449,8 @@ databricks-app GET /api/v1/databases/{db}/review/grade gate:viewer scope:databas
 databricks-app POST /api/v1/databases/{db}/review/runs/{id}/viewed gate:viewer-write scope:-
 databricks-app GET /api/v1/databases/{db}/review/scorecard gate:viewer scope:database:path:db
 databricks-app POST /api/v1/databases/{db}/review/gate/{id}/approve gate:admin scope:-
+databricks-app GET /api/v1/databases/{db}/upgrade-brief gate:viewer scope:database:path:db
+databricks-app GET /api/v1/databases/{db}/pressure gate:viewer scope:database:path:db
+databricks-app GET /api/v1/databases/{db}/pressure-jobs gate:viewer scope:database:path:db
+databricks-app POST /api/v1/databases/{db}/pressure-jobs gate:operator scope:database:path:db
+databricks-app POST /api/v1/databases/{db}/pressure-jobs/{id}/end gate:operator scope:database:path:db

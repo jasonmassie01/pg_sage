@@ -42,6 +42,8 @@ var (
 	ErrCommandOutputTooLarge = errors.New("restore command: stdout exceeds 64 KiB")
 	ErrCommandOutputHeld     = errors.New("restore command: a process it started kept " +
 		"its output open")
+	ErrCommandNoUpgrade = errors.New("restore command: no upgrade_argv is set, so it " +
+		"cannot upgrade a rehearsal clone")
 )
 
 // CommandConfig is one restore command. Programs run without a shell, in
@@ -53,6 +55,10 @@ type CommandConfig struct {
 	RestoreArgv []string
 	// DestroyArgv removes the restore named by SAGE_CLONE_ID.
 	DestroyArgv []string
+	// UpgradeArgv (drill-02b, optional) upgrades the rehearsal clone named
+	// by SAGE_CLONE_ID to SAGE_TARGET_MAJOR; it prints nothing (upgraded
+	// in place) or one JSON line {"dsn"} naming where the clone now runs.
+	UpgradeArgv []string
 	EnvAllow    []string
 	WorkDir     string
 	// MaxDuration bounds a restore (the drill's max_duration_minutes).
@@ -93,6 +99,11 @@ func NewCommandProvider(cfg CommandConfig) (*CommandProvider, error) {
 	}
 	if err := validateCommandArgv("destroy_argv", cfg.DestroyArgv); err != nil {
 		return nil, err
+	}
+	if len(cfg.UpgradeArgv) > 0 {
+		if err := validateCommandArgv("upgrade_argv", cfg.UpgradeArgv); err != nil {
+			return nil, err
+		}
 	}
 	if cfg.MaxDuration <= 0 {
 		return nil, fmt.Errorf("%w: max duration must be positive", ErrCommandInvalidConfig)

@@ -732,6 +732,13 @@ advances each approved or running plan by at most one decision. The tick holds
 an advisory lock and the plan row (`FOR UPDATE SKIP LOCKED`), so two sidecars
 never move one plan and never start conflicting steps at once.
 
+Before each tick the post-upgrade producer (`upgradecheck.PostUpgrade`) reads
+the change feed: a major version upgrade becomes one proposed plan per database
+and new version, an `ANALYZE` step then the collation reindex steps
+([After the upgrade](findings.md#after-the-upgrade)). It needs the SRE change
+feed, writes only pg_sage's own findings and plan rows, and serializes on a
+session advisory lock per database and version, so two sidecars propose once.
+
 - **When a step may start.** Its predecessors must be kept, no other step of
   the plan may be in flight, and the plan's rows must still hash to the live
   approval. If they do not, the plan is voided with `hash_mismatch`.

@@ -52,7 +52,15 @@ type upgradeReadinessDeps struct {
 
 func registerUpgradeReadinessRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config) {
-	deps := upgradeReadinessDeps{
+	route(mux, "GET "+upgradeReadinessPath, gateViewer,
+		upgradeReadinessHandler(newUpgradeReadinessDeps(mgr, cfg)))
+}
+
+// newUpgradeReadinessDeps resolves databases, target members and
+// providers through the fleet.
+func newUpgradeReadinessDeps(mgr *fleet.DatabaseManager,
+	cfg *config.Config) upgradeReadinessDeps {
+	return upgradeReadinessDeps{
 		pool: func(database string) (*pgxpool.Pool, error) {
 			return fleetDatabasePool(mgr, database)
 		},
@@ -72,7 +80,6 @@ func registerUpgradeReadinessRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManag
 		slots:   make(chan struct{}, upgradeReadinessSlots),
 		trigger: fleetUpgradeTrigger(mgr),
 	}
-	route(mux, "GET "+upgradeReadinessPath, gateViewer, upgradeReadinessHandler(deps))
 }
 
 type upgradeReadinessQuery struct {

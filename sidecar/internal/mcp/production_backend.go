@@ -98,6 +98,8 @@ type ProductionDependencies struct {
 	ReviewGrade ReviewGradeBackend
 	// ReviewScorecard serves review_scorecard (review-05a); optional.
 	ReviewScorecard ReviewScorecardBackend
+	// Pressure serves check_pressure (guard-01a); optional.
+	Pressure PressureBackend
 }
 
 type ProductionBackend struct {

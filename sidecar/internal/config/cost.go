@@ -30,6 +30,9 @@ type CostRate struct {
 	IOPSMonth       float64  `yaml:"iops_month" doc:"Price per provisioned IOPS-month; requires provisioned_iops."`
 	ProvisionedIOPS int      `yaml:"provisioned_iops" doc:"Provisioned IOPS the iops_month price applies to."`
 	VCPUs           int      `yaml:"vcpus" doc:"vCPUs of the instance when telemetry cannot tell (self-managed); used for the idle share. 0: from telemetry."`
+	// ExtendedSupportPerVCPUHour prices the upgrade brief's cost of waiting
+	// (drill-02a); it is not a compute price.
+	ExtendedSupportPerVCPUHour *float64 `yaml:"extended_support_per_vcpu_hour" doc:"Optional provider extended-support price per vCPU-hour (RDS, Aurora, Azure) once a major leaves standard support; with vcpus it prices the upgrade brief's cost of waiting. Unset: the brief says unpriced."`
 }
 
 // costCurrencies are the ISO 4217 codes a rate may name.
@@ -118,7 +121,8 @@ func (r CostRate) validatePrices() error {
 		v    *float64
 	}{{"compute_per_hour", r.ComputePerHour}, {"dbu_per_hour", r.DBUPerHour},
 		{"cu_per_hour", r.CUPerHour}, {"compute_units", &r.ComputeUnits},
-		{"storage_gb_month", &r.StorageGBMonth}, {"iops_month", &r.IOPSMonth}}
+		{"storage_gb_month", &r.StorageGBMonth}, {"iops_month", &r.IOPSMonth},
+		{"extended_support_per_vcpu_hour", r.ExtendedSupportPerVCPUHour}}
 	compute := 0
 	for i, p := range prices {
 		if p.v == nil {

@@ -1366,6 +1366,7 @@ cost:
 | `storage_gb_month` | Per GB-month of the allocated storage cloud telemetry reports (unknown without telemetry). |
 | `iops_month` + `provisioned_iops` | Per provisioned IOPS-month. |
 | `vcpus` | vCPUs when telemetry cannot tell (self-managed); 0 uses telemetry. |
+| `extended_support_per_vcpu_hour` | Optional. The provider's extended-support price per vCPU-hour (RDS, Aurora, Azure) once a major leaves standard support. With `vcpus` it prices the upgrade brief's cost of waiting (`GET /api/v1/databases/{db}/upgrade-brief`): months in extended support x vCPUs x 730 h x this price. Unset, the brief says `unpriced`; it is never a compute price. |
 
 A negative, NaN or infinite price, a missing date or two compute prices fail the load.
 

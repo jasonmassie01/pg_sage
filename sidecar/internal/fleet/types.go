@@ -16,6 +16,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/pressure"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
@@ -67,6 +68,13 @@ type DatabaseInstance struct {
 	// plans block, plan-02b), which plan approvals are checked against;
 	// nil reads the defaults.
 	PlanCaps func(context.Context) (policy.PlanCaps, error)
+	// Pressure answers check_pressure for this database (guard-01a); nil
+	// without a pool, which the route and the MCP tool answer as
+	// unavailable.
+	Pressure *pressure.Checker
+	// PressureJobs registers the database's backfill jobs (guard-01b);
+	// nil without a pool, which the job routes answer as unavailable.
+	PressureJobs pressure.JobRegistry
 	// FirstLookRecheck re-runs the first look on request; nil without one.
 	FirstLookRecheck func(context.Context) (firstlook.Report, error)
 	Stopped          bool

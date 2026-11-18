@@ -28,6 +28,9 @@ type Options struct {
 	// inTx, when set (tests), runs inside the run's transaction after the
 	// checks.
 	inTx func(context.Context, pgx.Tx)
+	// brief, when set (BuildBrief), reads the brief's facts inside the
+	// run's transaction after the checks.
+	brief func(context.Context, pgx.Tx, input)
 }
 
 func (o Options) timeout() time.Duration {
@@ -118,6 +121,9 @@ func Run(ctx context.Context, pool *pgxpool.Pool, t Target, opts Options) (Repor
 			got = unknownFrom(c, err)
 		}
 		rep.Checks = append(rep.Checks, got)
+	}
+	if opts.brief != nil {
+		opts.brief(ctx, tx, in)
 	}
 	if opts.inTx != nil {
 		opts.inTx(ctx, tx)

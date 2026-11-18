@@ -198,21 +198,38 @@ SELECT ` + receiptColumns + ` FROM sage.clone_instances
 WHERE name = $1 AND status = 'ready' AND expires_at > now()
 ORDER BY created_at DESC, id DESC LIMIT 1`
 
+const activeRefSQL = `/* pg_sage clone_receipt v1 */
+SELECT ` + receiptColumns + ` FROM sage.clone_instances
+WHERE ref = $1 AND status = 'ready' AND expires_at > now()
+ORDER BY created_at DESC, id DESC LIMIT 1`
+
 // Active returns the newest ready, unexpired receipt for the clone
 // registered under name (a sandbox is monitored under its receipt name).
 func (s *ReceiptStore) Active(ctx context.Context, name string) (Receipt, bool, error) {
+	return s.active(ctx, activeReceiptSQL, name)
+}
+
+// ActiveRef returns the newest ready, unexpired receipt whose clone has
+// the provider resource id ref (MarkReady's ref, the Clone.ID an adapter
+// returned), which differs from the receipt's name.
+func (s *ReceiptStore) ActiveRef(ctx context.Context, ref string) (Receipt, bool, error) {
+	return s.active(ctx, activeRefSQL, ref)
+}
+
+func (s *ReceiptStore) active(ctx context.Context, query, key string) (Receipt, bool,
+	error) {
 	if s.pool == nil {
 		return Receipt{}, false, ErrNoReceiptStore
 	}
-	if strings.TrimSpace(name) == "" {
+	if strings.TrimSpace(key) == "" {
 		return Receipt{}, false, nil
 	}
-	r, err := scanReceipt(s.pool.QueryRow(ctx, activeReceiptSQL, name))
+	r, err := scanReceipt(s.pool.QueryRow(ctx, query, key))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Receipt{}, false, nil
 	}
 	if err != nil {
-		return Receipt{}, false, fmt.Errorf("read clone receipt for %s: %w", name, err)
+		return Receipt{}, false, fmt.Errorf("read clone receipt for %s: %w", key, err)
 	}
 	return r, true, nil
 }

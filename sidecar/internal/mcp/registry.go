@@ -37,6 +37,7 @@ func toolDefinitions() []Tool {
 	tools = append(append(append(tools, workloadPackTools()...), outcomesTools()...),
 		planTools()...)
 	tools = append(append(tools, drillTools()...), reviewTools()...)
+	tools = append(tools, pressureTools()...)
 	for i := range tools {
 		tools[i] = finishTool(tools[i])
 	}

@@ -329,6 +329,47 @@ gets the info finding `recoverability_unknown` with the reason.
   The statements are read with the migration statement classifier. Such a step runs only
   with its own approval (see Plan approval coverage below).
 
+## Backfill pressure
+
+The standing policy document's `pressure` block sets the limits `check_pressure` answers a
+backfill or bulk write against (`GET /api/v1/databases/{db}/pressure` and the MCP tool
+`check_pressure`, see [API](api.md#backfill-pressure)). The check only reads and never
+acts: the job asks between batches and decides. Without the block, each input stops at half
+of its matching alert threshold, so the signal stops a job before the alert fires:
+
+```json
+"pressure": {
+  "limits": {
+    "replica_lag_seconds": {"slow": 5, "stop": 10},
+    "free_storage_pct": {"stop": 25}
+  },
+  "required": ["replica_lag_seconds", "xid_age", "multixact_age", "vacuum_running",
+               "lock_queue"]
+}
+```
+
+| Input | Default slow | Default stop | Read from |
+|---|---|---|---|
+| `replica_lag_seconds` | half the stop | half of `rca.replication_lag_threshold_seconds` (15 s) | `pg_stat_replication`, raised to the WAL position history's lower bound |
+| `xid_age` | `autovacuum_freeze_max_age` when under the stop, else half the stop | half of `analyzer.xid_wraparound_warning` (250 million) | `age(datfrozenxid)`, oldest database |
+| `multixact_age` | `autovacuum_multixact_freeze_max_age` when under the stop, else half the stop | the same as `xid_age` | `mxid_age(datminmxid)`, oldest database |
+| `vacuum_running` | 1 (a vacuum on the target table) | none | `pg_stat_progress_vacuum` |
+| `wal_bytes_per_second` | 32 MiB/s | 64 MiB/s | WAL insert position over the last 60 s |
+| `lock_queue` | 1 waiter | 3 waiters | `pg_locks` on the target table |
+| `free_storage_pct` | three times the cloud free storage floor (30%) | twice the floor (20%) | managed-cloud telemetry; unknown without it |
+
+No alert covers the vacuum, WAL rate and lock queue inputs, so their defaults are fixed.
+For `free_storage_pct` lower is worse: `slow` must be above `stop`, both at most 100. For
+every other input `slow` must be below `stop`. A bound left out keeps its default, except
+that a default `slow` at or past a `stop` you set moves to half that stop (for
+`free_storage_pct`, 1.5 times it, at most 100%), so a stricter stop still slows a job first.
+A limit with neither bound, an unknown input or a negative value is refused when the
+document is parsed. `required` replaces the default list (`[]` requires none): a required input that
+cannot be read (a timeout, a missing privilege) stops the answer. Any other unknown input
+is reported and never decides, and an answer with no input known at all is `stop`. An input
+that does not exist here, such as replica lag without replicas, is `not_applicable`.
+The block is written back only when it is set.
+
 ## Plan approval coverage
 
 A person approves a plan at the plan hash they were shown, in one of three modes:

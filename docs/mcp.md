@@ -504,6 +504,10 @@ U2 is `unknown`. The tool only reads, in one read-only transaction with a statem
 timeout; it writes nothing and opens no finding (the daily check does that). The REST
 form is `GET /api/v1/upgrade-readiness?database=&target_major=&method=&target_database=`
 (any signed-in role; 400 for an invalid target, 404 for an unknown database).
+With `brief: true` (`target_major` then optional) it returns the
+[upgrade brief](findings.md#upgrade-brief) instead, which pg_sage stores in the
+database's own sage schema only when it changed; the REST form is
+`GET /api/v1/databases/{db}/upgrade-brief`.
 
 ## Query to source attribution
 
@@ -592,6 +596,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`restore_drills`](#restore_drills) | `read` | always |
 | [`review_grade`](#review_grade) | `read` | always |
 | [`review_scorecard`](#review_scorecard) | `read` | always |
+| [`check_pressure`](#check_pressure) | `read` | always |
 
 ### `get_policy`
 
@@ -1295,16 +1300,17 @@ Scope: `propose`
 
 ### `upgrade_readiness`
 
-Check the database for a major-version upgrade: tables logical replication cannot identify rows of, extensions against a target member, logical slots and subscriptions, data checksums against PG18's initdb default, collation versions and indexes to reindex, removed settings and dated support windows. Each check is pass, warn, block or unknown with up to 50 evidence rows. Read-only; it changes nothing.
+Check the database for a major-version upgrade: tables logical replication cannot identify rows of, extensions against a target member, logical slots and subscriptions, data checksums against PG18's initdb default, collation versions and indexes to reindex, removed settings and dated support windows. Each check is pass, warn, block or unknown with up to 50 evidence rows. Read-only on the database. With brief: true it returns the upgrade brief instead: blockers, extension path, slot and CDC plan, collation reindex list, cost of waiting and an ordered checklist (the upgrade itself stays with the operator); pg_sage keeps a changed brief in its own sage schema.
 
 Scope: `read`
 
 | Argument | Type | Required | Notes |
 |---|---|---|---|
+| `brief` | boolean | no | return the upgrade brief |
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `method` | string | no | default pg_upgrade; one of `pg_upgrade`, `blue_green`, `logical` |
 | `target_database` | string | no | a monitored database already at target_major to compare extensions against; length <= 63 |
-| `target_major` | integer | yes | the major to upgrade to (above the server's, at most the newest pg_sage knows); value >= 1 |
+| `target_major` | integer | no | the major to upgrade to (above the server's, at most the newest pg_sage knows); optional with brief; value >= 1 |
 
 ### `get_inbox`
 
@@ -1407,5 +1413,18 @@ Scope: `read`
 |---|---|---|---|
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `since` | string | no | Start of the window (RFC 3339); default the last 90 days; format date-time |
+
+### `check_pressure`
+
+Ask whether a backfill or bulk write should proceed, slow down or stop. Call it between batches: the answer is proceed, slow (halve the batch for each input in its slow band, with a suggested batch size and a sleep in seconds) or stop, with each input's value, limits and freshness: replica replay lag, transaction and multixact ID age against the freeze maximum, a vacuum on the target table, WAL bytes per second, the lock queue on the target table and free storage. Limits are the policy's pressure block, by default half of each alert threshold, so the signal comes before the alert. Answers are cached for 2 s per table. Read-only: it never acts on the database or the job.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `batch` | integer | no | the current batch size, for the suggested size; value >= 0 |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `job` | string | no | the job's name, echoed in the answer; length <= 128 |
+| `table` | string | no | the table the job writes, schema-qualified (resolved with to_regclass); length <= 260 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

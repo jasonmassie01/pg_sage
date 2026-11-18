@@ -85,7 +85,7 @@ type SREChangeEventsConfig struct {
 	HMACSecret                string   `yaml:"hmac_secret" secret:"true" doc:"Shared secret (at least 32 bytes) signing POST /api/v1/sre/change-events. Empty disables ingestion."`
 	TimestampToleranceSeconds int      `yaml:"timestamp_tolerance_seconds" doc:"Accepted signature clock skew, 30-3600. Default: 300."`
 	AllowedSources            []string `yaml:"allowed_sources" doc:"Sources allowed to submit events; empty allows any signed source."`
-	FeedEnabled               bool     `yaml:"feed_enabled" doc:"Poll pg_sage's own change sources (actions, config audit, DDL, statistics resets, restarts, failovers, extensions). Default: true."`
+	FeedEnabled               bool     `yaml:"feed_enabled" doc:"Poll pg_sage's own change sources (actions, config audit, DDL, statistics resets, extensions). Restarts, failovers, server version and host changes are polled even when off. Default: true."`
 	FeedIntervalSeconds       int      `yaml:"feed_interval_seconds" doc:"Seconds between change feed polls, 15-3600. Default: 60."`
 	RetentionDays             int      `yaml:"retention_days" doc:"Days change events are kept, 1-3650. Default: 90."`
 }

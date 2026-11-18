@@ -28,6 +28,10 @@ type Rates struct {
 	ProvisionedIOPS int
 	// VCPUs is the operator-declared count (0: from telemetry).
 	VCPUs int
+	// ExtendedSupportPerVCPUHour is the operator's extended-support price
+	// (drill-02a), set when HasExtendedSupport.
+	ExtendedSupportPerVCPUHour float64
+	HasExtendedSupport         bool
 }
 
 // RateSource finds the rates of a provider resource or, failing that, of
@@ -54,6 +58,10 @@ func NewConfigRates(c config.CostConfig) *ConfigRates {
 		r := Rates{Source: SourceConfig, Currency: e.Currency, AsOf: at,
 			ComputePerHour: e.ComputePerHourValue(), StorageGBMonth: e.StorageGBMonth,
 			IOPSMonth: e.IOPSMonth, ProvisionedIOPS: e.ProvisionedIOPS, VCPUs: e.VCPUs}
+		if e.ExtendedSupportPerVCPUHour != nil {
+			r.ExtendedSupportPerVCPUHour = *e.ExtendedSupportPerVCPUHour
+			r.HasExtendedSupport = true
+		}
 		if e.Resource != "" {
 			out.byResource[e.Resource] = r
 		} else {

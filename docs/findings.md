@@ -1557,3 +1557,109 @@ finding resolves.
 A check that cannot read (for example permission denied) is `unknown` with
 its SQLSTATE; the other checks still run. All reads run in one read-only
 REPEATABLE READ transaction under a statement timeout.
+
+### Upgrade brief
+
+`GET /api/v1/databases/{db}/upgrade-brief?target_major=&method=&target_database=`
+(or the MCP tool `upgrade_readiness` with `brief: true`) turns one readiness run
+into a dated plan for the database. `target_major` defaults to the newest
+community major pg_sage knows. The brief has:
+
+| Section | What it says |
+|---------|--------------|
+| `blockers` | Every check that blocks, plus `hypopg` on Azure for an in-place upgrade (Azure's precheck refuses it). `summary` is `no blockers found` when there are none; `unknown_checks` names checks that could not tell. |
+| `extension_path` | Each installed extension with the versions `target_database` offers and its path (carried, `ALTER EXTENSION ... UPDATE` after, or not offered), or `unknown` without a member at the target major. |
+| `slot_plan` | Each logical slot (with its consumer from a confirmed `slot_consumer` fact) and subscription, with its step: from below 17 via `pg_upgrade`, "drop and recreate after, consumer re-snapshots" or use blue/green. |
+| `collation_reindex` | Indexes on collations whose recorded version changed, and the U5 indexes an 18+ target folds case differently for, each a future `reindex_concurrently` step. |
+| `query_time_share` | The 50 busiest tables by their share of this database's `pg_stat_statements` total time (a statement counts toward each table it names), each with up to 5 of its statements. `unknown` without `pg_stat_statements`. It orders the ANALYZE after the upgrade. |
+| `cost_of_waiting` | On RDS, Aurora and Azure: months in extended support x vCPUs x 730 h x your `cost.rates[].extended_support_per_vcpu_hour` ([Configuration](configuration.md)), else `unpriced`; `not_applicable` elsewhere. `dba_hours` is always an estimate range with its formula. |
+| `checklist` | Ordered steps: resolve blockers, extension path, reindex plan, slot plan, rehearsal, the operator's cutover, post-upgrade steps. |
+
+A section whose read fails is `unknown` with its SQLSTATE. The brief only reads
+the monitored database; pg_sage keeps it in `sage.upgrade_briefs` only when it
+changed (`stored`, `brief_id`, and `stored_at`, the brief's age), so a resolved
+blocker adds a row and keeps the old one. `query_time_share` is not part of that
+comparison (it moves with every statement): a known share is refreshed on the
+latest row instead. The upgrade itself stays with the operator.
+
+#### Upgrade rehearsal
+
+Plans flip after a major upgrade because, before PG18, `pg_upgrade` does not
+carry the planner statistics. An upgrade rehearsal measures that on a clone,
+never on the monitored database:
+
+1. Read the database's top 50 statements by total time from production's
+   `pg_stat_statements` (queries only; `BEGIN`, `SET` and other utility
+   statements are left out) in a bounded read-only transaction.
+2. Create a clone under a receipt of purpose `rehearsal` (so the reaper
+   destroys it if pg_sage dies mid-rehearsal). A full-copy provider needs
+   `clone.allow_full_copy`, and the receipt carries the cost label, as for a
+   restore drill.
+3. Capture each statement's plan and shared blocks per call on the clone.
+   Only a statement `explain.ReadOnlyStatement` admits is sent to the clone, and
+   it is executed with `EXPLAIN (ANALYZE, BUFFERS)` only when the analyze guard
+   proves it read-only, in a READ ONLY rolled-back transaction under a 5 s
+   timeout. Any other statement is listed as `skipped` and never executed. A
+   statement with `$n` parameters is planned with `EXPLAIN (GENERIC_PLAN)` when
+   both majors are PG16 or later, else it is `not_comparable`.
+4. Upgrade the clone. Aurora and RDS upgrade the clone cluster or instance
+   (`ModifyDBCluster` / `ModifyDBInstance`, the newest engine version AWS offers
+   at the target major), and only when a live `rehearsal` receipt names it and it
+   is not the source. Neon cannot change a project's major, so a Neon rehearsal
+   is refused. A self-managed restore command upgrades it through the
+   operator's `upgrade_argv` (given `SAGE_CLONE_ID` and `SAGE_TARGET_MAJOR`).
+   The clone must then answer at the target major.
+5. Capture again with no `ANALYZE` ("as cut over"), run `ANALYZE` on the clone
+   (bounded at 30 minutes), capture a third time, and destroy the clone.
+
+The report (the brief's `rehearsal` section, carried onto later briefs of the
+same target) lists every statement whose plan fingerprint changed (`changed`,
+with `blocks_per_call_delta_as_cut_over` and `..._after_analyze`), the counts
+`plans_changed` and `recovered_after_analyze`, the statements not compared and
+why, each recorded state (`requested`, `cloned`, `upgraded`, `analyzed`,
+`destroyed`, or `failed` with the provider's message), and when the upgrade and
+`ANALYZE` ran and how long they took. One rehearsal runs per database at a time.
+Supabase branches hold no data, so they cannot rehearse; a database with no
+clone provider gets the brief only.
+
+The rehearsal is built into the sidecar but not yet exposed: no API route, MCP
+tool or `config.yaml` key starts one, and the restore command's `upgrade_argv`
+cannot be set from the configuration yet. Until that wiring lands, the brief
+carries a `rehearsal` section only when the sidecar's code stores one.
+
+#### After the upgrade
+
+When the change feed records a major version upgrade (the `server_version`
+source, `version_change` with `version:major:...`), pg_sage proposes one plan per
+database and new version (`origin_ref` `post_upgrade:<database>:<server_version_num>`;
+see [Plans](architecture.md)). It reads the change feed of the last 7 days on each
+executor cycle, on the fleet leader of a writable primary. The plan is proposed,
+never approved: a person approves it, and every step runs through the executor.
+
+1. `analyze_table`: one `ANALYZE` of every table pg_sage's role may analyze
+   (from PG17 the `MAINTAIN` privilege; before it ownership, the database owner or
+   a superuser), ordered by the stored brief's `query_time_share` (the latest brief
+   of the database, its target first), then the tables not in it by size, largest
+   first. `pg_stat_statements` starts empty after `pg_upgrade`, so the live view
+   cannot order it. Tables above `tuner.analyze_max_table_mb` (a partitioned
+   table counts its partitions) are left out, as the executor leaves its own
+   ANALYZE findings, and the statement stops at 10,000 characters; the tables left
+   out are operator text. On PostgreSQL 18 and later there is no ANALYZE step, with the reason
+   "statistics carried over" (extended statistics are not: ANALYZE the tables
+   that have them).
+2. `reindex_concurrently`: one `REINDEX INDEX CONCURRENTLY` per index in the
+   stored brief's `collation_reindex` whose collation version still differs on
+   the upgraded server, each after step 1.
+
+Each step cites its own open `post_upgrade` finding, targets the brief's
+statements on its tables (else the live top statements), and measures time per
+call. The executor judges an ANALYZE by the rows modified since the last one,
+which `pg_upgrade` resets, so an inconclusive or unverifiable verdict keeps the
+ANALYZE step and the plan moves on; a regression halts the plan and asks.
+What pg_sage cannot run is logged as an operator step instead: `vacuumdb
+--analyze-in-stages` when the role may not ANALYZE some tables or no target
+statement is known, `REINDEX INDEX CONCURRENTLY ...` for an index the role does
+not own or past the plan's 50 steps. If the plan cannot be stored, the failure is
+logged and the next cycle tries again. This needs the SRE change feed (the
+provider-event sources run even with `sre.change_events.feed_enabled: false`, but
+only where the SRE read policy lets the feed read the database).
