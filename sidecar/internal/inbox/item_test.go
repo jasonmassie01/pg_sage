@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/agentguard/grants"
 	"github.com/pg-sage/sidecar/internal/changeplan"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/store"
 )
 
 // Pure functions: no DB, no concurrency.
@@ -99,5 +101,34 @@ func TestPolicyItemWidening(t *testing.T) {
 	if it := policyItem("orders", p); it.Risk != RiskModerate ||
 		!strings.HasSuffix(it.Title, "by mcp:token:1") {
 		t.Fatalf("narrowing %+v", it)
+	}
+}
+
+// mcp-01b: an item an agent asked for carries the agent and the handle the
+// agent's wait_for_decision takes; an item nobody's agent raised has none.
+func TestAgentItemsCarryTheAgentAndHandle(t *testing.T) {
+	agent := "agp_aaaaaaaaaaaaaaaaaaaa"
+	p := policy.Proposal{ID: 42, Profile: "staffed", PrincipalID: agent}
+	if it := policyItem("orders", p); it.Agent != agent || it.Handle != "policy_exception:42" {
+		t.Fatalf("agent policy item = %+v", it)
+	}
+	p.PrincipalID = ""
+	if it := policyItem("orders", p); it.Agent != "" || it.Handle != "" {
+		t.Fatalf("a person's proposal names no agent: %+v", it)
+	}
+	queued := store.QueuedAction{ID: 7, ActionType: "analyze", PrincipalID: agent}
+	if it := changeApprovalItem("orders", queued); it.Agent != agent ||
+		it.Handle != "change_approval:7" || it.ID != "7" {
+		t.Fatalf("agent change approval = %+v", it)
+	}
+	queued.PrincipalID = ""
+	if it := changeApprovalItem("orders", queued); it.Agent != "" || it.Handle != "" {
+		t.Fatalf("pg_sage's own change approval names no agent: %+v", it)
+	}
+	req := grants.Request{ID: 4, PrincipalID: agent, Capability: "read",
+		DurationMinutes: 30}
+	if it := agentRequestItem("orders", req); it.Agent != agent ||
+		it.Handle != "agent_request:4" {
+		t.Fatalf("agent request = %+v", it)
 	}
 }

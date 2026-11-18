@@ -246,6 +246,11 @@ decision; a decision that queued an approval reports that approval's state. A ch
 policy check held back without an approval is `held` and final: nothing waits on a person
 (see `get_ledger`).
 
+In the dashboard's Inbox, an item an agent asked for (a change approval it queued, a
+capability request, a policy proposal) says "Asked by agent", links the agent's page where
+its requests are listed, and shows the handle the agent waits on; the item's Open link is
+the approval itself.
+
 ### Tool descriptions
 
 Every tool's description says when to use it ("Use when"), what it returns ("Returns") and
