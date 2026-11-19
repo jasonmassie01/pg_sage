@@ -162,12 +162,21 @@ func TestRehearsalMeasuresTheProductionWorkload(t *testing.T) {
 	table := lookupTable(t, pool, "lab04b_pgss", 200000)
 	other := lookupTable(t, pool, "lab04b_other", 10)
 	ctx := context.Background()
+	// The reader scans this database's top statements by total time: the
+	// package's earlier tests (every bootstrap's DDL among them) can push
+	// three cheap reads out of that window, so start from an empty view of
+	// this database (testdb.ResetStatements leaves other databases alone).
+	if _, err := testdb.ResetStatements(ctx, pool); err != nil {
+		t.Fatalf("reset this database's statements: %v", err)
+	}
 	var id int64
 	for range 3 {
-		_ = pool.QueryRow(ctx, "SELECT id FROM public.lab04b_pgss WHERE email = $1",
-			"u9").Scan(&id)
-		_ = pool.QueryRow(ctx, "SELECT id FROM public.lab04b_other WHERE email = $1",
-			"u9").Scan(&id)
+		for _, q := range []string{"SELECT id FROM public.lab04b_pgss WHERE email = $1",
+			"SELECT id FROM public.lab04b_other WHERE email = $1"} {
+			if err := pool.QueryRow(ctx, q, "u9").Scan(&id); err != nil {
+				t.Fatalf("%s: %v", q, err)
+			}
+		}
 	}
 	stmts, err := PostgresWorkload(pool)(ctx, table)
 	if err != nil {
