@@ -35,7 +35,7 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 	writeFleetBudgetMetrics(&b, fleetLLMBudget)
 	writeCollectorMetrics(&b, collectorStatuses(fleetMgr, coll, resolveDBName()))
-	writeLeaderMetrics(&b, fleetLeader, governanceElector.Load())
+	writeLeaderMetrics(&b, currentFleetLeader(), governanceElector.Load())
 
 	// Value lives in each monitored database (D3), so every database
 	// runtime refreshes its own ledger, never the meta pool's.

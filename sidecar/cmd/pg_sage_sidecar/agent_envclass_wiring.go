@@ -170,7 +170,7 @@ func agentGovernanceLeader(ctx context.Context, control,
 	fleetControl *pgxpool.Pool) governanceLeader {
 	if control == fleetControl || cfg.FleetLearning.LeaderLeaseSeconds <= 0 {
 		governanceElector.Store(nil)
-		return governanceLeader{elector: fleetLeader}
+		return governanceLeader{elector: currentFleetLeader()}
 	}
 	scope := "agents:" + fleetLearningScope(cfg)
 	e := leader.NewElector(leader.NewPostgresStore(control), scope, leader.HolderID(),

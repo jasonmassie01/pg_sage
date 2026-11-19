@@ -252,7 +252,7 @@ func closedPool(t *testing.T) *pgxpool.Pool {
 // previous result and counts the error on the scrape.
 func TestRunChainVerificationErrorKeepsPreviousResult(t *testing.T) {
 	preserveAuditFenceGlobals(t)
-	fleetLeader = nil
+	setFleetLeader(nil)
 	resetAuditHealth(t)
 	h := auditjob.DefaultHealth()
 	h.Record("orders", []auditchain.Report{{Chain: "action_log", VerifiedAt: auditT0}}, nil,
@@ -274,7 +274,7 @@ func TestRunChainVerificationErrorKeepsPreviousResult(t *testing.T) {
 // series; a sidecar that is not the leader exports no chain series at all.
 func TestRunChainVerificationRetainsSourcesAndFollowerExportsNothing(t *testing.T) {
 	preserveAuditFenceGlobals(t)
-	fleetLeader = nil
+	setFleetLeader(nil)
 	resetAuditHealth(t)
 	h := auditjob.DefaultHealth()
 	for _, db := range []string{"orders", "gone"} {
@@ -288,8 +288,8 @@ func TestRunChainVerificationRetainsSourcesAndFollowerExportsNothing(t *testing.
 			t.Fatalf("a removed database kept its chain series: %+v", c)
 		}
 	}
-	fleetLeader = leader.NewElector(stubLease{held: false}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: false}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	runChainVerification(context.Background(), []auditjob.Source{{Name: "orders",
 		Pool: closedPool(t)}})
 	if s := h.Snapshot(); len(s.Chains) != 0 || len(s.Errors) != 0 {

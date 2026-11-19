@@ -47,7 +47,7 @@ func (rt *databaseRuntime) startReviewTriggers() {
 	rt.start(func() {
 		defer trigger.Default.Unregister(rt.spec.Name, store)
 		everyAfter(rt.ctx, reviewTriggerFirst, reviewTriggerTick, func(ctx context.Context) {
-			if fleetLeader != nil && !fleetLeader.IsLeader() {
+			if !currentFleetLeader().IsLeader() {
 				return
 			}
 			if _, err := sched.Tick(ctx); err != nil && ctx.Err() == nil {
@@ -81,8 +81,8 @@ func (rt *databaseRuntime) reviewScheduler(store *trigger.Store) *trigger.Schedu
 // reviewTriggerOwner names this sidecar on its claims: the leader's holder
 // id when there is one, else host and process.
 func reviewTriggerOwner() string {
-	if fleetLeader != nil && fleetLeader.Holder() != "" {
-		return fleetLeader.Holder()
+	if el := currentFleetLeader(); el != nil && el.Holder() != "" {
+		return el.Holder()
 	}
 	host, _ := os.Hostname()
 	return fmt.Sprintf("%s:%d", host, os.Getpid())

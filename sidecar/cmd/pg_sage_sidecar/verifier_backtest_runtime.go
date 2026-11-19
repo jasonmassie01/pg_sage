@@ -26,7 +26,7 @@ func weeklyBacktest(cfg *config.Config, name string, pool *pgxpool.Pool,
 	run := backtestConfig(cfg, name, backtest.DefaultDays, cfg.Verify.BacktestPlacebos, 1,
 		nil)
 	return &backtest.Weekly{Config: run,
-		Leader:   func() bool { return fleetLeader == nil || fleetLeader.IsLeader() },
+		Leader:   func() bool { return currentFleetLeader().IsLeader() },
 		Withhold: withhold,
 		Latest: func(ctx context.Context) (backtest.Result, bool, error) {
 			return backtest.Latest(ctx, pool)

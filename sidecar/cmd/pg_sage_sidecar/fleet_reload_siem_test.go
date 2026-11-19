@@ -70,10 +70,10 @@ func TestFleetReloadKeepsSIEMFence(t *testing.T) {
 	env := newFleetReloadEnv(t, "ctl", "b")
 	control := fleetMgr.GetInstance("ctl").Pool
 	scope := fleetLearningScope(cfg)
-	fleetLeader = leader.NewElector(leader.NewPostgresStore(control), scope,
-		"reload-holder", time.Minute)
-	if err := fleetLeader.Tick(ctx); err != nil || !fleetLeader.IsLeader() {
-		t.Fatalf("take the lease: %v (leader %v)", err, fleetLeader.IsLeader())
+	setFleetLeader(leader.NewElector(leader.NewPostgresStore(control), scope,
+		"reload-holder", time.Minute))
+	if err := currentFleetLeader().Tick(ctx); err != nil || !currentFleetLeader().IsLeader() {
+		t.Fatalf("take the lease: %v (leader %v)", err, currentFleetLeader().IsLeader())
 	}
 	sink := &recordingSink{}
 	exp := reloadSIEMExporter(control, sink)

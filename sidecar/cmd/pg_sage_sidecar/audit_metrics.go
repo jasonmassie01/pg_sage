@@ -27,7 +27,7 @@ func writeAuditHealthFamilies(b *strings.Builder) {
 // recorded as leader until its next scheduled run drops it, up to
 // audit.verify_interval_hours later; until then it is going stale.
 func auditHealthSnapshot() auditjob.HealthSnapshot {
-	if !fleetLeader.IsLeader() {
+	if !currentFleetLeader().IsLeader() {
 		return auditjob.HealthSnapshot{}
 	}
 	return auditjob.DefaultHealth().Snapshot()
@@ -123,7 +123,7 @@ func sinkLabel(name string) []labelPair { return []labelPair{{"sink", name}} }
 // one, and on a fleet follower, whose exporter does not pass and keeps
 // the lanes of its last pass as leader.
 func siemSinkStatuses() []siem.SinkStatus {
-	if !fleetLeader.IsLeader() {
+	if !currentFleetLeader().IsLeader() {
 		return nil
 	}
 	if e := auditExport.Load(); e != nil {

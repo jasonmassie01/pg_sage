@@ -161,22 +161,22 @@ func TestCloneReapPassRunsOnTheLeaderOnly(t *testing.T) {
 	pool := reaperPool(t)
 	adapter := &reaperAdapter{}
 	crashed := crashedRehearsal(t, pool, adapter)
-	old := fleetLeader
-	t.Cleanup(func() { fleetLeader = old })
+	old := currentFleetLeader()
+	t.Cleanup(func() { setFleetLeader(old) })
 	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "live", Pool: pool,
 		Config: config.DatabaseConfig{Name: "live"}, Status: &fleet.InstanceStatus{}})
 	c := &config.Config{Clone: reaperCloneConfig}
 
-	fleetLeader = leader.NewElector(stubLease{held: false}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: false}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	if n := cloneReapPass(context.Background(), c, reaperCloneConfig, mgr, nil,
 		adapter); n != 0 ||
 		len(adapter.destroyed) != 0 {
 		t.Fatalf("a follower reaped %d databases: %v", n, adapter.destroyed)
 	}
-	fleetLeader = leader.NewElector(stubLease{held: true}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: true}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	if n := cloneReapPass(context.Background(), c, reaperCloneConfig, mgr, nil,
 		adapter); n != 1 ||
 		len(adapter.destroyed) != 1 || adapter.destroyed[0] != crashed.ID {
@@ -193,16 +193,16 @@ func TestCloneReapPassUsesItsStartupCloneConfig(t *testing.T) {
 	pool := reaperPool(t)
 	adapter := &reaperAdapter{}
 	crashed := crashedRehearsal(t, pool, adapter)
-	old := fleetLeader
-	t.Cleanup(func() { fleetLeader = old })
+	old := currentFleetLeader()
+	t.Cleanup(func() { setFleetLeader(old) })
 	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "live", Pool: pool,
 		Config: config.DatabaseConfig{Name: "live"}, Status: &fleet.InstanceStatus{}})
 	reloaded := reaperCloneConfig
 	reloaded.DLEEndpoint = "https://dle-other.invalid:2345"
 	c := &config.Config{Clone: reloaded}
-	fleetLeader = leader.NewElector(stubLease{held: true}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: true}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 
 	if n := cloneReapPass(context.Background(), c, reaperCloneConfig, mgr, nil,
 		adapter); n != 1 || len(adapter.destroyed) != 1 || adapter.destroyed[0] != crashed.ID {

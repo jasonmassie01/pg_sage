@@ -118,7 +118,7 @@ func TestHandleMetrics_IncludesLeaderSeries(t *testing.T) {
 	fleetMgr, pool = nil, nil
 	cfg = &config.Config{Mode: "fleet", MetaDB: "postgres://meta"}
 	clk := &fixedClock{t: time.Unix(1_700_000_000, 0)}
-	fleetLeader = tickedElector(t, stubLease{held: true}, "meta", clk)
+	setFleetLeader(tickedElector(t, stubLease{held: true}, "meta", clk))
 	rec := httptest.NewRecorder()
 	handleMetrics(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	if !strings.Contains(rec.Body.String(), "pg_sage_leader{scope=\"meta\"} 1\n") {

@@ -42,7 +42,7 @@ func (fleetLearningAPI) LookAlikes(ctx context.Context, database string) (any, e
 	return svc.LookAlikes(ctx, database)
 }
 
-func (fleetLearningAPI) LeaderStatus() any { return fleetLeader.Status() }
+func (fleetLearningAPI) LeaderStatus() any { return currentFleetLeader().Status() }
 
 // fleetFindingsMCP serves fleet_findings over the fleet, restricted to the
 // databases the caller may see.

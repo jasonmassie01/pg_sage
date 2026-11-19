@@ -18,12 +18,12 @@ func TestGovernanceFenceSharesTheFleetLeaderScope(t *testing.T) {
 	cfg = yamlFleetConfig("a", "b")
 	cfg.FleetLearning.LeaderLeaseSeconds = 30
 	scope := fleetLearningScope(cfg)
-	fleetLeader = leader.NewElector(stubLease{held: true}, scope, "me", time.Minute)
-	if err := fleetLeader.Tick(context.Background()); err != nil {
+	setFleetLeader(leader.NewElector(stubLease{held: true}, scope, "me", time.Minute))
+	if err := currentFleetLeader().Tick(context.Background()); err != nil {
 		t.Fatalf("tick: %v", err)
 	}
 	g := agentGovernanceLeader(context.Background(), nil, nil)
-	if g.elector != fleetLeader {
+	if g.elector != currentFleetLeader() {
 		t.Fatal("a shared control pool must reuse the fleet leader's elector")
 	}
 	cfg = yamlFleetConfig("a", "b", "c")
@@ -42,7 +42,7 @@ func TestGovernanceFenceOwnElectorScope(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	g := agentGovernanceLeader(ctx, lazyPool(t, "gov"), lazyPool(t, "fleet"))
-	if g.elector == nil || g.elector == fleetLeader {
+	if g.elector == nil || g.elector == currentFleetLeader() {
 		t.Fatal("a separate control pool needs its own elector")
 	}
 	if got := g.elector.Status().Scope; got != "agents:meta" {

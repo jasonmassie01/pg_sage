@@ -25,7 +25,7 @@ func startSprawlCensus(census *fleet.CensusDB) {
 		Holder:   clone.ProcessHolder(),
 		Rates:    rates,
 		Measure:  fleet.NewCensusMeasure(fleetMgr.GetInstance, census, time.Now),
-		IsLeader: func() bool { return fleetLeader == nil || fleetLeader.IsLeader() },
+		IsLeader: func() bool { return currentFleetLeader().IsLeader() },
 		Logf: func(level, format string, args ...any) {
 			logStructured(level, "census", format, args...)
 		},

@@ -29,7 +29,7 @@ func TestFormerLeaderExportsNoAuditHealth(t *testing.T) {
 		[]siem.SinkConfig{{Sink: siem.NewHTTPSink("soc", "https://x.invalid", "", time.Second,
 			nil)}}, nil, siem.Options{}, func() (siem.Fence, bool) { return siem.Fence{}, false },
 		nil))
-	fleetLeader = nil
+	setFleetLeader(nil)
 	auditjob.DefaultHealth().Record("orders", []auditchain.Report{{Chain: "action_log",
 		VerifiedAt: auditT0}}, nil, auditT0)
 	if s := auditHealthSnapshot(); len(s.Chains) != 1 || s.VerifiedAt == nil {
@@ -39,8 +39,8 @@ func TestFormerLeaderExportsNoAuditHealth(t *testing.T) {
 		t.Fatalf("leader sink statuses = %+v, want soc", got)
 	}
 
-	fleetLeader = leader.NewElector(stubLease{held: false}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: false}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	if s := auditHealthSnapshot(); len(s.Chains) != 0 || s.VerifiedAt != nil {
 		t.Fatalf("follower snapshot = %+v, want empty", s)
 	}

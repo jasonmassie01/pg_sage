@@ -85,15 +85,15 @@ func bootstrapped(t *testing.T, label string) *pgxpool.Pool {
 
 func TestRunFleetLearningCycle_StandaloneIdlesAndLogsOnce(t *testing.T) {
 	db := bootstrapped(t, "fl_idle_db")
-	prevSvc, prevLeader := fleetLearning, fleetLeader
-	t.Cleanup(func() { fleetLearning, fleetLeader = prevSvc, prevLeader })
+	prevSvc, prevLeader := fleetLearning, currentFleetLeader()
+	t.Cleanup(func() { fleetLearning = prevSvc; setFleetLeader(prevLeader) })
 	std := &config.Config{Mode: "standalone"}
 	std.Postgres.Database = "app"
 	mgr := fleet.NewManager(std)
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "app", Pool: db,
 		Status: &fleet.InstanceStatus{}})
 	// Standalone: the monitored database is also the control database.
-	fleetLeader = nil
+	setFleetLeader(nil)
 	fleetLearning = fleetlearn.NewService(fleetlearn.NewStore(db, fleetLearningScope(std)),
 		fleetLearningSources(mgr), fleetlearn.Settings{}, logStructuredWrapper)
 	logs := captureStderr(t, func() {

@@ -15,16 +15,12 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/fleetlearn"
-	"github.com/pg-sage/sidecar/internal/leader"
 )
 
-// Fleet learning runtime (roadmap phase 3). fleetLeader is nil when
-// election is disabled (every sidecar runs fleet-wide jobs); fleetLearning
-// is nil when fleet learning is off or there is no control database.
-var (
-	fleetLeader   *leader.Elector
-	fleetLearning *fleetlearn.Service
-)
+// Fleet learning runtime (roadmap phase 3). fleetLearning is nil when
+// fleet learning is off or there is no control database; the fleet's
+// elector is currentFleetLeader (fleet_leader.go).
+var fleetLearning *fleetlearn.Service
 
 // needInterval is how often the fleet LLM budget is re-split by need.
 const needInterval = 5 * time.Minute
@@ -75,7 +71,7 @@ var followerNoted sync.Map
 // fleetLeaderAllows reports whether this sidecar may run the fleet-wide
 // job now; a follower skips it.
 func fleetLeaderAllows(job string) bool {
-	if fleetLeader.IsLeader() {
+	if currentFleetLeader().IsLeader() {
 		return true
 	}
 	if _, seen := followerNoted.LoadOrStore(job, true); !seen {
@@ -118,7 +114,7 @@ func startFleetLearning(ctx context.Context, control *pgxpool.Pool,
 	fl := cfg.FleetLearning
 	scope := fleetLearningScope(cfg)
 	if fl.LeaderLeaseSeconds > 0 {
-		fleetLeader = startFleetElector(ctx, control, mgr, scope) // fleet_control.go
+		setFleetLeader(startFleetElector(ctx, control, mgr, scope)) // fleet_control.go
 	}
 	if fl.Enabled {
 		fleetLearning = fleetlearn.NewService(fleetlearn.NewStore(control, scope),
@@ -156,8 +152,8 @@ func runFleetLearningCycle(ctx context.Context) {
 	fleetLearningCycleMu.Lock()
 	defer fleetLearningCycleMu.Unlock()
 	fence := fleetlearn.Fence{}
-	if fleetLeader != nil {
-		tok, ok := fleetLeader.Fence()
+	if el := currentFleetLeader(); el != nil {
+		tok, ok := el.Fence()
 		if !ok {
 			return
 		}

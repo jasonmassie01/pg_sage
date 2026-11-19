@@ -103,9 +103,10 @@ func TestSIEMStatusFunc(t *testing.T) {
 // preserveAuditFenceGlobals restores cfg and fleetLeader after a test.
 func preserveAuditFenceGlobals(t *testing.T) {
 	t.Helper()
-	oldCfg, oldLeader, oldGov := cfg, fleetLeader, governanceElector.Load()
+	oldCfg, oldLeader, oldGov := cfg, currentFleetLeader(), governanceElector.Load()
 	t.Cleanup(func() {
-		cfg, fleetLeader = oldCfg, oldLeader
+		cfg = oldCfg
+		setFleetLeader(oldLeader)
 		governanceElector.Store(oldGov)
 	})
 }
@@ -125,8 +126,8 @@ func TestAuditLeaderFenceKeepsTheLeaseScopeAcrossPublish(t *testing.T) {
 	preserveAuditFenceGlobals(t)
 	cfg = yamlFleetConfig("a", "b")
 	scope := fleetLearningScope(cfg)
-	fleetLeader = leader.NewElector(stubLease{held: true}, scope, "me", time.Minute)
-	if err := fleetLeader.Tick(context.Background()); err != nil {
+	setFleetLeader(leader.NewElector(stubLease{held: true}, scope, "me", time.Minute))
+	if err := currentFleetLeader().Tick(context.Background()); err != nil {
 		t.Fatalf("tick: %v", err)
 	}
 	want := siem.Fence{Scope: scope, Holder: "me", Epoch: 1}
@@ -158,18 +159,18 @@ func TestAuditLeaderFenceKeepsTheLeaseScopeAcrossPublish(t *testing.T) {
 func TestAuditLeaderFenceDisabledAndFollower(t *testing.T) {
 	preserveAuditFenceGlobals(t)
 	cfg = yamlFleetConfig("a")
-	fleetLeader = nil
+	setFleetLeader(nil)
 	if f, ok := auditLeaderFence(); !ok || f != (siem.Fence{}) {
 		t.Fatalf("election disabled: fence = %+v,%v, want unfenced pass", f, ok)
 	}
-	fleetLeader = leader.NewElector(stubLease{held: false}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: false}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	if f, ok := auditLeaderFence(); ok || f != (siem.Fence{}) {
 		t.Fatalf("follower: fence = %+v,%v, want no pass", f, ok)
 	}
 	cfg = nil
-	fleetLeader = leader.NewElector(stubLease{held: true}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: true}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	want := siem.Fence{Scope: "s", Holder: "me", Epoch: 1}
 	if f, ok := auditLeaderFence(); !ok || f != want {
 		t.Fatalf("nil config: fence = %+v,%v, want %+v", f, ok, want)

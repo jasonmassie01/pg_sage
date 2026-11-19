@@ -98,9 +98,9 @@ func TestAgentEnvironmentServiceWithoutControl(t *testing.T) {
 }
 
 func TestGovernanceLeaderFence(t *testing.T) {
-	old := fleetLeader
-	fleetLeader = nil
-	t.Cleanup(func() { fleetLeader = old })
+	old := currentFleetLeader()
+	setFleetLeader(nil)
+	t.Cleanup(func() { setFleetLeader(old) })
 	f, ok := governanceLeader{}.fence("test job")
 	if !ok || f.Holder != "" {
 		t.Fatalf("no election: run unfenced: %+v %v", f, ok)

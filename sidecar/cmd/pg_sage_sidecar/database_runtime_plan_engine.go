@@ -34,11 +34,11 @@ func (rt *databaseRuntime) buildPlanEngine() planTicker {
 	}
 	caps := rt.planCaps()
 	v2, window := rt.executor.OperatorVerification()
-	owner, lease := planClaim(fleetLeader)
+	owner, lease := planClaim(currentFleetLeader())
 	engine, err := changeplan.NewEngine(changeplan.EngineConfig{Pool: rt.spec.Pool,
 		Executor: rt.executor, Waits: rt.executor.VerificationWaits(),
 		Verdicts: changeplan.NewDBVerdicts(rt.spec.Pool), Notify: dispatch,
-		Leader: func() bool { return fleetLeader == nil || fleetLeader.IsLeader() },
+		Leader: func() bool { return currentFleetLeader().IsLeader() },
 		Owner:  owner, Lease: lease, Database: rt.spec.Name, LogFn: logStructuredWrapper,
 		Caps: caps, Operator: changeplan.NewOperatorJudge(&v2, window)})
 	if err != nil {

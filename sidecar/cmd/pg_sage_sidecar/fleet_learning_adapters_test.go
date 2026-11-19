@@ -60,9 +60,10 @@ func TestFleetFindingsMCPRestrictsToPermittedDatabases(t *testing.T) {
 }
 
 func TestFleetLearningAdaptersWithoutAService(t *testing.T) {
-	prevSvc, prevLeader := fleetLearning, fleetLeader
-	t.Cleanup(func() { fleetLearning, fleetLeader = prevSvc, prevLeader })
-	fleetLearning, fleetLeader = nil, nil
+	prevSvc, prevLeader := fleetLearning, currentFleetLeader()
+	t.Cleanup(func() { fleetLearning = prevSvc; setFleetLeader(prevLeader) })
+	fleetLearning = nil
+	setFleetLeader(nil)
 	p, err := fleetPriorSource{}.LookalikePrior(context.Background(), "a", "guc", nil)
 	if p != nil || err != nil {
 		t.Fatalf("no service: prior %+v err %v, want none", p, err)

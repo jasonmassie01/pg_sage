@@ -208,10 +208,11 @@ func auditLeaderFence() (siem.Fence, bool) {
 	if !fleetLeaderAllows("SIEM export") {
 		return siem.Fence{}, false
 	}
-	if fleetLeader == nil {
+	el := currentFleetLeader()
+	if el == nil {
 		return siem.Fence{}, true
 	}
-	tok, ok := fleetLeader.Fence()
+	tok, ok := el.Fence()
 	if !ok {
 		return siem.Fence{}, false
 	}

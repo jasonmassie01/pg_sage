@@ -31,10 +31,10 @@ func drillWiringFixture(t *testing.T) (*fleet.DatabaseManager, func()) {
 	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "live", Pool: pool,
 		Config: config.DatabaseConfig{Name: "live"}, Status: &fleet.InstanceStatus{}})
-	old := fleetLeader
-	fleetLeader = leader.NewElector(stubLease{held: true}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(ctx)
-	return mgr, func() { fleetLeader = old }
+	old := currentFleetLeader()
+	setFleetLeader(leader.NewElector(stubLease{held: true}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(ctx)
+	return mgr, func() { setFleetLeader(old) }
 }
 
 func TestRestoreDrillPassWithoutAProviderOpensRecoverabilityUnknown(t *testing.T) {
@@ -98,10 +98,10 @@ func TestRestoreDrillPassRecordsAFailedCreateAndPagesCritical(t *testing.T) {
 }
 
 func TestRestoreDrillPassRunsOnTheLeaderOnly(t *testing.T) {
-	old := fleetLeader
-	defer func() { fleetLeader = old }()
-	fleetLeader = leader.NewElector(stubLease{held: false}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	old := currentFleetLeader()
+	defer func() { setFleetLeader(old) }()
+	setFleetLeader(leader.NewElector(stubLease{held: false}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	mgr, _ := managerWith(t, "app")
 	c := config.DefaultConfig()
 	if got := restoreDrillPass(context.Background(), c, c.Clone, mgr, nil,

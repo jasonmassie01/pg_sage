@@ -78,7 +78,7 @@ func (rt *databaseRuntime) buildExecutor() {
 		WithActionPool(rt.spec.ActionPool)
 	ex.WithAnalyzeSemaphore(ensureAnalyzeSemaphore())
 	// A role's connection limit is cluster-wide: only the fleet leader sets it.
-	ex.WithLeaderCheck(func() bool { return fleetLeader == nil || fleetLeader.IsLeader() })
+	ex.WithLeaderCheck(func() bool { return currentFleetLeader().IsLeader() })
 	rt.azureParams = installAzureManagedConfig(ex,
 		azureTargetConfig(cfg, rt.spec.Config.CloudResource.Azure), rt.provider,
 		rt.spec.Pool.Config().ConnConfig.Host, rt.spec.Scope)

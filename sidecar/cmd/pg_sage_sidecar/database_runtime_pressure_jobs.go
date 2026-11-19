@@ -87,7 +87,7 @@ type pressureTicker interface {
 
 // mayPropose: only the fleet leader on a writable primary proposes.
 func (rt *databaseRuntime) mayPropose() bool {
-	if fleetLeader != nil && !fleetLeader.IsLeader() {
+	if !currentFleetLeader().IsLeader() {
 		return false
 	}
 	return rt.ha == nil || !haNotWritable(rt.ha)

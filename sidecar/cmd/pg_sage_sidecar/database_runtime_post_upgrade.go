@@ -51,7 +51,7 @@ func (rt *databaseRuntime) withPostUpgrade(engine planTicker) planTicker {
 	}
 	rt.note("post_upgrade_plans")
 	return postUpgradeTicker{name: rt.spec.Name, producer: producer, next: engine,
-		leader: func() bool { return fleetLeader == nil || fleetLeader.IsLeader() }}
+		leader: func() bool { return currentFleetLeader().IsLeader() }}
 }
 
 // analyzeMaxTableBytes is the executor's ANALYZE size bound
