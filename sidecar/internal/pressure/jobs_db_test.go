@@ -72,7 +72,8 @@ func TestPressureJobStore_RegisterReRegisterEndAndExpire(t *testing.T) {
 		t.Fatalf("end from another database = %v, want ErrJobNotFound", err)
 	}
 	ended, err := s.End(ctx, "orders", j.ID)
-	if err != nil || ended.ExpiresAt.After(time.Now().Add(time.Second)) {
+	// End stamps the server's clock: compare on it (testdb.DBNow), not the host's.
+	if err != nil || ended.ExpiresAt.After(testdb.MustDBNow(t, pool).Add(time.Second)) {
 		t.Fatalf("end = %+v, %v", ended, err)
 	}
 	if active, _ = s.Active(ctx, "orders"); hasJob(active, j.ID) {
