@@ -33,14 +33,15 @@ func neverWidenSlots() []walSlot {
 
 func TestWALProviderCapacityNeverWidens(t *testing.T) {
 	ctx := context.Background()
+	pool := requireAutonomyDB(t) // one pool: 96 custodians would hold 96 connections
 	capacities := []int64{40 * gib, 100 * gib, 1000 * gib}
 	for _, slot := range neverWidenSlots() {
-		without, err := diskCustodian(t, nil).proposeFor(ctx, []walSlot{slot})
+		without, err := diskCustodianOn(pool, nil).proposeFor(ctx, []walSlot{slot})
 		if err != nil {
 			t.Fatalf("%s without capacity: %v", slot.name, err)
 		}
 		for _, capacity := range capacities {
-			with, err := diskCustodian(t, &fakeDisk{bytes: capacity}).proposeFor(ctx,
+			with, err := diskCustodianOn(pool, &fakeDisk{bytes: capacity}).proposeFor(ctx,
 				[]walSlot{slot})
 			if err != nil {
 				t.Fatalf("%s with %d GiB: %v", slot.name, capacity/gib, err)
@@ -55,12 +56,13 @@ func TestWALProviderCapacityNeverWidens(t *testing.T) {
 // at most once, and with the same size whenever both scans propose it.
 func TestWALProviderCapacityNeverWidensAcrossSlots(t *testing.T) {
 	ctx := context.Background()
+	pool := requireAutonomyDB(t)
 	slots := neverWidenSlots()
-	without, err := diskCustodian(t, nil).proposeFor(ctx, slots)
+	without, err := diskCustodianOn(pool, nil).proposeFor(ctx, slots)
 	if err != nil {
 		t.Fatal(err)
 	}
-	with, err := diskCustodian(t, &fakeDisk{bytes: 1000 * gib}).proposeFor(ctx, slots)
+	with, err := diskCustodianOn(pool, &fakeDisk{bytes: 1000 * gib}).proposeFor(ctx, slots)
 	if err != nil {
 		t.Fatal(err)
 	}

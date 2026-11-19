@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // clouds-07: provider storage capacity (cloudtel) is the denominator of
@@ -37,7 +39,14 @@ func (d *fakeDisk) CapacityBytes(ctx context.Context) (int64, error) {
 // slot retaining 30 GiB crosses only the disk ceiling of a 100 GiB disk.
 func diskCustodian(t *testing.T, disk DiskCapacityProvider) *PostgresWALCustodian {
 	t.Helper()
-	return NewPostgresWALCustodian(requireAutonomyDB(t), "testdb", PostgresWALOptions{
+	return diskCustodianOn(requireAutonomyDB(t), disk)
+}
+
+// diskCustodianOn is diskCustodian on a pool the test already holds: each
+// requireAutonomyDB opens a pool that stays connected until the test
+// ends, so a test building many custodians shares one.
+func diskCustodianOn(pool *pgxpool.Pool, disk DiskCapacityProvider) *PostgresWALCustodian {
+	return NewPostgresWALCustodian(pool, "testdb", PostgresWALOptions{
 		DiskPctCeiling: 25, RetainedBytesLimit: 40 * gib, Disk: disk,
 	})
 }
