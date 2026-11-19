@@ -97,7 +97,7 @@ func initFleetMultiDB() {
 	registerFleetDatabasesOwner(boot)
 	// fleet-10: the control database is known only once one connected.
 	startLLMUsageLedger(boot.controlPool)
-	startPolicyExceptionSweep(boot.controlPool) // fleetpol-01a
+	startPolicyExceptionSweep(shutdownCtx, boot.controlPool) // fleetpol-01a
 	// Register fleet databases in sage.databases for config API.
 	if boot.controlPool != nil {
 		registerFleetDatabases(boot.controlPool)

@@ -16,8 +16,8 @@ import (
 const policyExceptionSweepInterval = time.Minute
 
 // startPolicyExceptionSweep reverts expired exceptions in the control
-// database every minute until shutdown.
-func startPolicyExceptionSweep(control *pgxpool.Pool) {
+// database every minute until ctx (the process shutdown context) ends.
+func startPolicyExceptionSweep(ctx context.Context, control *pgxpool.Pool) {
 	if control == nil {
 		return
 	}
@@ -27,10 +27,10 @@ func startPolicyExceptionSweep(control *pgxpool.Pool) {
 		defer ticker.Stop()
 		for {
 			select {
-			case <-shutdownCtx.Done():
+			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				sweepPolicyExceptions(shutdownCtx, store)
+				sweepPolicyExceptions(ctx, store)
 			}
 		}
 	}()
