@@ -186,14 +186,14 @@ func TestClusterSource_ExcludesTemplatesAndTheMember(t *testing.T) {
 // cycle and is enrolled at observation; it then goes gone when dropped.
 // Trust is still observation after 10 cycles.
 func TestRunner_CreateDatabaseAppearsOnNextCycle(t *testing.T) {
-	env := requireLive(t)
+	env := requireExclusiveLive(t, enrolCapsReason)
 	members := &liveMembers{env: env}
 	r := env.clusterRunner(t, members)
 	first := r.Cycle(env.ctx)
 	if first.Sources["cluster"].Err != nil {
 		t.Fatalf("first cycle: %v", first.Sources["cluster"].Err)
 	}
-	name := dbName(t, testdb.CreateDatabase(t, "disc_new"))
+	name := dbName(t, testdb.ExclusiveDatabase(t, "disc_new"))
 	rep := r.Cycle(env.ctx)
 	if rep.Sources["cluster"].New < 1 {
 		t.Fatalf("new database not discovered: %+v", rep.Sources["cluster"])
@@ -227,8 +227,8 @@ func TestRunner_CreateDatabaseAppearsOnNextCycle(t *testing.T) {
 // Concurrency: two sidecars running cycles at once make no duplicate rows
 // and enrol each database once.
 func TestRunner_TwoSidecarsNoDuplicates(t *testing.T) {
-	env := requireLive(t)
-	name := dbName(t, testdb.CreateDatabase(t, "disc_dup"))
+	env := requireExclusiveLive(t, enrolCapsReason)
+	name := dbName(t, testdb.ExclusiveDatabase(t, "disc_dup"))
 	r1 := env.clusterRunner(t, &liveMembers{env: env})
 	r2 := env.clusterRunner(t, &liveMembers{env: env})
 	var wg sync.WaitGroup
