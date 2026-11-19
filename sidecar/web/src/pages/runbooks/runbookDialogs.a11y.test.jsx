@@ -120,3 +120,22 @@ describe('Runbook dialogs: a refused or running write', () => {
     expect(write).toHaveBeenCalledTimes(2)
   })
 })
+
+// ux-12 review: signing makes a version runnable, so the dialog opens on
+// Cancel (as ConfirmDialog does), never on Sign: the Enter that opened it,
+// pressed again, must not sign.
+describe('Runbook sign dialog: initial focus', () => {
+  it('opens with focus on Cancel, and Enter there cancels without signing', () => {
+    const write = vi.fn(async () => null)
+    render(<Harness write={write} />)
+    const opener = open('runbook-sign')
+    const dialog = screen.getByRole('dialog', { name: 'Sign runbook' })
+    const cancel = within(dialog).getByRole('button', { name: 'Cancel' })
+    expect(cancel).toHaveFocus()
+    expect(screen.getByTestId('runbook-sign-confirm')).not.toHaveFocus()
+    fireEvent.click(document.activeElement)
+    expect(screen.queryByTestId('runbook-sign-dialog')).toBeNull()
+    expect(write).not.toHaveBeenCalled()
+    expect(opener).toHaveFocus()
+  })
+})

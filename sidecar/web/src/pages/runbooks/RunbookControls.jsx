@@ -108,8 +108,9 @@ export function SignDialog({ rb, onSign, onCancel }) {
           className="rounded px-2 py-1" disabled={busy} aria-busy={busy} onClick={send}>
           Sign
         </button>
+        {/* Focus opens on Cancel, as in ConfirmDialog: a repeated Enter must not sign. */}
         <button type="button" style={button} className="rounded px-2 py-1"
-          disabled={busy} onClick={onCancel}>
+          data-autofocus disabled={busy} onClick={onCancel}>
           Cancel
         </button>
       </div>
