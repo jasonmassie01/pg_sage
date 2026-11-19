@@ -31,7 +31,7 @@ func commandReceipting(t *testing.T, inner Provider, store *ReceiptStore) *Recei
 // database on the second test cluster.
 func secondClusterCommand(t *testing.T, mode string) (CommandConfig, string) {
 	t.Helper()
-	dsn := testdb.CreateDatabaseOnSecondCluster(t, "drill_cmd")
+	dsn := testdb.RestoreTargetDatabase(t, "drill_cmd")
 	cfg := commandConfig(t, mode)
 	cfg.LookupEnv = func(name string) (string, bool) {
 		if name == restorecmd.EnvDSN {

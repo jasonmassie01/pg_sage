@@ -107,7 +107,7 @@ type drillRig struct {
 func newRig(t *testing.T, seed string, sage bool, markerGap time.Duration) *drillRig {
 	t.Helper()
 	control := controlPool(t)
-	cloneDSN := testdb.CreateDatabaseOnSecondCluster(t, "drill_clone")
+	cloneDSN := testdb.RestoreTargetDatabase(t, "drill_clone")
 	sourceDSN := testdb.CreateDatabase(t, "drill_source")
 	r := &drillRig{control: control, source: openPool(t, sourceDSN),
 		clone: openPool(t, cloneDSN), cloneDSN: cloneDSN,

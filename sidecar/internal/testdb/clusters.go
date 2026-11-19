@@ -41,6 +41,23 @@ func CreateDatabaseOnSecondCluster(t testing.TB, label string) string {
 	return dsn
 }
 
+// RestoreTargetDatabase is a disposable database on a cluster other than
+// the designated one, for a restore or clone target (drill-01): the
+// second test server when SecondClusterEnvName is set, else a fresh
+// database on the exclusive server, which t then holds (Exclusive). CI
+// provides the exclusive server but no second one, so the restore drill's
+// database tests run there instead of skipping.
+func RestoreTargetDatabase(t testing.TB, label string) string {
+	t.Helper()
+	if strings.TrimSpace(os.Getenv(SecondClusterEnvName)) != "" {
+		return CreateDatabaseOnSecondCluster(t, label)
+	}
+	if _, held := exclusiveHolders.Load(t); held {
+		return ExclusiveDatabase(t, label)
+	}
+	return Exclusive(t, "a restore target on a cluster other than the source")
+}
+
 // ReplicaDSN is the streaming replica of the designated test server. It
 // skips when none is configured.
 func ReplicaDSN(t testing.TB) string {
