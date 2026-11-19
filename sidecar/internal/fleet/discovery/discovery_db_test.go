@@ -38,7 +38,19 @@ type liveEnv struct {
 
 func requireLive(t *testing.T) liveEnv {
 	t.Helper()
-	raw := testdb.SkipUnlessLive(t)
+	return requireLiveOn(t, testdb.SkipUnlessLive(t))
+}
+
+// requireExclusiveLive is requireLive on the exclusive server, for a test
+// whose cycle lists every database of the cluster: on the shared server
+// other packages' databases fill the per-cycle enrolment caps.
+func requireExclusiveLive(t *testing.T, reason string) liveEnv {
+	t.Helper()
+	return requireLiveOn(t, testdb.Exclusive(t, reason))
+}
+
+func requireLiveOn(t *testing.T, raw string) liveEnv {
+	t.Helper()
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, raw)
 	if err != nil {

@@ -46,6 +46,10 @@ func (g *instantGrades) Grades(_ context.Context, member string) ([]Grade, error
 	return g.grades[member], nil
 }
 
+// enrolCapsReason: a cycle lists every database of the cluster, and other
+// packages' databases on the shared server would fill the per-cycle caps.
+const enrolCapsReason = "the enrolment cycle lists every database of the cluster"
+
 func setAgentEnrollment(t *testing.T, env liveEnv) {
 	t.Helper()
 	if _, err := env.pool.Exec(env.ctx, `UPDATE sage.policy_sets SET requirements =
@@ -80,11 +84,11 @@ func (e liveEnv) setsRunner(t *testing.T, members Members, now *time.Time,
 // its owner and TTL, and the fake grader grades it, with no human call.
 // A person's database beside it follows default with the source owner.
 func TestPolicyEnrol_FixtureAgentEnrolledAndGraded(t *testing.T) {
-	env := requireLive(t)
+	env := requireExclusiveLive(t, enrolCapsReason)
 	setAgentEnrollment(t, env)
-	creatorDB := dbName(t, testdb.CreateDatabase(t, "agent_fix"))
+	creatorDB := dbName(t, testdb.ExclusiveDatabase(t, "agent_fix"))
 	commentDatabase(t, env, creatorDB, "pg_sage: creator=agent:fixture tier=dev")
-	personDB := dbName(t, testdb.CreateDatabase(t, "person_db"))
+	personDB := dbName(t, testdb.ExclusiveDatabase(t, "person_db"))
 	now := time.Now().UTC().Truncate(time.Second)
 	grades := &instantGrades{clock: func() time.Time { return now }}
 	r := env.setsRunner(t, &liveMembers{env: env}, &now, grades)
@@ -158,9 +162,9 @@ func assertMetricsHaveSets(t *testing.T, r *Runner, sets ...string) {
 // Invalid input: an empty creator in the comment is ignored with a reason
 // and the database follows default, not agent-created.
 func TestPolicyEnrol_EmptyCreatorCommentFollowsDefault(t *testing.T) {
-	env := requireLive(t)
+	env := requireExclusiveLive(t, enrolCapsReason)
 	setAgentEnrollment(t, env)
-	name := dbName(t, testdb.CreateDatabase(t, "empty_creator"))
+	name := dbName(t, testdb.ExclusiveDatabase(t, "empty_creator"))
 	commentDatabase(t, env, name, "pg_sage: creator= owner=team-x")
 	now := time.Now().UTC()
 	r := env.setsRunner(t, &liveMembers{env: env}, &now,
@@ -179,10 +183,10 @@ func TestPolicyEnrol_EmptyCreatorCommentFollowsDefault(t *testing.T) {
 // Boundary: default's per_cycle 5 with 6 new databases enrolls 5, and the
 // sixth on default's next cycle (10 minutes later).
 func TestPolicyEnrol_PerCycleOnTheRealStore(t *testing.T) {
-	env := requireLive(t)
+	env := requireExclusiveLive(t, enrolCapsReason)
 	var names []string
 	for range 6 {
-		names = append(names, dbName(t, testdb.CreateDatabase(t, "per_cycle")))
+		names = append(names, dbName(t, testdb.ExclusiveDatabase(t, "per_cycle")))
 	}
 	now := time.Now().UTC()
 	r := env.setsRunner(t, &liveMembers{env: env}, &now, nil)
@@ -210,11 +214,11 @@ func TestPolicyEnrol_PerCycleOnTheRealStore(t *testing.T) {
 // Concurrency: a leader and a follower cycling at once never enroll one
 // candidate twice (the Claim advisory lock), in set mode too.
 func TestPolicyEnrol_LeaderAndFollowerNoDuplicates(t *testing.T) {
-	env := requireLive(t)
+	env := requireExclusiveLive(t, enrolCapsReason)
 	setAgentEnrollment(t, env)
 	var names []string
 	for range 3 {
-		n := dbName(t, testdb.CreateDatabase(t, "dup_set"))
+		n := dbName(t, testdb.ExclusiveDatabase(t, "dup_set"))
 		commentDatabase(t, env, n, "pg_sage: creator=agent:dup")
 		names = append(names, n)
 	}
