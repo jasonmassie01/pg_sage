@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -42,6 +43,10 @@ func TestReviewModelName_FollowsTheReviewClientChoice(t *testing.T) {
 }
 
 func TestEvaluateReviewGate_WithoutAPoolDoesNothing(t *testing.T) {
+	logs := captureLogs(t)
 	rt := &databaseRuntime{cfg: config.DefaultConfig()}
 	rt.evaluateReviewGate(context.Background()) // must not panic or touch a database
+	if out := logs.String(); strings.Contains(out, "review model gate") {
+		t.Fatalf("a runtime without a pool evaluated the gate: %q", out)
+	}
 }
