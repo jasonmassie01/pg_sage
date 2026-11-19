@@ -175,12 +175,22 @@ func startFixture(t *testing.T, ctx context.Context, app, sql string) *fixtureSe
 	if err := conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&f.pid); err != nil {
 		t.Fatalf("fixture pid: %v", err)
 	}
-	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	if sql == "" {
+		t.Cleanup(func() { _ = conn.Close(context.Background()) })
 		return f
 	}
+	// A pgx.Conn is not safe for concurrent use: the cleanup cancels the
+	// statement and waits for its goroutine before it closes the conn.
+	execCtx, cancel := context.WithCancel(context.Background())
+	finished := make(chan struct{})
+	t.Cleanup(func() {
+		cancel()
+		<-finished
+		_ = conn.Close(context.Background())
+	})
 	go func() {
-		_, err := conn.Exec(context.Background(), sql)
+		defer close(finished)
+		_, err := conn.Exec(execCtx, sql)
 		f.done <- err
 	}()
 	return f
