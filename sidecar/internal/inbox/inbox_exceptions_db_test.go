@@ -96,9 +96,10 @@ func TestInboxDB_ExpiredExceptionLeavesTheInbox(t *testing.T) {
 	if res.Total != 1 || res.Items[0].Risk != RiskSafe || res.Items[0].DueAt == nil {
 		t.Fatalf("bounded exception: %+v, want one safe item with a due time", res)
 	}
+	// The policy store judges expiry on the sidecar's clock, so the stamp
+	// comes from it too: the test server's clock can run seconds ahead.
 	mustExec(t, pool, `UPDATE sage.policy_exceptions
-		SET expires_at = clock_timestamp() - interval '1 second' WHERE database_id = $1`,
-		billing)
+		SET expires_at = $2 WHERE database_id = $1`, billing, time.Now().Add(-time.Second))
 	if res = svc.List(context.Background(), req); res.Total != 0 || res.LowerBound {
 		t.Fatalf("expired exception still listed: %+v", res)
 	}
