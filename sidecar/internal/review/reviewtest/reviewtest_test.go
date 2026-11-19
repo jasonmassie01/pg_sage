@@ -38,7 +38,7 @@ func TestBuildSealsOnlyTheSectionsGiven(t *testing.T) {
 	full, err := Build(Spec{Database: "orders", Window: Window(7),
 		Texts: &workpack.Texts{}, Indexes: &workpack.Indexes{}, Schema: &workpack.Schema{},
 		Settings: &workpack.Settings{}, Stats: &workpack.Stats{}, Plans: &workpack.Plans{},
-		Growth: &workpack.Growth{DBSize: workpack.Series{ID: "growth/db/size"}},
+		Growth:    &workpack.Growth{DBSize: workpack.Series{ID: "growth/db/size"}},
 		PGVersion: "17.2", Platform: "self-managed"})
 	if err != nil {
 		t.Fatalf("Build full: %v", err)
