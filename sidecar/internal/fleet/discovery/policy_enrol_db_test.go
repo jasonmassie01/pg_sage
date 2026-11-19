@@ -82,8 +82,8 @@ func (e liveEnv) setsRunner(t *testing.T, members Members, now *time.Time,
 func TestPolicyEnrol_FixtureAgentEnrolledAndGraded(t *testing.T) {
 	env := requireLive(t)
 	setAgentEnrollment(t, env)
-	agentDB := dbName(t, testdb.CreateDatabase(t, "agent_fix"))
-	commentDatabase(t, env, agentDB, "pg_sage: creator=agent:fixture tier=dev")
+	creatorDB := dbName(t, testdb.CreateDatabase(t, "agent_fix"))
+	commentDatabase(t, env, creatorDB, "pg_sage: creator=agent:fixture tier=dev")
 	personDB := dbName(t, testdb.CreateDatabase(t, "person_db"))
 	now := time.Now().UTC().Truncate(time.Second)
 	grades := &instantGrades{clock: func() time.Time { return now }}
@@ -92,7 +92,7 @@ func TestPolicyEnrol_FixtureAgentEnrolledAndGraded(t *testing.T) {
 	if len(rep.Errors) != 0 || rep.Sources["cluster"].Err != nil {
 		t.Fatalf("cycle: %+v", rep)
 	}
-	row := findRow(t, env, agentDB)
+	row := findRow(t, env, creatorDB)
 	if row.Status != store.DiscoveryEnrolled || row.SetName != "agent-created" ||
 		row.Creator != "agent:fixture" || row.Tags["tier"] != "dev" || row.DatabaseID == nil {
 		t.Fatalf("agent row = %+v", row)
