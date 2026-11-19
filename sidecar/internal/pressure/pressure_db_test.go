@@ -31,6 +31,21 @@ func dbPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	return testdb.Pool(t), context.Background()
 }
 
+// exclusiveDBPool is a pool on a fresh database of the exclusive server,
+// held for t alone (testdb.Exclusive): for a test that wants every
+// cluster-wide input, the WAL rate above all, read at rest. On the shared
+// server other packages' writes can put the WAL rate past its stop limit.
+func exclusiveDBPool(t *testing.T) (*pgxpool.Pool, context.Context) {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(),
+		testdb.Exclusive(t, "the cluster's WAL rate read at rest"))
+	if err != nil {
+		t.Fatalf("connect the exclusive test database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool, context.Background()
+}
+
 func exec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), sql, args...); err != nil {
@@ -45,7 +60,7 @@ func fastChecker(pool *pgxpool.Pool, limits func(context.Context) (Limits, error
 }
 
 func TestPressureDB_IdleServerProceedsWithEveryInputKnown(t *testing.T) {
-	pool, ctx := dbPool(t)
+	pool, ctx := exclusiveDBPool(t)
 	exec(t, pool, "CREATE TABLE IF NOT EXISTS pressure_idle (id int)")
 	v, err := fastChecker(pool, nil).Check(ctx, Request{Table: "public.pressure_idle"})
 	if err != nil {
@@ -75,7 +90,7 @@ func TestPressureDB_IdleServerProceedsWithEveryInputKnown(t *testing.T) {
 }
 
 func TestPressureDB_TableNamesResolveThroughRegclass(t *testing.T) {
-	pool, ctx := dbPool(t)
+	pool, ctx := exclusiveDBPool(t)
 	exec(t, pool, `CREATE TABLE IF NOT EXISTS public."o'brien" (id int)`)
 	exec(t, pool, "CREATE TABLE IF NOT EXISTS pressure_victim (id int)")
 	c := fastChecker(pool, nil)
