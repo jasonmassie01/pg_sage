@@ -118,9 +118,10 @@ func TestMXMembers_DB_NoRateHoldsAnOpenFinding(t *testing.T) {
 // TestMXMembers_DB_OldestIsTheOldestDatabase: once one database is frozen
 // its datminmxid passes the other databases'; the reading still starts at
 // the oldest one (the cluster's member space is not freed until every
-// database is frozen).
+// database is frozen). On the exclusive server: its CHECKPOINT moves the
+// cluster's checkpoint and WAL counters.
 func TestMXMembers_DB_OldestIsTheOldestDatabase(t *testing.T) {
-	pool, ctx := mxBootstrappedPool(t, "mx_oldest")
+	pool, ctx := exclusivePool(t, "CHECKPOINT moves the cluster's checkpoint and WAL counters")
 	shareLockFixture(t, ctx, pool)
 	if _, err := pool.Exec(ctx, "VACUUM (FREEZE)"); err != nil {
 		t.Fatalf("freeze this database: %v", err)

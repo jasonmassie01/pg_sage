@@ -119,8 +119,10 @@ func checkpoint(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 }
 
+// On the exclusive server: its CHECKPOINTs move the cluster's checkpoint
+// and WAL counters other packages' tests measure on the shared server.
 func TestMXMembers_DB_SharedRowLocksGiveAPositiveEstimateAndRate(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := exclusivePool(t, "CHECKPOINT moves the cluster's checkpoint and WAL counters")
 	clearMXFindings(t, ctx, pool)
 	db := fmt.Sprintf("mx_happy_%d", time.Now().UnixNano())
 	m := mxMonitor(t, pool, db)
