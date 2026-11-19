@@ -18,9 +18,18 @@ import (
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
-// freezeHorizonLimit bounds the horizons one reading holds: the most
-// advanced first, so a table beyond it is less urgent than every one read.
+// freezeHorizonLimit bounds the horizons one reading holds for the
+// custodian: the most advanced first, so a table beyond it is less urgent
+// than every one read.
 const freezeHorizonLimit = 500
+
+// ownRelationAllowance is read on top of freezeHorizonLimit for pg_sage's
+// own relations: the sage schema's tables and their TOAST (about 380 in
+// T6). The custodian leaves them to autovacuum (freezeRows), so without
+// the allowance they would crowd user tables out of the reading whenever
+// they are the most advanced. TestOwnRelationAllowanceCoversTheSageSchema
+// fails when the schema outgrows it.
+const ownRelationAllowance = 500
 
 // txBeginner starts the reading's read-only transaction (*pgxpool.Pool).
 type txBeginner interface {
@@ -123,7 +132,8 @@ func (s *FreezeSampler) read(ctx context.Context) (FreezeReading, error) {
 	if err != nil {
 		return FreezeReading{}, freezeReadError(err)
 	}
-	horizons, err := probes.ReadFreezeHorizons(ctx, tx, freezeHorizonLimit, s.bloatMinBytes)
+	horizons, err := probes.ReadFreezeHorizons(ctx, tx,
+		freezeHorizonLimit+ownRelationAllowance, s.bloatMinBytes)
 	if err != nil {
 		return FreezeReading{}, freezeReadError(err)
 	}
