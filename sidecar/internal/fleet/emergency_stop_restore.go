@@ -84,15 +84,23 @@ func (m *DatabaseManager) restorePersistedStop(inst *DatabaseInstance) {
 	if state.UpdatedBy == "" {
 		state.UpdatedBy = executor.EmergencyStopActorSystem
 	}
+	// The runtime's workers already poll InstanceStopped, so the latch is
+	// written under m.mu even though inst is not published yet.
+	m.mu.Lock()
 	inst.Stopped = true
 	inst.StoppedBy = state.UpdatedBy
 	inst.StoppedAt = state.UpdatedAt
+	m.mu.Unlock()
 	applyExecutorStopGate(inst, true)
+	fleet := false
 	if err == nil {
-		inst.restoredFleet = m.restoredFleetScope(inst)
+		fleet = m.restoredFleetScope(inst)
+		m.mu.Lock()
+		inst.restoredFleet = fleet
+		m.mu.Unlock()
 	}
 	log.Printf("fleet: %s: restored emergency stop by %s (fleet-wide: %v)",
-		inst.Name, inst.StoppedBy, inst.restoredFleet)
+		inst.Name, state.UpdatedBy, fleet)
 }
 
 // applyStopStatus copies the latch and its attribution into the API view.
