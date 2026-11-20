@@ -63,12 +63,14 @@ func TestDurability_OutageBlocksHandoffUntilVerified(t *testing.T) {
 	}
 
 	down := unreachableStore(t)
+	// The live store bootstraps the schema under its own budget first, so the
+	// verify deadline below covers only the two checks.
+	up, _, _ := liveStore(t, DefaultLimits())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := d.Verify(ctx, down); err == nil || d.HandoffAllowed() {
 		t.Fatalf("verify against a dead store = %v, handoff=%v", err, d.HandoffAllowed())
 	}
-	up, _, _ := liveStore(t, DefaultLimits())
 	if err := d.Verify(ctx, up); err != nil || !d.HandoffAllowed() ||
 		d.Status().Degraded {
 		t.Fatalf("verify against a live store = %v, status %+v", err, d.Status())
