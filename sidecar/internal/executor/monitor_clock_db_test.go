@@ -226,6 +226,25 @@ func waitMonitorSettled(t *testing.T, pool *pgxpool.Pool, id int64) string {
 	}
 }
 
+// waitStoredOutcome reads the outcome ledger row of a settled action.
+// settleOutcome sets the lifecycle outcome first and writes the ledger row
+// after it, so the row can trail the outcome waitMonitorSettled saw.
+func waitStoredOutcome(t *testing.T, pool *pgxpool.Pool, id int64) verify.Outcome {
+	t.Helper()
+	store := verify.NewOutcomeStore(pool)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		got, err := store.Get(context.Background(), id)
+		if err == nil {
+			return got
+		}
+		if !errors.Is(err, verify.ErrOutcomeNotFound) || time.Now().After(deadline) {
+			t.Fatalf("read outcome for action %d: %v", id, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func shutdownOnCleanup(t *testing.T, exec *Executor) {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -275,7 +294,7 @@ func TestResumeMonitor_DatabaseClockBehindKeepsWatching(t *testing.T) {
 		t.Fatalf("action outcome = %q, want judged at its cap (the database clock had an "+
 			"hour of grace left)", outcome)
 	}
-	if got := storedOutcome(t, exec.pool, id); got.Verdict != verify.OutcomeInsufficient {
+	if got := waitStoredOutcome(t, exec.pool, id); got.Verdict != verify.OutcomeInsufficient {
 		t.Fatalf("outcome = %s (%s), want insufficient_evidence (no samples)", got.Verdict,
 			got.Reason)
 	}
