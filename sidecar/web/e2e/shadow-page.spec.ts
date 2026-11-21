@@ -1,6 +1,7 @@
-// shadow-page.spec.ts (dashboard-18): the Shadow Mode panel on Settings,
-// rebuilt on the shadow ledger (earned-04, reports/t2/earned-04.md:79
-// MANUAL "dashboard view of the rebuilt page"). Payloads: e2e/mocks/shadow.ts.
+// shadow-page.spec.ts (dashboard-18): the Shadow Mode panel, on the Autonomy
+// page's Shadow ledger section since ux-06b moved it from Settings, rebuilt on
+// the shadow ledger (earned-04, reports/t2/earned-04.md:79 MANUAL "dashboard
+// view of the rebuilt page"). Payloads: e2e/mocks/shadow.ts.
 // No concurrency tests: the panel is a read-only render of two reads.
 
 import { expect, test, type Page } from '@playwright/test'
@@ -27,8 +28,15 @@ const twoDatabases: LedgerAnswer = { json: {
   meaning: 'What pg_sage would have done below each earned level.',
 } }
 
+// gotoShadow opens the Autonomy page's collapsed Shadow ledger section, which
+// mounts the panel (and its reads) only once opened.
+async function gotoShadow(page: Page) {
+  await page.goto('/#/autonomy')
+  await page.getByTestId('autonomy-shadow').locator('summary').click()
+}
+
 async function openShadow(page: Page) {
-  await page.goto('/#/settings')
+  await gotoShadow(page)
   await expect(report(page).getByRole('heading', { name: 'Shadow Mode' })).toBeVisible()
 }
 
@@ -115,7 +123,7 @@ test('a failed ledger read is an error with Retry, not an empty ledger', async (
   let answer: LedgerAnswer = { status: 500, json: { error: 'shadow ledger unavailable' } }
   await routeLedger(page, () => answer)
   await routeTrustLedger(page, () => ({ json: { enforced: true, databases: [] } }))
-  await page.goto('/#/settings')
+  await gotoShadow(page)
   const alert = page.getByRole('alert').filter({ hasText: 'shadow ledger unavailable' })
   await expect(alert).toBeVisible()
   await expect(page.getByTestId('shadow-empty')).toHaveCount(0)
