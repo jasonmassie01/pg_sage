@@ -289,7 +289,8 @@ func createDefaultApprovalRule(
 	}
 	var minSeverity string
 	if err := pool.QueryRow(context.Background(),
-		`SELECT min_severity FROM sage.notification_rules WHERE channel_id = $1`,
+		`SELECT min_severity FROM sage.notification_rules
+			WHERE channel_id = $1 AND event = 'approval_needed'`,
 		channel.ID).Scan(&minSeverity); err != nil {
 		t.Fatalf("read rule row: %v", err)
 	}
