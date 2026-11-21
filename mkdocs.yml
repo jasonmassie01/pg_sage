@@ -42,6 +42,7 @@ nav:
       - LLM costing: llm-costing.md
   - Configuration: configuration.md
   - HTTP API and inbox: api.md
+  - Command-line client: cli.md
   - Glossary: glossary.md
   - Architecture: architecture.md
   - Fleet Mode: fleet.md
