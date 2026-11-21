@@ -168,7 +168,7 @@ func (h *approvalCardHandlers) approveOne(r *http.Request, item bulkApproveItem,
 // exists, still waits, shows the hash the caller saw, and is safe tier.
 func (h *approvalCardHandlers) bulkCard(ctx context.Context, inst *fleet.DatabaseInstance,
 	item bulkApproveItem) (approvalcard.Card, bulkApproveResult, bool) {
-	c, err := h.cardLoader(inst).Card(ctx, item.ID)
+	c, err := h.cardLoader(ctx, inst).Card(ctx, item.ID)
 	switch {
 	case errors.Is(err, approvalcard.ErrNotFound):
 		return c, refuse(item, "not_found", "queue item not found"), false

@@ -4872,6 +4872,13 @@
     "class": "derivable",
     "lifecycle": "restart"
   },
+  "trust.ask_after_approvals": {
+    "type": "int",
+    "default": 10,
+    "doc": "Person approvals of a class on one database, with no rollback in 30 days, before pg_sage asks to run it unattended (a person still approves L3). 0 turns the ask off. 0-1000. Default: 10.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "trust.cascade_cooldown_cycles": {
     "type": "int",
     "default": 3,

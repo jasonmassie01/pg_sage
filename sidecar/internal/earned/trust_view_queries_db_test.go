@@ -18,7 +18,9 @@ import (
 // a statement per pair).
 
 // trustViewMaxStatements bounds the statements of one annotated view.
-const trustViewMaxStatements = 12
+// ux-07a added one set-based statement (the approval history of every
+// self-initiated pair, approvalMarksSQL), still constant in the data.
+const trustViewMaxStatements = 13
 
 // tracedLedger is f's ledger read through a pool that records every
 // statement it sends.

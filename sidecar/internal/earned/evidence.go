@@ -101,6 +101,9 @@ type Evidence struct {
 	// 1.2): its verdict record and the observation floor (the trust ramp).
 	Record *ClassRecord `json:"class_record,omitempty"`
 	Floor  *FloorStatus `json:"floor,omitempty"`
+	// ApprovalHistory is a self-initiated class's person approvals
+	// (ux-07a), read only where a promotion is decided or shown.
+	ApprovalHistory *ApprovalHistory `json:"approval_history,omitempty"`
 }
 
 // Thresholds are the promotion requirements (§7.3): the spec values by

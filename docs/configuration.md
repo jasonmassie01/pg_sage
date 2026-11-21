@@ -782,6 +782,7 @@ these settings follow: pg_sage's own database time, blocks and rows per hour aga
 | `trust.ramp_start` | (auto) | When pg_sage began observing the database. Auto-persisted on first start; set to override |
 | `trust.ramp_safe_hours` | `192` | Minimum hours observed before pg_sage may propose a promotion to L2 (and to L3 for SAFE classes), 8 days, `1`-`8760`. A floor, never a grant. Actions that cannot be rolled back always wait at least `192` |
 | `trust.ramp_moderate_hours` | `744` | Minimum hours observed before pg_sage may propose a MODERATE class's promotion to L3, 31 days, `1`-`8760`, at least `ramp_safe_hours`. A floor, never a grant. Actions that cannot be rolled back always wait at least `744` |
+| `trust.ask_after_approvals` | `10` | Person approvals of one class on one database, each verified improved or neutral, with no rollback, regression or rejection in the last 30 days, after which pg_sage asks to run the class unattended (an L3 promotion a person still approves). `0` turns the ask off, `0`-`1000`. Read at startup. See [Approve once, allow always](#approve-once-allow-always) |
 
 The trust model controls what pg_sage is allowed to do:
 
@@ -958,6 +959,37 @@ set does not demote it again.
 
 An admin approves every promotion (the Trust page, or the earned-autonomy API). The ramp is
 only a floor: it never grants anything by itself.
+
+#### Approve once, allow always
+
+Your approvals are evidence too. For each database and self-initiated class, pg_sage counts the
+executions a person approved (L2) in the last 30 days whose verdict was `improved` or
+`neutral`. A neutral `index_create` never counts: pg_sage reverts it for no gain. The count
+restarts at the newest rollback, `regressed` verdict or rejected approval item, and a
+rolled-back action never counts. Like the ramp, this can create a proposal but
+never grants anything:
+
+- **The ask.** When a class at L2 reaches `trust.ask_after_approvals` (10) such approvals,
+  pg_sage proposes L3 (evidence kind `approval_history`). The Inbox shows "You approved
+  `<class>` 14 times on `<db>` with no rollback; allow it unattended?". Rejecting that
+  proposal ("Not now") stops the ask for that class for 30 days. Set `0` to turn the ask off.
+- **The card.** An approval card offers a second button, "Approve, and stop asking for
+  `<class>` on `<database>`" (`allow_always` on the card's trust), only when all of these
+  hold: the class can be undone and stands at L2; at L3 the gate would let it act unattended
+  under today's `trust.level`, execution mode, tier switches and window; the L3 observation
+  floor has passed; and an L2 to L3 proposal waits or the approval count qualifies. Only an
+  admin can press it (`POST /api/v1/approvals/{id}/approve-and-allow` with the card hash).
+  It approves and runs the action first, then approves the L3 promotion with the note
+  "allow always from card `<id>`", creating the proposal first when none waits. If the action
+  approval fails, no promotion is made. If the promotion fails, the action approval stands and
+  the response says `approved; autonomy unchanged: <reason>`. An agent (MCP token) is refused
+  both steps.
+
+A grant made this way is an ordinary earned level, scoped to that one database. It never skips
+a level, and it is demoted one level by a regression, a rollback or a rejection like any other.
+The button comes back only after the approval count qualifies again. An incident class shows
+the button only while its own L3 proposal waits; that proposal rests on its incident evidence,
+which ages out (earned-06b).
 
 **Existing configurations.** On the first start of a database under the unified ledger, the
 level the time ramp had already given each self-initiated class is kept as a

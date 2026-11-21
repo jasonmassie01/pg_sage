@@ -64,6 +64,9 @@ type TrustRow struct {
 	// because the server now runs another (earned-07).
 	ServerMajor *int      `json:"server_major,omitempty"`
 	MajorCap    *MajorCap `json:"major_cap,omitempty"`
+	// ApprovalHistory is a self-initiated class's person approvals in the
+	// window (ux-07a); nil for an incident class.
+	ApprovalHistory *ApprovalHistory `json:"approval_history,omitempty"`
 	// Mode and ModeBecause, set by AnnotateMode, are the class's step on
 	// the autonomy scale and why (ux-06b); empty until annotated.
 	Mode        ModeName `json:"mode,omitempty"`
@@ -108,7 +111,8 @@ func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 		func() error { return s.store.readLevels(ctx, b, &in.levels) },
 		func() error {
 			return s.queueEvidence(ctx, b, grid,
-				evidenceNeeds{incident: true, records: true, expiry: true}, in.e)
+				evidenceNeeds{incident: true, records: true, expiry: true, approvals: true},
+				in.e)
 		},
 		func() error { return s.store.readGrandfather(ctx, b, &in.grand) },
 	} {
@@ -167,6 +171,7 @@ func (s *Service) trustRow(st State, ev Evidence, rec ClassRecord, pending *Prop
 		LastChange: lastChange(st, change), ServerMajor: st.ServerMajor}
 	if IsSelfInitiated(f) {
 		row.Kind, row.OutcomeClass = KindSelfInitiated, OutcomeClassFor(c)
+		row.ApprovalHistory = ev.ApprovalHistory
 	} else {
 		supported := SupportedLevel(s.cfg.Thresholds, ev)
 		row.Supported, row.Bench = &supported, SummarizeBench(ev.Bench)

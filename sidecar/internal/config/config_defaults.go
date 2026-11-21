@@ -152,6 +152,7 @@ func defaultTrustConfig() TrustConfig {
 		Tier3HighRisk:         DefaultTier3HighRisk,
 		RampSafeHours:         DefaultRampSafeHours,
 		RampModerateHours:     DefaultRampModerateHours,
+		AskAfterApprovals:     DefaultAskAfterApprovals,
 		RollbackThresholdPct:  DefaultRollbackThresholdPct,
 		RollbackWindowMinutes: DefaultRollbackWindowMinutes,
 		RollbackCooldownDays:  DefaultRollbackCooldownDays,

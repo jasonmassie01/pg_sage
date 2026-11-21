@@ -171,6 +171,41 @@ that lists every statement with its database (the Inbox reads each card first
 and leaves out one that is no longer safe tier). After the request, the items
 that ran leave the selection; a refused item stays selected with its reason.
 
+### `POST /api/v1/approvals/{id}/approve-and-allow`
+
+Admin only, and only a person: a token caller (MCP or CLI) is refused with
+`403 human_approval_required` and nothing runs. Approve once, allow always
+(ux-07a): it approves the card's action, then approves its class's L3
+promotion on that database. The body names the hash of the card the person
+was shown, and may name the card's own class and a note:
+
+```json
+{"card_hash": "9f2c...", "family": "hygiene", "class": "analyze",
+ "note": "nightly ANALYZE has never needed me"}
+```
+
+The card must still be pending, show the same hash and still offer
+`trust.allow_always` (see [Approve once, allow always](configuration.md#approve-once-allow-always));
+otherwise the answer is `409` (`content_changed`, `not_pending`,
+`not_allowed_always` with the reason, or `no_ledger` when the database has
+no trust ledger) and neither step runs. A body naming another class, or a
+note over 2000 characters, is `400`. Then the action runs exactly as
+`POST /api/v1/approvals/{id}/approve` runs it, and the promotion is
+approved with the note "allow always from card `<id>`" (and yours), creating
+the L2 to L3 proposal from the approval history when none waits:
+
+```json
+{"ok": true, "queue_id": 41, "database": "orders", "executed": true,
+ "status": "approved", "allow_always": true, "autonomy_level": "L3"}
+```
+
+If the action does not run, no promotion is made. If the promotion is
+refused after the approval (another person granted it a moment earlier, the
+evidence no longer holds, the ledger failed), the approval stands and the
+answer says why: `"allow_always": false`, `"autonomy_error": "approved;
+autonomy unchanged: <reason>"` and `autonomy_code` (`conflict`,
+`evidence_not_met` or `ledger_error`).
+
 ### Approval list keys
 
 On the Waiting on you cards and the Inbox, while no field has focus and no

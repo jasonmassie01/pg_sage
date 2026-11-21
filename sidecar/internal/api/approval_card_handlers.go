@@ -32,6 +32,9 @@ const (
 type approvalCardHandlers struct {
 	mgr     *fleet.DatabaseManager
 	ledgers *earned.Registry
+	// allower resolves a database's ledger for allow-always (ux-07a); nil
+	// reads ledgers.
+	allower func(database string) (alwaysAllower, bool)
 }
 
 func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
@@ -55,13 +58,18 @@ func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 		http.HandlerFunc(h.reject))
 	routeDB(mux, "POST /api/v1/approvals/{id}/snooze", gateOperator, card,
 		http.HandlerFunc(h.snooze))
+	// It grants autonomy too, so it is an admin's, like a promotion (an
+	// admin is never database-scoped; the handler resolves ?database=).
+	route(mux, "POST /api/v1/approvals/{id}/approve-and-allow", gateAdmin,
+		http.HandlerFunc(h.approveAndAllow))
 	// One request, several databases: fleet-wide (apiauth-08), ux-07b.
 	route(mux, "POST "+bulkApprovePath, gateOperator, http.HandlerFunc(h.bulkApprove))
 }
 
 // cardLoader reads one database's cards with its executor's trust level
 // and its class trust from the ledgers.
-func (h *approvalCardHandlers) cardLoader(inst *fleet.DatabaseInstance) approvalcard.Loader {
+func (h *approvalCardHandlers) cardLoader(ctx context.Context,
+	inst *fleet.DatabaseInstance) approvalcard.Loader {
 	l := approvalcard.Loader{Pool: inst.Pool, Database: inst.Name}
 	if h.ledgers != nil {
 		l.Trust = h.ledgers
@@ -69,6 +77,11 @@ func (h *approvalCardHandlers) cardLoader(inst *fleet.DatabaseInstance) approval
 	if inst.Executor != nil {
 		l.TrustLevel = inst.Executor.TrustLevel()
 		l.Waits = inst.Executor.VerificationWaits()
+		if h.ledgers != nil {
+			ceil := inst.Executor.AutonomyCeiling(ctx,
+				inst.SnapshotStatus().Capabilities.IsReplica)
+			l.Ceiling = &ceil
+		}
 	}
 	return l
 }
@@ -84,12 +97,12 @@ func (h *approvalCardHandlers) list(w http.ResponseWriter, r *http.Request) {
 		if inst == nil || inst.Pool == nil || (db != "" && db != "all" && inst.Name != db) {
 			continue
 		}
-		got, err := h.cardLoader(inst).Pending(r.Context())
+		got, err := h.cardLoader(r.Context(), inst).Pending(r.Context())
 		if err != nil {
 			failures = append(failures, fleetReadFailure(inst.Name, "list approval cards", err))
 			continue
 		}
-		cards = append(cards, got...)
+		cards = append(cards, offerAllowAlways(r, got)...)
 	}
 	jsonResponse(w, map[string]any{"cards": cards, "total": len(cards), "errors": failures})
 }
@@ -125,7 +138,7 @@ func (h *approvalCardHandlers) cardTarget(w http.ResponseWriter,
 // loadCard reads the card of a target, answering 404 when it is missing.
 func (h *approvalCardHandlers) loadCard(w http.ResponseWriter, r *http.Request,
 	inst *fleet.DatabaseInstance, id int) (approvalcard.Card, bool) {
-	c, err := h.cardLoader(inst).Card(r.Context(), id)
+	c, err := h.cardLoader(r.Context(), inst).Card(r.Context(), id)
 	switch {
 	case errors.Is(err, approvalcard.ErrNotFound):
 		sreErrorCode(w, "queue item not found", "not_found", http.StatusNotFound)
@@ -146,6 +159,7 @@ func (h *approvalCardHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	c = offerAllowAlways(r, []approvalcard.Card{c})[0]
 	body := map[string]any{"card": c, "eligible": false}
 	if a, err := store.NewActionStore(inst.Pool).GetByID(r.Context(), id); err == nil &&
 		a.Status == "pending" {

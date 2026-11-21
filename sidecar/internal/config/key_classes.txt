@@ -123,6 +123,7 @@ safety_critical trust.cascade_cooldown_cycles
 safety_critical trust.level
 operator_preference trust.maintenance_window
 safety_critical trust.ramp_moderate_hours
+safety_critical trust.ask_after_approvals
 safety_critical trust.ramp_safe_hours
 safety_critical trust.ramp_start
 safety_critical trust.rollback_cooldown_days

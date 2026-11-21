@@ -564,6 +564,7 @@
 | `sre.slo.push.timestamp_tolerance_seconds` | `restart` | `-` | `safety_critical` |
 | `sre.timeline_retention_days` | `restart` | `-` | `derivable` |
 | `sre.trigger_interval_seconds` | `restart` | `-` | `derivable` |
+| `trust.ask_after_approvals` | `restart` | `-` | `safety_critical` |
 | `trust.cascade_cooldown_cycles` | `live_policy` | `trust_policy` | `safety_critical` |
 | `trust.level` | `live_policy` | `trust_policy` | `safety_critical` |
 | `trust.maintenance_window` | `live_policy` | `trust_policy` | `operator_preference` |

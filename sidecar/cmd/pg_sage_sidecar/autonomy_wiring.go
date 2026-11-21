@@ -69,6 +69,9 @@ func autonomyServiceConfig(s config.SREAutonomyConfig) earned.Config {
 	c.FailoverCooldown = s.FailoverCooldown()
 	c.Build = runningBuild()
 	c.Log = func(format string, args ...any) { logWarn("autonomy", format, args...) }
+	if cfg != nil { // trust.ask_after_approvals (ux-07a); 0 turns the ask off
+		c.AskAfterApprovals = cfg.Trust.AskAfterApprovals
+	}
 	return c
 }
 

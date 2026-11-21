@@ -2,7 +2,8 @@ import { useImperativeHandle, useRef, useState } from 'react'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useToast } from '../../components/Toast'
 import { withSurface } from '../../lib/inbox'
-import { approvalOutcomeMessage } from './approvalOutcome'
+import { allowAlwaysOutcomeMessage, approvalOutcomeMessage } from './approvalOutcome'
+import { AllowAlwaysButton } from './AllowAlways'
 import { blockerText } from './workflow'
 
 // ApprovalActions is an approval card's decision row: Approve, Reject
@@ -36,6 +37,10 @@ async function postDecision(card, verb, body, surface) {
   }
   return { status: res.status, json }
 }
+
+// allowAlwaysBody binds allow-always to the card shown and its class.
+const allowAlwaysBody = card => ({ card_hash: card.card_hash, family: card.trust?.family,
+  class: card.trust?.class })
 
 const simple = done => (status, json) => (status >= 200 && status < 300
   ? { ok: true, text: done } : { ok: false, text: json.error || `Failed (${status})` })
@@ -93,13 +98,14 @@ function GateNote({ blocked, eligible }) {
   </p>
 }
 
-function DecisionButtons({ busy, canApprove, schedules, onApprove, mode, setMode }) {
+function DecisionButtons({ busy, canApprove, schedules, onApprove, mode, setMode, extra }) {
   return <div className="flex flex-wrap gap-2">
     <button data-testid="approval-approve" disabled={busy || !canApprove} onClick={onApprove}
       className={BUTTON}
       style={{ background: 'var(--green-solid)', color: '#fff', opacity: busy ? 0.5 : 1 }}>
       {schedules ? 'Approve for the next window' : 'Approve and run'}
     </button>
+    {extra}
     <button data-testid="approval-reject" disabled={busy}
       onClick={() => setMode(mode === 'reject' ? null : 'reject')} className={BUTTON}
       style={{ background: 'var(--red-solid)', color: '#fff', opacity: busy ? 0.5 : 1 }}>
@@ -202,7 +208,10 @@ export function ApprovalActions({ card, onDecided, eligible, blockedReason,
     <div data-testid="approval-actions" className="approval-action-bar space-y-2">
       <GateNote blocked={gate.blocked} eligible={eligible} />
       <DecisionButtons busy={busy} canApprove={gate.canApprove} schedules={gate.schedules}
-        onApprove={approve} mode={mode} setMode={setMode} />
+        onApprove={approve} mode={mode} setMode={setMode}
+        extra={<AllowAlwaysButton card={card} busy={busy} canApprove={gate.canApprove}
+          onConfirm={() => run('approve-and-allow', allowAlwaysBody(card),
+            allowAlwaysOutcomeMessage)} />} />
       {mode === 'reject' && <RejectPanel busy={busy} inputRef={reasonRef}
         onReject={reason => run('reject', { reason, card_hash: card.card_hash },
           simple(`Action ${card.queue_id} rejected`))} />}

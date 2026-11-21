@@ -66,11 +66,15 @@ func (s *Service) Approve(ctx context.Context, id, approver, note string) (State
 	if err := s.checkDecidable(ctx, p); err != nil {
 		return State{}, err
 	}
-	ev, err := s.Evidence(ctx, p.Family, p.Class)
+	ev, err := s.decisionEvidence(ctx, p.Family, p.Class)
 	if err != nil {
 		return State{}, err
 	}
 	a := Assess(s.cfg.Thresholds, p.To, ev)
+	if !a.Met && proposalKind(p) == EvidenceKindApprovalHistory {
+		// It rests on the approval history: held to it again, now (ux-07a).
+		a = AssessApprovalHistory(p.To, ev)
+	}
 	if !a.Met {
 		return State{}, &EvidenceNotMetError{Assessment: a}
 	}

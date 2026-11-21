@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/store"
 	"github.com/pg-sage/sidecar/internal/verify"
@@ -27,7 +28,10 @@ type Loader struct {
 	// Waits reads the changes in flight on each card's objects; nil shows
 	// none.
 	Waits WaitSource
-	Now   func() time.Time
+	// Ceiling is the database's gate inputs, read once per request; nil
+	// never offers allow-always (ux-07a).
+	Ceiling *earned.Ceiling
+	Now     func() time.Time
 }
 
 func (l Loader) now() time.Time {
@@ -91,7 +95,8 @@ func (l Loader) ForAction(ctx context.Context, a store.QueuedAction) (Card, erro
 
 func (l Loader) forAction(ctx context.Context, a store.QueuedAction, trust trustRead) (Card,
 	error) {
-	in := Inputs{Database: l.Database, Action: a, TrustLevel: l.TrustLevel, Now: l.now()}
+	in := Inputs{Database: l.Database, Action: a, TrustLevel: l.TrustLevel, Now: l.now(),
+		Ceiling: l.Ceiling}
 	trust.apply(&in, a)
 	if c, ok := executor.ContractForQueuedAction(a); ok {
 		in.Contract = &c

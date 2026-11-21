@@ -210,6 +210,9 @@ type Inputs struct {
 	// a class the ledger does not judge); TrustErr an unreadable ledger.
 	Trust    *earned.TrustRow
 	TrustErr error
+	// Ceiling is the database's gate inputs (nil: no executor), against
+	// which the allow-always button is decided (ux-07a).
+	Ceiling *earned.Ceiling
 	// Waits are the changes in flight on the action's objects; WaitsErr an
 	// unreadable in-flight state.
 	Waits    []policy.PendingVerification
