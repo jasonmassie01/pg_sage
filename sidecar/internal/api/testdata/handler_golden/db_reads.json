@@ -618,6 +618,7 @@
         "WALIOCeilingPct": 70
       },
       "trust": {
+        "AskAfterApprovals": 10,
         "CascadeCooldownCycles": 3,
         "Level": "observation",
         "MaintenanceWindow": "",
