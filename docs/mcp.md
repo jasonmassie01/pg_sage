@@ -176,7 +176,7 @@ and `message` keep their values:
 
 | Key | Value |
 |---|---|
-| `next` | `{"tool": ..., "arguments": {...}}` to call next; for `invalid_arguments` and `runbook_rejected` the same tool with `required`, its schema's required arguments; or `"wait"` |
+| `next` | `{"tool": ..., "arguments": {...}}` to call next; for `invalid_arguments` and `runbook_rejected` the same tool with `required`, its schema's required arguments (and for `request_change` an `example` call with a valid intent); or `"wait"` |
 | `retry_after` | whole seconds to wait before retrying (at least 1), where pg_sage knows it |
 | `approval_url` | for `approval_reserved_for_humans`, the dashboard page where a person decides |
 
@@ -185,14 +185,80 @@ and `message` keep their values:
 | `approval_reserved_for_humans` | `get_inbox` (with the call's `database`) | none: a person decides |
 | `database_not_permitted`, `database_required`, `unknown_database` | `list_databases` | none |
 | `invalid_arguments`, `runbook_rejected` | the same tool, with `required` | none |
-| `not_found` | the matching list tool (`list_facts`, `sre_list_incidents`, `sre_list_runbooks`, `sre_list_slos`) where there is one | none |
+| `not_found` | the matching list tool (`list_facts`, `sre_list_incidents`, `sre_list_runbooks`, `sre_list_slos`) where there is one; otherwise the same tool with `required`, to correct the identifier (none for a tool without required arguments) | none |
 | `rate_limited` | `"wait"` | the limiter's reset |
 | `unavailable` | `"wait"` | 30, unless the feature is switched off (then neither key) |
 | `conflict`, `too_many_investigations`, `scope_required` | `"wait"` | none: the state, a live investigation or the token has to change first |
 | `internal_error` | none | none |
 
 `"wait"` without `retry_after` means the condition clears only when something else changes;
-do not retry in a loop.
+do not retry in a loop. Every reason has a `next` rule except `internal_error`; a test fails
+when a new reason is added without one.
+
+### Held results
+
+A call that succeeds but leaves work waiting on a person says so in the result itself:
+a `request_change`, `optimize_query` or `ensure_fk_indexes` the policy check queued
+(`decision: queued`) or held back (`parked`), a `propose_policy_change` or
+`set_maintenance_policy` proposal, a `propose_plan` plan, a `specialist_request_remediation`
+queued for approval and an `agent_request_capability` waiting for an operator. Each adds:
+
+| Key | Value |
+|---|---|
+| `approval_url` | the dashboard page where a person decides (kept as the tool returned it when it already has one) |
+| `handle` | the item, `<kind>:<id>`: the inbox kind and id (`policy_exception:42`, `change_approval:7`, `agent_request:4`, `plan:9`) or `change:<evidence_id>` for a change the policy check queued or held back |
+| `status` | `{"tool": "get_request_status", "arguments": {"handle": ..., "database": ...}}`, a read-only call that reports the item now, when the caller is one the item's store records as its requester (an agent principal; a person for a plan or a policy proposal). Otherwise it stays the list the item shows up in: `get_ledger` for a `change:` handle, `get_inbox` for the item's kind (also when no id came back). A tool that has its own `status` field keeps it (`propose_plan`'s plan status) |
+| `wait` | `{"tool": "wait_for_decision", "arguments": {...}}` with the same arguments, present whenever `status` is `get_request_status` |
+
+None of these approve anything: a person decides on the page `approval_url` names.
+
+### Waiting for a decision
+
+`get_request_status {handle}` answers at once; `wait_for_decision {handle, timeout_seconds}`
+(1 to 60, default 30) answers when the item reaches its next state. Both return the same
+shape:
+
+| Key | Value |
+|---|---|
+| `state` | `pending` (no person has decided), `approved`, `running`, `halted`, `executed`, `verified`, `completed`, `rejected`, `failed`, `expired`, `cancelled`, `reverted`, `rolled_back`, `recorded`, `held`, `blocked`, `resolved` or `unknown` |
+| `decided_by_kind` | `person`, `policy` (the standing policy decided, no person), `system` (expiry, voiding) or empty while nobody has decided. An agent never decides |
+| `outcome` | one line on what happened |
+| `next` | `wait_for_decision` while more can happen, `get_request_status` after `unknown`, `null` when the item is final |
+
+How a wait ends:
+
+- the item changes state (an item already final answers at once). Call again to follow the
+  next transition: pending, approved, executed, verified;
+- `timeout_seconds` passes: `state` as last read (`pending`), `next: wait_for_decision`;
+- the live-event stream shuts down (the sidecar is stopping): `state: unknown`,
+  `next: get_request_status`. A wait never hangs.
+
+The wait listens to the sidecar's own live-event stream (every successful API write, such
+as a person's approval, signals it at once; the dashboard's change poller and heartbeat
+also wake it) and reads the item once per signal: no polling loop, and no database
+connection is held while it waits. Each principal may have 5 waits open and the sidecar
+200; one more is `rate_limited` with `retry_after` (when the soonest open wait ends).
+
+The status is the requester's own: another principal's handle, or a caller with no principal,
+gets `not_found`, the same answer as a handle that does not exist. A person over MCP can read
+the plans and policy proposals they proposed (the store records the proposing actor); a
+change or an approval item records only an agent principal, so a person's held change points
+at `get_ledger` or `get_inbox` instead.
+A `change:<evidence_id>` handle resolves for the agent principal recorded on the ledger
+decision; a decision that queued an approval reports that approval's state. A change the
+policy check held back without an approval is `held` and final: nothing waits on a person
+(see `get_ledger`).
+
+In the dashboard's Inbox, an item an agent asked for (a change approval it queued, a
+capability request, a policy proposal) says "Asked by agent", links the agent's page where
+its requests are listed, and shows the handle the agent waits on; the item's Open link is
+the approval itself.
+
+### Tool descriptions
+
+Every tool's description says when to use it ("Use when"), what it returns ("Returns") and
+what it never does ("Never"), in at most 400 characters and in the words of the
+[glossary](glossary.md). A test fails on a tool that breaks the rule.
 
 Every tool rejects an argument its schema does not list, or one of the wrong type, with
 -32602 (a misspelled `databse_id` is an error, not ignored); so is an intent pg_sage cannot
@@ -509,6 +575,23 @@ With `brief: true` (`target_major` then optional) it returns the
 database's own sage schema only when it changed; the REST form is
 `GET /api/v1/databases/{db}/upgrade-brief`.
 
+## Plans
+
+An agent can propose a multi-step plan and read plans; it can never approve one.
+`propose_plan` (propose scope) takes `plan`, a JSON object (`goal`, `scope`, `pack_hash`,
+`steps`, `edges`) or a string holding exactly that JSON. Markdown fences, text around the
+JSON, unknown fields and the fields pg_sage sets (`status`, `origin`, the hash, ids) are
+refused with `plan_code` `plan_fenced`, `plan_malformed` or `plan_empty`; a plan that fails
+validation (more than 50 steps, a step whose `finding_id` or `evidence_ids` do not resolve)
+is `invalid_plan` with its `problems`. Nothing is stored on a refusal. The plan is stored
+`proposed` with origin `agent` and the agent's principal id (a person over MCP is recorded
+as a person). Each principal may hold 5 open plans (draft, proposed, approved, running or
+halted); the sixth is `open_plan_limit` (`rate_limited`). `list_plans` (`status`, `limit`
+up to 500; an empty list is `[]`) and `get_plan` (`plan_id`: steps, edges, approvals and
+what each approval covers now) need the read scope. There is no MCP tool that approves,
+rejects or resumes a plan: a person decides in the app, with the plan CLI or from a chat
+plan card (see [Policy gate](policy-gate.md)).
+
 ## Query to source attribution
 
 Without any extension pg_sage attributes statements from two places:
@@ -522,6 +605,93 @@ Without any extension pg_sage attributes statements from two places:
 `pg_stat_statements` does not record `application_name`, so a statement that never runs
 while sampled and carries no comment cannot be attributed. Add sqlcommenter to the
 application's database driver (most ORMs have a plugin) for reliable attribution.
+
+### Call site in application code
+
+With a code host configured (`agents.code_host`), pg_sage also names the line of
+application code that sends a statement. It reads the repository, read-only, through the
+GitHub or GitLab REST API and tries, in order:
+
+1. a sqlcommenter `file` plus `line` tag (Rails marginalia style), read from the
+   repository's default branch and checked against the file's length: **exact**;
+2. a SQL string literal in the code whose fingerprint (identifiers kept, values and
+   placeholders such as `$1`, `?`, `%s` or `:name` folded) matches the
+   `pg_stat_statements` text: **exact** when it is the only one, **likely** when there
+   are several;
+3. a code search for the `controller`, `action` or `route` tags: never more than
+   **likely**.
+
+Several candidates are listed, never guessed. A statement with no tags and no literal is
+**none**, with the advice to add sqlcommenter tags. A `line` tag that is not a positive
+number, or a `file` tag with `..` or an absolute path, is refused before any request.
+
+```yaml
+agents:
+  code_host:
+    provider: github        # or gitlab; empty (the default) turns lookups off
+    repo: acme/shop         # GitLab: group/sub/name
+    base_url: ""            # GitHub Enterprise: https://<host>/api/v3
+    timeout_seconds: 15
+```
+
+The read token comes from `SAGE_CODE_HOST_TOKEN` (or `SAGE_CODE_HOST_TOKEN_FILE`). It is
+sent only in a request header, never logged and redacted from every error. Every request
+goes through the egress floor, at most 4 run at once per host, and a rate-limit answer
+(429, or GitHub's quota 403) stops requests until its `Retry-After` time. A 401 or 403
+says "token cannot read <repo>". The query page reads the call site from
+`GET /api/v1/queries/<queryid>/call-site?database=<name>` (viewer); with no code host it
+answers `configured: false`.
+
+### PR mode: one pull request per change
+
+A schema migration or a query rewrite is a change pg_sage cannot apply itself. With PR mode
+on, pg_sage opens one pull request for it on the application's repository; a person reviews
+and merges it. Off by default:
+
+```yaml
+agents:
+  pr_mode:
+    enabled: false           # needs agents.code_host; the token then needs write access
+    repo: ""                 # empty means agents.code_host.repo
+    migrations_path: db/migrate
+    label: pg_sage
+```
+
+Every 15 minutes each database's runtime (on a writable primary only) reads up to 20
+candidates from `sage.findings`:
+
+- **Migration**: a change the executor runs under no contract, or a fact-bound source fix
+  (`detail.source_fix`). The PR adds one new file under `migrations_path`, named after the
+  newest file there: a 14-digit timestamp, a zero-padded sequence, Flyway's
+  `V<n>__name.sql`, or `.up.sql`/`.down.sql` pairs (the down file holds the rollback). Any
+  other layout is refused, not guessed.
+- **Query rewrite**: only when the call site is `exact`, the statement text appears once,
+  verbatim, at that line, and the rewrite passed an equivalence check
+  (`detail.rewrite_equivalence: passed`). The literal is replaced and nothing else changes.
+  A rewrite that would add a quote, backslash or newline the literal lacks is refused. A
+  `likely` call site, or no check, keeps the change as text for a person or coding agent.
+
+The description is built in code: what it changes, why (with the evidence ids), the expected
+effect from the verification ladder receipt with its tier, the risk tier and rollback, the
+call site, and a hidden `<!-- pg_sage:key=... -->` marker. Over GitHub's 65,536-character
+limit, whole sections are cut from the end and named. When a model is configured, it writes
+the first paragraph from redacted facts (kind, title, risk tier, file names, the ladder
+line; no SQL text). Its answer is dropped for the template when it fails, times out, is not
+the JSON asked for, or names a URL or an identifier the facts lack.
+
+Nothing is opened when a PR already covers the change: an open PR with the `label` carrying
+the marker, or any `sage.source_fix` row on the finding (a coding agent's report, or a PR
+declined earlier). A session advisory lock per candidate keeps two cycles from racing. A
+finding without a source-fix packet gets no PR. The PR is recorded through the source-fix
+stage `pr_opened` with `origin = 'pg_sage'`, its repository and number, so the deploy report
+and the verdict use the same verify window as a coding agent's fix. If recording fails after
+the PR opened, the next pass finds the marker and records it, and no second PR is opened.
+
+PR mode then follows the PR: closed unmerged is "declined in <repo>#<n>" and is never
+proposed again; merged waits for the deploy report (`report_source_fix`, stage `deployed`);
+then the verdict. A migration that regressed after its deploy gets one revert PR, with its
+rollback as a new migration, only if it has a rollback. A rewrite that regressed is left to
+a person.
 
 ## Tool reference
 
