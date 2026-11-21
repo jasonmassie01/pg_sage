@@ -99,6 +99,7 @@ Ask Sage is also held to its own `ask.*` budgets.
 | Agent column classifier | `internal/agentguard/classify` | the daily column classification pass of agent governance | 2,048 |
 | Sage Review model pass | `internal/review/modelpass`, `internal/agentloop` | each review with candidates (`review.model_pass`, default `auto`): `review.model_runs` (default 3) tool loops, or 2 with `review.consensus: refute`; the `review` client (`llm.review_llm`, else the optimizer, else the general client) | 6,000 per call, at most 150,000 tokens per run |
 | Sage Review fleet pass | `internal/review/fleet` | once a calendar month (UTC) in fleet and meta mode with `review.enabled`, on the leader: the triage (`review.triage_model`, default the general client's model) makes one call per 200 members, then the general client one summary call; a fleet of one makes none | 2,048 per triage call, 1,024 for the summary |
+| PR mode | `internal/cases`, `cmd/pg_sage_sidecar` | with `agents.pr_mode` on and a model configured, once per pull request pg_sage opens: the first paragraph of its description, from redacted facts (no SQL text); the template is used when the model is off or fails | 400 |
 
 The scheduled consumers make a handful of calls a day per database: one briefing, up to
 four advisor calls, one facts pass, the classifier's daily pass, and the first look once.

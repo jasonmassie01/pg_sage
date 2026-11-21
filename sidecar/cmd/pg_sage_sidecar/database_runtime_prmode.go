@@ -65,6 +65,9 @@ func buildPRMode(cfg *config.Config, pool *pgxpool.Pool, mgr *llm.Manager, llmOn
 // prModel is PR mode's paragraph writer over the general model.
 type prModel struct{ mgr *llm.Manager }
 
+// Chat forwards the prompt internal/cases builds (fenced facts).
+//
+//llm:transport internal/cases.prModelSystem
 func (p prModel) Chat(ctx context.Context, system, user string) (string, error) {
 	resp, _, err := p.mgr.ChatForPurpose(ctx, "pr_mode", system, user, prModeMaxTokens)
 	return resp, err

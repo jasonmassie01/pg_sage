@@ -18,7 +18,8 @@ const (
 	prModelSystem    = `You explain a database change to the engineer who reviews its ` +
 		`pull request. Respond with ONLY a JSON object {"paragraph":"..."}: one plain ` +
 		`paragraph of at most 120 words saying what the change does. Use only the facts ` +
-		`given. Name no table, column, file, URL or number that is not in the facts.`
+		`given. Name no table, column, file, URL or number that is not in the facts. ` +
+		llm.UntrustedDataRule
 )
 
 var (
@@ -64,10 +65,11 @@ func (m *PRMode) paragraph(ctx context.Context, c PRCandidate, ch prChange) stri
 	if m.deps.Model == nil {
 		return template
 	}
-	ctx, cancel := context.WithTimeout(ctx, prModelTimeout)
+	ctx, cancel := context.WithTimeout(llm.WithPurpose(ctx, "pr_mode"), prModelTimeout)
 	defer cancel()
 	facts := factsFor(c, ch)
-	raw, err := m.deps.Model.Chat(ctx, prModelSystem, facts)
+	// The facts name finding titles and file paths: data, never instructions.
+	raw, err := m.deps.Model.Chat(ctx, prModelSystem, llm.UntrustedData("pr_facts", facts))
 	if err != nil {
 		return template
 	}
