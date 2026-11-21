@@ -98,6 +98,11 @@ var reasonMappings = map[string]reasonMapping{
 		fixSpec{kind: FixUILink, value: pageFacts}),
 	"facts_unavailable": failsNoFix(LinkPolicy,
 		"The confirmed facts could not be read, so the gate fails closed.", retries),
+	// fleetpol-02: an exposure fix while the policy's exposure mode is shadow.
+	"exposure_shadow": fails(LinkPolicy,
+		"Exposure fixes are in shadow mode: pg_sage records the change it would make.",
+		fixSpec{kind: FixSetting, value: "exposure.mode=enforce",
+			note: "Set it in the standing policy document to let exposure fixes run."}),
 	"agent_proposal_recorded": fails(LinkPolicy,
 		"The agent's proposal is recorded and waits for review.",
 		fixSpec{kind: FixUILink, value: pagePending}),
