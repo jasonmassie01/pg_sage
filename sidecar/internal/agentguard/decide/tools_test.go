@@ -39,6 +39,7 @@ func TestToolClassTable(t *testing.T) {
 		{"review_grade", agentguard.ToolRead, ""},
 		{"review_scorecard", agentguard.ToolRead, ""},
 		{"check_pressure", agentguard.ToolRead, ""},
+		{"why_not", agentguard.ToolRead, ""},
 		{"decide_fact", KindApprove, ""},
 		{"declare_table_contract", KindApprove, ""},
 		{"register_consumer", KindApprove, ""},

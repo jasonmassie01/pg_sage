@@ -77,6 +77,8 @@ var toolClasses = map[string]toolClass{
 	// none starts a drill, a grade or a check that writes.
 	"restore_drills": read(), "review_grade": read(), "review_scorecard": read(),
 	"check_pressure": read(),
+	// ux-08b: the why-not chain, read scope; it reads and records nothing.
+	"why_not": read(),
 	// agent_* tools (G1+): every D-step applies.
 	"agent_query": agentTool(CapRead), "agent_whoami": agentTool(CapRead),
 	// The capability class of a grant request is the class it asks for;
