@@ -108,7 +108,7 @@ test.describe('Settings dialogs by keyboard', () => {
     await select.focus()
     await select.selectOption('autonomous')
 
-    const dialog = page.getByRole('dialog', { name: /confirm trust level change/i })
+    const dialog = page.getByRole('dialog', { name: /confirm autonomy change/i })
     await expect(dialog).toBeVisible()
     await expect(page.getByTestId('trust-level-cancel')).toBeFocused()
     await tabTwentyTimesInside(page, 'trust-level-confirm')
