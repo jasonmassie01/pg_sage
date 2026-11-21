@@ -19,6 +19,9 @@ const metaDBTimeout = 10 * time.Second
 
 var bootstrapManagedDatabaseSchema = schema.Bootstrap
 
+// metaSchemaBootstrap is the meta database's schema boot (a test seam).
+var metaSchemaBootstrap = schema.Bootstrap
+
 // metaDBState holds state derived from the --meta-db flag.
 type metaDBState struct {
 	Pool       *pgxpool.Pool
@@ -54,19 +57,31 @@ func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
 	return p, err
 }
 
+// bootstrapMetaSchema runs the schema boot within its own metaDBTimeout, so
+// a slow boot cannot spend the budget of the steps after it (the admin's
+// password hash among them).
+func bootstrapMetaSchema(metaPool *pgxpool.Pool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), metaDBTimeout)
+	defer cancel()
+	if err := metaSchemaBootstrap(ctx, metaPool); err != nil {
+		return fmt.Errorf("bootstrapping meta-db schema: %w", err)
+	}
+	return nil
+}
+
 // initMetaDB bootstraps the meta database: schema, admin user,
-// and returns state needed by the rest of startup.
+// and returns state needed by the rest of startup. The schema boot and
+// the steps after it each get metaDBTimeout.
 func initMetaDB(
 	metaPool *pgxpool.Pool, encKeyPassphrase string,
 ) (*metaDBState, error) {
+	if err := bootstrapMetaSchema(metaPool); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(
 		context.Background(), metaDBTimeout,
 	)
 	defer cancel()
-
-	if err := schema.Bootstrap(ctx, metaPool); err != nil {
-		return nil, fmt.Errorf("bootstrapping meta-db schema: %w", err)
-	}
 	warnIsolationDefault(ctx, metaPool, "meta-db", logWarn)
 
 	// Run config schema migration (adds database_id, audit table).
