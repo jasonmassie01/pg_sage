@@ -20,7 +20,7 @@ test.describe('Dashboard page', () => {
       const hero = page.locator('[data-testid="health-hero"]')
       await expect(hero).toBeVisible()
       await expect(hero).toContainText('1 warning finding')
-      await expect(hero).not.toContainText('No open critical or warning cases')
+      await expect(hero).not.toContainText('No open critical or warning issues')
       await expect(page.getByTestId('health-hero-cases-link'))
         .toHaveAttribute('href', '#/cases')
     })
@@ -41,7 +41,7 @@ test.describe('Dashboard page', () => {
       await page.goto('/#/advanced')
 
       const hero = page.locator('[data-testid="health-hero"]')
-      await expect(hero).toContainText('No open critical or warning cases')
+      await expect(hero).toContainText('No open critical or warning issues')
     })
 
   test('stat cards display correct counts', async ({ page }) => {
@@ -94,7 +94,7 @@ test.describe('Dashboard page', () => {
     await expect(advisoryBadge).toBeVisible()
     await expect(advisoryBadge).toHaveAttribute(
       'title',
-      'SAFE actions may auto-execute only when execution_mode=auto, tier3_safe is on and the 8-day trust ramp has passed; otherwise they queue for approval',
+      'SAFE changes may auto-execute only when execution_mode=auto, Tier 3 Safe is on and the 8-day ramp has passed; otherwise they wait on you',
     )
     await expect(page.locator('[data-testid="trust-badge-observation"]'))
       .toBeVisible()
@@ -106,7 +106,7 @@ test.describe('Dashboard page', () => {
 
     const topCases = page.locator('[data-testid="top-cases"]')
     await expect(topCases).toBeVisible()
-    await expect(topCases).toContainText('Top Cases')
+    await expect(topCases).toContainText('Top issues')
     await expect(topCases).toContainText('Stats are stale')
     await expect(topCases.locator('[data-testid="top-case-link"]').first())
       .toHaveAttribute('href', /^#\/cases\?case=/)

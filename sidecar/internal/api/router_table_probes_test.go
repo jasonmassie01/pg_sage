@@ -267,6 +267,7 @@ var routeProbes = []routeProbe{
 	{"POST", "/api/v1/approvals/7/approve"},
 	{"POST", "/api/v1/approvals/7/reject"},
 	{"POST", "/api/v1/approvals/7/snooze"},
+	{"POST", "/api/v1/approvals/bulk-approve"},
 	{"POST", "/api/v1/plans/7/approve"},
 	{"POST", "/api/v1/plans/7/steps/7/approve"},
 	{"POST", "/api/v1/plans/7/reject"},

@@ -39,7 +39,7 @@ function ErrorState({ error, onRetry }) {
       <p className="mt-1 text-sm">{error}</p>
       <button type="button" onClick={onRetry}
         className="mt-3 rounded px-3 py-1.5 text-sm"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Retry
       </button>
     </div>
@@ -57,7 +57,7 @@ function EmptyState() {
         </p>
         <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
           The first credit comes from the first verified change: an action
-          pg_sage ran, with your approval or within its trust level, whose
+          pg_sage ran, with your approval or within its autonomy, whose
           outcome it then measured and verified.
         </p>
         <a href="#/" className="mt-3 inline-block text-sm underline"
@@ -107,7 +107,7 @@ function PotentialValue({ hours }) {
       <h2 className="text-lg font-semibold">Potential savings</h2>
       <p className="mt-1 text-2xl font-semibold">{formatHours(hours)}</p>
       <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        Pending recommendations only. Not included in DBA hours saved.
+        Pending changes only. Not included in DBA hours saved.
       </p>
     </section>
   )
@@ -256,7 +256,10 @@ function isEmptyValue(data) {
   )
 }
 
-export function ValuePage({ database, user }) {
+// embedded: the page is the ledger's Value section (ux-11), so its title
+// is a section heading rather than the page's.
+export function ValuePage({ database, user, embedded = false }) {
+  const Heading = embedded ? 'h2' : 'h1'
   // Read before the value, so the value stays this page's last read.
   const scorecard = useReviewScorecard(database)
   const value = useAPI(valueURL(database), valuePollIntervalMs)
@@ -270,7 +273,9 @@ export function ValuePage({ database, user }) {
   return (
     <QueryState query={value}><div className="space-y-6" data-testid="value-page">
       <div>
-        <h1 className="text-2xl font-semibold">Value delivered</h1>
+        <Heading className={embedded ? 'text-lg font-semibold' : 'text-2xl font-semibold'}>
+          Value delivered
+        </Heading>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
           Verified work completed and incidents prevented by pg_sage.
         </p>

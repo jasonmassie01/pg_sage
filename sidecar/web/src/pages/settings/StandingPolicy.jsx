@@ -34,9 +34,9 @@ export function StandingPolicy({ databaseId }) {
     <section className="space-y-3 text-sm" data-testid="standing-policy">
       <h3 className="font-medium" style={strong}>Standing policy</h3>
       <p style={muted}>
-        What pg_sage may do unattended. Every verdict and reason the gate records is
+        What pg_sage may do unattended. Every decision and reason the gate records is
         explained in the <a href={POLICY_GATE_DOC} className="underline"
-          style={{ color: 'var(--accent)' }}>policy gate reference</a>.
+          style={{ color: 'var(--accent)' }}>policy check reference</a>.
       </p>
       <div data-testid="standing-policy-current">
         <QueryState query={current}>

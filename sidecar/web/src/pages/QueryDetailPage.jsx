@@ -35,8 +35,11 @@ function History({ data }) {
   return (
     <table className="w-full text-xs">
       <thead style={muted}>
-        <tr className="text-left"><th>Bucket</th><th className="text-right">Calls</th>
-          <th className="text-right">Mean</th><th className="text-right">Rows</th><th /></tr>
+        <tr className="text-left"><th scope="col">Bucket</th>
+          <th scope="col" className="text-right">Calls</th>
+          <th scope="col" className="text-right">Mean</th>
+          <th scope="col" className="text-right">Rows</th>
+          <th scope="col" /></tr>
       </thead>
       <tbody>
         {data.buckets.map(b => (
@@ -103,7 +106,7 @@ function Links({ data, database }) {
         ))}
       </ul>
       {!data.cases?.length && !data.hints?.length && !data.actions?.length && (
-        <p style={muted}>No cases, hints or actions about this query.</p>
+        <p style={muted}>No issues, hints or actions about this query.</p>
       )}
     </div>
   )
@@ -133,7 +136,7 @@ export function QueryDetailPage({ route, database }) {
           <Section title="Latest captured plan" testId="query-plan">
             <Plan plan={data.plan} />
           </Section>
-          <Section title="Cases, hints and actions"><Links data={data} database={db} /></Section>
+          <Section title="Issues, hints and actions"><Links data={data} database={db} /></Section>
         </div>
       )}
     </QueryState>

@@ -1,126 +1,162 @@
-import { useMemo, useState } from 'react'
-import { filterDatabases } from '../../lib/databaseFilter'
-import { RuntimeCells } from './RuntimeCells'
+import { useCallback, useMemo, useState } from 'react'
+import { useAPI } from '../../hooks/useAPI'
+import { useCursorPages } from '../../lib/listPaging'
+import { LoadMore } from '../../components/LoadMore'
+import { BulkBar, FleetCount, FleetSearch, NoMatch, SortHeader } from './FleetControls'
+import { DatabaseRow } from './DatabaseRow'
+import { fleetRows } from './fleetList'
+import { useFleetView } from './fleetView'
+import { useBulkTag } from './bulkTag'
 import { RUNTIME_HEADERS } from './runtimeStatus'
 
-// TABLE_ROW_LIMIT bounds the rows rendered at once (ux-05e): a fleet of
-// 500 shows the first ones and says how to reach the rest (the filter).
-export const TABLE_ROW_LIMIT = 100
+// DatabaseTable is the fleet table of the managed registrations (ux-10a):
+// the sidecar searches (name or host), filters by tag, sorts and pages it
+// (GET /api/v1/databases?q&tag&sort&order&limit), and rows can be selected
+// for a bulk connection test or tag through the per-row routes. databases are the
+// registrations; runtimeFor maps one to its row of the whole runtime
+// inventory, runtimeKnown is false when that inventory could not be read.
 
-const muted = { color: 'var(--text-secondary)' }
 const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
+const muted = { color: 'var(--text-secondary)' }
 
-// FleetFilter is the text filter above the table (name, host or tag).
-function FleetFilter({ query, onChange, shown, matched, total }) {
+async function testConnection(db) {
+  const res = await fetch(`/api/v1/databases/managed/${db.id}/test`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) throw new Error(`Test request failed for ${db.name}`)
+  return { id: db.id, ...(await res.json()) }
+}
+
+// useConnectionTests runs connection tests, one at a time, and keeps each
+// registration's last result by id.
+function useConnectionTests(onError) {
+  const [testing, setTesting] = useState(null)
+  const [results, setResults] = useState({})
+  const [summary, setSummary] = useState('')
+  const run = useCallback(async dbs => {
+    let ok = 0
+    let failed = 0
+    setSummary('')
+    for (const db of dbs) {
+      setTesting(db.id)
+      try {
+        const result = await testConnection(db)
+        setResults(prev => ({ ...prev, [db.id]: result }))
+        if (result.status === 'ok') ok += 1
+        else failed += 1
+      } catch (err) {
+        failed += 1
+        onError(err.message)
+      }
+    }
+    setTesting(null)
+    if (dbs.length > 1) setSummary(`Tested ${dbs.length}: ${ok} connected, ${failed} failed`)
+  }, [onError])
+  return { testing, results, summary, run }
+}
+
+export function DatabaseTable({
+  databases, onEdit, onDelete, onError,
+  runtimeFor = () => undefined, runtimeKnown = true, onSelectDatabase, onChanged = () => {},
+  initialTags,
+}) {
+  const view = useFleetView(initialTags)
+  const list = useAPI(databases.length ? view.url : null, 30000)
+  const paging = useCursorPages(list.data, view.url, 'databases', { idOf: row => row?.name })
+  const tests = useConnectionTests(onError)
+  const bulkTag = useBulkTag(onError, onChanged)
+  const rows = useMemo(() => fleetRows(databases, paging.rows), [databases, paging.rows])
+
+  if (databases.length === 0) {
+    return (
+      <div className="rounded-lg p-8 text-center text-sm" style={{ ...muted, ...cardStyle }}>
+        No databases configured yet. Click &quot;Add Database&quot; to get started.
+      </div>
+    )
+  }
+  const listFailed = Boolean(list.error) && !list.data
+  const managedRows = listFailed
+    ? databases.map(reg => ({ key: reg.name, registration: reg, runtime: runtimeFor(reg) }))
+    : rows.filter(r => r.registration)
+  const notRunning = listFailed || view.filtered || !runtimeKnown ? []
+    : databases.filter(reg => !runtimeFor(reg))
+  const rowProps = {
+    onEdit, onDelete, onSelectDatabase, runtimeKnown: listFailed ? runtimeKnown : true,
+    tests, selected: view.selected, onToggle: view.toggle,
+  }
+  const selectedRegs = databases.filter(reg => view.selected.has(reg.id))
   return (
-    <div className="flex flex-wrap items-center gap-3 mb-2">
-      <input type="search" aria-label="Filter databases" value={query}
-        data-testid="db-filter" placeholder="Filter by name, host or tag"
-        onChange={e => onChange(e.target.value)}
-        className="px-3 py-1.5 rounded text-sm w-full sm:w-72"
-        style={{ background: 'var(--bg-hover)', color: 'var(--text-primary)',
-          border: '1px solid var(--border)' }} />
-      {matched > shown && (
-        <span data-testid="db-filter-count" className="text-xs" style={muted}>
-          Showing {shown} of {matched}{matched < total ? ` matching (${total} in all)` : ''};
-          {' '}type in the filter to find the rest.
-        </span>
+    <div>
+      <FleetSearch query={view.query} onQuery={view.setQuery} tags={view.tags}
+        onTags={view.setTags} />
+      <BulkBar count={selectedRegs.length} running={tests.testing !== null}
+        summary={tests.summary} onTest={() => tests.run(selectedRegs)}
+        onClear={() => view.setSelected(new Set())}
+        tag={{ ...bulkTag, onRun: raw => bulkTag.run(selectedRegs, raw) }} />
+      <FleetStatusLine list={list} listFailed={listFailed} shown={managedRows.length}
+        configFile={rows.length - rows.filter(r => r.registration).length} />
+      <FleetBody list={list} listFailed={listFailed} filtered={view.filtered}
+        onClear={view.clear} rows={managedRows} sort={view.sort} onSort={view.setSort}
+        {...rowProps} />
+      {!listFailed && <div className="mt-2"><LoadMore paging={paging} testId="db-load-more" /></div>}
+      {notRunning.length > 0 && (
+        <NotRunning registrations={notRunning} {...rowProps} runtimeKnown />
       )}
     </div>
   )
 }
 
-// useConnectionTest runs a registration's connection test, one at a time.
-function useConnectionTest(onError) {
-  const [testing, setTesting] = useState(null)
-  const [testResult, setTestResult] = useState(null)
-
-  async function handleTest(db) {
-    setTesting(db.id)
-    setTestResult(null)
-    try {
-      const res = await fetch(
-        `/api/v1/databases/managed/${db.id}/test`,
-        {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-        })
-      if (!res.ok) throw new Error('Test request failed')
-      const data = await res.json()
-      setTestResult({ id: db.id, ...data })
-    } catch (err) {
-      onError(err.message)
-    } finally {
-      setTesting(null)
-    }
-  }
-  return { testing, testResult, handleTest }
-}
-
-// DatabaseTable lists the managed registrations with their runtime state.
-// runtimeFor maps a registration to its GET /api/v1/databases row;
-// runtimeKnown is false when that inventory could not be read.
-export function DatabaseTable({
-  databases, onEdit, onDelete, onError,
-  runtimeFor = () => undefined, runtimeKnown = true, onSelectDatabase,
-}) {
-  const { testing, testResult, handleTest } = useConnectionTest(onError)
-  const [query, setQuery] = useState('')
-  const matched = useMemo(() => filterDatabases(databases, query), [databases, query])
-  const shown = matched.length > TABLE_ROW_LIMIT ? matched.slice(0, TABLE_ROW_LIMIT) : matched
-
-  if (databases.length === 0) {
+function FleetStatusLine({ list, listFailed, shown, configFile }) {
+  if (listFailed) {
     return (
-      <div className="rounded-lg p-8 text-center text-sm"
-        style={{
-          background: 'var(--bg-card)',
-          color: 'var(--text-secondary)',
-          border: '1px solid var(--border)',
-        }}>
-        No databases configured yet. Click "Add Database" to get started.
-      </div>
+      <p role="status" data-testid="db-list-error" className="text-xs mb-2"
+        style={{ color: 'var(--red)' }}>
+        Search, sort and paging are unavailable ({list.error}); showing every registration.
+      </p>
     )
   }
+  if (!list.data) return null
+  return <FleetCount shown={shown} total={list.data.total} configFile={configFile} />
+}
 
-  const rowProps = {
-    onEdit, onDelete, onTest: handleTest, testing, testResult, runtimeFor, runtimeKnown,
-    onSelectDatabase,
+// FleetBody is the table once its first page arrived (or the fallback
+// list), the empty state of a filter with no match, or a loading line.
+function FleetBody({ list, listFailed, filtered, onClear, ...rest }) {
+  if (!listFailed && !list.data) {
+    return <p data-testid="db-list-loading" className="text-sm" style={muted}>Loading databasesâ€¦</p>
   }
+  if (!listFailed && list.data.total === 0 && filtered) return <NoMatch onClear={onClear} />
+  return <FleetRows {...rest} />
+}
+
+function SelectAll({ rows, selected, onToggle }) {
+  const ids = rows.map(r => r.registration.id)
+  const all = ids.length > 0 && ids.every(id => selected.has(id))
   return (
-    <div>
-      <FleetFilter query={query} onChange={setQuery} shown={shown.length}
-        matched={matched.length} total={databases.length} />
-      {matched.length === 0 ? (
-        <div data-testid="db-filter-empty" role="status"
-          className="rounded-lg p-6 text-center text-sm" style={{ ...muted, ...cardStyle }}>
-          No database matches &ldquo;{query.trim()}&rdquo;. Clear the filter to see all
-          {' '}{databases.length}.
-        </div>
-      ) : <FleetRows databases={shown} {...rowProps} />}
-    </div>
+    <input type="checkbox" aria-label="Select all shown databases" checked={all}
+      data-testid="db-select-all"
+      onChange={() => ids.filter(id => all || !selected.has(id)).forEach(onToggle)} />
   )
 }
 
-function FleetRows({ databases, testing, testResult, runtimeFor, ...rest }) {
+const HEADERS = ['Name', 'Host', 'Trust Level', 'Execution Mode', 'Registration',
+  ...RUNTIME_HEADERS]
+
+function FleetRows({ rows, sort, onSort, ...rest }) {
   return (
     <div className="rounded-lg overflow-x-auto" style={cardStyle}>
       <table className="w-full text-sm" data-testid="databases-table">
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
-            {['Name', 'Host', 'Trust Level', 'Execution Mode', 'Registration',
-              ...RUNTIME_HEADERS, ''].map(h => (
-              <th key={h} className="text-left px-4 py-2 text-xs whitespace-nowrap"
-                style={muted}>{h}</th>
-            ))}
+            <th scope="col" className="px-2 py-2"><SelectAll rows={rows} selected={rest.selected}
+              onToggle={rest.onToggle} /></th>
+            {HEADERS.map(h => <SortHeader key={h} label={h} sort={sort} onSort={onSort} />)}
+            <th scope="col"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
-          {databases.map(db => (
-            <DatabaseRow key={db.id} db={db} {...rest}
-              testing={testing === db.id}
-              testResult={testResult?.id === db.id ? testResult : null}
-              runtime={runtimeFor(db)} />
+          {rows.map(row => (
+            <FleetRow key={row.key} db={row.registration} runtime={row.runtime} {...rest} />
           ))}
         </tbody>
       </table>
@@ -128,77 +164,28 @@ function FleetRows({ databases, testing, testResult, runtimeFor, ...rest }) {
   )
 }
 
-function DatabaseRow({
-  db, onEdit, onDelete, onTest, testing, testResult,
-  runtime, runtimeKnown, onSelectDatabase,
-}) {
-  const badge = (text, color) => (
-    <span className="px-2 py-0.5 rounded text-xs"
-      style={{
-        background: `${color}20`,
-        color,
-        border: `1px solid ${color}40`,
-      }}>{text}</span>
-  )
+// FleetRow hands a row only its own selection and test state, so the
+// memoized DatabaseRow re-renders only the rows that changed.
+function FleetRow({ db, tests, selected, ...rest }) {
+  return <DatabaseRow db={db} checked={selected.has(db.id)} testing={tests.testing === db.id}
+    result={tests.results[db.id]} onTest={tests.run} {...rest} />
+}
 
-  const trustColors = {
-    observation: '#3b82f6',
-    advisory: '#f59e0b',
-    autonomous: '#10b981',
-  }
-  const modeColors = {
-    auto: '#10b981',
-    approval: '#f59e0b',
-    manual: '#6b7280',
-  }
-
+// NotRunning lists the registrations the runtime does not report
+// (disabled, or not started); the server list cannot page them.
+function NotRunning({ registrations, ...rest }) {
   return (
-    <tr data-testid="db-row"
-      style={{ borderBottom: '1px solid var(--border)' }}>
-      <td className="px-4 py-2"
-        style={{ color: 'var(--text-primary)' }}>
-        {db.name}
-      </td>
-      <td className="px-4 py-2"
-        style={{ color: 'var(--text-secondary)' }}>
-        {db.host}:{db.port}/{db.database_name}
-      </td>
-      <td className="px-4 py-2">
-        {badge(db.trust_level, trustColors[db.trust_level] || '#6b7280')}
-      </td>
-      <td className="px-4 py-2">
-        {badge(db.execution_mode, modeColors[db.execution_mode] || '#6b7280')}
-      </td>
-      <td className="px-4 py-2 whitespace-nowrap" data-testid="db-registration">
-        {testResult && (testResult.status === 'ok'
-          ? badge('test: connected', '#10b981')
-          : badge('test: error', '#ef4444'))}
-        {!testResult && !db.enabled && badge('disabled', '#6b7280')}
-      </td>
-      <RuntimeCells runtime={runtime} runtimeKnown={runtimeKnown}
-        registeredTrust={db.trust_level} onSelectDatabase={onSelectDatabase} />
-      <td className="px-4 py-2 text-right">
-        <div className="flex gap-2 justify-end">
-          <button onClick={() => onTest(db)} disabled={testing}
-            data-testid="db-test-button"
-            className="px-2 py-1 rounded text-xs"
-            style={{ color: 'var(--accent)' }}>
-            {testing ? 'Testing...' : 'Test'}
-          </button>
-          <button onClick={() => onEdit(db)}
-            data-testid="db-edit-button"
-            className="px-2 py-1 rounded text-xs"
-            style={{ color: 'var(--text-secondary)' }}>
-            Edit
-          </button>
-          <button onClick={() => onDelete(db)}
-            data-testid="db-delete-button"
-            className="px-2 py-1 rounded text-xs"
-            style={{ color: '#ef4444' }}>
-            Delete
-          </button>
-        </div>
-      </td>
-    </tr>
+    <div className="mt-4 space-y-2" data-testid="db-not-running">
+      <p className="text-sm" style={muted}>Registered but not running:</p>
+      <div className="rounded-lg overflow-x-auto" style={cardStyle}>
+        <table className="w-full text-sm">
+          <tbody>
+            {registrations.map(reg => (
+              <FleetRow key={reg.id} db={reg} runtime={undefined} {...rest} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }

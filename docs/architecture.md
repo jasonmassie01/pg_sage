@@ -935,10 +935,41 @@ plan's review; `plans_unavailable: true` says the plans could not be read.
 
 ### API + Dashboard (Web UI)
 
-REST API and embedded React SPA on `:8080` (configurable). The v1 UI is
-organized around Overview, Cases, Actions, Fleet, and Settings. The legacy
-`#/findings`, `#/schema-health`, `#/query-hints`, `#/forecasts`, and
-`#/incidents` routes open Cases with the appropriate source context. The API
+REST API and embedded React SPA on `:8080` (configurable). The nav has 14
+entries in three groups (ux-11), each shown only to the roles its page allows,
+and a group a role cannot use is not drawn:
+
+| Group | Entries |
+| --- | --- |
+| Operate | Inbox (`#/`), Changes (`#/changes`), Issues (`#/issues`), Ask Sage (`#/ask`) |
+| Admin | Fleet (`#/manage-databases`), Autonomy (`#/autonomy`), Notifications, Agents, Users, Settings |
+| Evidence (collapsible) | Workload (`#/queries`), SLOs, Facts, Runbooks (`#/advanced/runbooks`) |
+
+The Evidence group opens on one of its pages and otherwise remembers, per
+browser, whether the viewer last opened or closed it. The outcome ledger
+(`#/ledger`) is linked from the Inbox and from Changes rather than the nav;
+its collapsed sections hold the Value summary and every external agent
+request. Fleet's **Health & readiness** tab holds the fleet health summary,
+provider readiness and index admission; the health chart is on the Database
+page; MCP tokens are an admin-only tab of Agents.
+
+Old paths keep working. The dashboard redirects each in place (Back skips
+it), keeps the `?database=` and `?case=` it carried, and adds the view it
+named:
+
+| Old path | Opens |
+| --- | --- |
+| `#/actions`, `#/advanced/actions` | `#/changes` |
+| `#/cases`, `#/findings`, `#/advanced/findings` | `#/issues` |
+| `#/forecasts`, `#/query-hints`, `#/schema-health`, `#/incidents` | `#/issues?source=forecast` (`query_hint`, `schema_health`, `incident`) |
+| `#/value` | `#/ledger?section=value` |
+| `#/trust` | `#/autonomy` |
+| `#/advanced/autonomy` | `#/autonomy?section=history` |
+| `#/advanced` (Snapshot & metrics) | `#/manage-databases?tab=readiness` |
+| `#/alerts` | `#/notifications?tab=log` |
+| `#/mcp-tokens` | `#/agents?tab=tokens` |
+
+The aliases stay for at least two releases. The API
 includes case projection, shadow decisions, action queue, provider readiness,
 findings, snapshots, config, forecasts, query hints, alerts, emergency stop,
 and fleet management. UI and `/api/v1/*` routes are session-authenticated.
@@ -1011,7 +1042,7 @@ fleet tooltip add "2 databases have not reported their action policy" and the
 strip limits its claim to the databases that did, since one that has not
 reported may still auto-execute.
 
-**Approval cards.** Each pending action in "Needs your review" is a card
+**Approval cards.** Each pending action in "Waiting on you" is a card
 (`GET /api/v1/approvals`): why it needs a person, the cited evidence, the
 rationale, the predicted effect, the exact SQL and rollback, and the risk. A
 `pg_hint_plan` card (`apply_query_hint`, `retire_query_hint`) also carries
@@ -1056,6 +1087,22 @@ Provider readiness uses adapters for Postgres, Cloud SQL, AlloyDB, RDS, and
 Aurora. Adapters describe extension enablement paths, log access, managed
 service limitations, and supported action families before policy evaluation
 decides whether a specific database can execute, queue, or only observe.
+
+#### Accessibility checks (ux-12)
+
+Every tab bar is the shared `components/Tabs.jsx` (a named tablist, arrow
+keys, Home and End); a tab panel with nothing focusable inside is itself the
+Tab stop after the bar. Every confirmation is the shared modal `Dialog`
+(focus moves in, Tab stays inside, Escape cancels unless a request runs,
+focus returns to the opener). Under 768 px an approval card's decision row,
+an Inbox item's decision row and a plan's approval row stay in view at the
+bottom of the screen. Two source lints keep this true for new code:
+`src/lint/colourPairs.test.js` resolves every colour pair the source states
+(an inline `background` with a `color`, or a Tailwind `bg-[..]` with a
+`text-[..]`) against the `index.css` tokens of each theme and fails any pair
+under 4.5:1, or any token no theme defines, with its file and line; and
+`src/lint/tableHeaders.test.js` fails any `<th>` without a `scope`. A pair
+whose colour is computed at run time is not checked by the lint.
 
 ### Alerting
 

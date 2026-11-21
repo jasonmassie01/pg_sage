@@ -25,7 +25,7 @@ describe('RecommendationsTab risk', () => {
     expect(line.textContent).toContain('Risk: High')
     expect(line.textContent).not.toMatch(/high risk|high_risk/)
     expect(within(line).getByTestId('proposal-contract').textContent)
-      .toBe('Contract tier: Moderate')
+      .toBe('Specialist limit: Moderate')
     expect(screen.getByTestId('proposal-approval').textContent)
       .toBe("Needs approval: high-risk actions always need an operator's approval")
   })
@@ -36,7 +36,7 @@ describe('RecommendationsTab risk', () => {
       approval_reason: '' })
     expect(line.textContent).toContain('Risk: Advisory only')
     expect(within(line).getByTestId('proposal-contract').textContent)
-      .toBe('Contract tier: none (advisory only)')
+      .toBe('Specialist limit: none (advisory only)')
     expect(screen.queryByTestId('proposal-approval')).toBeNull()
   })
 

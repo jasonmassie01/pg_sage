@@ -1,20 +1,20 @@
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { Dashboard } from './Dashboard'
-import { LiveEventsProvider } from '../hooks/useLiveEvents'
-import { FakeEventSource } from '../test/fakeEventSource'
-import { stubFetch } from '../test/fetchStub'
+import { FleetOverview } from './FleetOverview'
+import { LiveEventsProvider } from '../../hooks/useLiveEvents'
+import { FakeEventSource } from '../../test/fakeEventSource'
+import { stubFetch } from '../../test/fetchStub'
 
-// dashboard-08: Dashboard renders the fleet App already polls (the fleet
+// dashboard-08: FleetOverview renders the fleet App already polls (the fleet
 // query is a prop) and fetches no /api/v1/databases of its own. The real
 // useAPI runs against stubFetch; only the self-fetching panels are stubbed.
 // No concurrent access tests: one render, single-threaded timers.
 
-vi.mock('../components/FleetHealthChart', () => ({ FleetHealthChart: () => <div /> }))
-vi.mock('../components/ProviderReadinessMatrix', () => ({
+vi.mock('../../components/FleetHealthChart', () => ({ FleetHealthChart: () => <div /> }))
+vi.mock('../../components/ProviderReadinessMatrix', () => ({
   ProviderReadinessMatrix: () => <div />,
 }))
-vi.mock('../components/TokenBudgetBanner', () => ({ TokenBudgetBanner: () => <div /> }))
+vi.mock('../../components/TokenBudgetBanner', () => ({ TokenBudgetBanner: () => <div /> }))
 
 const fleetData = {
   summary: { total_databases: 2, healthy: 1, degraded: 1, total_critical: 0 },
@@ -41,9 +41,9 @@ afterEach(() => {
 const advance = ms => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
 const fetchedPaths = () => fetch.mock.calls.map(c => String(c[0]).split('?')[0])
 
-describe('Dashboard fleet', () => {
+describe('FleetOverview fleet', () => {
   it('renders from the fleet prop and fetches no databases list', async () => {
-    render(<Dashboard database="all" onSelectDB={vi.fn()} fleet={fleetQuery()} />)
+    render(<FleetOverview database="all" onSelectDB={vi.fn()} fleet={fleetQuery()} />)
     await advance(60000)
     expect(screen.getByTestId('stat-databases')).toHaveTextContent('2')
     expect(screen.getByTestId('stat-healthy')).toHaveTextContent('1')
@@ -54,7 +54,7 @@ describe('Dashboard fleet', () => {
 
   it('shows the fleet error when App has no fleet data', async () => {
     const fleet = fleetQuery({ data: null, error: 'proxy down (502)', errorStatus: 502 })
-    render(<Dashboard database="all" onSelectDB={vi.fn()} fleet={fleet} />)
+    render(<FleetOverview database="all" onSelectDB={vi.fn()} fleet={fleet} />)
     await advance(0)
     expect(screen.getAllByText(/proxy down \(502\)/).length).toBeGreaterThan(0)
     expect(screen.queryByTestId('stat-databases')).toBeNull()
@@ -63,14 +63,14 @@ describe('Dashboard fleet', () => {
   it('keeps the page under a failed fleet refresh and shows the strip', async () => {
     const fleet = fleetQuery({ error: 'proxy down (502)', stale: true,
       failedAt: Date.now() })
-    render(<Dashboard database="all" onSelectDB={vi.fn()} fleet={fleet} />)
+    render(<FleetOverview database="all" onSelectDB={vi.fn()} fleet={fleet} />)
     await advance(0)
     expect(screen.getByTestId('query-stale')).toBeInTheDocument()
     expect(screen.getByTestId('stat-databases')).toHaveTextContent('2')
   })
 
   it('treats a missing fleet prop as loading, not as an empty fleet', async () => {
-    render(<Dashboard database="all" onSelectDB={vi.fn()} />)
+    render(<FleetOverview database="all" onSelectDB={vi.fn()} />)
     await advance(0)
     expect(screen.queryByTestId('onboarding-welcome')).toBeNull()
     expect(fetchedPaths()).not.toContain('/api/v1/databases')
@@ -80,7 +80,7 @@ describe('Dashboard fleet', () => {
     const fleet = fleetQuery()
     render(
       <LiveEventsProvider>
-        <Dashboard database="prod" onSelectDB={vi.fn()} fleet={fleet} />
+        <FleetOverview database="prod" onSelectDB={vi.fn()} fleet={fleet} />
       </LiveEventsProvider>,
     )
     await advance(0)
@@ -97,7 +97,7 @@ describe('Dashboard fleet', () => {
   it('refetches the scoped top cases only for the selected database', async () => {
     render(
       <LiveEventsProvider>
-        <Dashboard database="prod" onSelectDB={vi.fn()} fleet={fleetQuery()} />
+        <FleetOverview database="prod" onSelectDB={vi.fn()} fleet={fleetQuery()} />
       </LiveEventsProvider>,
     )
     await advance(0)

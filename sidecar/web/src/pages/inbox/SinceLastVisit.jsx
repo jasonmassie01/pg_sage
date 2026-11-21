@@ -88,7 +88,9 @@ export function SinceLastVisit({ changes, label, query, canUndo, gaps }) {
     <section className="space-y-2" aria-label="Since you were last here">
       <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
         Since you were last here</h2>
-      <p className="text-xs" data-testid="inbox-since-label" style={muted}>{label}</p>
+      <p className="text-xs" data-testid="inbox-since-label" style={muted}>{label}{' '}
+        <a href="#/ledger" className="underline" style={{ color: 'var(--accent)' }}>
+          Open the outcome ledger</a></p>
       {query.error && <ErrorBanner message={`The outcome ledger could not be read: ${query.error}`}
         onRetry={query.refetch} />}
       {undo.loadError && <ErrorBanner message={undo.loadError} />}

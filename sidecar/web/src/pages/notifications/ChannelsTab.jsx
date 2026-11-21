@@ -9,6 +9,7 @@ import { CallbackInfo } from './CallbackInfo'
 import { ChatIdentities } from './ChatIdentities'
 import { CHANNELS_URL, needsCallback } from './channelConfig'
 import { formatTime } from '../../lib/time'
+import { Dialog } from '../../components/Dialog'
 
 // The Channels tab (alerting-10): add and edit channels of every type,
 // ChatOps settings included, see each channel's last delivery, and link
@@ -126,20 +127,15 @@ function useChannelActions({ fetchChannels, setError, setSuccess, askConfirm }) 
   return { onTest, onToggle, onDelete }
 }
 
+// EditDialog is the shared modal Dialog (ux-12): it used to claim
+// aria-modal with no focus move, no containment and no focus return.
 function EditDialog({ channel, onSaved, onCancel }) {
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Edit channel ${channel.name}`}
-      onKeyDown={e => { if (e.key === 'Escape') onCancel() }}
-      className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
-      style={{ background: 'rgba(0,0,0,0.5)' }}>
-      <div className="rounded-lg p-4 w-full max-w-3xl mt-12" style={cardStyle}>
-        <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-          Edit channel {channel.name}
-        </h2>
-        <ChannelForm channel={channel} onSaved={onSaved} onCancel={onCancel} />
-        <CallbackInfo channel={channel} />
-      </div>
-    </div>
+    <Dialog open title={`Edit channel ${channel.name}`} onClose={onCancel} width={768}
+      testId="channel-edit-dialog">
+      <ChannelForm channel={channel} onSaved={onSaved} onCancel={onCancel} />
+      <CallbackInfo channel={channel} />
+    </Dialog>
   )
 }
 
@@ -218,7 +214,7 @@ function ChannelTable({ channels, ...handlers }) {
         <thead>
           <tr style={rowStyle}>
             {['Name', 'Type', 'Enabled', 'Last delivery', ''].map(h => (
-              <th key={h} className="text-left px-4 py-2 text-xs"
+              <th scope="col" key={h} className="text-left px-4 py-2 text-xs"
                 style={{ color: 'var(--text-secondary)' }}>
                 {h}
               </th>

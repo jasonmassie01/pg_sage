@@ -89,7 +89,9 @@ describe('/alerts redirect', () => {
   it('still denies a viewer, who never had the alert log', async () => {
     await open('#/alerts?database=x', 'viewer')
     expect(screen.getByTestId('access-denied')).toBeInTheDocument()
-    expect(window.location.hash).toBe('#/alerts?database=x')
+    // ux-11: the redirect is the route's alias now, so it runs before the
+    // role gate; the viewer still sees Access denied and no log.
+    expect(window.location.hash).toBe('#/notifications?tab=log&database=x')
     expect(screen.queryByTestId('log-tab')).toBeNull()
   })
 })
@@ -123,7 +125,8 @@ describe('Notifications page audience', () => {
     expect(canSee(notifications, { role: 'operator' }, false)).toBe(true)
     expect(canSee(notifications, { role: 'admin' }, false)).toBe(true)
     expect(canSee(notifications, { role: 'viewer' }, false)).toBe(false)
-    const alerts = ROUTES.find(r => r.id === 'alerts')
-    expect(alerts.roles).toEqual(notifications.roles)
+    // ux-11: /alerts is an alias of the Notifications route itself.
+    expect(findRoute('#/alerts')).toBe(notifications)
+    expect(ROUTES.find(r => r.id === 'alerts')).toBeUndefined()
   })
 })

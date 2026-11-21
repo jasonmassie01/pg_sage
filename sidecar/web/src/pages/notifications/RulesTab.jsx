@@ -166,7 +166,7 @@ export function RulesTab() {
             data-testid="add-rule-submit"
             className="px-4 py-1.5 rounded text-sm font-medium"
             style={{
-              background: 'var(--accent)', color: '#fff',
+              background: 'var(--accent-solid)', color: '#fff',
             }}>
             {creating ? 'Adding...' : 'Add Rule'}
           </button>
@@ -200,7 +200,7 @@ function RuleTable({
           }}>
             {['Channel', 'Event', 'Min Severity',
               'Enabled', ''].map(h => (
-              <th key={h}
+              <th scope="col" key={h}
                 className="text-left px-4 py-2 text-xs"
                 style={{
                   color: 'var(--text-secondary)',

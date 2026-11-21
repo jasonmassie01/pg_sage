@@ -81,7 +81,7 @@ export function DiscoveredDatabases() {
 function ErrorBox({ message }) {
   return (
     <div role="alert" className="text-sm p-3 rounded" style={{
-      background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+      background: 'rgba(239,68,68,0.1)', color: 'var(--red)',
       border: '1px solid rgba(239,68,68,0.3)',
     }}>{message}</div>
   )
@@ -95,7 +95,7 @@ function SourceErrors({ sources }) {
       style={{ color: 'var(--yellow)' }}>
       {failing.map(s => (
         <p key={s.source}>
-          Source {s.source}: {s.last_error} (previous candidates kept)
+          Source {s.source}: {s.last_error} (previously discovered databases kept)
         </p>
       ))}
     </div>
@@ -112,8 +112,10 @@ function DiscoveredTable({ rows, busy, onAct }) {
       <table className="w-full text-sm" data-testid="discovered-table">
         <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
           {HEADERS.map(h => (
-            <th key={h} className="text-left px-4 py-3 text-xs whitespace-nowrap"
-              style={{ color: 'var(--text-secondary)' }}>{h}</th>
+            <th scope="col" key={h} className="text-left px-4 py-3 text-xs whitespace-nowrap"
+              style={{ color: 'var(--text-secondary)' }}>
+              {h || <span className="sr-only">Actions</span>}
+            </th>
           ))}
         </tr></thead>
         <tbody>{rows.map(row => (

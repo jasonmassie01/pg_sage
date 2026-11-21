@@ -100,7 +100,7 @@ describe('CasesPage binding facts', () => {
     expect(packet).toHaveTextContent('Drop the index in the application migrations')
     expect(packet).toHaveTextContent(
       'DROP INDEX CONCURRENTLY IF EXISTS public.idx_orders_status;')
-    const evidence = screen.getByLabelText('Case evidence')
+    const evidence = screen.getByLabelText('Issue evidence')
     expect(evidence).toHaveTextContent('scans: 0')
     expect(evidence).not.toHaveTextContent('[object Object]')
     expect(evidence).not.toHaveTextContent('source_fix:')
@@ -117,7 +117,7 @@ describe('CasesPage binding facts', () => {
     expect(screen.getByTestId('cleanup-schemas')).toHaveTextContent('test_a, test_b')
     expect(screen.getByTestId('cleanup-sql')).toHaveTextContent(
       'DROP SCHEMA IF EXISTS test_a CASCADE;')
-    const evidence = screen.getByLabelText('Case evidence')
+    const evidence = screen.getByLabelText('Issue evidence')
     expect(evidence).toHaveTextContent('schema_count: 2')
     expect(evidence).not.toHaveTextContent('cleanup_sql:')
   })

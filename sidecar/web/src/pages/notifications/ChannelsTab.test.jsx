@@ -146,3 +146,24 @@ describe('ChannelsTab', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 })
+
+// ux-12: the edit dialog is the shared modal Dialog. It used to claim
+// aria-modal with no focus move and no focus return.
+describe('ChannelsTab edit dialog focus', () => {
+  it('moves focus in on open and back to the Edit button on Escape', async () => {
+    stubFetch(routes({}))
+    render(<ChannelsTab />)
+    await screen.findByText('ops-slack')
+    const opener = within(rowFor('ops-slack')).getByTestId('channel-edit-button')
+    opener.focus()
+    fireEvent.click(opener)
+    const dialog = screen.getByRole('dialog', { name: 'Edit channel ops-slack' })
+    expect(dialog.tagName).toBe('DIALOG')
+    expect(dialog).toHaveAttribute('open')
+    expect(within(dialog).getByTestId('edit-channel-name')).toHaveFocus()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /edit channel/i }))
+      .toBeNull())
+    expect(opener).toHaveFocus()
+  })
+})

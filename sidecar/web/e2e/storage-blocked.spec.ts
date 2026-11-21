@@ -55,9 +55,10 @@ test('dashboard-03 CHECK-06: with site data blocked the dashboard loads and work
     await expect(page.getByTestId('monitoring-context')).toContainText('primary')
 
     // Pages with their own stored preferences render too.
-    // Home is the Inbox since ux-01b; Value moved to #/value.
-    for (const [hash, title] of [['#/settings', 'Settings'], ['#/actions', 'Actions'],
-      ['#/', 'Inbox'], ['#/value', 'Value']]) {
+    // Home is the Inbox since ux-01b; ux-11 renamed Actions to Changes and
+    // folded Value into the ledger.
+    for (const [hash, title] of [['#/settings', 'Settings'], ['#/actions', 'Changes'],
+      ['#/', 'Inbox'], ['#/value', 'Outcome ledger']]) {
       await page.evaluate(h => { window.location.hash = h }, hash)
       await expect(page.locator('header h1')).toHaveText(title)
       await noErrorBoundary(page)

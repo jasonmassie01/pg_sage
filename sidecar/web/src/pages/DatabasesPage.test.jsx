@@ -14,7 +14,7 @@ describe('DatabasesPage', () => {
           }),
         }
       }
-      if (url === '/api/v1/databases') {
+      if (url.split('?')[0] === '/api/v1/databases') {
         return {
           ok: true,
           json: async () => ({
@@ -46,7 +46,7 @@ describe('DatabasesPage', () => {
       await waitFor(() => expect(
         screen.getByTestId('fleet-read-only'),
       ).toHaveTextContent(/edit the YAML file/i))
-      expect(screen.getByText('orders')).toBeInTheDocument()
+      expect(await screen.findByText('orders')).toBeInTheDocument()
       await waitFor(() => expect(
         screen.getByTestId('fleet-findings-empty'),
       ).toBeInTheDocument())
@@ -55,4 +55,14 @@ describe('DatabasesPage', () => {
       expect(screen.queryByTestId('import-csv-button'))
         .not.toBeInTheDocument()
     })
+
+  it('pages the YAML fleet through the server list (ux-10a)', async () => {
+    render(<DatabasesPage />)
+    expect(await screen.findByTestId('read-only-fleet-table')).toBeInTheDocument()
+    await waitFor(() => expect(globalThis.fetch.mock.calls.map(c => c[0]))
+      .toContain('/api/v1/databases?sort=name&order=asc&limit=50'))
+    expect(await screen.findByRole('searchbox', { name: 'Search databases' }))
+      .toBeInTheDocument()
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+  })
 })

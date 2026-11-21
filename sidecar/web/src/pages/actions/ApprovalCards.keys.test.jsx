@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PendingCardsView } from './ApprovalCards'
 
-// ux-05a win 24: on the Needs your review card list, j and k move the
+// ux-05a win 24: on the Waiting on you card list, j and k move the
 // selection, a asks to approve the selected card (through a confirm that
 // names it, then the card's own approve request), r opens its reason field
 // and s its snooze options. Keys never act while typing or behind a dialog.

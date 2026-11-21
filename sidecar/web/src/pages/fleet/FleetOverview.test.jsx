@@ -1,25 +1,25 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { Dashboard } from './Dashboard'
-import { useAPI } from '../hooks/useAPI'
+import { FleetOverview } from './FleetOverview'
+import { useAPI } from '../../hooks/useAPI'
 
-vi.mock('../hooks/useLiveEvents', () => ({
+vi.mock('../../hooks/useLiveEvents', () => ({
   useLiveRefetch: vi.fn(),
 }))
 
-vi.mock('../components/FleetHealthChart', () => ({
+vi.mock('../../components/FleetHealthChart', () => ({
   FleetHealthChart: () => <div data-testid="fleet-health-chart" />,
 }))
 
-vi.mock('../components/ProviderReadinessMatrix', () => ({
+vi.mock('../../components/ProviderReadinessMatrix', () => ({
   ProviderReadinessMatrix: () => <div data-testid="provider-readiness-matrix" />,
 }))
 
-vi.mock('../components/TokenBudgetBanner', () => ({
+vi.mock('../../components/TokenBudgetBanner', () => ({
   TokenBudgetBanner: () => <div data-testid="token-budget-banner" />,
 }))
 
-vi.mock('../hooks/useAPI', () => ({
+vi.mock('../../hooks/useAPI', () => ({
   useAPI: url => {
     if (url && url.startsWith('/api/v1/cases')) {
       return {
@@ -64,13 +64,15 @@ vi.mock('../hooks/useAPI', () => ({
   },
 }))
 
-describe('Dashboard', () => {
+describe('FleetOverview', () => {
+  // ux-11: the sections are toggle buttons (aria-pressed), not a nested tab
+  // list, now that the overview is itself a Fleet tab.
   it('defaults overview tabs to databases and describes each overview tab', () => {
-    render(<Dashboard database="all" onSelectDB={vi.fn()}
+    render(<FleetOverview database="all" onSelectDB={vi.fn()}
       fleet={useAPI('/api/v1/databases')} />)
 
     expect(screen.getByTestId('overview-tab-databases'))
-      .toHaveAttribute('aria-selected', 'true')
+      .toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('overview-tab-description'))
       .toHaveTextContent(/registered Postgres databases/i)
     expect(screen.getByTestId('db-list')).toBeInTheDocument()
@@ -80,7 +82,7 @@ describe('Dashboard', () => {
 
     fireEvent.click(screen.getByTestId('overview-tab-provider-readiness'))
     expect(screen.getByTestId('overview-tab-provider-readiness'))
-      .toHaveAttribute('aria-selected', 'true')
+      .toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('overview-tab-description'))
       .toHaveTextContent(/cloud provider credentials/i)
     expect(screen.getByTestId('provider-readiness-matrix'))
@@ -89,7 +91,7 @@ describe('Dashboard', () => {
 
     fireEvent.click(screen.getByTestId('overview-tab-top-cases'))
     expect(screen.getByTestId('overview-tab-description'))
-      .toHaveTextContent(/highest-ranked open cases/i)
+      .toHaveTextContent(/highest-ranked open issues/i)
     expect(screen.getByTestId('top-cases')).toBeInTheDocument()
   })
 })

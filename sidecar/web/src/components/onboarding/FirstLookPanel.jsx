@@ -1,4 +1,6 @@
 import { useAPI } from '../../hooks/useAPI'
+import { summarizes } from '../../lib/fleetScope'
+import { FirstLookSummary } from './FirstLookSummary'
 import { entryErrorText } from './entryError'
 import { LoadError } from './LoadError'
 import { RecheckButton } from './RecheckButton'
@@ -173,14 +175,15 @@ function Report({ entry, user }) {
   const report = entry.report
   if (entry.error) {
     return (
-      <p className="text-sm" style={{ color: 'var(--yellow)' }}>
+      <p className="text-sm" style={{ color: 'var(--yellow)' }} data-db-block="">
         {entryErrorText(entry.error, entry.database)}
       </p>
     )
   }
   if (!report) {
     return (
-      <p role="status" className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+      <p role="status" className="text-sm" style={{ color: 'var(--text-secondary)' }}
+        data-db-block="">
         First look running for {entry.database}…
       </p>
     )
@@ -188,7 +191,7 @@ function Report({ entry, user }) {
   const items = (report.items || []).filter(i => i.section !== POSTURE)
   const checks = (report.checks || []).filter(c => c.section !== POSTURE)
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-db-block="">
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
         {entry.database}: {Number(report.relations || 0).toLocaleString('en-US')} relations
         read in {report.duration_ms} ms, catalog only.
@@ -207,7 +210,9 @@ function Report({ entry, user }) {
   )
 }
 
-export function FirstLookPanel({ database, user }) {
+// FirstLookPanel shows each database's report, or in the "all" scope of a
+// fleet of FLEET_SUMMARY_FROM or more the fleet summary (ux-10b).
+export function FirstLookPanel({ database, user, onSelectDatabase }) {
   const { data, error, refetch } = useAPI(firstLookURL(database), 30000)
   useRecheckedRefetch(refetch)
   if (error && !data) {
@@ -220,6 +225,9 @@ export function FirstLookPanel({ database, user }) {
   }
   const entries = data?.databases || []
   if (entries.length === 0) return null
+  if (summarizes(database, entries.length)) {
+    return <FirstLookSummary entries={entries} onSelectDatabase={onSelectDatabase} />
+  }
   return (
     <section className="space-y-3" aria-labelledby="first-look-heading">
       <h2 id="first-look-heading" className="text-lg font-semibold">First look</h2>

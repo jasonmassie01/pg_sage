@@ -1,20 +1,20 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Dashboard } from './Dashboard'
+import { FleetOverview } from './FleetOverview'
 
 // dashboard-12: the "new since visit" badge read a timestamp only the
-// removed Findings page wrote, so it is gone. The Dashboard neither reads
+// removed Findings page wrote, so it is gone. The FleetOverview neither reads
 // nor listens for that key, whatever storage holds or throws.
 // No concurrent access tests: one render, single-threaded.
 
-vi.mock('../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
-vi.mock('../components/FleetHealthChart', () => ({
+vi.mock('../../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
+vi.mock('../../components/FleetHealthChart', () => ({
   FleetHealthChart: () => <div data-testid="fleet-health-chart" />,
 }))
-vi.mock('../components/TokenBudgetBanner', () => ({
+vi.mock('../../components/TokenBudgetBanner', () => ({
   TokenBudgetBanner: () => null,
 }))
-vi.mock('../hooks/useAPI', () => ({
+vi.mock('../../hooks/useAPI', () => ({
   useAPI: () => ({
     data: { findings: [{
       title: 'Add index', severity: 'critical', database_name: 'prod',
@@ -33,7 +33,7 @@ const fleet = {
 }
 
 function renderDashboard() {
-  return render(<Dashboard database="all" onSelectDB={vi.fn()} fleet={fleet} />)
+  return render(<FleetOverview database="all" onSelectDB={vi.fn()} fleet={fleet} />)
 }
 
 const storageDescriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
@@ -45,14 +45,14 @@ afterEach(() => {
   localStorage.clear()
 })
 
-describe('Dashboard without the visit badge', () => {
+describe('FleetOverview without the visit badge', () => {
   it('renders no new-since-visit text when localStorage throws', () => {
     Object.defineProperty(window, 'localStorage', {
       configurable: true,
       get() { throw new DOMException('blocked', 'SecurityError') },
     })
     renderDashboard()
-    expect(screen.getByText('Critical Findings')).toBeInTheDocument()
+    expect(screen.getByText('Critical Issues')).toBeInTheDocument()
     expect(screen.queryByTestId('new-since-visit-badge')).toBeNull()
     expect(screen.queryByText(/new$/)).toBeNull()
   })
@@ -61,7 +61,7 @@ describe('Dashboard without the visit badge', () => {
     localStorage.setItem('pg_sage_' + 'findings_visit',
       String(Date.parse('2026-11-01T00:00:00Z')))
     renderDashboard()
-    expect(screen.getByText('Critical Findings')).toBeInTheDocument()
+    expect(screen.getByText('Critical Issues')).toBeInTheDocument()
     expect(screen.queryByTestId('new-since-visit-badge')).toBeNull()
     expect(screen.queryByText(/\+\d+ new/)).toBeNull()
   })

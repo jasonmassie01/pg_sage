@@ -9,7 +9,9 @@ import { mockAllAPIs } from './fixtures'
 
 const BARS = [
   { page: 'Actions', route: '/#/actions', name: 'Change tasks' },
-  { page: 'Snapshot', route: '/#/advanced', name: 'Overview sections' },
+  // ux-11: Snapshot & metrics is a Fleet tab now, with toggle buttons
+  // inside rather than a nested tab list; Agents gained a tab bar.
+  { page: 'Agents', route: '/#/agents', name: 'Agents sections' },
   { page: 'Fleet', route: '/#/manage-databases', name: 'Fleet sections' },
   { page: 'Notifications', route: '/#/notifications', name: 'Notification sections' },
   { page: 'Settings', route: '/#/settings', name: 'Settings sections' },

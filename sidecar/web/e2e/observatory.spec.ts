@@ -56,11 +56,12 @@ test('Fleet shows the configured runtime and opens its database scope', async ({
 // ux-05c (decision D5): the meme and its "What's here" guide open on the first
 // visit to each page, then collapse to a one-line "About this page" toggle;
 // below 768 px they are hidden. Aliases share their page's visit.
-const routes = ['/', '/cases', '/actions', '/slos', '/trust', '/facts', '/ask',
-  '/manage-databases', '/settings', '/advanced',
-  '/advanced/runbooks', '/advanced/autonomy', '/database',
-  '/alerts', '/notifications', '/profile', '/users', '/mcp-tokens', '/agents', '/unknown-route']
-const aliases = ['/advanced/findings', '/advanced/actions']
+// ux-11: one path per page; the old paths are aliases.
+const routes = ['/', '/issues', '/changes', '/slos', '/autonomy', '/facts', '/ask',
+  '/manage-databases', '/settings', '/advanced/runbooks', '/database',
+  '/notifications', '/profile', '/users', '/agents', '/unknown-route']
+const aliases = ['/advanced/findings', '/advanced/actions', '/cases', '/actions', '/trust',
+  '/advanced/autonomy', '/advanced', '/alerts', '/mcp-tokens']
 
 async function firstVisitShowsGuide(page: Page, route: string, wide: boolean) {
   await page.goto('/#' + route)

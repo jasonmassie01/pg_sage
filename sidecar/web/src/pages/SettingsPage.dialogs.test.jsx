@@ -151,7 +151,7 @@ describe('Settings trust escalation dialog', () => {
     render(<SettingsPage database="all" />)
     fireEvent.click(screen.getByTestId('settings-tab-trust-safety'))
     chooseTrust('advisory')
-    expect(screen.getByRole('dialog', { name: /confirm trust level change/i }))
+    expect(screen.getByRole('dialog', { name: /confirm autonomy change/i }))
       .toBeInTheDocument()
     expect(screen.queryByTestId('trust-level-phrase')).toBeNull()
     expect(screen.getByTestId('setting-trust.level')).toHaveValue('observation')

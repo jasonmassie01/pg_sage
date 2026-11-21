@@ -255,7 +255,7 @@ describe('ApprovalCard quick wins', () => {
       run_after_label: 'Tue 07:00 UTC' })
     expect(msg).toEqual({ ok: true, text: 'Approved. Scheduled for the window opening '
       + 'Tue 07:00 UTC; pg_sage checks the policy again then. Cancel it under '
-      + 'Needs your review > Approved, waiting for the maintenance window.' })
+      + 'Waiting on you > Approved, waiting for the maintenance window.' })
     expect(msg.text).not.toContain('under Pending')
   })
 

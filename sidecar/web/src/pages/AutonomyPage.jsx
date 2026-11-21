@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { Term } from '../components/Term'
 import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
 import { EvaluateNow } from './autonomy/EvaluateNow'
@@ -46,7 +47,9 @@ async function postJSON(url, body) {
   return res.json()
 }
 
-export function AutonomyPage({ database, user }) {
+// embedded (ux-06b) is the Autonomy page's collapsed history section: no
+// title, and no pending list (Waiting promotions holds the one Approve).
+export function AutonomyPage({ database, user, embedded = false }) {
   const q = dbQuery(database)
   const view = useAPI(`/api/v1/sre/autonomy${q}`, 30000)
   const history = useAPI(`/api/v1/sre/autonomy/history${dbQuery(database, 'limit=50')}`,
@@ -78,7 +81,7 @@ export function AutonomyPage({ database, user }) {
   const families = view.data?.view?.families || []
   return (
     <QueryState query={view}><section className="space-y-4" data-testid="autonomy-page">
-      <Header data={view.data} />
+      <Header data={view.data} embedded={embedded} />
       {actionError && (
         <div role="alert" className="text-sm" style={{ color: 'var(--red)' }}>
           {actionError}
@@ -88,9 +91,11 @@ export function AutonomyPage({ database, user }) {
         view.refetch?.()
         history.refetch?.()
       }} />}
-      <PendingProposals families={families} isAdmin={role === 'admin'} canAct={canAct}
-        onDecide={(id, verb, note) => run(
-          `/api/v1/sre/autonomy/proposals/${id}/${verb}${q}`, { note })} />
+      {!embedded && (
+        <PendingProposals families={families} isAdmin={role === 'admin'} canAct={canAct}
+          onDecide={(id, verb, note) => run(
+            `/api/v1/sre/autonomy/proposals/${id}/${verb}${q}`, { note })} />
+      )}
       <PathToNextLevel families={families} benchRuns={benchRuns.data}
         canRunBench={role === 'admin'}
         onRunBench={async family => {
@@ -119,11 +124,13 @@ function PickDatabase() {
   )
 }
 
-function Header({ data }) {
+function Header({ data, embedded }) {
   const bench = data?.view?.bench
   return (
     <div>
-      <h2 className="text-sm font-semibold" style={strong}>Earned autonomy</h2>
+      {!embedded && (
+        <h2 className="text-sm font-semibold" style={strong}>Earned autonomy</h2>
+      )}
       <p className="text-sm" style={muted}>
         Per incident family and action class. pg_sage proposes a promotion only from
         benchmark, shadow-review and live-recovery evidence; an admin approves it.
@@ -155,7 +162,7 @@ function FastElevation({ info }) {
   return (
     <div data-testid="fast-elevation" className="mt-2 rounded px-2 py-1 text-xs"
       style={{ border: '1px solid var(--yellow)', color: 'var(--text-primary)' }}>
-      <span className="font-semibold">Fast elevation</span>
+      <span className="font-semibold"><Term id="fast-elevation">Fast elevation</Term></span>
       <span style={muted}> — these settings are below the spec, so trust is earned in
         hours. Irreversible actions, L4 and admin approval are unchanged.</span>
       <ul className="mt-1 list-disc pl-5">
@@ -215,8 +222,14 @@ function FamilyTable({ family, canAct, onDowngrade }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs" style={muted}>
-            <th>Class</th><th>Reversibility</th><th>Cap</th><th>Granted</th>
-            <th>Evidence</th><th>Effective</th><th>Next level</th><th />
+            <th scope="col">Class</th>
+            <th scope="col">Reversibility</th>
+            <th scope="col">Cap</th>
+            <th scope="col">Granted</th>
+            <th scope="col">Evidence</th>
+            <th scope="col">Effective</th>
+            <th scope="col">Next level</th>
+            <th scope="col" />
           </tr>
         </thead>
         <tbody>

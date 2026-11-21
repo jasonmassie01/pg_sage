@@ -35,7 +35,9 @@ There is no approve: an external caller can never approve, bypass or force
 anything. Send the token as `Authorization: Bearer pgs_mcp_...`; a dashboard
 session cookie never authenticates the contract. The audit trail names the
 agent (`agent:<token-name>:<token-id>`) on the investigation's event chain and
-in **External agent requests** on the MCP tokens page.
+in **External agent requests**: the Inbox lists the ones whose approval
+still waits and the outcome ledger (`#/ledger?section=agents`) keeps every
+request, each linking to the other.
 Each row there links its investigation to Cases and, when a cancel
 remediation was queued for approval, the approval itself to **Needs your
 review** (`queue_id` on `GET /api/v1/specialist-requests`, read from the

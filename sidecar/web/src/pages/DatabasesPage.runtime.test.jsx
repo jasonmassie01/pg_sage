@@ -32,7 +32,7 @@ function mockFetch({ running = [], managed = [], leader, runtimeFails = false })
     if (url === '/api/v1/config/global') {
       return { ok: true, json: async () => ({ read_only: false }) }
     }
-    if (url === '/api/v1/databases') {
+    if (url.split('?')[0] === '/api/v1/databases') {
       if (runtimeFails) return { ok: false, status: 502, json: async () => ({}) }
       return { ok: true, json: async () => ({ databases: running }) }
     }
@@ -230,7 +230,7 @@ describe('DatabasesPage read-only fleet runtime cells', () => {
       if (url === '/api/v1/config/global') {
         return { ok: true, json: async () => ({ read_only: true }) }
       }
-      if (url === '/api/v1/databases') {
+      if (url.split('?')[0] === '/api/v1/databases') {
         return { ok: true, json: async () => ({ databases: [runtimeOrders] }) }
       }
       if (url === '/api/v1/fleet/findings') {

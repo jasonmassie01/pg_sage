@@ -1,7 +1,7 @@
 import { Server, AlertTriangle, CheckCircle } from 'lucide-react'
 import { StatusDot } from './StatusDot'
 import { TrustBadge } from './TrustBadge'
-import { formatTrustLevel } from '../pages/Dashboard'
+import { formatTrustLevel } from '../lib/trustLevel'
 import { rowAutoFamilies } from '../lib/autonomy'
 import { instanceOwnerLabel } from '../lib/instanceOwner'
 

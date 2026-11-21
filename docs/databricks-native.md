@@ -236,7 +236,7 @@ a supported next step. Technical evidence remains expandable. Unknown urgency,
 size, impact and recovery are shown as unknown; absence of a measurement is not
 a successful safety check. Suppression hides a condition rather than fixing it.
 
-Actions separates **Proposed changes**, **Needs your review**, **In progress**
+Actions separates **Proposed changes**, **Waiting on you**, **In progress**
 and **History**. An accepted approval, completed SQL and a verified outcome are
 different facts. Execution mode is separate from operational risk. Equivalent
 action aliases consolidate into one review item, while saved proposals retain

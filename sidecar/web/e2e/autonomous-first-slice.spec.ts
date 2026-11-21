@@ -9,8 +9,9 @@ test('primary nav is contracted to autonomous DBA surfaces', async ({ page }) =>
   await page.goto('/#/users')
 
   await expect(page.getByTestId('nav-inbox')).toContainText('Inbox')
-  await expect(page.getByTestId('nav-cases')).toContainText('Cases')
-  await expect(page.getByTestId('nav-actions')).toContainText('Actions')
+  await expect(page.getByTestId('nav-cases')).toContainText('Issues')
+  // ux-11: Actions is Changes.
+  await expect(page.getByTestId('nav-actions')).toContainText('Changes')
   await expect(page.getByTestId('nav-databases')).toContainText('Fleet')
   await expect(page.getByTestId('nav-settings')).toContainText('Settings')
 

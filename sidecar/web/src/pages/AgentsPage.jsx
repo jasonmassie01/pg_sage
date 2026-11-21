@@ -23,7 +23,7 @@ function Explainer() {
         Each agent is a principal with an accountable sponsor and an environment ceiling.
         It reaches databases only through grants an operator approved, on roles pg_sage
         manages; every request passes the trust gate. A tainted agent&apos;s changes wait
-        for a person. Freeze one agent, or kill them all, at any trust level.
+        for a person. Freeze one agent, or kill them all, whatever their autonomy.
       </p>
     </div>
   )
@@ -109,8 +109,12 @@ function AgentTable({ list, users, onOpen }) {
       <table data-testid="agents-table" className="w-full text-sm text-left"
         style={{ color: 'var(--text-primary)' }}>
         <thead style={muted}>
-          <tr><th>Name</th><th>Status</th><th>Sponsor</th><th>Ceiling</th><th>Taint</th>
-            <th>Profile</th></tr>
+          <tr><th scope="col">Name</th>
+            <th scope="col">Status</th>
+            <th scope="col">Sponsor</th>
+            <th scope="col">Ceiling</th>
+            <th scope="col">Taint</th>
+            <th scope="col">Profile</th></tr>
         </thead>
         <tbody>
           {list.items.map(a => <AgentRow key={a.id} agent={a} users={users}

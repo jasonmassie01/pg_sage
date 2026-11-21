@@ -51,7 +51,7 @@ export function ChannelStep({ configured, onDone, onSkip }) {
   return (
     <div className="space-y-3">
       <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-        Where should pg_sage reach you with findings and approvals?
+        Where should pg_sage reach you with issues and approvals?
       </p>
       {configured && !channel && (
         <div className="flex items-center gap-3">

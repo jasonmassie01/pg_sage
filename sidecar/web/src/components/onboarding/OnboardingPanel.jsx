@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
+import { summarizes } from '../../lib/fleetScope'
+import { OnboardingSummary } from './OnboardingSummary'
 import { entryErrorText } from './entryError'
 import { LoadError } from './LoadError'
 import { GrantMoreDialog } from './GrantMoreDialog'
@@ -75,12 +77,12 @@ function DatabaseChecklist({ entry, onGrant, platformManaged, user }) {
   const complete = entryComplete(entry, platformManaged)
   const grantStep = steps.find(s => s.id === 'grant_more')
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-db-block="">
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
         {entry.database} · {entry.install_kind === 'new' ? 'new install' : 'install'}
         {' · '}trust {entry.trust_level}
         {entry.time_to_first_finding_seconds != null &&
-          ` · First finding ${formatSeconds(entry.time_to_first_finding_seconds)} after start`}
+          ` · First issue ${formatSeconds(entry.time_to_first_finding_seconds)} after start`}
       </p>
       {entry.error && (
         <p className="text-sm" style={{ color: 'var(--yellow)' }}>
@@ -99,7 +101,7 @@ function DatabaseChecklist({ entry, onGrant, platformManaged, user }) {
           {grantStep && !grantStep.done && (
             <button type="button" onClick={() => onGrant(entry.database)}
               className="rounded px-3 py-1.5 text-sm"
-              style={{ background: 'var(--accent)', color: '#fff' }}>
+              style={{ background: 'var(--accent-solid)', color: '#fff' }}>
               Grant more
             </button>
           )}
@@ -109,7 +111,9 @@ function DatabaseChecklist({ entry, onGrant, platformManaged, user }) {
   )
 }
 
-export function OnboardingPanel({ database, authMode, user }) {
+// OnboardingPanel is one checklist per database, or in the "all" scope of a
+// fleet of FLEET_SUMMARY_FROM or more the fleet's setup summary (ux-10b).
+export function OnboardingPanel({ database, authMode, user, onSelectDatabase }) {
   const platformManaged = authMode === 'databricks_app'
   const [settled, setSettled] = useState(false)
   const { data, error, refetch } = useAPI(onboardingURL(database), settled ? 0 : POLL_MS)
@@ -123,6 +127,11 @@ export function OnboardingPanel({ database, authMode, user }) {
     return <LoadError what="Setup status" error={error} onRetry={refetch} />
   }
   if (entries.length === 0) return null
+  if (summarizes(database, entries.length)) {
+    return <OnboardingSummary entries={entries} onSelectDatabase={onSelectDatabase}
+      isComplete={entry => entryComplete(entry, platformManaged)}
+      stepsOf={entry => visibleSteps(entry, platformManaged)} />
+  }
   return (
     <section className="space-y-3 rounded border p-4" aria-labelledby="getting-started"
       style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>

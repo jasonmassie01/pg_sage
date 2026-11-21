@@ -55,7 +55,7 @@ describe('OnboardingPanel', () => {
     expect(within(items[3]).getByText('optional')).toBeInTheDocument()
     expect(within(items[3]).getByRole('link', { name: /MCP token/ }))
       .toHaveAttribute('href', '#/mcp-tokens')
-    expect(screen.getByText(/First finding 9.5 s after start/)).toBeInTheDocument()
+    expect(screen.getByText(/First issue 9.5 s after start/)).toBeInTheDocument()
   })
 
   it('polls the selected database', () => {

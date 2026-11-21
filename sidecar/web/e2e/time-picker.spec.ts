@@ -19,7 +19,8 @@ test('dashboard-07 CHECK-10: no time picker on #/slos', async ({ page }) => {
 
 test('dashboard-07 CHECK-10: #/actions reads "Ledger window"', async ({ page }) => {
   await page.goto('/#/actions')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Actions')
+  // ux-11: Actions is Changes at #/changes; the old path redirects.
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Changes')
   await expect(page.getByTestId('time-range-scope')).toHaveText('Ledger window')
   await expect(page.getByLabel('Time range')).toHaveValue('24h')
 })
@@ -28,6 +29,8 @@ test('moving from #/actions to #/slos removes the picker, and back restores it',
   async ({ page }) => {
     await page.goto('/#/actions')
     await expect(page.getByTestId('time-range-scope')).toHaveText('Ledger window')
+    // ux-11: SLOs is in the collapsible Evidence group.
+    await page.getByTestId('sidebar-desktop').getByRole('button', { name: 'Evidence' }).click()
     await page.getByTestId('nav-slos').first().click()
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('SLOs')
     await expect(page.getByTestId('time-range-picker')).toHaveCount(0)
@@ -35,8 +38,9 @@ test('moving from #/actions to #/slos removes the picker, and back restores it',
     await expect(page.getByTestId('time-range-scope')).toHaveText('Ledger window')
   })
 
-test('the snapshot page names its own window', async ({ page }) => {
-  await page.goto('/#/advanced')
+// ux-11: the health chart moved from Snapshot & metrics to the Database page.
+test('the Database page names its health chart window', async ({ page }) => {
+  await page.goto('/#/database?database=primary')
   await expect(page.getByTestId('time-range-scope')).toHaveText('Health chart window')
 })
 

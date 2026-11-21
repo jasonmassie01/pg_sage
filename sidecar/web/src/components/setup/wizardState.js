@@ -16,7 +16,7 @@ const CHECKLIST_STEP = { connect: 'connected', model: 'model', channel: 'notific
 export const SKIP_COST = Object.freeze({
   connect: 'Skipped: pg_sage monitors nothing until a database is connected',
   model: 'Skipped: LLM features stay off until a model is set',
-  channel: 'Skipped: findings and approvals reach you only in this dashboard',
+  channel: 'Skipped: issues and approvals reach you only in this dashboard',
   autonomy: 'Skipped: pg_sage keeps watching only and changes nothing',
 })
 

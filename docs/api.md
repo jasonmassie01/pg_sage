@@ -45,7 +45,8 @@ Viewer and up. Query parameters, all optional:
      "risk": "high", "created_at": "2026-11-16T09:12:00Z",
      "due_at": "2026-11-17T09:12:00Z",
      "href": "#/actions?tab=pending&queue=42&database=orders",
-     "source": "sage.action_queue", "actionable": true}
+     "source": "sage.action_queue", "class": "create_index",
+     "actionable": true}
   ],
   "counts_by_kind": {"change_approval": 1, "plan_approval": 0, "...": 0},
   "total": 1,
@@ -58,7 +59,8 @@ Viewer and up. Query parameters, all optional:
 Items are sorted by risk (`high`, then `moderate`, then `safe`; an unknown
 risk counts as `moderate`), then oldest first. `actionable` says whether your
 role on the item's database decides that kind: always `false` for a viewer,
-and `false` on a database where a grant makes you a viewer.
+and `false` on a database where a grant makes you a viewer. A change approval
+names its action `class` (its action type); other kinds leave it out.
 
 Each source is read per database with a 2 second timeout. A source that could
 not be read is named in `errors` (`{source, database, error}`, for example
@@ -102,8 +104,10 @@ reason. When nothing waits and every source answered, the page says so from
 counts, for example "Nothing needs you. 6 changes since Tuesday, all
 verified." When a source could not be read the page names it ("Could not
 read: autonomy promotions") and never claims that nothing waits. The page
-marks itself seen after 5 seconds visible. The Value page moved to `#/value`;
-the Inbox shows one Value line linking to it. The one nav badge is on Inbox:
+marks itself seen after 5 seconds visible. Value is the outcome ledger's
+summary (`#/ledger?section=value`; `#/value` redirects there); the Inbox
+shows one Value line linking to it, and, for operators and admins, the
+external agent requests whose approval it still lists. The one nav badge is on Inbox:
 `/api/v1/inbox/count` `total`, `N+` for a lower bound and `99+` above 99.
 
 Rollbacks from the Inbox and from Actions require a reason (3 to 500
@@ -115,6 +119,67 @@ Actions takes exact links: `#/actions?tab=<key>` opens a tab
 `queue=<id>` outlines a queued proposal's approval card on the review tab;
 `action=<id>` still focuses an executed change. An unknown tab or a malformed
 id is ignored.
+
+### `POST /api/v1/approvals/bulk-approve`
+
+Operator and admin. Approves several safe-tier approval cards in one request:
+
+```json
+{"items": [{"id": 41, "database": "orders", "card_hash": "9f2c..."},
+           {"id": 42, "database": "orders", "card_hash": "1b7e..."}]}
+```
+
+The request takes 1 to 50 items. `id` is the queue item id, `database` may be
+left out when pg_sage monitors one database, and `card_hash` is the hash of the
+card the person was shown (`GET /api/v1/approvals/{id}`). An empty list, more
+than 50 items, the same id twice on one database, an id that is not a positive
+number or a missing `card_hash` or `database` is `400` and nothing is decided.
+
+It is not all-or-nothing. Each item is decided in turn exactly as
+`POST /api/v1/approvals/{id}/approve` decides it: the card must still be
+pending and show the same hash, and the approval runs through the same policy
+gate, change lease, verification and audit. Only a card whose risk tier is
+`safe` is taken; any other is refused with "bulk approve is safe tier only" and
+is approved on its own card. The answer has one result per item, in order:
+
+```json
+{"results": [
+   {"id": 41, "database": "orders", "status": "approved", "executed": true,
+    "action_log_id": 311, "verification_status": "verified"},
+   {"id": 42, "database": "orders", "status": "refused", "executed": false,
+    "code": "not_eligible", "reason": "action is not eligible: ..."}],
+ "approved": 1, "scheduled": 0, "refused": 1, "failed": 0}
+```
+
+`status` is `approved` (it ran), `scheduled` (for the next maintenance window,
+with `run_after`), `failed` (approved, but its SQL failed; `reason` has the
+error) or `refused` (not approved). A refusal's `code` is `not_found`,
+`not_pending` (decided meanwhile, for example by another person),
+`content_changed` (the card changed after it was shown), `not_safe_tier`,
+`not_eligible` (the gate's reason), `plan_step`, `cancelled` or `time_budget`.
+Items run one after another; once 40 seconds have passed, the items not yet
+started are refused with `time_budget` and still wait, so the answer arrives
+before the server's 60 second write timeout. Approve those again. The route can
+name several databases, so with `api.database_grants` on it needs an operator
+with no database grants (or an admin); a database-scoped operator approves each
+card on its own database.
+
+On the dashboard, the Waiting on you cards and the Inbox give each safe-tier
+change approval a checkbox, plus "Select all <class> on <db>" when two or more
+safe items share a class on one database. **Approve selected** opens a confirm
+that lists every statement with its database (the Inbox reads each card first
+and leaves out one that is no longer safe tier). After the request, the items
+that ran leave the selection; a refused item stays selected with its reason.
+
+### Approval list keys
+
+On the Waiting on you cards and the Inbox, while no field has focus and no
+dialog is open: `j` and `k` move the selection, `a` asks to approve the
+selected card (or, with cards marked, opens the bulk confirm), `r` opens its
+reject reason, `s` its snooze options, `x` marks or unmarks it for bulk approve
+(safe tier only) and `Enter` opens it (on the Inbox, its review in place).
+`Enter` on a focused button or link does what the control does. Nothing is
+decided by a key alone; the shortcuts sheet (`?`) lists the same keys.
 
 ### Over MCP
 
@@ -130,7 +195,8 @@ unknown counts as `api`). The API access log records it as `decided_from`, and
 `pg_sage_inbox_decision_seconds` records how long the item had waited, by kind
 and surface. Today the action approve and reject, fact confirm and reject,
 runbook sign, agent request deny and autonomy approve and reject routes feed
-it. `pg_sage_inbox_items` is the waiting count by kind at the last complete
+it, and each item a bulk approve approves or schedules.
+`pg_sage_inbox_items` is the waiting count by kind at the last complete
 fleet-wide inbox read ([Metrics](metrics.md)).
 
 ## Outcome ledger

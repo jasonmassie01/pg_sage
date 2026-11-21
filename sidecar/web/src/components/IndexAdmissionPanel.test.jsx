@@ -51,7 +51,7 @@ describe('IndexAdmissionPanel', () => {
     const bar = within(row).getByRole('progressbar')
     expect(bar).toHaveAttribute('aria-valuenow', '3')
     expect(bar).toHaveAttribute('aria-valuemax', '7')
-    expect(within(row).getByText(/2 findings withheld/)).toBeInTheDocument()
+    expect(within(row).getByText(/2 issues withheld/)).toBeInTheDocument()
   })
 
   it('shows declared-capacity admission without a learning bar', () => {

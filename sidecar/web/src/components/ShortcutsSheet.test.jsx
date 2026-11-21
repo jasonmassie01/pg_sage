@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { ShortcutsSheet } from './ShortcutsSheet'
+import { GLOSSARY_DOC, ShortcutsSheet } from './ShortcutsSheet'
 import { APPROVAL_KEYMAP, KEYMAP } from './keymap'
 
 // ux-05a win 24: the sheet lists the approval verbs from APPROVAL_KEYMAP,
@@ -11,7 +11,7 @@ describe('ShortcutsSheet approval section', () => {
   it('lists every approval verb with its key and description', () => {
     render(<ShortcutsSheet onClose={vi.fn()} />)
     const section = screen.getByTestId('approval-shortcuts')
-    expect(section).toHaveTextContent('On the Needs your review cards')
+    expect(section).toHaveTextContent('On the Waiting on you cards')
     const rows = within(section).getAllByTestId('approval-shortcut-row')
     expect(rows).toHaveLength(APPROVAL_KEYMAP.length)
     APPROVAL_KEYMAP.forEach((entry, i) => {
@@ -25,5 +25,17 @@ describe('ShortcutsSheet approval section', () => {
     expect(screen.getAllByTestId('shortcut-row')).toHaveLength(KEYMAP.length)
     const section = screen.getByTestId('approval-shortcuts')
     expect(within(section).queryAllByTestId('shortcut-row')).toHaveLength(0)
+  })
+})
+
+// ux-06a: the sheet links the glossary that defines the dashboard's words.
+describe('ShortcutsSheet glossary link', () => {
+  it('links docs/glossary.md in a new tab', () => {
+    render(<ShortcutsSheet onClose={() => {}} />)
+    const link = screen.getByTestId('shortcuts-glossary')
+    expect(link).toHaveAttribute('href', GLOSSARY_DOC)
+    expect(GLOSSARY_DOC).toMatch(/\/docs\/glossary\.md$/)
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noreferrer')
   })
 })

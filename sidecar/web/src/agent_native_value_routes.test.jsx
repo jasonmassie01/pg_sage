@@ -23,8 +23,8 @@ vi.mock('./components/Toast', () => ({
 // ux-01b: the Inbox replaced Value as the landing page; Value stays at
 // #/value and the Inbox carries one Value line linking to it.
 
-vi.mock('./pages/Dashboard', () => ({
-  Dashboard: () => <div data-testid="legacy-overview">Legacy overview</div>,
+vi.mock('./pages/fleet/FleetOverview', () => ({
+  FleetOverview: () => <div data-testid="legacy-overview">Legacy overview</div>,
 }))
 
 const fleet = {
@@ -86,15 +86,18 @@ describe('agent-native Value routing and navigation', () => {
       expect(screen.queryByTestId('legacy-overview')).not.toBeInTheDocument()
     })
 
-  it('keeps the Value page at #/value', async () => {
+  // ux-11: Value is the ledger's summary; #/value opens that section.
+  it('sends #/value to the ledger with its Value section open', async () => {
     window.location.hash = '#/value'
     render(<App />)
     await screen.findByTestId('app-loaded')
-    expect(screen.getByRole('heading', { level: 1, name: 'Value' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/ledger?section=value')
+    expect(screen.getAllByRole('heading', { level: 1, name: 'Outcome ledger' }).length)
+      .toBeGreaterThan(0)
     expect(screen.getByRole('heading', { name: /value delivered/i })).toBeInTheDocument()
   })
 
-  it('makes the Inbox primary and keeps telemetry behind collapsed Advanced nav',
+  it('makes the Inbox primary and keeps evidence behind the collapsed Evidence nav',
     async () => {
       render(<App />)
       await screen.findByTestId('app-loaded')
@@ -104,7 +107,7 @@ describe('agent-native Value routing and navigation', () => {
       expect(inboxLink).toHaveAttribute('href', '#/')
       expect(screen.queryByTestId('nav-value')).toBeNull()
 
-      const advanced = screen.getByRole('button', { name: /advanced/i })
+      const advanced = screen.getByRole('button', { name: 'Evidence' })
       expect(advanced).toHaveAttribute('aria-expanded', 'false')
       expect(screen.queryByRole('link', { name: /findings explorer/i }))
         .not.toBeInTheDocument()
@@ -121,8 +124,9 @@ describe('agent-native Value routing and navigation', () => {
         .not.toBeInTheDocument()
       expect(screen.getByRole('link', { name: /runbooks/i }))
         .toBeInTheDocument()
-      expect(screen.getByRole('link', { name: /snapshot.*metrics/i }))
-        .toBeInTheDocument()
+      // ux-11: Snapshot & metrics is gone (its parts moved to Fleet and Database).
+      expect(screen.queryByRole('link', { name: /snapshot.*metrics/i }))
+        .not.toBeInTheDocument()
     })
 
   it('offers the Inbox as the primary command-palette destination', async () => {

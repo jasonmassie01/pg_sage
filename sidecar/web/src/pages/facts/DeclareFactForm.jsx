@@ -154,7 +154,7 @@ function DeclareFooter({ busy, ready, error, declared }) {
     <div className="space-y-1">
       <button type="submit" data-testid="declare-submit" disabled={busy || !ready}
         className="px-3 py-1 rounded text-sm"
-        style={{ background: 'var(--accent)', color: '#fff',
+        style={{ background: 'var(--accent-solid)', color: '#fff',
           opacity: busy || !ready ? 0.5 : 1 }}>
         {busy ? 'Declaring...' : 'Declare fact'}
       </button>

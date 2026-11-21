@@ -8,7 +8,7 @@ function SafetySection(props) {
       <Field label="Trust Level" configKey="trust.level" type="select"
         options={TRUST_OPTIONS}
         help={'Controls how much autonomy pg_sage has. Start with Observation to'
-          + ' just watch, then graduate to Advisory for safe recommendations.'}
+          + ' just watch, then graduate to Advisory for safe changes.'}
         {...props} />
       {props.isDatabaseScope ? (
         <Field label="Execution Mode" configKey="execution_mode" type="select"

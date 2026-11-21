@@ -39,7 +39,7 @@ export function Composer({ busy, onAsk, onNewConversation, initialQuestion = '' 
       <div className="flex items-center gap-2">
         <button type="button" data-testid="ask-submit" disabled={!canAsk} onClick={submit}
           className="rounded px-3 py-1 text-sm"
-          style={{ background: 'var(--accent)', color: '#fff', opacity: canAsk ? 1 : 0.5 }}>
+          style={{ background: 'var(--accent-solid)', color: '#fff', opacity: canAsk ? 1 : 0.5 }}>
           {busy ? 'Asking…' : 'Ask'}
         </button>
         <button type="button" data-testid="ask-new-conversation" onClick={onNewConversation}

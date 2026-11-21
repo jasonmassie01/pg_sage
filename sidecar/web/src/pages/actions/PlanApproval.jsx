@@ -89,7 +89,8 @@ export function PlanApproval({ detail, database, canReview = false, onDecided, o
   }
   const all = steps.length === 1 ? 'Approve the stage' : `Approve all ${steps.length} stages`
   return box(<>
-    <div className="flex flex-wrap items-center gap-2">
+    <div data-testid="plan-approval-actions"
+      className="approval-action-bar flex flex-wrap items-center gap-2">
       <button type="button" disabled={busy} aria-busy={busy} style={button}
         className="px-3 py-1.5 rounded text-sm font-medium"
         onClick={() => send({ mode: 'all' })}>{all}</button>

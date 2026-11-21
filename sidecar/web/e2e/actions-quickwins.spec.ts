@@ -1,4 +1,4 @@
-// actions-quickwins.spec.ts (ux-05a): Actions opens on Needs your review
+// actions-quickwins.spec.ts (ux-05a): Actions opens on Waiting on you
 // when approvals wait (win 1), white-labelled decision buttons reach WCAG
 // AA (win 2), the approval list answers j/k/a/r/s (win 24) and the card's
 // action row is sticky below 768 px (win 25). The cards copy the shape
@@ -83,7 +83,7 @@ test.beforeEach(async ({ page }) => {
   await mockAllAPIs(page)
 })
 
-test('opens on Needs your review and approves the third card by keyboard',
+test('opens on Waiting on you and approves the third card by keyboard',
   async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 })
     const posts = await routeQueue(page, queue)

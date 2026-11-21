@@ -55,7 +55,7 @@ test('dashboard-01 CHECK-18: a proxy 502 shows the strip and keeps the snapshot'
       served502 += 1
       return proxy502
     })
-    await page.goto('/#/advanced')
+    await page.goto('/#/manage-databases?tab=readiness')
     await expect(page.getByTestId('stat-databases')).toContainText('2')
     await expect(page.getByTestId('query-stale')).toHaveCount(0)
 
@@ -82,7 +82,7 @@ test('a 502 with an HTML body on the first load shows the banner with Retry',
     const errors = watchPageErrors(page)
     let fleetDown = true
     await routeOutage(page, req => (fleetDown && isFleet(req.url()) ? proxy502 : null))
-    await page.goto('/#/advanced')
+    await page.goto('/#/manage-databases?tab=readiness')
     const banner = page.getByRole('alert').filter({ hasText: 'Request failed (502 Bad Gateway)' })
     await expect(banner.first()).toBeVisible()
     // Nothing from the failed inventory is drawn as if it were data.
@@ -110,7 +110,7 @@ test('dashboard-04 CHECK-12: Live, not live during a restart, Live again without
       served502 += 1
       return proxy502
     })
-    await page.goto('/#/advanced')
+    await page.goto('/#/manage-databases?tab=readiness')
     const freshness = page.getByTestId('freshness-indicator')
     await expect(freshness).toHaveAttribute('data-status', 'live')
     await expect(freshness).toHaveText('Live')
@@ -153,7 +153,7 @@ test('apiauth-02 CHECK-14: a control-database outage shows the banner, never sig
       return STORE_DOWN
     })
     const log = logAPIRequests(page)
-    await page.goto('/#/advanced')
+    await page.goto('/#/manage-databases?tab=readiness')
     await expect(page.getByTestId('stat-databases')).toContainText('2')
     await expect(page.getByTestId('auth-store-banner')).toHaveCount(0)
     const bootChecks = log.filter(p => p.startsWith('/api/v1/auth/me')).length
@@ -186,7 +186,7 @@ test('a 503 without the store code is some other outage: strip, no session banne
     await page.clock.install()
     await routeOutage(page, req => (down && isFleet(req.url())
       ? { status: 503, json: { error: 'fleet manager unavailable' } } : null))
-    await page.goto('/#/advanced')
+    await page.goto('/#/manage-databases?tab=readiness')
     await expect(page.getByTestId('stat-databases')).toContainText('2')
 
     down = true

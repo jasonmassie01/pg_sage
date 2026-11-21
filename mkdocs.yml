@@ -42,6 +42,7 @@ nav:
       - LLM costing: llm-costing.md
   - Configuration: configuration.md
   - HTTP API and inbox: api.md
+  - Glossary: glossary.md
   - Architecture: architecture.md
   - Fleet Mode: fleet.md
   - SQL Reference: sql-reference.md

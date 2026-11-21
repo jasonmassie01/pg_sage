@@ -90,7 +90,7 @@ export function ChangePasswordForm({ user, forced = false, onChanged }) {
       )}
       <button type="submit" disabled={busy} data-testid="change-password-submit"
         className="px-4 py-1.5 rounded text-sm font-medium"
-        style={{ background: 'var(--accent)', color: '#fff', opacity: busy ? 0.6 : 1 }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff', opacity: busy ? 0.6 : 1 }}>
         {busy ? 'Saving...' : 'Change password'}
       </button>
     </form>

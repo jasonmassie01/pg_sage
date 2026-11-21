@@ -58,11 +58,11 @@ function DatabaseLedger({ db }) {
       <table className="w-full text-left">
         <thead>
           <tr className="text-xs" style={muted}>
-            <th className="pr-3 font-normal">Class</th>
+            <th scope="col" className="pr-3 font-normal">Class</th>
             {COLUMNS.map(([key, label]) => (
-              <th key={key} className="pr-3 font-normal">{label}</th>
+              <th scope="col" key={key} className="pr-3 font-normal">{label}</th>
             ))}
-            <th className="font-normal">Potential minutes</th>
+            <th scope="col" className="font-normal">Potential minutes</th>
           </tr>
         </thead>
         <tbody>
@@ -132,7 +132,7 @@ export function ShadowModePage({ database }) {
       <div>
         <h2 className="text-sm font-semibold" style={strong}>Shadow Mode</h2>
         <p className="text-sm" style={muted}>
-          What pg_sage would have done below each class&apos;s earned trust level, and how
+          What pg_sage would have done below each class&apos;s earned autonomy, and how
           it scored. Nothing here ran. The potential column prices the counted correct
           decisions with the toil model; only verified outcomes count on the Value page.
         </p>

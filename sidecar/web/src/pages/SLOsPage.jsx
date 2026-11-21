@@ -162,9 +162,11 @@ function SLOTable({ slos, user }) {
       <table className="w-full text-left">
         <thead>
           <tr className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            <th className="p-2">Database</th><th className="p-2">SLO</th>
-            <th className="p-2">State</th><th className="p-2">Burn rates</th>
-            <th className="p-2">Budget left</th><th className="p-2">Evaluated</th>
+            <th scope="col" className="p-2">Database</th><th scope="col" className="p-2">SLO</th>
+            <th scope="col" className="p-2">State</th>
+            <th scope="col" className="p-2">Burn rates</th>
+            <th scope="col" className="p-2">Budget left</th>
+            <th scope="col" className="p-2">Evaluated</th>
           </tr>
         </thead>
         <tbody>

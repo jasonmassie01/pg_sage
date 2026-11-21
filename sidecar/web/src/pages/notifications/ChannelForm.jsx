@@ -55,7 +55,7 @@ function FormButtons({ prefix, saving, editing, onCancel }) {
     <div className="flex gap-2">
       <button type="submit" disabled={saving} data-testid={`${prefix}-submit`}
         className="px-4 py-1.5 rounded text-sm font-medium"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         {saving ? 'Saving...' : editing ? 'Save' : 'Add Channel'}
       </button>
       {onCancel && (

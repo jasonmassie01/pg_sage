@@ -29,7 +29,7 @@ function PageRenderError({ error, onRetry }) {
       </pre>
       <div className="flex items-center gap-4">
         <button type="button" onClick={onRetry} className="px-3 py-1.5 rounded text-sm"
-          style={{ background: 'var(--accent)', color: '#fff' }}>
+          style={{ background: 'var(--accent-solid)', color: '#fff' }}>
           Retry
         </button>
         <a href="#/" className="text-sm underline" style={{ color: 'var(--accent)' }}>
@@ -91,7 +91,7 @@ export class RootErrorBoundary extends Component {
       <div role="alert" data-testid="app-error" className="p-6">
         <h1 className="text-lg font-semibold mb-2">pg_sage failed to load</h1>
         <button type="button" onClick={() => reload()} className="px-4 py-2 rounded"
-          style={{ background: 'var(--accent)', color: '#fff' }}>
+          style={{ background: 'var(--accent-solid)', color: '#fff' }}>
           Reload
         </button>
       </div>

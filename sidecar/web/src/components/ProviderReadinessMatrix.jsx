@@ -115,15 +115,15 @@ export function ProviderReadinessMatrix() {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ color: 'var(--text-secondary)' }}>
-              <th className="text-left font-medium py-2">Database</th>
-              <th className="text-left font-medium py-2">Provider</th>
-              <th className="text-left font-medium py-2">Auto-safe</th>
-              <th className="text-left font-medium py-2">Analyze</th>
-              <th className="text-left font-medium py-2">Stats</th>
-              <th className="text-left font-medium py-2">Hints</th>
-              <th className="text-left font-medium py-2">Replica</th>
-              <th className="text-left font-medium py-2">Instance settings</th>
-              <th className="text-left font-medium py-2">Blocker</th>
+              <th scope="col" className="text-left font-medium py-2">Database</th>
+              <th scope="col" className="text-left font-medium py-2">Provider</th>
+              <th scope="col" className="text-left font-medium py-2">Auto-safe</th>
+              <th scope="col" className="text-left font-medium py-2">Analyze</th>
+              <th scope="col" className="text-left font-medium py-2">Stats</th>
+              <th scope="col" className="text-left font-medium py-2">Hints</th>
+              <th scope="col" className="text-left font-medium py-2">Replica</th>
+              <th scope="col" className="text-left font-medium py-2">Instance settings</th>
+              <th scope="col" className="text-left font-medium py-2">Blocker</th>
             </tr>
           </thead>
           <tbody>
@@ -171,7 +171,7 @@ export function ProviderReadinessMatrix() {
                             style={{
                               color: familyColor(family),
                               border: '1px solid var(--border)',
-                              background: 'var(--bg-muted)',
+                              background: 'var(--bg-hover)',
                             }}>
                             {family.action_type}
                             <span style={{ color: 'var(--text-secondary)' }}>

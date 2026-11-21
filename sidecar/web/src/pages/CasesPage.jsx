@@ -32,7 +32,7 @@ import { formatTime } from '../lib/time'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
-  { value: 'finding', label: 'Findings' },
+  { value: 'finding', label: 'Rule checks' },
   { value: 'schema_health', label: 'Schema' },
   { value: 'query_hint', label: 'Query Hints' },
   { value: 'forecast', label: 'Forecasts' },
@@ -136,19 +136,19 @@ function CasesView({ database, initialSource = 'all', user, focus, setFocus, inv
       <div>
         <h2 className="text-sm font-semibold"
           style={{ color: 'var(--text-primary)' }}>
-          Cases · Issues &amp; investigations
+          Issues &amp; investigations
         </h2>
         <p className="text-sm" data-testid="cases-page-description"
           style={{ color: 'var(--text-secondary)' }}>
-          Review what needs attention and what we know. Cases hold observations
+          Review what needs attention and what we know. Issues hold observations
           and evidence; Actions holds proposed changes, decisions and results.
-          Ask Sage can help explain a case.
-          {' '}{visibleCases.length} of {cases.length} cases are visible.
+          Ask Sage can help explain an issue.
+          {' '}{visibleCases.length} of {cases.length} issues are visible.
         </p>
         <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
           {criticalCount} reported critical · {investigationCount} without a proposed change.
           {' '}Ordered by reported severity, then latest observation. These counts
-          describe returned cases; they do not establish collection health or user impact.
+          describe returned issues; they do not establish collection health or user impact.
         </p>
       </div>
 
@@ -158,9 +158,9 @@ function CasesView({ database, initialSource = 'all', user, focus, setFocus, inv
       {focus ? (
         <a href={`#/cases${listQuery}`} className="inline-block text-sm underline"
           style={{ color: 'var(--accent)' }} onClick={() => setFocus(null)}>
-          Back to all cases
+          Back to all issues
         </a>
-      ) : <div className="flex flex-wrap gap-2" aria-label="Case source filters">
+      ) : <div className="flex flex-wrap gap-2" aria-label="Filter issues by source">
         {SOURCE_FILTERS.map(source => (
           <button
             key={source.value}
@@ -189,8 +189,8 @@ function CasesView({ database, initialSource = 'all', user, focus, setFocus, inv
           className="rounded px-2.5 py-1 text-xs"
           style={{ color: 'var(--text-secondary)',
             border: '1px solid var(--border)' }}>
-          {showSuppressed ? 'Hide suppressed findings'
-            : 'Show suppressed findings'}
+          {showSuppressed ? 'Hide suppressed issues'
+            : 'Show suppressed issues'}
         </button>
         {showSuppressed && (
           <div className="mt-2">
@@ -207,11 +207,11 @@ function CasesView({ database, initialSource = 'all', user, focus, setFocus, inv
       {visibleCases.length === 0 && (!focus || focus.kind === 'case') && (
         <div className="rounded border p-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
           {focus
-            ? 'This case is unavailable in the selected database. Return to the case list or check the database selection.'
-            : cases.length > 0 ? 'No cases match this filter.'
-              : 'No cases were returned for this database. This alone does not confirm a healthy database; check collection status.'}
+            ? 'This issue is unavailable in the selected database. Return to the issue list or check the database selection.'
+            : cases.length > 0 ? 'No issues match this filter.'
+              : 'No issues were returned for this database. This alone does not confirm a healthy database; check collection status.'}
           {!focus && cases.length > 0 && <button type="button" className="ml-2 underline"
-            onClick={() => setSourceFilter('all')}>Show all cases</button>}
+            onClick={() => setSourceFilter('all')}>Show all issues</button>}
         </div>
       )}
 
@@ -290,7 +290,7 @@ function CaseCard({
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs"
         style={{ color: 'var(--text-secondary)' }}>
-        <span>Case state: {caseRow.state || 'unknown'}</span>
+        <span>Issue state: {caseRow.state || 'unknown'}</span>
         {caseRow.database_name && (
           <span data-testid="case-database">DB: {caseRow.database_name}</span>
         )}
@@ -320,7 +320,7 @@ function CaseCard({
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
         {!focused && <a href={caseLink('cases', caseRow)} onClick={onReview}
           className="rounded border px-3 py-1.5 font-medium"
-          style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>Review case</a>}
+          style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>Review issue</a>}
         {focused && candidate && <a href={caseLink('actions', caseRow)}
           className="rounded border px-3 py-1.5 font-medium"
           style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>Review proposed changes</a>}
@@ -336,16 +336,16 @@ function CaseCard({
         </summary>
         <div className="mt-2 space-y-2" style={{ color: 'var(--text-secondary)' }}>
           <p className="font-mono break-all">Reported condition: {caseRow.title}</p>
-          <p className="font-mono break-all">Case ID: {caseID(caseRow)}</p>
+          <p className="font-mono break-all">Issue ID: {caseID(caseRow)}</p>
           <p>Source urgency note: {caseRow.why_now || 'not supplied'}</p>
           {factTarget?.object && <p className="font-mono break-all">Affected object: {factTarget.object}</p>}
           <p>Next: <span>{nextStep(caseRow)}</span></p>
           {caseRow.actions_unavailable && <p data-testid="case-actions-unavailable">
-            The action history for this case could not be read; it may have
+            The action history for this issue could not be read; it may have
             actions that are not shown.</p>}
           {candidate && <p>Policy: {policyLabel(candidate)}</p>}
           <WhyNotRun caseRow={caseRow} user={user} />
-          {caseRow.why && <div><strong>Source recommendation (review applicability before use): </strong>{caseRow.why}</div>}
+          {caseRow.why && <div><strong>Source advice (review applicability before use): </strong>{caseRow.why}</div>}
         </div>
       <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category}
         database={caseRow.database_name} canExplain={canExplain(user)} />

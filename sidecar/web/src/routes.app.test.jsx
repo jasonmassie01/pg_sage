@@ -5,7 +5,7 @@ import { ROUTES } from './routes'
 import { RENDERERS } from './routeRender'
 
 // dashboard-06: App renders the page the route registry names. Old URLs
-// stay as aliases, unrouted URLs render Not found, and the UI role gate
+// stay as aliases (ux-11: redirected to the new path, query kept), unrouted URLs render Not found, and the UI role gate
 // still renders Access denied for a direct hash.
 // No concurrent access tests: one render tree, single-threaded hash changes.
 
@@ -29,6 +29,16 @@ vi.mock('./pages/NotificationsPage', () => ({
   NotificationsPage: () => <div data-testid="notifications-page" />,
 }))
 vi.mock('./pages/ProfilePage', () => ({ ProfilePage: () => <div data-testid="profile-page" /> }))
+vi.mock('./pages/AgentsPage', () => ({ AgentsPage: () => <div data-testid="agents-page" /> }))
+vi.mock('./pages/MCPTokensPage', () => ({
+  MCPTokensPage: () => <div data-testid="mcp-tokens-page" />,
+}))
+vi.mock('./pages/DatabasesPage', () => ({
+  DatabasesPage: ({ initialTab }) => <div data-testid="fleet-page">{initialTab}</div>,
+}))
+vi.mock('./pages/LedgerPage', () => ({
+  LedgerPage: ({ route }) => <div data-testid="ledger-page">{route}</div>,
+}))
 
 const fleet = {
   summary: { emergency_stopped: false },
@@ -107,7 +117,7 @@ describe('App routes from the registry', () => {
   it('renders Cases for the old findings explorer URL', async () => {
     await open('#/advanced/findings')
     expect(screen.getByTestId('cases-page')).toHaveTextContent('all')
-    expect(title()).toHaveTextContent('Cases')
+    expect(title()).toHaveTextContent('Issues')
     expect(screen.getByTestId('nav-cases')).toHaveAttribute('aria-current', 'page')
   })
 
@@ -140,5 +150,88 @@ describe('App routes from the registry', () => {
   it('renders Not found for the signed-out link page once signed in', async () => {
     await open('#/link-sso')
     expect(screen.getByTestId('not-found')).toBeInTheDocument()
+  })
+})
+
+// ux-11: an old path redirects to its new home in place (replaceState), so
+// Back skips it, and the page there is the one the old path named.
+async function go(hash) {
+  await act(async () => {
+    window.location.hash = hash
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  })
+}
+
+describe('App redirects moved pages', () => {
+  it('sends a filtered case view to Issues with its source and queries', async () => {
+    await open('#/forecasts?database=orders&case=7')
+    expect(window.location.hash).toBe('#/issues?source=forecast&database=orders&case=7')
+    expect(screen.getByTestId('cases-page')).toHaveTextContent('forecast')
+    expect(screen.getByTestId('nav-cases')).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('sends Cases and Actions to Issues and Changes on a hash change', async () => {
+    await open('#/cases?case=3')
+    expect(window.location.hash).toBe('#/issues?case=3')
+    expect(screen.getByTestId('cases-page')).toHaveTextContent('all')
+    await go('#/actions?database=orders')
+    expect(window.location.hash).toBe('#/changes?database=orders')
+    expect(screen.getByTestId('actions-page')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('Changes')
+  })
+
+  it('ignores an unknown source on Issues', async () => {
+    await open('#/issues?source=everything')
+    expect(screen.getByTestId('cases-page')).toHaveTextContent('all')
+  })
+
+  it('opens Fleet on its readiness tab for the old Snapshot URL', async () => {
+    await open('#/advanced?database=orders')
+    expect(window.location.hash).toBe('#/manage-databases?tab=readiness&database=orders')
+    expect(screen.getByTestId('fleet-page')).toHaveTextContent('readiness')
+    expect(title()).toHaveTextContent('Databases')
+  })
+
+  it('denies a viewer the old Snapshot URL now that it is Fleet', async () => {
+    await open('#/advanced', 'viewer')
+    expect(screen.getByTestId('access-denied')).toBeInTheDocument()
+    expect(screen.queryByTestId('fleet-page')).toBeNull()
+  })
+
+  it('sends Value to the ledger summary', async () => {
+    await open('#/value?database=orders')
+    expect(window.location.hash).toBe('#/ledger?section=value&database=orders')
+    expect(screen.getByTestId('ledger-page'))
+      .toHaveTextContent('/ledger?section=value&database=orders')
+  })
+
+  it('opens the MCP tokens tab of Agents for an admin', async () => {
+    await open('#/mcp-tokens')
+    expect(window.location.hash).toBe('#/agents?tab=tokens')
+    expect(screen.getByTestId('mcp-tokens-page')).toBeInTheDocument()
+    expect(screen.queryByTestId('agents-page')).toBeNull()
+    expect(screen.getByTestId('nav-agents')).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('gives an operator the agent list, not tokens, on the old tokens URL', async () => {
+    await open('#/mcp-tokens', 'operator')
+    expect(screen.getByTestId('agents-page')).toBeInTheDocument()
+    expect(screen.queryByTestId('mcp-tokens-page')).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'MCP tokens' })).toBeNull()
+  })
+
+  it('replaces the old entry instead of adding one', async () => {
+    await open('#/inbox-start')
+    const before = window.history.length
+    await go('#/cases')
+    expect(window.location.hash).toBe('#/issues')
+    expect(window.history.length).toBe(before + 1)
+  })
+
+  it('shows Not found with a way to the Inbox for an unknown hash', async () => {
+    await open('#/no-such-page?database=orders')
+    expect(window.location.hash).toBe('#/no-such-page?database=orders')
+    expect(screen.getByTestId('not-found')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to Inbox' })).toHaveAttribute('href', '#/')
   })
 })

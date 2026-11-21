@@ -5,12 +5,20 @@ import { CSVImport } from './databases/CSVImport'
 import { DeleteConfirm } from './databases/DeleteConfirm'
 import { FleetFindings } from './databases/FleetFindings'
 import { DiscoveredDatabases } from './databases/DiscoveredDatabases'
-import { RuntimeCells } from './databases/RuntimeCells'
 import { LeaderBadge } from './databases/LeaderBadge'
-import { RUNTIME_HEADERS, joinRuntime } from './databases/runtimeStatus'
+import { joinRuntime } from './databases/runtimeStatus'
+import { ReadOnlyFleet, ReadOnlyFleetTable } from './databases/ReadOnlyFleet'
 import { TabList, TabPanel } from '../components/Tabs'
+import { FleetOverview } from './fleet/FleetOverview'
 
-export function DatabasesPage({ onSelectDatabase }) {
+// scopeTag is the header tag scope (ux-10b): the fleet tables open filtered
+// by it, and a new tag scope starts them over.
+// fleet, database and initialTab feed the Health & readiness tab (ux-11):
+// App's fleet query, the scoped database and the route's ?tab=.
+export function DatabasesPage({
+  onSelectDatabase, scopeTag = '', fleet, database = 'all', initialTab = '',
+}) {
+  const initialTags = scopeTag ? [scopeTag] : []
   const [databases, setDatabases] = useState([])
   const [error, setError] = useState(null)
   const [showForm, setShowForm] = useState(false)
@@ -25,7 +33,8 @@ export function DatabasesPage({ onSelectDatabase }) {
   const [runtimeAvailable, setRuntimeAvailable] = useState(false)
   const [readOnlySource, setReadOnlySource] = useState(null)
   const [inventoryComplete, setInventoryComplete] = useState(false)
-  const [tab, setTab] = useState('databases')
+  const [chosenTab, setTab] = useState(initialTab)
+  const tab = fleetTabKeys(readOnly).includes(chosenTab) ? chosenTab : 'databases'
 
   const fetchDatabases = useCallback(async () => {
     setLoading(true)
@@ -70,6 +79,17 @@ export function DatabasesPage({ onSelectDatabase }) {
 
   useEffect(() => { fetchDatabases() }, [fetchDatabases])
 
+  // refreshManaged reloads the registrations in place after a bulk change
+  // (ux-10a), keeping the table, its selection and its result line.
+  const refreshManaged = useCallback(async () => {
+    try {
+      setDatabases(await fetchInventory('/api/v1/databases/managed',
+        'managed database registrations'))
+    } catch (err) {
+      setError(err.message)
+    }
+  }, [])
+
   function handleEdit(db) {
     setEditingDB(db)
     setShowForm(true)
@@ -101,8 +121,8 @@ export function DatabasesPage({ onSelectDatabase }) {
         <p className="text-sm" data-testid="fleet-page-description"
           style={{ color: 'var(--text-secondary)' }}>
           Your monitored Postgres databases, connection health, and registration sources.
-          Analyzer findings identify tuning opportunities. SRE investigations produce
-          durable cases; supported actions follow the configured approval policy.
+          Analyzer checks find tuning opportunities. SRE investigations produce
+          durable issues; supported actions follow the configured approval policy.
         </p>
       </div>
 
@@ -110,7 +130,7 @@ export function DatabasesPage({ onSelectDatabase }) {
         <div role="alert" data-testid="fleet-load-error" className="text-sm p-3 rounded"
           style={{
             background: 'rgba(239,68,68,0.1)',
-            color: '#ef4444',
+            color: 'var(--red)',
             border: '1px solid rgba(239,68,68,0.3)',
           }}>
           {error}
@@ -161,7 +181,7 @@ export function DatabasesPage({ onSelectDatabase }) {
         <button onClick={() => { setEditingDB(null); setShowForm(true) }}
           data-testid="add-database-button"
           className="px-4 py-1.5 rounded text-sm font-medium"
-          style={{ background: 'var(--accent)', color: '#fff' }}>
+          style={{ background: 'var(--accent-solid)', color: '#fff' }}>
           Add Database
         </button>
         <button onClick={() => setShowImport(true)}
@@ -215,23 +235,30 @@ export function DatabasesPage({ onSelectDatabase }) {
         </div>
       )}
 
-      {!loading && !readOnly && <FleetTabs tab={tab} onChange={setTab} />}
+      {!loading && <FleetTabs tab={tab} onChange={setTab} readOnly={readOnly} />}
 
-      {!loading && !readOnly && (
+      {!loading && tab === 'readiness' && (
+        <TabPanel id="fleet" active={tab}>
+          <FleetOverview database={database} fleet={fleet} onSelectDB={onSelectDatabase} />
+        </TabPanel>
+      )}
+
+      {!loading && !readOnly && tab !== 'readiness' && (
         <TabPanel id="fleet" active={tab}>
           {tab === 'discovered' ? <DiscoveredDatabases /> : databases.length > 0 ? (
-            <DatabaseTable databases={databases}
+            <DatabaseTable key={scopeTag} databases={databases} initialTags={initialTags}
               onEdit={handleEdit}
               onDelete={setDeleteTarget}
               onError={setError}
               runtimeFor={runtimeFor} runtimeKnown={runtimeAvailable}
-              onSelectDatabase={onSelectDatabase} />
+              onSelectDatabase={onSelectDatabase} onChanged={refreshManaged} />
           ) : null}
         </TabPanel>
       )}
 
-      {!loading && readOnly && (
-        <ReadOnlyFleet databases={databases} onSelectDatabase={onSelectDatabase} />
+      {!loading && readOnly && tab === 'databases' && (
+        <ReadOnlyFleetTable key={scopeTag} databases={databases} initialTags={initialTags}
+          onSelectDatabase={onSelectDatabase} />
       )}
 
       {!loading && inventoryComplete && inventory.length === 0 && (
@@ -268,16 +295,24 @@ async function fetchInventory(url, label) {
   return data.databases
 }
 
-// FleetTabs switches between registered databases and the Discovered tab
-// (market-06, fleet auto-discovery).
-function FleetTabs({ tab, onChange }) {
-  const tabs = [['databases', 'Databases'], ['discovered', 'Discovered']]
+// FLEET_TABS: registered databases, the Discovered tab (market-06, fleet
+// auto-discovery; an editable fleet only) and Health & readiness (ux-11).
+const FLEET_TABS = [['databases', 'Databases'], ['discovered', 'Discovered'],
+  ['readiness', 'Health & readiness']]
+
+function fleetTabKeys(readOnly) {
+  return FLEET_TABS.map(([key]) => key).filter(key => !readOnly || key !== 'discovered')
+}
+
+function FleetTabs({ tab, onChange, readOnly }) {
+  const keys = fleetTabKeys(readOnly)
+  const tabs = FLEET_TABS.filter(([key]) => keys.includes(key))
     .map(([key, label]) => ({ key, label, testId: `fleet-tab-${key}` }))
   return (
     <TabList id="fleet" label="Fleet sections" tabs={tabs} active={tab} onSelect={onChange}
       className="flex gap-2" data-testid="fleet-tabs" tabClassName="px-3 py-1 rounded text-sm"
       tabStyle={selected => ({
-        background: selected ? 'var(--accent)' : 'var(--bg-card)',
+        background: selected ? 'var(--accent-solid)' : 'var(--bg-card)',
         color: selected ? '#fff' : 'var(--text-primary)',
         border: '1px solid var(--border)',
       })} />
@@ -290,40 +325,6 @@ function InventoryMetric({ label, value, detail }) {
       <p className="text-xs uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>{label}</p>
       <p className="text-xl font-semibold font-mono mt-2" style={{ color: 'var(--text-primary)' }}>{value}</p>
       <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{detail}</p>
-    </div>
-  )
-}
-
-function ReadOnlyFleet({ databases, testId = 'yaml-fleet-list', onSelectDatabase }) {
-  if (!databases.length) return null
-  return (
-    <div className="rounded-lg overflow-x-auto"
-      data-testid={testId}
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-      }}>
-      <table className="w-full text-sm">
-        <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-          {['Database', 'Platform / Postgres', ...RUNTIME_HEADERS].map(label => (
-            <th key={label} className="text-left px-4 py-3 text-xs whitespace-nowrap"
-              style={{ color: 'var(--text-secondary)' }}>{label}</th>
-          ))}
-        </tr></thead>
-        <tbody>{databases.map(database => {
-          const status = database.status || {}
-          return (
-            <tr key={database.name} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td className="px-4 py-4 font-mono font-semibold"
-                style={{ color: 'var(--text-primary)' }}>{database.name}</td>
-              <td className="px-4 py-4" style={{ color: 'var(--text-secondary)' }}>
-                {status.platform || 'Postgres'}{status.pg_version ? ` / ${status.pg_version}` : ''}
-              </td>
-              <RuntimeCells runtime={database} onSelectDatabase={onSelectDatabase} />
-            </tr>
-          )
-        })}</tbody>
-      </table>
     </div>
   )
 }

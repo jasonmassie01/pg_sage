@@ -9,10 +9,13 @@ import {
 } from '../lib/inbox'
 import { NeedsYou } from './inbox/NeedsYou'
 import { SinceLastVisit } from './inbox/SinceLastVisit'
+import { ExternalAgentRequests } from './mcptokens/ExternalAgentRequests'
 
 // The Inbox is the home page (ux-01b): (a) what needs a person, from
 // /api/v1/inbox; (b) what changed since they were last here, from the
-// outcome ledger since their inbox_seen_at; (c) one Value line. The empty
+// outcome ledger since their inbox_seen_at; (c) one Value line, linking to
+// the ledger's Value summary, and the external agent requests still
+// waiting on an approval (ux-11). The empty
 // state is the goal state, worded from counts. A failed source is named
 // and the goal state is then never claimed.
 
@@ -91,7 +94,7 @@ function ValueLine({ query }) {
   if (!saved) return null
   return <p className="text-sm" data-testid="inbox-value" style={muted}>
     Verified DBA hours saved: {hours(saved.this_week)} this week, {hours(saved.all_time)} all
-    time. <a href="#/value" className="underline" style={{ color: 'var(--accent)' }}>
+    time. <a href="#/ledger?section=value" className="underline" style={{ color: 'var(--accent)' }}>
       Open Value</a>
   </p>
 }
@@ -118,6 +121,17 @@ function NeedsSection({ data, changes, when, partial, onDecided }) {
       : <p data-testid="inbox-goal" className="text-base font-medium"
         style={{ color: 'var(--text-primary)' }}>{goalSentence(changes, when, partial)}</p>)}
   </section>
+}
+
+// WaitingAgentRequests lists the external agent requests whose approval
+// the Inbox still lists. Only reviewers read the request audit, and there
+// is nothing to look up while no change approval waits.
+function WaitingAgentRequests({ data, canReview }) {
+  const items = Array.isArray(data?.items) ? data.items : []
+  const waiting = items.filter(it => it.kind === 'change_approval')
+    .map(it => ({ database: it.database, id: String(it.id) }))
+  if (!canReview || waiting.length === 0) return null
+  return <ExternalAgentRequests mode="waiting" waiting={waiting} />
 }
 
 export function InboxPage({ database, user }) {
@@ -147,6 +161,7 @@ export function InboxPage({ database, user }) {
       {seen.ready && <SinceLastVisit changes={changes} query={outcomes} canUndo={canUndo}
         gaps={gaps} label={windowLabel(seen, win, openedAt)} />}
       {markError && <p className="text-xs" style={muted}>{markError}</p>}
+      <WaitingAgentRequests data={inbox.data} canReview={canUndo} />
       <ValueLine query={value} />
     </div>
   )

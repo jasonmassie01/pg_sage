@@ -102,7 +102,7 @@ describe('FleetFindings', () => {
     const select = vi.fn()
     render(<FleetFindings onSelectDatabase={select} />)
     fireEvent.click(await screen.findByTestId('fleet-finding-toggle-0'))
-    const link = screen.getByRole('link', { name: /tenant_b.*finding 12/ })
+    const link = screen.getByRole('link', { name: /tenant_b.*issue 12/ })
     const [path, query] = link.getAttribute('href').split('?')
     expect(path).toBe('#/cases')
     expect(new URLSearchParams(query).get('finding')).toBe('12')

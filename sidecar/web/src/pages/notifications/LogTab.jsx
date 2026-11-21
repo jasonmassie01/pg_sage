@@ -64,7 +64,7 @@ export function LogTab({ database } = {}) {
               }}>
                 {['Event', 'Database', 'Subject', 'Status', 'Error',
                   'Sent'].map(h => (
-                  <th key={h}
+                  <th scope="col" key={h}
                     className="text-left px-4 py-2 text-xs"
                     style={{
                       color: 'var(--text-secondary)',

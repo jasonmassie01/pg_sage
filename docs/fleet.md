@@ -351,16 +351,71 @@ sre:
 
 ## Finding a database
 
-The Databases page has a filter above its table: it matches a name, a host
-or a tag (`key`, `value` or `key=value`), ignoring case and treating every
-character literally, and shows at most 100 rows at a time. From six
-databases the header scope picker adds a **Find database** box over the same
-names: typing narrows the list, and a unique exact name, or Enter on a single
-match, selects it.
+The Databases table is searched, filtered, sorted and paged by the sidecar,
+so a fleet of 500 loads 50 rows at a time (**Load more** fetches the next 50).
+The search box matches a name or a host, ignoring case and treating every
+character literally. A tag chip (type `tier=prod`, or a bare tag such as
+`critical`, and press Enter) keeps only databases that carry it; several
+chips must all match. The Name, Execution Mode, Findings and Health headers
+sort the table (click again to reverse). Tick rows, or the header box for
+every shown row, to test their connections in one go (each row shows its
+own result) or to set one `key=value` tag on all of them (**Set tag**: each
+registration is read and written back with the tag added, through its own
+`PUT /api/v1/databases/managed/{id}`, leaving its other fields and password
+as they were). Changing the search, the tags or the sort clears the
+selection. Registrations the sidecar is not running (disabled ones, for
+example) are listed below the table. In YAML fleet mode the table is
+searched, tag-filtered, sorted and paged the same way but is read-only:
+it has no row selection, and you edit the YAML file to change a database.
+
+From six databases the header scope picker is a search box. Type part of a
+name or host and it asks the sidecar (`GET /api/v1/databases?q=...`, 50
+names at a time, **Load more** for the next 50); arrow keys and Enter, or a
+click, select one, and Enter alone selects an exact name or a single match.
+With nothing typed it lists your five most recent databases first. **All
+databases** is always offered. A smaller fleet keeps the plain list.
+
+Type `tag:key=value` (or `tag:name` for a bare tag) to choose a **tag
+scope**: every database with that tag. The URL then carries `?tag=`. The
+Fleet page opens filtered by the tag; pages that cannot yet filter by tag
+say "This page needs one database" and offer the whole fleet instead of
+showing every database as if it were the tag. A link whose `?database=`
+names a database you cannot see opens all databases and says so.
+
+In the all-databases scope of a fleet of six or more, the home page and
+Trust show the fleet as a summary instead of one block per database: the
+first look as counts by grade with the worst ten listed, setup as "N of M
+databases set up" with the incomplete ones ten at a time, Trust as level
+counts per action class with the databases off the usual level listed, and
+the scope strip as counts ("analyze on 41 databases"). Select a database to
+see its detail.
 
 ## API routes
 
-All three routes need a session with the viewer, operator or admin role.
+All these routes need a session with the viewer, operator or admin role.
+
+### `GET /api/v1/databases` list parameters
+
+Without parameters the route returns the whole fleet status, as it always
+has. Any of these parameters turns the answer into one page of it,
+computed in the sidecar over the databases the caller may see:
+
+| Parameter | Meaning |
+|---|---|
+| `q` | Name or host contains this text (case-insensitive, literal). |
+| `tag` | Repeatable. `key=value` matches that tag; a bare `name` matches a bare tag or any tag with that key. All must match. |
+| `sort` | `name` (default), `health`, `open_issues`, `last_snapshot` or `mode` (execution mode). |
+| `order` | `asc` or `desc`. Defaults: `asc`, except `open_issues` (`desc`). `health` and `last_snapshot` ascending put the worst first. |
+| `limit` | 1-500, default 50. |
+| `cursor` | The `next_cursor` of the previous page, with the same `sort` and `order`. |
+
+The answer keeps `mode`, `summary` (still the whole visible fleet) and
+`databases` (this page), and adds `total` (the matches), `total_capped`
+(always `false`) and `next_cursor` (empty on the last page). A bad
+parameter is a 400 that names it. The cursor is a position (the sort value
+and the name), so a database removed between two pages is skipped and none
+is repeated; one whose health changes between pages can move past the
+cursor. The host is searched but not returned.
 The samples below come from the walkthrough's two databases; your values
 will differ.
 

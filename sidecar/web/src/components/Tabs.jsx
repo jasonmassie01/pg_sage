@@ -1,8 +1,12 @@
+import { useEffect, useRef } from 'react'
+
 // Tabs.jsx is the dashboard's one tab bar (ux-05d): a named tablist of
 // tabs with a roving tab stop, Arrow Left and Right (wrapping), Home and
 // End, and selection that follows focus; TabPanel is the region the
 // selected tab controls. Pages keep their own look through className,
-// tabClassName and tabStyle.
+// tabClassName and tabStyle. A panel with nothing focusable inside is
+// itself the Tab stop after the bar (ux-12), as the WAI-ARIA tabs pattern
+// asks, so an empty list is still reached and read.
 
 const KEYS = ['ArrowRight', 'ArrowLeft', 'Home', 'End']
 
@@ -58,11 +62,37 @@ export function TabList({
   )
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), '
+  + 'select:not([disabled]), textarea:not([disabled]), summary, '
+  + '[tabindex]:not([tabindex="-1"])'
+
+// useStopWhenEmpty keeps the panel's tabindex="0" exactly while no element
+// inside it can take focus, following the content as it loads or changes.
+function useStopWhenEmpty(ref) {
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return undefined
+    const update = () => {
+      const empty = !el.querySelector(FOCUSABLE)
+      if (empty && el.getAttribute('tabindex') !== '0') el.setAttribute('tabindex', '0')
+      if (!empty && el.hasAttribute('tabindex')) el.removeAttribute('tabindex')
+    }
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(el, { childList: true, subtree: true, attributes: true,
+      attributeFilter: ['disabled', 'href', 'tabindex'] })
+    return () => observer.disconnect()
+  }, [ref])
+}
+
 // TabPanel wraps the content of the selected tab of the bar with this id.
 export function TabPanel({ id, active, className, children }) {
   const ids = tabIds(id, active)
+  const ref = useRef(null)
+  useStopWhenEmpty(ref)
   return (
-    <div role="tabpanel" id={ids.panel} aria-labelledby={ids.tab} className={className}>
+    <div ref={ref} role="tabpanel" id={ids.panel} aria-labelledby={ids.tab}
+      className={className}>
       {children}
     </div>
   )

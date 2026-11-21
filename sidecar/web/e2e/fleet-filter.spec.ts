@@ -1,6 +1,8 @@
 // fleet-filter.spec.ts (ux-05e, wins 14 and 19): finding one database among
-// 500 on the Databases page and in the header scope picker, and the
-// external agent request links to the investigation and its approval.
+// 500 in the header scope picker (a server-searched combobox since
+// ux-10b), and the external agent request links to the investigation and
+// its approval. The Databases table's search moved
+// to the server (ux-10a) and is tested in fleet-table.spec.ts.
 // Register routes AFTER mockAllAPIs: Playwright matches the newest first.
 // No concurrency tests: one admin drives one page.
 
@@ -27,9 +29,14 @@ async function routeFleet(page: Page) {
     if (route.request().url().includes('/managed')) {
       return route.fulfill({ json: { databases: managed } })
     }
+    // The scope picker searches with q and pages at limit (ux-10b).
+    const params = new URL(route.request().url()).searchParams
+    const q = params.get('q') || ''
+    const rows = fleet.filter(row => row.name.includes(q))
     return route.fulfill({ json: { summary: { total_databases: 500, healthy: 500,
       degraded: 0, total_critical: 0, total_warning: 0, emergency_stopped: false },
-    databases: fleet } })
+    databases: params.has('limit') ? rows.slice(0, 50) : fleet,
+    total: rows.length, next_cursor: '' } })
   })
 }
 
@@ -38,37 +45,20 @@ test.beforeEach(async ({ page }) => {
   await routeFleet(page)
 })
 
-test('ux-05e: the Databases page filters 500 registrations', async ({ page }) => {
-  await page.goto('/#/manage-databases')
-  const rows = page.getByTestId('db-row')
-  await expect(page.getByTestId('db-filter-count')).toContainText('of 500')
-  const box = page.getByRole('searchbox', { name: 'Filter databases' })
-  await box.fill('ord')
-  // The name and the tag both match: orders, and db-0007 tagged orders-prod.
-  await expect(rows).toHaveCount(2)
-  await expect(rows.first()).toContainText('db-0007')
-  await expect(rows.nth(1)).toContainText('orders')
-  await box.fill('.*')
-  await expect(rows).toHaveCount(0)
-  await expect(page.getByTestId('db-filter-empty')).toContainText('No database matches')
-  await box.fill('')
-  await expect(page.getByTestId('db-filter-count')).toContainText('of 500')
-})
-
-test('ux-05e: the scope picker finds a database in at most its name length',
+test('ux-05e/ux-10b: the scope picker finds a database in at most its name length',
   async ({ page }) => {
     await page.goto('/#/')
     const scope = page.getByRole('combobox', { name: 'Database scope' })
-    await expect(scope).toHaveValue('all')
-    const find = page.getByLabel('Find database')
-    await find.click()
-    await find.pressSequentially('orders')
+    await expect(scope).toHaveValue('All databases')
+    await scope.click()
+    await scope.pressSequentially('orders')
+    await expect(page.getByRole('option', { name: 'orders', exact: true })).toBeVisible()
+    await scope.press('Enter')
     await expect(scope).toHaveValue('orders')
-    await expect(find).toHaveValue('')
-    // Clearing a filter keeps the selected scope.
-    await find.pressSequentially('db-00')
-    await expect(scope).toHaveValue('orders')
-    await find.fill('')
+    // A search that is abandoned keeps the selected scope.
+    await scope.click()
+    await scope.pressSequentially('db-00')
+    await scope.press('Escape')
     await expect(scope).toHaveValue('orders')
   })
 
@@ -81,10 +71,11 @@ test('ux-05e: a request row links its investigation and approval', async ({ page
       remediation_id: 'cancel_backend.55555555-5555-4555-8555-555555555555',
       verdict: 'queued_for_approval', queue_id: 4242, outbound: 'none',
       created_at: '2026-11-16T09:00:00Z' }] } }))
-  await page.goto('/#/mcp-tokens')
+  // ux-11: every agent request is kept in the ledger.
+  await page.goto('/#/ledger?section=agents')
   const row = page.getByTestId('specialist-request-r1')
   await expect(row.getByTestId('specialist-request-investigation-r1')).toHaveAttribute(
     'href', `#/cases?investigation=${inv}&database=orders`)
   await row.getByTestId('specialist-request-approval-r1').click()
-  await expect(page).toHaveURL(/#\/actions\?tab=pending&queue=4242&database=orders$/)
+  await expect(page).toHaveURL(/#\/changes\?tab=pending&queue=4242&database=orders$/)
 })

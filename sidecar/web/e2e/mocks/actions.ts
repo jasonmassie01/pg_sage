@@ -111,7 +111,7 @@ export async function routeActions(page: Page, state: ActionsState) {
 
 /* ---------- Approval cards (GET /api/v1/approvals) ---------- */
 
-// routeApprovalCards answers the Needs your review card list with one card
+// routeApprovalCards answers the Waiting on you card list with one card
 // per queue id, in the approvals list shape (cards, total, errors).
 export async function routeApprovalCards(page: Page, ids: number[]) {
   const cards = ids.map(id => ({

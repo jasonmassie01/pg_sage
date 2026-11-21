@@ -40,7 +40,7 @@ function useWizardEntry(entries, admin) {
   return entries.find(e => e.database === kept) ?? null
 }
 
-export function HomeSetup({ database, user, authMode, fleet, children }) {
+export function HomeSetup({ database, user, authMode, fleet, onSelectDatabase, children }) {
   const admin = user?.role === 'admin'
   const total = fleet?.data?.summary?.total_databases
   const zero = !fleet?.loading && !fleet?.error && total === 0
@@ -68,7 +68,8 @@ export function HomeSetup({ database, user, authMode, fleet, children }) {
     <div className="space-y-6">
       {showWizard && <SetupWizard entry={entry} onChanged={changed} onFinished={refetch} />}
       {!zero && (!showWizard || finished || unreadable) && (
-        <OnboardingPanel database={database} authMode={authMode} user={user} />
+        <OnboardingPanel database={database} authMode={authMode} user={user}
+          onSelectDatabase={onSelectDatabase} />
       )}
       {!zero && children}
     </div>

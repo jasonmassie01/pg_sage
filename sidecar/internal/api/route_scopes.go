@@ -14,4 +14,6 @@ var fleetWideRoutes = map[string]string{
 		"deployment, not of one chosen database",
 	"POST /api/v1/policy/proposals": "a standing policy proposal can cover several " +
 		"databases or the whole fleet",
+	"POST " + bulkApprovePath: "one bulk approval can name cards on several databases " +
+		"(ux-07b); a database-scoped operator approves each card on its own database",
 }

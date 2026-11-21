@@ -24,7 +24,7 @@ async function openEvidence(page: Page, cases: unknown[]) {
   const card = page.getByRole('article')
   await expect(card).toHaveCount(cases.length)
   await card.getByText('Technical evidence and proposed changes').click()
-  return card.getByLabel('Case evidence')
+  return card.getByLabel('Issue evidence')
 }
 
 test('tuning-10 CHECK-23: the Explain panel opens from a query case with rule entries',

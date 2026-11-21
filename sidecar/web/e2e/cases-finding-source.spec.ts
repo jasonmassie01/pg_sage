@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { mockAllAPIs, mockCases } from './fixtures'
 
-// rules-12b: the Cases page's "Finding source" select asks the server for
+// rules-12b: the Cases page's "Issue source" select asks the server for
 // one subsystem's findings and keeps the choice in the hash.
 
 const optimizerCase = {
@@ -36,7 +36,7 @@ test('choosing a finding source filters on the server and survives a reload',
     const filtered = page.waitForRequest(req =>
       req.url().includes('/api/v1/cases') &&
       new URL(req.url()).searchParams.get('finding_source') === 'optimizer')
-    await page.getByLabel('Finding source').selectOption('optimizer')
+    await page.getByLabel('Issue source').selectOption('optimizer')
     await filtered
 
     await expect(page.getByRole('heading', { name: 'Missing index on orders' })).toBeVisible()
@@ -44,11 +44,11 @@ test('choosing a finding source filters on the server and survives a reload',
     await expect(page).toHaveURL(/finding_source=optimizer/)
 
     await page.reload()
-    await expect(page.getByLabel('Finding source')).toHaveValue('optimizer')
+    await expect(page.getByLabel('Issue source')).toHaveValue('optimizer')
     await expect(page.getByRole('heading', { name: 'Missing index on orders' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Unused index idx' })).toHaveCount(0)
 
-    await page.getByLabel('Finding source').selectOption('')
+    await page.getByLabel('Issue source').selectOption('')
     await expect(page.getByRole('heading', { name: 'Unused index idx' })).toBeVisible()
     await expect(page).not.toHaveURL(/finding_source/)
   })

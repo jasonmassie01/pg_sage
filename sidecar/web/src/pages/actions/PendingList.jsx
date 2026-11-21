@@ -67,9 +67,9 @@ function QueueFocusMissing({ id, actions, errors }) {
   return <p role="status" data-testid="approval-queue-missing" className="text-sm"
     style={{ color: 'var(--yellow)' }}>
     {partial
-      ? `Approval request #${id} is not in this list: it was decided or expired, or its `
+      ? `Request #${id} is not in this list: it was decided or expired, or its `
         + 'database could not be read.'
-      : `Approval request #${id} is no longer waiting for review: it was decided or expired.`}
+      : `Request #${id} is no longer waiting on you: it was decided or expired.`}
     {' '}History lists what was run.
   </p>
 }

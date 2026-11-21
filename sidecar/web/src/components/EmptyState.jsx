@@ -11,7 +11,7 @@ export function EmptyState({ message, action, actionLabel, icon: Icon }) {
       {action && actionLabel && (
         <a href={action}
           className="px-4 py-2 rounded text-sm font-medium mt-2"
-          style={{ background: 'var(--accent)', color: '#fff' }}>
+          style={{ background: 'var(--accent-solid)', color: '#fff' }}>
           {actionLabel}
         </a>
       )}

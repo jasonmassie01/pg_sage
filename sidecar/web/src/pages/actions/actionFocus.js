@@ -2,7 +2,7 @@
 // links to #/actions?action=<id>: an executed change record (action log
 // id), so a queued proposal that shares the number is never the focus.
 // ux-01b adds tab=<key> (the tab to open) and queue=<id> (a queued
-// proposal, focused on the Needs your review tab); the Inbox, ux-05b and
+// proposal, focused on the Waiting on you tab); the Inbox, ux-05b and
 // ux-05e link with them. ux-03 adds the plans tab (plan=<id>, read by
 // PlansTab). A value that is not exactly a known tab or a
 // positive integer id is ignored.

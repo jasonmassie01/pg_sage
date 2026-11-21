@@ -4,7 +4,7 @@
 const ERROR_CLASS_TEXT = {
   timeout: 'did not answer in time',
   connection: 'could not be reached',
-  query: 'returned an error while reading its cases',
+  query: 'returned an error while reading its issues',
 }
 
 const SOURCE_TEXT = {
@@ -26,8 +26,8 @@ export function CasesHealthNotes({ unavailable, truncated }) {
           className="rounded border p-3 text-sm"
           style={{ borderColor: 'var(--danger, var(--border))',
             color: 'var(--text-primary)' }}>
-          Cases for database <strong>{item.database}</strong>{' '}
-          {ERROR_CLASS_TEXT[item.error_class] || 'could not be read'}. Its cases are
+          Issues for database <strong>{item.database}</strong>{' '}
+          {ERROR_CLASS_TEXT[item.error_class] || 'could not be read'}. Its issues are
           missing from this list; the other databases are shown.
         </div>
       ))}
@@ -35,7 +35,7 @@ export function CasesHealthNotes({ unavailable, truncated }) {
         <p key={database} data-testid="cases-truncated" className="text-xs"
           style={{ color: 'var(--text-secondary)' }}>
           Database {database} has more open {sources.join(', ')} than this list
-          shows. The most severe are listed; open a case link to load one that
+          shows. The most severe are listed; open an issue link to load one that
           is not shown.
         </p>
       ))}

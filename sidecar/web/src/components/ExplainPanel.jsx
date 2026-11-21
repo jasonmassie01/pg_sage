@@ -65,8 +65,11 @@ function NodeTable({ nodes }) {
     <div className="mt-3 overflow-x-auto">
       <table className="w-full text-left" data-testid="explain-nodes">
         <thead style={{ color: 'var(--text-secondary)' }}>
-          <tr><th>Node</th><th>Time (all loops)</th><th>Loops</th><th>Rows</th>
-            <th>Estimate</th><th>Warning</th></tr>
+          <tr><th scope="col">Node</th>
+            <th scope="col">Time (all loops)</th>
+            <th scope="col">Loops</th>
+            <th scope="col">Rows</th>
+            <th scope="col">Estimate</th><th scope="col">Warning</th></tr>
         </thead>
         <tbody>
           {nodes.map((n, i) => (
@@ -98,8 +101,8 @@ function ExplainBody({ result }) {
         {result.note}</p>}
       <EntryList title="Why it is slow" testID="explain-slow-because" empty="No reasons found."
         entries={entriesOf(result, 'slow_because', result.slow_because)} />
-      <EntryList title="Recommendations" testID="explain-recommendations"
-        empty="No recommendations."
+      <EntryList title="Proposed changes" testID="explain-recommendations"
+        empty="No proposed changes."
         entries={entriesOf(result, 'recommendation', result.recommendations)} />
       <NodeTable nodes={result.node_breakdown} />
     </>

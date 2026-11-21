@@ -42,7 +42,7 @@ test('halted plan: case link, approve all, halt on stage 3 of 5, then the Inbox 
 
     await page.goto('/#/cases')
     await page.getByRole('link', { name: `Part of plan: ${GOAL}` }).first().click()
-    await expect(page).toHaveURL(/#\/actions\?tab=plans&plan=7&database=orders$/)
+    await expect(page).toHaveURL(/#\/changes\?tab=plans&plan=7&database=orders$/)
     await expect(page.getByTestId('actions-tab-plans')).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByTestId('plan-header')).toContainText(GOAL)
     await expect(page.getByTestId(/^plan-stage-\d+$/)).toHaveCount(5)

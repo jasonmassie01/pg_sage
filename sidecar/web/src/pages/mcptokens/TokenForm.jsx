@@ -135,7 +135,7 @@ export function TokenForm({ onCreate, creating, error, owners }) {
       <div>
         <button type="submit" data-testid="mcp-token-submit" disabled={!body || creating}
           className="px-4 py-1.5 rounded text-sm font-medium"
-          style={{ background: 'var(--accent)', color: '#fff',
+          style={{ background: 'var(--accent-solid)', color: '#fff',
             opacity: !body || creating ? 0.6 : 1 }}>
           {creating ? 'Creating...' : 'Create token'}
         </button>

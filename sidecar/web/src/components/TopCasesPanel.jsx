@@ -42,7 +42,7 @@ function TopCasesBody({ query, database }) {
       style={{ background: 'var(--bg-hover)' }} />
   }
   if (!Array.isArray(data.cases)) {
-    return <p className="text-sm" style={muted}>The cases list could not be read.</p>
+    return <p className="text-sm" style={muted}>The issue list could not be read.</p>
   }
   const rows = data.cases.slice(0, TOP_CASES_LIMIT)
   const unavailable = Array.isArray(data.unavailable) ? data.unavailable : []
@@ -56,18 +56,18 @@ function TopCasesBody({ query, database }) {
         <>
           <p className="text-xs" style={muted}>
             {total > rows.length || cut
-              ? `Top ${rows.length} of ${cut ? 'at least ' : ''}${total} open cases`
+              ? `Top ${rows.length} of ${cut ? 'at least ' : ''}${total} open issues`
               : `${rows.length} open ${rows.length === 1 ? 'case' : 'cases'}`}
             , ranked by severity, then time to impact.
           </p>
           {rows.map(row => <TopCaseRow key={`${row.database_name}|${row.id}`} row={row} />)}
         </>
       ) : unavailable.length === 0 && (
-        <p className="text-sm" style={muted}>No open cases in the selected scope.</p>
+        <p className="text-sm" style={muted}>No open issues in the selected scope.</p>
       )}
       <a href={allCasesHref(database)} data-testid="top-cases-all"
         className="inline-block mt-1 text-sm" style={{ color: 'var(--accent)' }}>
-        View all cases
+        View all issues
       </a>
     </div>
   )
@@ -79,7 +79,7 @@ export function TopCasesPanel({ query, database }) {
   return (
     <div className="rounded p-4" data-testid="top-cases"
       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-      <h2 className="text-sm font-medium mb-3" style={muted}>Top Cases</h2>
+      <h2 className="text-sm font-medium mb-3" style={muted}>Top issues</h2>
       <TopCasesBody query={query} database={database} />
     </div>
   )

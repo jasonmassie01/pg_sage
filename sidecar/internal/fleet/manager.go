@@ -162,7 +162,11 @@ func (m *DatabaseManager) Config() *config.Config {
 func (m *DatabaseManager) FleetStatus() FleetOverview {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.fleetStatusLocked()
+}
 
+// fleetStatusLocked builds FleetStatus. Caller holds m.mu.
+func (m *DatabaseManager) fleetStatusLocked() FleetOverview {
 	overview := FleetOverview{
 		Mode:      m.cfg.Mode,
 		Databases: make([]DatabaseStatus, 0, len(m.instances)),

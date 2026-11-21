@@ -1,33 +1,21 @@
-/* eslint-disable react-refresh/only-export-components */
-import { lazy, Suspense, useState } from 'react'
-import { useAPI } from '../hooks/useAPI'
-import { useLiveRefetch } from '../hooks/useLiveEvents'
-import { QueryState, StaleStrip } from '../components/QueryState'
-import { hasData, queryStale } from '../lib/queryState'
-import { TokenBudgetBanner } from '../components/TokenBudgetBanner'
-import { DatabaseTile } from '../components/DatabaseTile'
-import { ProviderReadinessMatrix } from '../components/ProviderReadinessMatrix'
-import { IndexAdmissionPanel } from '../components/IndexAdmissionPanel'
-import { FleetRecoverabilityLine } from '../components/RecoverabilityPanel'
-import { Skeleton } from '../components/Skeleton'
-import { HealthHero } from '../components/HealthHero'
-import { TopCasesPanel } from '../components/TopCasesPanel'
-import { TabList, TabPanel } from '../components/Tabs'
-import { topCasesURL } from '../lib/topCases'
+import { useState } from 'react'
+import { useAPI } from '../../hooks/useAPI'
+import { useLiveRefetch } from '../../hooks/useLiveEvents'
+import { QueryState, StaleStrip } from '../../components/QueryState'
+import { hasData, queryStale } from '../../lib/queryState'
+import { DatabaseTile } from '../../components/DatabaseTile'
+import { ProviderReadinessMatrix } from '../../components/ProviderReadinessMatrix'
+import { IndexAdmissionPanel } from '../../components/IndexAdmissionPanel'
+import { FleetRecoverabilityLine } from '../../components/RecoverabilityPanel'
+import { HealthHero } from '../../components/HealthHero'
+import { TopCasesPanel } from '../../components/TopCasesPanel'
+import { topCasesURL } from '../../lib/topCases'
 
-// recharts is only needed by this chart, so it loads in its own chunk and the
-// first paint does not download it (dashboard-09).
-const FleetHealthChart = lazy(() => import('../components/FleetHealthChart')
-  .then(m => ({ default: m.FleetHealthChart })))
-
-const TRUST_LEVEL_LABELS = {
-  0: 'Observation',
-  1: 'Advisory',
-  2: 'Autonomous',
-  observation: 'Observation',
-  advisory: 'Advisory',
-  autonomous: 'Autonomous',
-}
+// FleetOverview is the Fleet page's Health & readiness tab (ux-11; it was
+// Snapshot & metrics): the fleet health summary, the database tiles,
+// provider readiness with index admission, and the ranked top issues. The
+// health chart moved to the Database page and the token budget banner to
+// the Inbox.
 
 const OVERVIEW_TABS = [
   {
@@ -44,17 +32,11 @@ const OVERVIEW_TABS = [
   },
   {
     key: 'top-cases',
-    label: 'Top Cases',
+    label: 'Top issues',
     description:
-      'The highest-ranked open cases: severity first, then time to impact.',
+      'The highest-ranked open issues: severity first, then time to impact.',
   },
 ]
-
-export function formatTrustLevel(raw) {
-  if (raw === null || raw === undefined || raw === '') return null
-  const key = typeof raw === 'number' ? raw : String(raw).toLowerCase()
-  return TRUST_LEVEL_LABELS[key] || String(raw)
-}
 
 function StatCard({
   label, value, color, 'data-testid': testId,
@@ -83,7 +65,7 @@ function StatCard({
   )
 }
 
-// NoDatabases: the Snapshot page with nothing connected points to the
+// NoDatabases: the Health & readiness tab with nothing connected points to the
 // setup wizard on the home page (ux-04b).
 function NoDatabases() {
   return (
@@ -97,16 +79,28 @@ function NoDatabases() {
   )
 }
 
-function OverviewTabs({ activeTab, setActiveTab }) {
-  const tabs = OVERVIEW_TABS.map(tab => ({ ...tab, testId: `overview-tab-${tab.key}` }))
+// OverviewSections switches what the tab shows. It sits inside the Fleet
+// page's own tab panel, so it is a group of toggle buttons, not a second
+// tab list with a second tab panel (ux-11).
+function OverviewSections({ activeTab, setActiveTab }) {
   return (
     <div className="space-y-2">
-      <TabList id="overview" label="Overview sections" tabs={tabs} active={activeTab}
-        onSelect={setActiveTab} tabStyle={selected => ({
-          background: selected ? 'var(--accent)' : 'var(--bg-card)',
-          color: selected ? '#fff' : 'var(--text-secondary)',
-          border: '1px solid var(--border)',
-        })} />
+      <div role="group" aria-label="Overview sections" className="flex flex-wrap gap-2">
+        {OVERVIEW_TABS.map(tab => {
+          const selected = tab.key === activeTab
+          return (
+            <button key={tab.key} type="button" data-testid={`overview-tab-${tab.key}`}
+              aria-pressed={selected} onClick={() => setActiveTab(tab.key)}
+              className="px-3 py-1 rounded text-sm" style={{
+                background: selected ? 'var(--accent-solid)' : 'var(--bg-card)',
+                color: selected ? '#fff' : 'var(--text-secondary)',
+                border: '1px solid var(--border)',
+              }}>
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
       <p className="text-sm" data-testid="overview-tab-description"
         style={{ color: 'var(--text-secondary)' }}>
         {OVERVIEW_TABS.find(tab => tab.key === activeTab)?.description}
@@ -157,9 +151,9 @@ function DatabaseOverviewPanel({
 // FLEET_LOADING stands in for App's fleet query before it is passed.
 const FLEET_LOADING = { data: null, loading: true, error: null, refetch: null }
 
-// Dashboard renders App's /api/v1/databases query (`fleet`, the useAPI
+// FleetOverview renders App's /api/v1/databases query (`fleet`, the useAPI
 // result) instead of polling the fleet a second time (dashboard-08).
-export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING }) {
+export function FleetOverview({ database, onSelectDB, fleet = FLEET_LOADING }) {
   const [overviewTab, setOverviewTab] = useState('databases')
   const { data, loading, refetch } = fleet
   // The ranked cases read every selected database, so they load only while
@@ -183,7 +177,6 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
   return (
     <div className="space-y-6">
       {queryStale(fleet) && <StaleStrip query={fleet} />}
-      <TokenBudgetBanner canReset={user?.role === 'admin'} />
       {summary && <HealthHero summary={summary} databases={databases} />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -196,19 +189,15 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
         <StatCard label="Degraded" value={summary?.degraded}
           color={summary?.degraded > 0
             ? 'var(--red)' : 'var(--green)'} />
-        <StatCard label="Critical Findings"
+        <StatCard label="Critical Issues"
           value={summary?.total_critical}
           color={summary?.total_critical > 0
             ? 'var(--red)' : 'var(--text-primary)'} />
       </div>
       <FleetRecoverabilityLine />
 
-      <Suspense fallback={<Skeleton height={192}
-        data-testid="fleet-health-chart-loading" />}>
-        <FleetHealthChart database={database} />
-      </Suspense>
-      <OverviewTabs activeTab={overviewTab} setActiveTab={setOverviewTab} />
-      <TabPanel id="overview" active={overviewTab} className="space-y-4">
+      <OverviewSections activeTab={overviewTab} setActiveTab={setOverviewTab} />
+      <div className="space-y-4" data-testid="overview-section">
         {overviewTab === 'databases' && (
           <DatabaseOverviewPanel databases={databases}
             database={database} loading={loading} onSelectDB={onSelectDB} />
@@ -220,7 +209,7 @@ export function Dashboard({ database, onSelectDB, user, fleet = FLEET_LOADING })
           </div>
         )}
         {topCasesOpen && <TopCasesPanel query={topCases} database={database} />}
-      </TabPanel>
+      </div>
     </div>
   )
 }

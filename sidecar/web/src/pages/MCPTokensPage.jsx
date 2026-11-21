@@ -1,11 +1,10 @@
 // MCP v2: admins list and revoke every MCP API token, and create operator
 // tokens: a person's own token for Claude Code or Cursor, acting for its
 // owner. A coding agent's token is minted per agent on the Agents page
-// (agentgov-01). Admin only: App.jsx gates the route and Layout hides the
-// nav link from other roles.
+// (agentgov-01). Admin only: it is the MCP tokens tab of Agents (ux-11),
+// which other roles never get. Agent requests moved to the Inbox and ledger.
 import { useCallback, useEffect, useState } from 'react'
 import { useConfirm } from '../hooks/useConfirm'
-import { ExternalAgentRequests } from './mcptokens/ExternalAgentRequests'
 import { SecretNotice } from './mcptokens/SecretNotice'
 import { TokenForm } from './mcptokens/TokenForm'
 import { TokenTable } from './mcptokens/TokenTable'
@@ -15,7 +14,7 @@ import { useOwners } from './mcptokens/useOwners'
 const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
 const errorStyle = {
   background: 'rgba(239,68,68,0.1)',
-  color: '#ef4444',
+  color: 'var(--red)',
   border: '1px solid rgba(239,68,68,0.3)',
 }
 
@@ -28,9 +27,9 @@ function Explainer() {
       </h2>
       <p>
         A token lets an MCP client such as Claude Code or Cursor read pg_sage&apos;s
-        findings and propose fixes. The tokens created here are operator tokens: each
+        issues and propose fixes. The tokens created here are operator tokens: each
         acts for its owner, an operator or admin, and may approve. Agent tokens can
-        read and propose but never approve. Every proposal still goes through
+        read and propose but never approve. Every proposed change still goes through
         pg_sage&apos;s trust gates. See docs/mcp.md for setup and the tools each scope
         unlocks.
       </p>
@@ -166,7 +165,6 @@ export function MCPTokensPage() {
       )}
       <TokenList list={list} owners={owners.owners} revokingIds={revokingIds}
         onRevoke={revoke} />
-      <ExternalAgentRequests />
       {dialog}
     </div>
   )

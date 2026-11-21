@@ -34,8 +34,9 @@ function mainFrameNavigations(page: Page) {
 }
 
 async function signedIn(page: Page) {
-  await page.goto('/#/actions')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Actions')
+  // ux-11: Actions is Changes at #/changes.
+  await page.goto('/#/changes')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Changes')
   await expect(page.getByTestId('user-email')).toBeVisible()
 }
 
@@ -81,7 +82,7 @@ test('a 401 from the session check itself is sign-in, not an expiry loop',
     await routeSession(page, session)
     const log = logAPIRequests(page)
     const navigations = mainFrameNavigations(page)
-    await page.goto('/#/actions')
+    await page.goto('/#/changes')
     await onSignIn(page)
     const atSignIn = log.filter(isSessionCheck).length
     await page.waitForTimeout(1_000)

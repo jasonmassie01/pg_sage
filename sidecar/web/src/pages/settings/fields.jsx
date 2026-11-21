@@ -128,7 +128,7 @@ function ToggleControl({ value, testId, disabled, onChange }) {
       onClick={() => onChange(!on ? 'true' : 'false')}
       className="px-3 py-1 rounded text-sm"
       style={{
-        background: on ? 'var(--green)' : 'var(--bg-main)',
+        background: on ? 'var(--green-solid)' : 'var(--bg-main)',
         color: on ? '#fff' : 'var(--text-secondary)',
         border: '1px solid var(--border)',
       }}>
@@ -291,7 +291,7 @@ function ModelPicker({ value, disabled, onChange, discovery }) {
         disabled={discovery.loading}
         className="px-3 py-1.5 text-xs rounded whitespace-nowrap"
         style={{
-          background: 'var(--accent)',
+          background: 'var(--accent-solid)',
           color: '#fff',
           opacity: discovery.loading ? 0.6 : 1,
         }}>

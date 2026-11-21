@@ -65,7 +65,7 @@ describe('DecisionsTab', () => {
     expect(row).toHaveTextContent(/needs a person's approval/i)
     expect(row).not.toHaveTextContent('queue_approval')
     expect(row).not.toHaveTextContent('approval required')
-    const link = screen.getByRole('link', { name: 'Approval request #9' })
+    const link = screen.getByRole('link', { name: 'Request #9' })
     expect(link).toHaveAttribute('href', '#/actions?tab=pending&queue=9&database=beta')
   })
 
@@ -73,14 +73,14 @@ describe('DecisionsTab', () => {
   it('links a finding decision to that finding on Cases', () => {
     response.decisions = [{ ...park, finding_id: 17 }]
     render(<DecisionsTab database="all" />)
-    expect(screen.getByRole('link', { name: 'Finding #17' }))
+    expect(screen.getByRole('link', { name: 'Issue #17' }))
       .toHaveAttribute('href', '#/cases?finding=17&database=alpha')
   })
 
   it('encodes the database and ids in the link', () => {
     response.decisions = [{ ...park, database: 'a b&c', queue_id: 5 }]
     render(<DecisionsTab database="all" />)
-    expect(screen.getByRole('link', { name: 'Approval request #5' }))
+    expect(screen.getByRole('link', { name: 'Request #5' }))
       .toHaveAttribute('href', '#/actions?tab=pending&queue=5&database=a+b%26c')
   })
 

@@ -6,6 +6,7 @@
 import { test, expect } from '@playwright/test'
 import { mockAllAPIs, mockLLMStatusExhausted } from './fixtures'
 
+// ux-11: the banner moved from Snapshot & metrics to the Inbox (home).
 test.describe('Token budget banner', () => {
   test.beforeEach(async ({ page }) => {
     await mockAllAPIs(page)
@@ -14,7 +15,7 @@ test.describe('Token budget banner', () => {
   test('banner is hidden when budget is not exhausted', async ({
     page,
   }) => {
-    await page.goto('/#/advanced')
+    await page.goto('/#/')
 
     // Default mock has budget_exhausted: false — banner should not
     // appear.
@@ -31,7 +32,7 @@ test.describe('Token budget banner', () => {
       route.fulfill({ json: mockLLMStatusExhausted }),
     )
 
-    await page.goto('/#/advanced')
+    await page.goto('/#/')
 
     const banner = page.locator('[data-testid="token-budget-banner"]')
     await expect(banner).toBeVisible()
@@ -62,7 +63,7 @@ test.describe('Token budget banner', () => {
       }),
     )
 
-    await page.goto('/#/advanced')
+    await page.goto('/#/')
 
     const banner = page.locator('[data-testid="token-budget-banner"]')
     await expect(banner).toBeVisible()
@@ -81,7 +82,7 @@ test.describe('Token budget banner', () => {
       return route.fulfill({ status: 200, json: { ok: true } })
     })
 
-    await page.goto('/#/advanced')
+    await page.goto('/#/')
 
     const resetBtn = page.locator('[data-testid="token-budget-reset"]')
     await expect(resetBtn).toBeVisible()

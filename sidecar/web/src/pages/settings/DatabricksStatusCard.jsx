@@ -123,8 +123,9 @@ function Binding({ name, row }) {
       </div>
       <table className="text-xs w-full">
         <thead style={muted}>
-          <tr><th align="left">Stream</th><th align="left">Lag</th>
-            <th align="left">Statements</th><th align="left">Last error</th></tr>
+          <tr><th scope="col" align="left">Stream</th><th scope="col" align="left">Lag</th>
+            <th scope="col" align="left">Statements</th>
+            <th scope="col" align="left">Last error</th></tr>
         </thead>
         <tbody>
           {streams.map(s => (

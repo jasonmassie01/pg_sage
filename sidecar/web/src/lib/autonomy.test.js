@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  autoFamilies, fleetAutonomy, fleetAutonomyHint, fleetBadge, rowAutoFamilies,
-  unreportedNote,
+  autoFamilies, fleetAutonomy, fleetAutonomyHint, fleetBadge, modeBadgeLabel, modeCounts,
+  modeSentence, normalizeMode, rowAutoFamilies, stoppedRows, unreportedNote,
 } from './autonomy'
 
 // dashboard-02: what pg_sage may run unattended right now, per database and
@@ -190,5 +190,57 @@ describe('unreportedNote', () => {
   it('counts an emergency-stopped database without families as reported', () => {
     const stopped = row('b', 'autonomous', undefined, { emergency_stopped: true })
     expect(unreportedNote(fleetAutonomy([row('a', 'advisory', []), stopped]))).toBeNull()
+  })
+})
+
+// ux-06b: one autonomy scale per class. The header badge counts classes
+// per mode; anything unknown counts as watching only (fail closed).
+describe('autonomy modes', () => {
+  const view = (database, modes) => ({ database, rows: modes.map(mode => ({ mode })) })
+
+  it('names each mode and fails an unknown one closed', () => {
+    expect(modeSentence('observes')).toBe('watches only')
+    expect(modeSentence('asks_first')).toBe('asks first')
+    expect(modeSentence('acts_then_tells')).toBe('acts, then tells you')
+    expect(modeSentence('acts_in_window')).toBe('acts in the window')
+    expect(modeSentence('acts_always')).toBe('watches only')
+    expect(modeSentence(undefined)).toBe('watches only')
+    expect(normalizeMode(null)).toBe('observes')
+  })
+
+  it('counts classes per mode across the fleet, in scale order', () => {
+    const trust = { databases: [
+      view('orders', [...Array(12).fill('asks_first'), 'acts_in_window']),
+      view('billing', ['acts_in_window', 'acts_in_window']),
+    ] }
+    const summary = modeCounts(trust)
+    expect(summary.total).toBe(15)
+    expect(summary.counts).toEqual({ observes: 0, asks_first: 12, acts_then_tells: 0,
+      acts_in_window: 3 })
+    expect(modeBadgeLabel(summary)).toBe('12 ask first · 3 act in window')
+  })
+
+  it('counts an unknown mode as watch only and skips rows without one', () => {
+    const summary = modeCounts({ databases: [
+      { database: 'orders', rows: [{ mode: 'yolo' }, { level: 'L3' }, { mode: '' }] },
+    ] })
+    expect(summary).toEqual({ counts: { observes: 1, asks_first: 0, acts_then_tells: 0,
+      acts_in_window: 0 }, total: 1 })
+    expect(modeBadgeLabel(summary)).toBe('1 watch only')
+  })
+
+  it('has no label for nothing counted', () => {
+    for (const trust of [undefined, null, {}, { databases: null }, { databases: [{}] },
+      { databases: [{ rows: [] }] }]) {
+      expect(modeCounts(trust).total).toBe(0)
+      expect(modeBadgeLabel(modeCounts(trust))).toBeNull()
+    }
+    expect(modeBadgeLabel(null)).toBeNull()
+  })
+
+  it('lists emergency-stopped rows only', () => {
+    expect(stoppedRows([row('a', 'advisory', [], { emergency_stopped: true }),
+      row('b', 'advisory', []), { name: 'c', emergency_stopped: 'true' }])).toEqual(['a'])
+    expect(stoppedRows(undefined)).toEqual([])
   })
 })

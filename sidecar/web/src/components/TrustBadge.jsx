@@ -8,7 +8,7 @@ const LEVELS = {
     bg: 'rgba(100,150,255,0.15)',
     fg: 'var(--accent, #4c8bf5)',
     border: 'rgba(100,150,255,0.4)',
-    hint: 'Findings only — no actions executed',
+    hint: 'Issues only — no changes executed',
   },
   advisory: {
     label: 'Advisory',
@@ -16,9 +16,9 @@ const LEVELS = {
     bg: 'rgba(250,170,60,0.15)',
     fg: '#f0a54a',
     border: 'rgba(250,170,60,0.4)',
-    hint: 'SAFE actions may auto-execute only when execution_mode=auto,'
-      + ' tier3_safe is on and the 8-day trust ramp has passed;'
-      + ' otherwise they queue for approval',
+    hint: 'SAFE changes may auto-execute only when execution_mode=auto,'
+      + ' Tier 3 Safe is on and the 8-day ramp has passed;'
+      + ' otherwise they wait on you',
   },
   autonomous: {
     label: 'Autonomous',

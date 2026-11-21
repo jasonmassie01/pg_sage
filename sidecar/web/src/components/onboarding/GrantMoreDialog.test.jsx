@@ -120,7 +120,7 @@ describe('GrantMoreDialog', () => {
       data: null, loading: false, error: 'HTTP 500', refetch,
     }))
     render(<GrantMoreDialog database="app" onClose={vi.fn()} />)
-    expect(screen.getByRole('alert')).toHaveTextContent(/Trust levels unavailable: HTTP 500/)
+    expect(screen.getByRole('alert')).toHaveTextContent(/Autonomy levels unavailable: HTTP 500/)
     expect(screen.queryByText(/Loading trust levels/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(refetch).toHaveBeenCalledTimes(1)
@@ -129,7 +129,7 @@ describe('GrantMoreDialog', () => {
   it('says it is loading before the first answer', () => {
     respond(null)
     render(<GrantMoreDialog database="app" onClose={vi.fn()} />)
-    expect(screen.getByRole('status')).toHaveTextContent('Loading trust levels')
+    expect(screen.getByRole('status')).toHaveTextContent('Loading autonomy')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
@@ -196,7 +196,7 @@ describe('GrantMoreDialog in the shared Dialog', () => {
     const onClose = vi.fn()
     render(<GrantMoreDialog database="app" onClose={onClose} />)
     const dialog = screen.getByRole('dialog', { name: 'Grant more' })
-    expect(within(dialog).getByRole('status')).toHaveTextContent('Loading trust levels')
+    expect(within(dialog).getByRole('status')).toHaveTextContent('Loading autonomy')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })

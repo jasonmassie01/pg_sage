@@ -67,7 +67,7 @@ export function OwnerBriefForm({ database, canDecide, onDeclared }) {
       </h3>
       <p className="text-xs" style={muted}>
         What the owner knows that pg_sage cannot measure. It is context for
-        pg_sage&apos;s proposals; it never allows or forbids a change.
+        pg_sage&apos;s proposed changes; it never allows or forbids a change.
       </p>
       {!oneDatabase ? (
         <p data-testid="brief-pick-database" className="text-xs" style={muted}>
@@ -223,7 +223,7 @@ function BriefFooter({ busy, disabled, error, saved }) {
     <div className="space-y-1">
       <button type="submit" data-testid="brief-save" disabled={disabled}
         className="px-3 py-1 rounded text-sm"
-        style={{ background: 'var(--accent)', color: '#fff', opacity: disabled ? 0.5 : 1 }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff', opacity: disabled ? 0.5 : 1 }}>
         {busy ? 'Saving...' : 'Save owner brief'}
       </button>
       {error && (

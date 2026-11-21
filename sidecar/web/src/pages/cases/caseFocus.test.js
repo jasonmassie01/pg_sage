@@ -24,6 +24,17 @@ describe('focusFromHash', () => {
     expect(focusFromHash('#/cases?finding=1&case=c-1').kind).toBe('case')
   })
 
+  // ux-11: Cases is Issues at #/issues; App redirects #/cases there, so the
+  // focus must survive the new path (it was lost before this fix).
+  it('focuses on #/issues and on the old paths of Issues', () => {
+    expect(focusFromHash('#/issues?finding=42&database=orders'))
+      .toEqual({ kind: 'finding', id: '42', database: 'orders' })
+    expect(focusFromHash('#/issues?source=forecast&case=c-9').kind).toBe('case')
+    expect(focusFromHash('#/findings?case=c-1').id).toBe('c-1')
+    expect(focusFromHash('#/changes?case=c-1')).toBeNull()
+    expect(focusFromHash('#/ledger?finding=1')).toBeNull()
+  })
+
   it.each([[''], [null], [undefined], ['#/actions?finding=1'], ['#/cases'],
     ['#/cases?finding='], ['#/cases?database=orders']])('has no focus for %j', hash => {
     expect(focusFromHash(hash)).toBeNull()

@@ -1,22 +1,22 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { Dashboard } from './Dashboard'
+import { FleetOverview } from './FleetOverview'
 
 // cases-11: the Overview hero claims health only when no critical or
 // warning work is open and collection evidence is fresh. Every count it
 // cannot read blocks the claim.
 // The "+N new" badge this item once covered was removed by dashboard-12
-// (Dashboard.visit.test.jsx pins its absence), so no badge test here.
+// (FleetOverview.visit.test.jsx pins its absence), so no badge test here.
 // No concurrent access tests: one render at a time, single-threaded.
 
-vi.mock('../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
-vi.mock('../components/FleetHealthChart', () => ({
+vi.mock('../../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
+vi.mock('../../components/FleetHealthChart', () => ({
   FleetHealthChart: () => <div data-testid="fleet-health-chart" />,
 }))
-vi.mock('../components/TokenBudgetBanner', () => ({
+vi.mock('../../components/TokenBudgetBanner', () => ({
   TokenBudgetBanner: () => null,
 }))
-vi.mock('../hooks/useAPI', () => ({
+vi.mock('../../hooks/useAPI', () => ({
   useAPI: () => ({
     data: { findings: [] }, loading: false, error: null, refetch: vi.fn(),
   }),
@@ -49,21 +49,21 @@ function fleetWith(summary) {
 }
 
 function renderHero(overrides) {
-  return render(<Dashboard database="all" onSelectDB={vi.fn()}
+  return render(<FleetOverview database="all" onSelectDB={vi.fn()}
     fleet={fleetWith({ ...CLEAR, ...overrides })} />)
 }
 
 function expectNotHealthy(hero) {
   expect(hero).not.toHaveTextContent(/healthy/i)
-  expect(hero).not.toHaveTextContent(/No open critical or warning cases/)
+  expect(hero).not.toHaveTextContent(/No open critical or warning issues/)
   expect(hero).not.toHaveTextContent(/No issues detected/)
 }
 
 describe('HealthHero', () => {
-  it('claims no open cases only when every count is zero', () => {
+  it('claims no open issues only when every count is zero', () => {
     renderHero({})
     const hero = screen.getByTestId('health-hero')
-    expect(hero).toHaveTextContent('No open critical or warning cases')
+    expect(hero).toHaveTextContent('No open critical or warning issues')
     expect(hero).toHaveTextContent(/last collection \d{2}:\d{2}/)
     expect(hero).not.toHaveTextContent(/All Systems Healthy/)
     expect(screen.queryByTestId('health-hero-cases-link')).toBeNull()
@@ -81,8 +81,8 @@ describe('HealthHero', () => {
   it('moves from the clear state to open work when an incident opens', () => {
     const { rerender } = renderHero({})
     expect(screen.getByTestId('health-hero'))
-      .toHaveTextContent('No open critical or warning cases')
-    rerender(<Dashboard database="all" onSelectDB={vi.fn()}
+      .toHaveTextContent('No open critical or warning issues')
+    rerender(<FleetOverview database="all" onSelectDB={vi.fn()}
       fleet={fleetWith({ ...CLEAR, incidents_critical: 1 })} />)
     expectNotHealthy(screen.getByTestId('health-hero'))
     expect(screen.getByTestId('health-hero-cases-link')).toBeInTheDocument()
@@ -156,7 +156,7 @@ describe('HealthHero', () => {
 
   it('keeps the stat cards on findings and databases', () => {
     renderHero({ total_critical: 2, incidents_critical: 5 })
-    expect(screen.getByText('Critical Findings').parentElement)
+    expect(screen.getByText('Critical Issues').parentElement)
       .toHaveTextContent('2')
     expect(screen.getByTestId('stat-databases')).toHaveTextContent('2')
   })

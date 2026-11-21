@@ -157,3 +157,23 @@ describe('PlanApproval', () => {
     expect(box).toHaveTextContent('Operators and admins approve plans')
   })
 })
+
+// ux-12: the plan's approval row is the sticky action bar on phones, as an
+// approval card's is; a viewer or an empty plan has no bar.
+describe('PlanApproval action bar', () => {
+  it('puts the approval buttons in the sticky action bar', () => {
+    const { box } = mount()
+    const bar = within(box).getByTestId('plan-approval-actions')
+    expect(bar).toHaveClass('approval-action-bar')
+    expect(within(bar).getByRole('button', { name: 'Approve all 3 stages' }))
+      .toBeInTheDocument()
+    expect(within(bar).getByRole('button', { name: 'Approve step by step' }))
+      .toBeInTheDocument()
+  })
+
+  it('has no action bar for a viewer', () => {
+    const { box } = mount(proposedPlan(), { canReview: false })
+    expect(within(box).queryByTestId('plan-approval-actions')).toBeNull()
+    expect(box.querySelector('.approval-action-bar')).toBeNull()
+  })
+})

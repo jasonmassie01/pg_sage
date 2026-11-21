@@ -7,7 +7,8 @@ import { isHighRisk, riskLabel } from '../lib/riskTier'
 // target database, the risk tier, what will happen and the exact SQL. A HIGH
 // tier confirm stays disabled until the operator types the phrase exactly
 // (the database name by default); with no phrase it fails closed on
-// "confirm". An error from the action shows inside the open dialog.
+// "confirm". An error from the action shows inside the open dialog. details
+// is more of what will happen (bulk approve lists each statement, ux-07b).
 
 const FALLBACK_PHRASE = 'confirm'
 
@@ -51,7 +52,7 @@ function Buttons({ action, danger, canConfirm, busy, onCancel, onConfirm, testId
       <button type="button" data-testid={`${testId}-confirm`}
         disabled={!canConfirm || busy} onClick={onConfirm}
         className="px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50"
-        style={{ background: danger ? 'var(--red-solid)' : 'var(--accent)', color: '#fff' }}>
+        style={{ background: danger ? 'var(--red-solid)' : 'var(--accent-solid)', color: '#fff' }}>
         {busy ? 'Working…' : action}
       </button>
     </div>
@@ -86,7 +87,7 @@ function ReasonInput({ label, value, onChange, testId }) {
 // for a reason and onConfirm receives it trimmed.
 function ConfirmBody({
   action, database, sql, riskTier, consequence, confirmPhrase, busy, error,
-  onConfirm, onCancel, testId, reasonLabel,
+  onConfirm, onCancel, testId, reasonLabel, details,
 }) {
   const [typed, setTyped] = useState('')
   const [reason, setReason] = useState('')
@@ -102,6 +103,7 @@ function ConfirmBody({
         <Detail label="Risk" testId={`${testId}-risk`}>{riskLabel(riskTier)}</Detail>
       )}
       {sql && <div data-testid={`${testId}-sql`}><SQLBlock sql={sql} /></div>}
+      {details && <div data-testid={`${testId}-details`}>{details}</div>}
       {high && (
         <PhraseInput phrase={phrase} value={typed} onChange={setTyped}
           testId={`${testId}-phrase`} />

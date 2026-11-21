@@ -22,8 +22,8 @@ test('cases-05 CHECK-12: a stopped database gives a banner and the other cases s
 
     const banner = page.getByTestId('cases-unavailable')
     await expect(banner).toHaveCount(1)
-    await expect(banner).toHaveText('Cases for database reporting could not be reached. ' +
-      'Its cases are missing from this list; the other databases are shown.')
+    await expect(banner).toHaveText('Issues for database reporting could not be reached. ' +
+      'Its issues are missing from this list; the other databases are shown.')
     await expect(page.getByRole('article')).toHaveCount(1)
     await expect(page.getByTestId('case-database')).toHaveText('DB: orders')
   })
@@ -35,7 +35,7 @@ test('an unknown error class still names the database in the banner', async ({ p
   }))
   await page.goto('/#/cases')
   await expect(page.getByTestId('cases-unavailable'))
-    .toContainText('Cases for database reporting could not be read.')
+    .toContainText('Issues for database reporting could not be read.')
   await expect(page.getByTestId('case-database')).toHaveText('DB: orders')
 })
 

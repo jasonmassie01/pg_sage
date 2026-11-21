@@ -67,8 +67,10 @@ test('the badge caps at 99+, the goal state words the counts, #/value still work
     await expect(page.getByTestId('nav-inbox').getByTestId('nav-badge')).toHaveText('99+')
     await expect(page.getByTestId('inbox-goal')).toContainText('Nothing needs you. 1 change')
     await expect(page.getByTestId('inbox-goal')).toContainText('all verified.')
+    // ux-11: #/value opens the ledger's Value summary.
     await page.goto('/#/value')
-    await expect(page.locator('header h1')).toHaveText('Value')
+    await expect(page.locator('header h1')).toHaveText('Outcome ledger')
+    await expect(page.getByTestId('ledger-value')).toHaveAttribute('open', '')
   })
 
 test('the page marks itself seen after 5 s visible', async ({ page }) => {

@@ -64,12 +64,12 @@ test('mcp-05 CHECK-03: citation [1] focuses the cited case', async ({ page }) =>
   await askAbout(page, 'Which findings are critical?')
   await page.getByTestId('ask-statement').getByRole('link', { name: '[1]' }).click()
 
-  await expect(page).toHaveURL(/#\/cases\?finding=12&database=orders$/)
+  await expect(page).toHaveURL(/#\/issues\?finding=12&database=orders$/)
   const cards = page.getByRole('article')
   await expect(cards).toHaveCount(1)
   await expect(cards.getByRole('heading', { name: STATS_TITLE })).toBeVisible()
   await expect(page.getByRole('heading', { name: INDEX_TITLE })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'Back to all cases' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Back to all issues' })).toBeVisible()
   await expect(page.getByTestId('cases-focus-missing')).toHaveCount(0)
 })
 
@@ -80,12 +80,12 @@ test('a citation to a non-numeric finding id opens no case and shows the notice'
     await askAbout(page, 'Which findings are critical?')
     await page.getByTestId('ask-statement').getByRole('link', { name: '[1]' }).click()
 
-    await expect(page).toHaveURL(/#\/cases\?finding=12abc&database=orders$/)
+    await expect(page).toHaveURL(/#\/issues\?finding=12abc&database=orders$/)
     const notice = page.getByTestId('cases-focus-missing')
-    await expect(notice).toContainText('No open case holds finding 12abc')
+    await expect(notice).toContainText('No open issue holds record 12abc')
     // "12abc" never matches finding 12 by prefix.
     await expect(page.getByRole('article')).toHaveCount(0)
-    await expect(notice.getByRole('link', { name: 'View the finding record' }))
+    await expect(notice.getByRole('link', { name: 'View the source record' }))
       .toHaveAttribute('href', '/api/v1/findings/12abc?database=orders')
   })
 

@@ -11,22 +11,26 @@
 // signed-in user. The UI gate is cosmetic: the API enforces every role.
 // usesTimeRange routes are the pages the header time picker drives; the
 // header shows the picker only there, captioned with timeRangeLabel
-// (dashboard-07).
+// (dashboard-07). aliases are old paths the route still answers: App
+// redirects each to the route's path (canonicalRoute), adding the view the
+// old path named (ALIAS_QUERY, ux-11).
 import {
-  Activity, AlertTriangle, Award, BarChart3, Bell, BookCheck, Bot, ClipboardCheck, Gauge, Home,
-  Inbox, KeyRound, MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
+  Activity, AlertTriangle, Award, BarChart3, Bell, BookCheck, Bot, Gauge, Inbox,
+  MessageSquare, ScrollText, Server, Settings, ShieldCheck, Users,
 } from 'lucide-react'
 
+// NAV_GROUPS (ux-11): Operate is the daily work, Admin the setup and
+// governance, Evidence the pages issues and plans link to.
 export const NAV_GROUPS = [
   { id: 'operate', heading: 'Operate' },
   { id: 'admin', heading: 'Admin' },
-  { id: 'advanced', heading: 'Advanced', collapsible: true },
+  { id: 'evidence', heading: 'Evidence', collapsible: true },
 ]
 
 const ADMIN = ['admin']
 const REVIEWERS = ['admin', 'operator']
 const CASES_GUIDE = 'See database issues, the evidence behind them and what remains unknown. '
-  + 'Open a case to investigate it or review a proposed next step.'
+  + 'Open an issue to investigate it or review a proposed next step.'
 const ACCOUNT_GUIDE = 'Review your signed-in identity and account preferences. '
   + 'Your pg_sage role determines which controls you can use.'
 const ACCOUNT_PLATFORM_GUIDE = 'Review your Databricks identity and pg_sage role. '
@@ -34,122 +38,106 @@ const ACCOUNT_PLATFORM_GUIDE = 'Review your Databricks identity and pg_sage role
 const PROTOCOL_PLATFORM_GUIDE = 'This App uses Databricks sign-in. '
   + 'Agent and MCP token access are unavailable in this deployment.'
 
-function caseView(id, path, label, guide) {
-  return { id, path, title: 'Cases', guideTitle: `Cases · ${label}`, memeLabel: label, guide }
-}
-
 export const ROUTES = Object.freeze([
   // The Inbox is home (ux-01b): what needs a person, what changed since
-  // they were last here, and one Value line linking to the Value page.
+  // they were last here, and one Value line linking to the ledger.
   { id: 'inbox', path: '/', title: 'Inbox', navGroup: 'operate', testId: 'nav-inbox',
     icon: Inbox, hint: 'Decisions waiting on you, and what changed',
     guide: 'Decide what waits on you, from any page that owns it, and review the '
       + 'changes made since your last visit. Undo asks why and runs the stored rollback.' },
-  // The full Value page stays at #/value, linked from the Inbox.
-  { id: 'value', path: '/value', title: 'Value', icon: Home, hint: 'Verified DBA hours saved',
-    guide: 'Compare verified outcomes and estimated DBA effort saved, and see '
-      + 'recommendations still waiting for review.' },
-  { id: 'cases', path: '/cases', aliases: ['/findings', '/advanced/findings'], title: 'Cases',
-    navGroup: 'operate', testId: 'nav-cases', icon: AlertTriangle,
-    hint: 'Open DBA work queue', guide: CASES_GUIDE },
-  { id: 'actions', path: '/actions', aliases: ['/advanced/actions'], title: 'Actions',
-    navGroup: 'operate', testId: 'nav-actions', icon: Activity,
-    hint: 'Executed + pending timeline',
+  // Changes (was Actions, ux-11): plans, approvals and history. The id and
+  // the test id stay "actions" so automation keeps its hooks.
+  { id: 'actions', path: '/changes', aliases: ['/actions', '/advanced/actions'],
+    title: 'Changes', navGroup: 'operate', testId: 'nav-actions', icon: Activity,
+    hint: 'Plans, approvals and the change history',
     usesTimeRange: true, timeRangeLabel: 'Ledger window',
     guide: 'Follow proposed database changes through review, approval and outcome '
-      + 'checks. The execution mode determines whether a change can run.' },
-  { id: 'ledger', path: '/ledger', title: 'Outcome ledger', label: 'Ledger',
-    navGroup: 'operate', testId: 'nav-ledger', icon: ClipboardCheck,
-    hint: 'What changed, and what it did',
-    guide: 'See every change pg_sage made in a window, what it expected, what was '
-      + 'measured and whether it can still be rolled back.' },
-  // Sage Review (review-01b): a database's grade, what changed and the report.
-  { id: 'review', path: '/review', title: 'Review', navGroup: 'operate', testId: 'nav-review',
-    icon: Award, hint: 'The grade of a database, and why',
-    guide: 'Read the grade of one database against the pg_sage rubric, what changed since '
-      + 'the last grade and the ranked report. Unknown means a check could not run.' },
-  { id: 'queries', path: '/queries', title: 'Workload', navGroup: 'operate',
-    testId: 'nav-queries', icon: BarChart3, hint: 'Top statements and wait-class load',
-    guide: 'See which statements carry the load and what active sessions wait on. '
-      + 'Open a statement for its history, plan changes and related cases.' },
-  { id: 'slos', path: '/slos', title: 'SLOs', navGroup: 'operate', testId: 'nav-slos',
-    icon: Gauge, hint: 'Reliability targets and error budgets',
-    guide: 'Check reliability targets, remaining error budgets and how quickly failures '
-      + 'consume them. Missing evidence appears as unknown.' },
-  { id: 'trust', path: '/trust', title: 'Trust', navGroup: 'operate', testId: 'nav-trust',
-    icon: ShieldCheck, hint: 'What pg_sage may do, and why',
-    guide: 'See what pg_sage is allowed to do and the evidence behind each autonomy '
-      + 'level. Review proposed increases before granting more control.' },
-  { id: 'facts', path: '/facts', title: 'Facts', navGroup: 'operate', testId: 'nav-facts',
-    icon: BookCheck, hint: 'Context pg_sage cannot discover',
-    guide: 'Record context pg_sage cannot discover, such as application-owned indexes. '
-      + 'Proposed facts need confirmation before they influence decisions.' },
+      + 'checks. The database’s autonomy decides whether a change can run.' },
+  // Issues (was Cases): the four filtered views are aliases that open the
+  // list on their source (ALIAS_QUERY).
+  { id: 'cases', path: '/issues',
+    aliases: ['/cases', '/findings', '/advanced/findings', '/forecasts', '/query-hints',
+      '/schema-health', '/incidents'],
+    title: 'Issues', navGroup: 'operate', testId: 'nav-cases', icon: AlertTriangle,
+    hint: 'Open DBA work queue', guide: CASES_GUIDE },
   { id: 'ask', path: '/ask', title: 'Ask Sage', navGroup: 'operate', testId: 'nav-ask',
     icon: MessageSquare, hint: 'Questions answered with cited evidence',
     guide: 'Ask questions about the selected database and inspect the cited evidence. '
       + 'Answers never execute or approve database changes.' },
-  { id: 'databases', path: '/manage-databases', title: 'Databases', label: 'Fleet',
-    navGroup: 'admin', testId: 'nav-databases', icon: Server, roles: ADMIN,
-    hint: 'Manage database connections',
-    guide: 'See the databases pg_sage monitors and their connection health. Open a '
-      + 'database to inspect its collected snapshot.' },
+  // The ledger is linked from the Inbox and Changes, not the nav. Value is
+  // its summary (#/value opens it), and it keeps every external agent
+  // request (ux-11).
+  { id: 'ledger', path: '/ledger', aliases: ['/value'], title: 'Outcome ledger',
+    label: 'Ledger',
+    guide: 'See every change pg_sage made in a window, what it expected, what was '
+      + 'measured and whether it can still be rolled back, and the value it delivered.' },
+  // Sage Review (review-01b): a database's grade, what changed and the report.
+  // Not a nav entry (ux-11 keeps 14); every grade chip links here.
+  { id: 'review', path: '/review', title: 'Review', icon: Award,
+    hint: 'The grade of a database, and why',
+    guide: 'Read the grade of one database against the pg_sage rubric, what changed since '
+      + 'the last grade and the ranked report. Unknown means a check could not run.' },
+  // Fleet holds the old Snapshot & metrics page as its Health & readiness
+  // tab; /advanced opens that tab.
+  { id: 'databases', path: '/manage-databases', aliases: ['/advanced'], title: 'Databases',
+    label: 'Fleet', navGroup: 'admin', testId: 'nav-databases', icon: Server, roles: ADMIN,
+    hint: 'Database connections, fleet health and provider readiness',
+    guide: 'See the databases pg_sage monitors, their connection health and provider '
+      + 'readiness. Open a database to inspect its collected snapshot.' },
+  // One Autonomy page (ux-06b, decision D6): one scale per class, the
+  // waiting promotions, the ledger's history and the shadow ledger. The
+  // old Trust and Earned autonomy paths stay as aliases.
+  { id: 'autonomy', path: '/autonomy', aliases: ['/trust', '/advanced/autonomy'],
+    title: 'Autonomy', navGroup: 'admin', testId: 'nav-autonomy', icon: ShieldCheck,
+    hint: 'What pg_sage may do per class, and why',
+    guide: 'See, per class, whether pg_sage watches only, asks first, acts then tells '
+      + 'you, or acts in the window, and why. Approve waiting promotions here.' },
+  // The Alert log is folded into Notifications (alerting-06c): /alerts
+  // opens its Log tab.
+  { id: 'notifications', path: '/notifications', aliases: ['/alerts'],
+    title: 'Notifications', navGroup: 'admin', testId: 'nav-notifications', icon: Bell,
+    roles: REVIEWERS, hint: 'Alert channels, rules and delivery history',
+    guide: 'Inspect delivery history for the selected database to see what was sent or '
+      + 'failed. Administrators also configure the delivery channels and rules.' },
+  // MCP tokens are a tab of Agents for admins (ux-11); /mcp-tokens opens it.
+  { id: 'agents', path: '/agents', aliases: ['/mcp-tokens'], title: 'Agents',
+    navGroup: 'admin', testId: 'nav-agents', icon: Bot, roles: REVIEWERS,
+    standaloneOnly: true, hint: 'Registered agents, their permissions and MCP tokens',
+    platformGuide: PROTOCOL_PLATFORM_GUIDE,
+    guide: 'Review registered agents, their permissions and activity. Administrators '
+      + 'also manage the MCP tokens external tools connect with.' },
   { id: 'users', path: '/users', title: 'Users', navGroup: 'admin', testId: 'nav-users',
     icon: Users, roles: ADMIN, hint: 'Who can use pg_sage, and with which role',
     guide: 'Manage who can use pg_sage and what each role can do. App access and '
       + 'database permissions are separate.' },
-  { id: 'notifications', path: '/notifications', title: 'Notifications', navGroup: 'admin',
-    testId: 'nav-notifications', icon: Bell, roles: REVIEWERS,
-    hint: 'Alert channels, rules and delivery history',
-    guide: 'Inspect delivery history for the selected database to see what was sent or '
-      + 'failed. Administrators also configure the delivery channels and rules.' },
-  // The Alert log is folded into Notifications (alerting-06c): /alerts
-  // redirects to its Log tab, keeping ?database=.
-  { id: 'alerts', path: '/alerts', title: 'Alerts', label: 'Alert log', guideTitle: 'Alerts',
-    navGroup: 'admin', testId: 'nav-alerts', icon: ScrollText, roles: REVIEWERS,
-    hint: 'Delivery history in Notifications',
-    guide: 'The Alert log moved to Notifications · Log, which lists every delivery with '
-      + 'its database, status and error.' },
   { id: 'settings', path: '/settings', title: 'Settings', navGroup: 'admin',
     testId: 'nav-settings', icon: Settings, roles: ADMIN, hint: 'Configure pg_sage',
     guide: 'Inspect monitoring, AI and safety settings. Scope labels show whether changes '
       + 'affect the pg_sage instance or one database.' },
-  { id: 'mcp-tokens', path: '/mcp-tokens', title: 'MCP tokens', navGroup: 'admin',
-    testId: 'nav-mcp-tokens', icon: KeyRound, roles: ADMIN, standaloneOnly: true,
-    hint: 'Credentials for MCP clients', platformGuide: PROTOCOL_PLATFORM_GUIDE,
-    guide: 'Manage credentials for external tools that connect through MCP. Token access '
-      + 'is limited by its scope and the account’s permissions.' },
-  { id: 'agents', path: '/agents', title: 'Agents', navGroup: 'admin', testId: 'nav-agents',
-    icon: Bot, roles: REVIEWERS, standaloneOnly: true,
-    hint: 'Registered agents and their permissions', platformGuide: PROTOCOL_PLATFORM_GUIDE,
-    guide: 'Review registered agents, their permissions and activity. Access depends on '
-      + 'your role and the deployment’s authentication mode.' },
-  { id: 'runbooks', path: '/advanced/runbooks', title: 'Runbooks', navGroup: 'advanced',
-    testId: 'nav-runbooks', hint: 'Signed investigation guides',
+  { id: 'queries', path: '/queries', title: 'Workload', navGroup: 'evidence',
+    testId: 'nav-queries', icon: BarChart3, hint: 'Top statements and wait-class load',
+    guide: 'See which statements carry the load and what active sessions wait on. '
+      + 'Open a statement for its history, plan changes and related issues.' },
+  { id: 'slos', path: '/slos', title: 'SLOs', navGroup: 'evidence', testId: 'nav-slos',
+    icon: Gauge, hint: 'Reliability targets and error budgets',
+    guide: 'Check reliability targets, remaining error budgets and how quickly failures '
+      + 'consume them. Missing evidence appears as unknown.' },
+  { id: 'facts', path: '/facts', title: 'Facts', navGroup: 'evidence', testId: 'nav-facts',
+    icon: BookCheck, hint: 'Context pg_sage cannot discover',
+    guide: 'Record context pg_sage cannot discover, such as application-owned indexes. '
+      + 'Proposed facts need confirmation before they influence decisions.' },
+  { id: 'runbooks', path: '/advanced/runbooks', title: 'Runbooks', navGroup: 'evidence',
+    testId: 'nav-runbooks', icon: ScrollText, hint: 'Signed investigation guides',
     guide: 'Review versioned investigation guides. An administrator must sign each version '
       + 'before use; runbooks propose changes without executing them.' },
-  { id: 'autonomy', path: '/advanced/autonomy', title: 'Earned autonomy',
-    navGroup: 'advanced', testId: 'nav-autonomy', hint: 'Evidence for more independence',
-    guide: 'Review evidence for giving pg_sage more independence on specific tasks. '
-      + 'Administrators approve proposed increases in autonomy.' },
-  { id: 'snapshot', path: '/advanced', title: 'Snapshot & metrics', navGroup: 'advanced',
-    testId: 'nav-snapshot', hint: 'Collected health and performance metrics',
-    usesTimeRange: true, timeRangeLabel: 'Health chart window',
-    guide: 'Survey collected database health, performance metrics and recent '
-      + 'recommendations. Provider readiness shows supported capabilities and blockers.' },
+  // The health chart moved here from Snapshot & metrics (ux-11).
   { id: 'database', path: '/database', title: 'Database',
-    guide: 'Inspect the latest collected snapshot for one database, including the '
-      + 'measurements and raw details used for analysis.' },
+    usesTimeRange: true, timeRangeLabel: 'Health chart window',
+    guide: 'Inspect the latest collected snapshot for one database, including its '
+      + 'health chart, the measurements and the raw details used for analysis.' },
   { id: 'query', path: '/query', title: 'Query',
     guide: 'Inspect one statement: its history from the query store, plan changes, the '
-      + 'newest captured plan, and the cases, hints and actions about it.' },
-  caseView('forecasts', '/forecasts', 'Forecasts', 'Review cases based on forecasts, '
-    + 'including predicted capacity risks and the evidence behind them.'),
-  caseView('query-hints', '/query-hints', 'Query hints', 'Review cases about query-plan '
-    + 'hints and their evidence. Provider support determines which proposals are available.'),
-  caseView('schema-health', '/schema-health', 'Schema health', 'Review cases from schema '
-    + 'checks, such as missing or duplicate indexes, and inspect the supporting evidence.'),
-  caseView('incidents', '/incidents', 'Incidents', 'Review incident investigations, '
-    + 'collected evidence and proposed next steps. Open a case to follow its progress.'),
+      + 'newest captured plan, and the issues, hints and actions about it.' },
   { id: 'profile', path: '/profile', title: 'Account', memeLabel: 'Profile',
     guide: ACCOUNT_GUIDE, platformGuide: ACCOUNT_PLATFORM_GUIDE },
   // A signed-in user can land on /login from an SSO callback error; the
@@ -161,23 +149,62 @@ export const ROUTES = Object.freeze([
       + 'sent you.' },
 ].map(route => Object.freeze(route)))
 
+// ALIAS_QUERY is the view an old path named, added to its new home's query
+// unless the link already chose that parameter (ux-11).
+const ALIAS_QUERY = Object.freeze({
+  '/forecasts': { source: 'forecast' },
+  '/query-hints': { source: 'query_hint' },
+  '/schema-health': { source: 'schema_health' },
+  '/incidents': { source: 'incident' },
+  '/advanced/autonomy': { section: 'history' },
+  '/advanced': { tab: 'readiness' },
+  '/alerts': { tab: 'log' },
+  '/mcp-tokens': { tab: 'tokens' },
+  '/value': { section: 'value' },
+})
+
 export const routeLabel = route => route.label || route.title
 export const routeGuideTitle = route => route.guideTitle || routeLabel(route)
 export const routeMemeLabel = route => route.memeLabel || routeLabel(route)
 export const routeHref = route => `#${route.path}`
 
-// normalizePath turns '#/cases?case=1', '/cases' or '' into '/cases' or '/'.
-function normalizePath(route) {
-  const path = String(route ?? '').replace(/^#/, '').split('?')[0]
-  return path || '/'
+// splitRoute turns '#/cases?case=1', '/cases' or '' into its path ('/'
+// when empty) and its raw query.
+function splitRoute(route) {
+  const raw = String(route ?? '').replace(/^#/, '')
+  const at = raw.indexOf('?')
+  if (at < 0) return { path: raw || '/', query: '' }
+  return { path: raw.slice(0, at) || '/', query: raw.slice(at + 1) }
 }
 
 // findRoute returns the route whose path or alias is exactly the given hash
 // path, ignoring any query. Signed-out pages match only when asked for.
 export function findRoute(route, { includeSignedOut = false } = {}) {
-  const path = normalizePath(route)
+  const { path } = splitRoute(route)
   return ROUTES.find(r => (includeSignedOut || !r.signedOutOnly)
     && (r.path === path || r.aliases?.includes(path)))
+}
+
+// canonicalRoute returns the hash route, without '#', a route should show:
+// an alias becomes its route's path, the alias's view first and then the
+// query the link carried (?database=, ?case=) as written. Any other route,
+// an unknown one too, comes back unchanged.
+export function canonicalRoute(route) {
+  const { path, query } = splitRoute(route)
+  const match = ROUTES.find(r => r.aliases?.includes(path))
+  if (!match) return query ? `${path}?${query}` : path
+  const params = new URLSearchParams(query)
+  const extra = new URLSearchParams()
+  for (const [key, value] of Object.entries(ALIAS_QUERY[path] || {})) {
+    if (!params.has(key)) extra.set(key, value)
+  }
+  const joined = [extra.toString(), query].filter(Boolean).join('&')
+  return joined ? `${match.path}?${joined}` : match.path
+}
+
+// routeParam reads one query parameter of a hash route ('' when absent).
+export function routeParam(route, key) {
+  return new URLSearchParams(splitRoute(route).query).get(key) || ''
 }
 
 // allowsRole reports whether the user's role may open the route.

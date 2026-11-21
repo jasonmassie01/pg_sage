@@ -1,19 +1,19 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Dashboard } from './Dashboard'
-import { useLiveRefetch } from '../hooks/useLiveEvents'
+import { FleetOverview } from './FleetOverview'
+import { useLiveRefetch } from '../../hooks/useLiveEvents'
 
-// cases-11b: the Overview's "Top Cases" tab shows the five highest-ranked
-// open cases, in the server's rank order, each linking to its case; it
+// cases-11b: the Overview's "Top issues" tab shows the five highest-ranked
+// open issues, in the server's rank order, each linking to its case; it
 // replaces the "Recent Recommendations" list of newest findings.
 // No concurrent access tests: one render, single-threaded.
 
-vi.mock('../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
-vi.mock('../components/FleetHealthChart', () => ({ FleetHealthChart: () => <div /> }))
-vi.mock('../components/ProviderReadinessMatrix', () => ({
+vi.mock('../../hooks/useLiveEvents', () => ({ useLiveRefetch: vi.fn() }))
+vi.mock('../../components/FleetHealthChart', () => ({ FleetHealthChart: () => <div /> }))
+vi.mock('../../components/ProviderReadinessMatrix', () => ({
   ProviderReadinessMatrix: () => <div />,
 }))
-vi.mock('../components/TokenBudgetBanner', () => ({ TokenBudgetBanner: () => <div /> }))
+vi.mock('../../components/TokenBudgetBanner', () => ({ TokenBudgetBanner: () => <div /> }))
 
 const row = (id, db, severity, title, basis) => ({
   id: `finding:${db}:${id}`, database_name: db, severity, title,
@@ -34,7 +34,7 @@ const RANKED = [
 
 let casesQuery
 let urls
-vi.mock('../hooks/useAPI', () => ({
+vi.mock('../../hooks/useAPI', () => ({
   useAPI: url => {
     urls.push(url)
     if (url && url.startsWith('/api/v1/cases')) return casesQuery
@@ -53,7 +53,7 @@ const fleet = {
 const okCases = (data) => ({ data, loading: false, error: null, refetch: vi.fn() })
 
 function openTopCases(database = 'all') {
-  render(<Dashboard database={database} onSelectDB={vi.fn()} fleet={fleet} />)
+  render(<FleetOverview database={database} onSelectDB={vi.fn()} fleet={fleet} />)
   fireEvent.click(screen.getByTestId('overview-tab-top-cases'))
   return screen.getByTestId('top-cases')
 }
@@ -66,7 +66,7 @@ beforeEach(() => {
   casesQuery = okCases({ cases: RANKED, total: 12, unavailable: [], truncated: {} })
 })
 
-describe('Dashboard top cases', () => {
+describe('FleetOverview top cases', () => {
   it('renders the five highest-ranked cases in rank order', () => {
     const panel = openTopCases()
     const rows = within(panel).getAllByTestId('top-case-row')
@@ -99,7 +99,7 @@ describe('Dashboard top cases', () => {
   })
 
   it('requests the ranked summary only once the tab is open', () => {
-    render(<Dashboard database="all" onSelectDB={vi.fn()} fleet={fleet} />)
+    render(<FleetOverview database="all" onSelectDB={vi.fn()} fleet={fleet} />)
     expect(casesURLs()).toEqual([])
     fireEvent.click(screen.getByTestId('overview-tab-top-cases'))
     const url = casesURLs().at(-1)
@@ -129,7 +129,7 @@ describe('Dashboard top cases', () => {
 
   it('says how many cases are open and links to all of them', () => {
     const panel = openTopCases('alpha')
-    expect(panel).toHaveTextContent('Top 5 of 12 open cases')
+    expect(panel).toHaveTextContent('Top 5 of 12 open issues')
     const all = within(panel).getByTestId('top-cases-all')
     expect(all.getAttribute('href')).toBe('#/cases?database=alpha')
   })
@@ -138,7 +138,7 @@ describe('Dashboard top cases', () => {
     casesQuery = okCases({ cases: RANKED, total: 700, unavailable: [],
       truncated: { alpha: { findings: true, incidents: false, query_hints: false } } })
     const panel = openTopCases()
-    expect(panel).toHaveTextContent('Top 5 of at least 700 open cases')
+    expect(panel).toHaveTextContent('Top 5 of at least 700 open issues')
     expect(within(panel).getByTestId('cases-truncated')).toHaveTextContent('alpha')
     expect(within(panel).getByTestId('cases-truncated')).toHaveTextContent('findings')
   })
@@ -153,18 +153,18 @@ describe('Dashboard top cases', () => {
     expect(note).toHaveTextContent(/could not be reached|connection/i)
   })
 
-  it('never claims no open cases when a database could not be read', () => {
+  it('never claims no open issues when a database could not be read', () => {
     casesQuery = okCases({ cases: [], total: 0,
       unavailable: [{ database: 'beta', error_class: 'timeout' }] })
     const panel = openTopCases()
-    expect(within(panel).queryByText(/No open cases/)).toBeNull()
+    expect(within(panel).queryByText(/No open issues/)).toBeNull()
     expect(within(panel).getByTestId('cases-unavailable')).toHaveTextContent('beta')
   })
 
-  it('says no open cases only when every database answered with none', () => {
+  it('says no open issues only when every database answered with none', () => {
     casesQuery = okCases({ cases: [], total: 0, unavailable: [] })
     const panel = openTopCases()
-    expect(panel).toHaveTextContent('No open cases in the selected scope.')
+    expect(panel).toHaveTextContent('No open issues in the selected scope.')
     expect(within(panel).queryAllByTestId('top-case-row')).toHaveLength(0)
   })
 
@@ -173,27 +173,27 @@ describe('Dashboard top cases', () => {
       refetch: vi.fn() }
     const panel = openTopCases()
     expect(panel).toHaveTextContent('500 Internal Server Error')
-    expect(within(panel).queryByText(/No open cases/)).toBeNull()
+    expect(within(panel).queryByText(/No open issues/)).toBeNull()
   })
 
   it('shows a loading state, not an empty state, before the first answer', () => {
     casesQuery = { data: null, loading: true, error: null, refetch: vi.fn() }
     const panel = openTopCases()
     expect(within(panel).getByTestId('top-cases-loading')).toBeInTheDocument()
-    expect(within(panel).queryByText(/No open cases/)).toBeNull()
+    expect(within(panel).queryByText(/No open issues/)).toBeNull()
   })
 
   it('treats a malformed answer as an error, not as no cases', () => {
     casesQuery = okCases({ total: 3 })
     const panel = openTopCases()
-    expect(within(panel).queryByText(/No open cases/)).toBeNull()
+    expect(within(panel).queryByText(/No open issues/)).toBeNull()
     expect(panel).toHaveTextContent(/could not be read/i)
   })
 
   it('describes the tab by rank, not by recency', () => {
     openTopCases()
     expect(screen.getByTestId('overview-tab-description'))
-      .toHaveTextContent(/highest-ranked open cases/i)
+      .toHaveTextContent(/highest-ranked open issues/i)
     expect(screen.queryByTestId('overview-tab-recent-recos')).toBeNull()
     expect(screen.queryByText('Recent Recommendations')).toBeNull()
   })
