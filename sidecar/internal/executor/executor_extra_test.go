@@ -69,26 +69,17 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPool = nil
 			return
 		}
-		defer releaseLock()
-
-		// Bootstrap sage schema and tables.
-		if err := schema.Bootstrap(ctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("bootstrap: %w", err)
+		// The lock's connection must go back before Close, which waits
+		// for every acquired connection: closing first hangs the package.
+		if err := bootstrapTestSchema(ctx, testPool); err != nil {
+			releaseLock()
+			testPoolErr = err
 			testPool.Close()
 			testPool = nil
 			return
 		}
-
-		// Run config migration so database_id column and composite
-		// unique index exist (required by SetEmergencyStop's ON CONFLICT).
-		if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("config migration: %w", err)
-			testPool.Close()
-			testPool = nil
-			return
-		}
-
 		releasePoolAdvisoryLocks(ctx, testPool)
+		releaseLock()
 	})
 
 	if testPoolErr != nil {
@@ -116,6 +107,19 @@ func serializeAcrossPackages(
 		t.Fatalf("acquire cross-package test lock: %v", err)
 	}
 	t.Cleanup(releaseLock)
+}
+
+// bootstrapTestSchema bootstraps the sage schema and runs the config
+// migration, so the database_id column and the composite unique index
+// exist (SetEmergencyStop's ON CONFLICT needs them).
+func bootstrapTestSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
+		return fmt.Errorf("config migration: %w", err)
+	}
+	return nil
 }
 
 func lockCrossPackage(
