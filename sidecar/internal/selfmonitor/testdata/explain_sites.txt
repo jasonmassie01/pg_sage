@@ -16,7 +16,6 @@ internal/explain/analyze_guard.go explainNote text -- the result note shown with
 internal/explain/explain.go Explainer.runExplainParameterized via Explainer.prepareConn -- prepareConn pins the transaction before PREPARE
 internal/explain/explain.go explainSQL via Explainer.prepareConn -- built for Explainer.runExplain, which plans it after prepareConn
 internal/explain/explain.go buildResult text -- the result note shown with a plan
-internal/mcp/agent_tools.go agentTools text -- the explain_query tool description for the model
 internal/optimizer/hypopg_generic.go hypopgSession.explainPreparedSteps via boundSession -- openHypoPGSession pins the session's transaction with boundSession
 internal/optimizer/hypopg_session.go hypopgSession.explain via boundSession -- openHypoPGSession pins the session's transaction with boundSession
 internal/optimizer/skipscan.go poolPlanner.genericPlans via boundSession -- genericPlans pins its read-only evidence transaction with boundSession
