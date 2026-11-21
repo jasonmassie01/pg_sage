@@ -82,7 +82,7 @@ export function DatabaseTable({
     : databases.filter(reg => !runtimeFor(reg))
   const rowProps = {
     onEdit, onDelete, onSelectDatabase, runtimeKnown: listFailed ? runtimeKnown : true,
-    tests, selected: view.selected, onToggle: view.toggle,
+    tests, selected: view.selected, onToggle: view.toggle, columns: HEADERS.length + 2,
   }
   const selectedRegs = databases.filter(reg => view.selected.has(reg.id))
   return (

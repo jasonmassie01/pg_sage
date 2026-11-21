@@ -98,10 +98,11 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Briefings: fleetBriefingsMCP{manager: fleetMgr},
 		// upgrade_readiness (market-05): read-only, on the resolved database.
 		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
-		// get_inbox, get_outcomes, restore_drills, review_grade, check_pressure: reads only.
+		// get_inbox, get_outcomes, restore_drills, review_grade, check_pressure,
+		// why_not (ux-08b): reads only.
 		Inbox:    api.InboxMCP(fleetMgr, processAutonomy().registry),
 		Outcomes: api.OutcomesMCP(fleetMgr), RestoreDrills: mcpRestoreDrills(fleetMgr),
-		Pressure: api.PressureMCP(fleetMgr),
+		Pressure: api.PressureMCP(fleetMgr), WhyNot: api.WhyNotMCP(fleetMgr),
 	}
 }
 

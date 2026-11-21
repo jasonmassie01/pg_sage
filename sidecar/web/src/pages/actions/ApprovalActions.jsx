@@ -1,5 +1,7 @@
 import { useImperativeHandle, useRef, useState } from 'react'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { WhyNotButton } from '../../components/WhyNotPanel'
+import { objectOf } from '../../components/whyNot'
 import { useToast } from '../../components/Toast'
 import { withSurface } from '../../lib/inbox'
 import { allowAlwaysOutcomeMessage, approvalOutcomeMessage } from './approvalOutcome'
@@ -86,10 +88,17 @@ function approvalGate({ eligible, windowOnly, executionMode, blockedReason }) {
   return { schedules, blocked, canApprove: !observation && (eligible !== false || schedules) }
 }
 
-function GateNote({ blocked, eligible }) {
+// GateNote is the blocker line, which opens the Why not panel for the
+// card's finding (ux-08b), or the note on what Approve does.
+function GateNote({ blocked, eligible, card }) {
   if (blocked) {
-    return <p data-testid="approval-blocker" className="text-sm"
-      style={{ color: 'var(--yellow)' }}>{blocked}</p>
+    const findingId = card.finding?.id || undefined
+    return <div>
+      <p data-testid="approval-blocker" className="text-sm"
+        style={{ color: 'var(--yellow)' }}>{blocked}</p>
+      <WhyNotButton database={card.database} findingId={findingId}
+        object={findingId ? undefined : objectOf(card.targets)} />
+    </div>
   }
   return <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
     Approve and run requests immediate execution of this SQL after current safety checks.
@@ -206,7 +215,7 @@ export function ApprovalActions({ card, onDecided, eligible, blockedReason,
   const approve = () => run('approve', { card_hash: card.card_hash }, approvalOutcomeMessage)
   return (
     <div data-testid="approval-actions" className="approval-action-bar space-y-2">
-      <GateNote blocked={gate.blocked} eligible={eligible} />
+      <GateNote blocked={gate.blocked} eligible={eligible} card={card} />
       <DecisionButtons busy={busy} canApprove={gate.canApprove} schedules={gate.schedules}
         onApprove={approve} mode={mode} setMode={setMode}
         extra={<AllowAlwaysButton card={card} busy={busy} canApprove={gate.canApprove}

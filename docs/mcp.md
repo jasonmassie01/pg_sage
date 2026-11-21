@@ -597,6 +597,7 @@ application's database driver (most ORMs have a plugin) for reliable attribution
 | [`review_grade`](#review_grade) | `read` | always |
 | [`review_scorecard`](#review_scorecard) | `read` | always |
 | [`check_pressure`](#check_pressure) | `read` | always |
+| [`why_not`](#why_not) | `read` | always |
 
 ### `get_policy`
 
@@ -1426,5 +1427,18 @@ Scope: `read`
 | `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
 | `job` | string | no | the job's name, echoed in the answer; length <= 128 |
 | `table` | string | no | the table the job writes, schema-qualified (resolved with to_regclass); length <= 260 |
+
+### `why_not`
+
+Use when a change you expected has not happened, or nothing was proposed for a database, finding, object or category. Returns ten checks from observed to emergency stop, each pass, fail, unknown or not applicable, with one sentence and at most one fix (a GRANT, a setting, a page or a time); the first failure is marked. Never changes anything; unknown is never a pass.
+
+Scope: `read`
+
+| Argument | Type | Required | Notes |
+|---|---|---|---|
+| `category` | string | no | a finding category, such as unused_index; length <= 64 |
+| `database` | string | no | Monitored database name (see list_databases). Required when more than one database is monitored; defaults to the only one otherwise. |
+| `finding_id` | integer | no | one finding; give it alone; value >= 1 |
+| `object` | string | no | an unquoted schema.name; length <= 127 |
 
 <!-- END GENERATED MCP TOOL REFERENCE -->

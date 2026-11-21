@@ -4,6 +4,8 @@ import { QueryState } from '../../components/QueryState'
 import { POLICY_GATE_DOC } from '../settings/StandingPolicy'
 import { reasonText, riskLabel, verdictLabel } from './workflow'
 import { formatTime } from '../../lib/time'
+import { WhyNotButton } from '../../components/WhyNotPanel'
+import { linkLabel, objectOf } from '../../components/whyNot'
 
 // Actions > Held back (policy-07; the route key stays "decisions"): why a
 // change has not run. Each row is
@@ -11,8 +13,10 @@ import { formatTime } from '../../lib/time'
 // observe-only) and has not run since, from GET /api/v1/decisions: the
 // verdict and the reason in words with a next step (gateLabels.js, ux-05b),
 // how often the gate repeated it and, for a budget park, when the budget
-// frees. A row links to its exact approval card or finding. Operators
-// only: the route refuses viewers.
+// frees. A row links to its exact approval card or finding. Its reason
+// line is the why-not link the reason fails (why_not, ux-08b) and it opens
+// the Why not panel for its own item. Operators only: the route refuses
+// viewers.
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
@@ -102,7 +106,7 @@ function DecisionRow({ decision: d, database }) {
       style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-medium text-xs" style={strong}>{verdictLabel(d.verdict)}</span>
-        <span style={strong}>{reasonText(d.reason)}</span>
+        <span data-testid="decision-reason" style={strong}>{reasonLine(d)}</span>
       </div>
       <p className="mt-1 text-xs" style={muted}>
         {(!database || database === 'all') && <span>{d.database} · </span>}
@@ -119,8 +123,17 @@ function DecisionRow({ decision: d, database }) {
         Deadline: {d.deadline_kind} by {decidedAt(d.deadline_hard_at)}</p>}
       {link && <a className="mt-1 inline-block text-xs underline" href={link.href}
         style={{ color: 'var(--accent)' }}>{link.label}</a>}
+      <WhyNotButton database={d.database} findingId={d.finding_id || undefined}
+        object={d.finding_id ? undefined : objectOf(d.target_objects)} />
     </li>
   )
+}
+
+// reasonLine words the reason as the why-not link it fails, else as the
+// gate's reason in words.
+function reasonLine(d) {
+  if (d.why_not?.sentence) return `${linkLabel(d.why_not.link)}: ${d.why_not.sentence}`
+  return reasonText(d.reason)
 }
 
 // decidedAt names a held-back decision's time; missing or unreadable is

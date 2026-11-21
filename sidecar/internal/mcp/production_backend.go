@@ -100,6 +100,8 @@ type ProductionDependencies struct {
 	ReviewScorecard ReviewScorecardBackend
 	// Pressure serves check_pressure (guard-01a); optional.
 	Pressure PressureBackend
+	// WhyNot serves why_not (ux-08b); optional.
+	WhyNot WhyNotBackend
 }
 
 type ProductionBackend struct {

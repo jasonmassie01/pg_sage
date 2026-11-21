@@ -5,7 +5,7 @@ import { QueryState } from '../components/QueryState'
 import { queryBlocked } from '../lib/queryState'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 import { InvestigationPanel } from './cases/InvestigationPanel'
-import { WhyNotRun } from './cases/WhyNotRun'
+import { CaseWhyNot } from './cases/CaseWhyNot'
 import {
   caseChunks, investigationsByCase, investigationsURL,
 } from './cases/caseInvestigations'
@@ -344,7 +344,7 @@ function CaseCard({
             The action history for this issue could not be read; it may have
             actions that are not shown.</p>}
           {candidate && <p>Policy: {policyLabel(candidate)}</p>}
-          <WhyNotRun caseRow={caseRow} user={user} />
+          <CaseWhyNot caseRow={caseRow} user={user} />
           {caseRow.why && <div><strong>Source advice (review applicability before use): </strong>{caseRow.why}</div>}
         </div>
       <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category}

@@ -1,8 +1,11 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
+import { WhyNotPanel } from '../../components/WhyNotPanel'
 import { RuntimeCells } from './RuntimeCells'
 
 // DatabaseRow is one managed registration of the fleet table with its
-// runtime state, its selection box and its Test, Edit and Delete controls.
+// runtime state, its selection box and its Why not?, Test, Edit and Delete
+// controls. Why not? opens the why-not chain for the database in a row of
+// its own under the row (ux-08b).
 
 const TRUST_COLORS = { observation: '#3b82f6', advisory: '#f59e0b', autonomous: '#10b981' }
 const MODE_COLORS = { auto: '#10b981', approval: '#f59e0b', manual: '#6b7280' }
@@ -14,10 +17,14 @@ function Badge({ text, color }) {
   )
 }
 
-function RowActions({ db, testing, onTest, onEdit, onDelete }) {
+function RowActions({ db, testing, onTest, onEdit, onDelete, whyNot, onWhyNot }) {
   return (
     <td className="px-4 py-2 text-right">
       <div className="flex gap-2 justify-end">
+        <button type="button" aria-expanded={whyNot} onClick={onWhyNot}
+          className="px-2 py-1 rounded text-xs" style={{ color: 'var(--accent)' }}>
+          Why not?
+        </button>
         <button onClick={() => onTest([db])} disabled={testing}
           data-testid="db-test-button" className="px-2 py-1 rounded text-xs"
           style={{ color: 'var(--accent)' }}>
@@ -40,9 +47,10 @@ function RowActions({ db, testing, onTest, onEdit, onDelete }) {
 // rows whose props changed (500 rows stay responsive, ux-10a).
 export const DatabaseRow = memo(function DatabaseRow({
   db, runtime, runtimeKnown, onSelectDatabase, onEdit, onDelete,
-  checked, testing, result, onTest, onToggle,
+  checked, testing, result, onTest, onToggle, columns,
 }) {
-  return (
+  const [whyNot, setWhyNot] = useState(false)
+  return (<>
     <tr data-testid="db-row" style={{ borderBottom: '1px solid var(--border)' }}>
       <td className="px-2 py-2">
         <input type="checkbox" aria-label={`Select ${db.name}`} data-testid="db-select"
@@ -66,7 +74,13 @@ export const DatabaseRow = memo(function DatabaseRow({
       </td>
       <RuntimeCells runtime={runtime} runtimeKnown={runtimeKnown}
         registeredTrust={db.trust_level} onSelectDatabase={onSelectDatabase} />
-      <RowActions db={db} testing={testing} onTest={onTest} onEdit={onEdit} onDelete={onDelete} />
+      <RowActions db={db} testing={testing} onTest={onTest} onEdit={onEdit} onDelete={onDelete}
+        whyNot={whyNot} onWhyNot={() => setWhyNot(open => !open)} />
     </tr>
-  )
+    {whyNot && (
+      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+        <td colSpan={columns} className="px-4 pb-3"><WhyNotPanel database={db.name} /></td>
+      </tr>
+    )}
+  </>)
 })

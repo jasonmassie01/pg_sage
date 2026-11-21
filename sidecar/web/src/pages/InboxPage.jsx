@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { QueryState } from '../components/QueryState'
 import { LoadingSpinner } from '../components/LoadingSpinner'
+import { WhyNotButton } from '../components/WhyNotPanel'
 import { usePendingActionsRefetch } from '../components/Layout'
 import { apiGet } from '../lib/api'
 import {
@@ -102,7 +103,7 @@ function ValueLine({ query }) {
 // NeedsSection is (a), or the goal state when nothing waits and every
 // source answered. The heading counts every item found (total), which a
 // cut-short list (truncated) does not all show.
-function NeedsSection({ data, changes, when, partial, onDecided }) {
+function NeedsSection({ data, changes, when, partial, onDecided, database, user }) {
   const items = Array.isArray(data?.items) ? data.items : []
   const total = Number.isInteger(data?.total) ? Math.max(data.total, items.length) : items.length
   const failed = sourceErrorText(data?.errors)
@@ -118,8 +119,12 @@ function NeedsSection({ data, changes, when, partial, onDecided }) {
     </>}
     {items.length === 0 && (failed
       ? <p className="text-sm" style={muted}>Nothing waits in the sources that answered.</p>
-      : <p data-testid="inbox-goal" className="text-base font-medium"
-        style={{ color: 'var(--text-primary)' }}>{goalSentence(changes, when, partial)}</p>)}
+      : <>
+        <p data-testid="inbox-goal" className="text-base font-medium"
+          style={{ color: 'var(--text-primary)' }}>{goalSentence(changes, when, partial)}</p>
+        {database && database !== 'all' && <WhyNotButton user={user} database={database}
+          label="Nothing proposed? See why" />}
+      </>)}
   </section>
 }
 
@@ -156,7 +161,7 @@ export function InboxPage({ database, user }) {
     <div className="space-y-6" data-testid="inbox-page">
       <QueryState query={inbox} skeleton={<LoadingSpinner />}>
         {data => <NeedsSection data={data} changes={changes} when={when}
-          partial={gaps.partial} onDecided={onDecided} />}
+          partial={gaps.partial} onDecided={onDecided} database={database} user={user} />}
       </QueryState>
       {seen.ready && <SinceLastVisit changes={changes} query={outcomes} canUndo={canUndo}
         gaps={gaps} label={windowLabel(seen, win, openedAt)} />}
