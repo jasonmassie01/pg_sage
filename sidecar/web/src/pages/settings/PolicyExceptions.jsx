@@ -68,7 +68,7 @@ function ExceptionTable({ list, names, now }) {
       <table className="w-full text-xs">
         <thead style={muted}><tr>
           {['Database', 'Set', 'Differs from the set', 'Set by', 'Why', 'Expires']
-            .map(h => <th key={h} className={`${cell} text-left font-medium`}>{h}</th>)}
+            .map(h => <th key={h} scope="col" className={`${cell} text-left font-medium`}>{h}</th>)}
         </tr></thead>
         <tbody>{list.map(e => <ExceptionRow key={e.database_id} exc={e} names={names}
           now={now} />)}</tbody>

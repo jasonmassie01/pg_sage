@@ -75,7 +75,7 @@ function Filed({ filed, isAdmin, busy, onRatify }) {
   return (
     <div className="space-y-1">
       <p data-testid="policy-propose-filed" role="status" className="text-xs" style={muted}>
-        Proposal #{filed.id} filed. It takes effect only once an admin ratifies it.
+        Change #{filed.id} filed. It takes effect only once an admin ratifies it.
       </p>
       {isAdmin ? <button type="button" data-testid="policy-propose-ratify" disabled={busy}
         onClick={onRatify} className={button} style={buttonStyle}>Ratify</button> : null}
@@ -99,7 +99,7 @@ function Editor({ set, current, isAdmin, onRatified }) {
       {p.filed ? <Filed filed={p.filed} isAdmin={isAdmin} busy={p.busy} onRatify={p.ratify} />
         : <button type="button" data-testid="policy-propose-submit" disabled={p.busy}
           onClick={() => p.propose(text)} className={button} style={buttonStyle}>
-          File proposal</button>}
+          File the change</button>}
     </div>
   )
 }
