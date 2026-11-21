@@ -4,9 +4,10 @@ import App from './App'
 import { ROUTES, findRoute, routeHref } from './routes'
 import { gradePayload } from './test/reviewFixtures'
 
-// review-01b: Review is an Operate page at #/review, for every role, and
-// #/review?db=<name> opens that database's review. No concurrent access
-// tests: one render of the app shell.
+// review-01b: Review is a page at #/review, for every role, and
+// #/review?db=<name> opens that database's review. ux-11 fixes the nav at
+// 14 entries without it (like the ledger): every grade chip links here. No
+// concurrent access tests: one render of the app shell.
 
 const api = vi.hoisted(() => ({ useAPI: vi.fn() }))
 vi.mock('./hooks/useAPI', () => ({ useAPI: (...args) => api.useAPI(...args) }))
@@ -43,10 +44,10 @@ describe('Review route', () => {
     }))
   })
 
-  it('is registered as an Operate page for every role', () => {
+  it('is registered for every role, outside the nav', () => {
     const route = ROUTES.find(r => r.id === 'review')
-    expect(route).toMatchObject({ path: '/review', title: 'Review', navGroup: 'operate',
-      testId: 'nav-review' })
+    expect(route).toMatchObject({ path: '/review', title: 'Review' })
+    expect(route.navGroup).toBeUndefined()
     expect(route.roles).toBeUndefined()
     expect(routeHref(route)).toBe('#/review')
     expect(findRoute('#/review?db=orders')).toBe(route)
@@ -56,7 +57,7 @@ describe('Review route', () => {
     window.location.hash = '#/review?db=billing'
     render(<App />)
     expect(await screen.findByTestId('grade-card')).toBeInTheDocument()
-    expect(screen.getByTestId('nav-review')).toBeInTheDocument()
+    expect(screen.queryByTestId('nav-review')).toBeNull()
     expect(api.useAPI).toHaveBeenCalledWith('/api/v1/databases/billing/review/grade',
       expect.any(Number))
   })
