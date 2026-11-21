@@ -5,8 +5,9 @@
 These changes are planned as five releases: v2.5.1 (tranche T0a, the safety fixes),
 v2.5.2 (tranche T0b), v2.6.0 (tranche T1), v2.7.0 (tranche T2) and v2.8.0+ (tranche T3).
 The tranche T4 changes finish them and ship with the T4 release; the T4 follow-ups (tranche T4c)
-follow them, the T5 foundations (tranche T5) come next, and the T6 changes
-(tranche T6: Sage Review, restore drills, fleet policy, change guards) are listed last.
+follow them, the T5 foundations (tranche T5) come next, then the T6 changes
+(tranche T6: Sage Review, restore drills, fleet policy, change guards), and the T7 changes
+(tranche T7: vocabulary, CLI and GitOps, PR mode, MCP, accessibility) are listed last.
 
 ### v2.5.1 (tranche T0a, safety)
 
@@ -3377,6 +3378,160 @@ follow them, the T5 foundations (tranche T5) come next, and the T6 changes
   that ANALYZE does not bring the earlier plan back, the finding is reopened without SQL and handed
   to the plan-stability review. auto_explain now captures a top query's plan again after any ANALYZE
   of a table it reads (guard-02c).
+
+### T7: vocabulary, CLI and GitOps, PR mode, MCP, accessibility (tranche T7)
+
+#### Changed
+
+- **One vocabulary.** docs/glossary.md defines Issue, Plan, Change, Decision and Autonomy plus the
+  jargon the dashboard used without explanation, and the dashboard's dotted-underline tooltips come
+  from it. Cases are now Issues (page title and nav; the /cases URL is unchanged), a finding or case
+  is an issue, a recommendation, proposal, candidate or queue item is a change, a verdict is a
+  decision, trust level and execution mode are autonomy, the policy gate is the policy check, the
+  promotion floor is the minimum evidence, and the Changes page's "Needs your review" is "Waiting
+  on you". API fields, enums, URLs and test ids are unchanged (ux-06a).
+- **One Autonomy page.** #/autonomy replaces Trust and Earned autonomy (#/trust and
+  #/advanced/autonomy still open it). Each action class shows one of watches only, asks first,
+  acts then tells you, or acts in the window, with the limiting input first, computed from the same
+  inputs the policy check reads. `GET /api/v1/trust` rows gain the additive `mode` and
+  `mode_because` fields. Waiting promotions hold the one Approve, the shadow ledger moves here from
+  Settings General, and the header badge counts classes per mode. The database form's single "How
+  much may pg_sage do" control writes both `trust_level` and `execution_mode`. Decision D6: both
+  fields stay in config and the API; any other pair shows as Custom (ux-06b).
+- **Fleet-scale header and summaries.** From six databases the header scope picker searches the
+  sidecar (50 names a page, recent databases, `tag:key=value` tag scopes that the Fleet page reads).
+  A `?database=` link to a database you cannot see opens all databases with a notice. The
+  all-databases home page and Autonomy show fleet summaries (first look by grade with the worst 10,
+  "N of M set up", level counts per class with exceptions, autonomy counts) instead of one block per
+  database (ux-10b).
+- **A 14-entry nav.** The nav is Operate (Inbox, Changes, Issues, Ask Sage), Admin (Fleet,
+  Autonomy, Notifications, Agents, Users, Settings) and a collapsible Evidence group (Workload,
+  SLOs, Facts, Runbooks) that each browser remembers. Actions is now Changes at #/changes and Cases
+  is Issues at #/issues. Value is the outcome ledger's summary. Snapshot & metrics is gone: health
+  and provider readiness are on Fleet > Health & readiness, the health chart is on the Database
+  page and the token budget banner is on the Inbox. MCP tokens are an admin tab of Agents. Sage
+  Review keeps its page at #/review, opened from every grade chip, and the outcome ledger at
+  #/ledger, linked from the Inbox. External agent requests show in the Inbox while they wait and in
+  the ledger always. Old links redirect and keep `?database=` and `?case=`: #/actions and
+  #/advanced/actions go to #/changes; #/cases, #/findings, #/advanced/findings and #/forecasts,
+  #/query-hints, #/schema-health, #/incidents go to #/issues (with their source); #/value goes to
+  #/ledger?section=value; #/trust goes to #/autonomy; #/advanced/autonomy goes to
+  #/autonomy?section=history; #/advanced goes to #/manage-databases?tab=readiness; #/alerts goes
+  to #/notifications?tab=log; #/mcp-tokens goes to #/agents?tab=tokens. The aliases stay for at
+  least two releases (ux-11).
+- **MCP tools say when to use them.** Every tool description now says when to use the tool, what
+  it returns and what it never does. `request_change`'s intent is a typed oneOf over the five
+  plannable kinds with examples, and a bad intent is refused with the list of kinds and an example
+  call. Every error except `internal_error` carries a next step, and held results (queued or held
+  back changes, policy and maintenance proposals, queued remediations and capability requests)
+  carry `approval_url`, a read-only status call and a handle (mcp-01a).
+
+#### Fixed
+
+- **Accessibility.** Every tab bar uses the shared tablist pattern; the agent, runbook and channel
+  confirmations use the shared modal dialog (focus trap, Escape, focus return); every table header
+  is scoped; a contrast lint now holds every inline and Tailwind colour pair to WCAG AA in both
+  themes (48 failing pairs fixed); and on phones the Inbox and plan-review decision buttons stay
+  pinned in view (ux-12).
+
+#### Added
+
+- **Approve, and stop asking.** Approval cards can offer "Approve, and stop asking for <class> on
+  <database>": one admin click runs the change and approves that class's L3 promotion on that
+  database. The button appears only when the class can be undone, stands at L2, is past its L3
+  ramp floor and would actually run unattended under your settings. pg_sage also asks in the Inbox
+  once you have approved a class `trust.ask_after_approvals` times (default 10, 0 = off) with no
+  rollback in 30 days; "Not now" snoozes the ask for 30 days (ux-07a).
+- **Bulk approve.** Operators can approve up to 50 safe-tier changes at once from Waiting on you or
+  the Inbox (`POST /api/v1/approvals/bulk-approve`). Each change is still decided on its own: its
+  card hash, the policy check, verification and audit all apply, and a non-safe or changed card is
+  refused with a reason. The approval lists gain x (mark for bulk) and Enter (open), and the Inbox
+  list now answers j/k/a/r/s too (ux-07b).
+- **Why not?** `GET /api/v1/whynot` answers "why has pg_sage not done this?" for a finding, an
+  object, a category or a whole database. It checks one chain of ten links, from observed to
+  emergency stop. Each link is pass, fail, unknown or not applicable, with one sentence and a typed
+  fix: the exact GRANT for the provider, a setting, a dashboard link or a time to wait for. The read
+  is operator only and records nothing (ux-08a).
+- **The Why not panel.** "Why not?" on an issue, a database row, an approval card's blocker line
+  and each Held back row, plus "Nothing proposed? See why" on an empty Inbox, shows the ten-link
+  chain with the first failure highlighted and a Copy, Open or wait-until action for each fix. Held
+  back rows now word their reason as the failing link. The new read-scope MCP tool `why_not`
+  returns the same JSON as `GET /api/v1/whynot` (ux-08b).
+- **Notification classes.** Notifications now have classes: Page (sent at once), Ask (approvals
+  batched per database every `notification_policy.ask_batch_minutes`, default 15) and Digest
+  (delivered only as the daily digest). A fresh install's first channel gets class rules
+  automatically. The new `notification_policy.chat_approval_max_tier` (safe, moderate or none;
+  default moderate) caps what a chat card may approve. High-risk changes are always approved in
+  pg_sage (ux-09a).
+- **Quiet hours and mutes.** Each channel can have its own quiet hours (HH:MM to HH:MM in an IANA
+  timezone, set in the channel's Edit dialog); inside them its Ask and Digest messages wait and
+  Pages go out at once. Admins can mute one database's messages, for one class or every class, for
+  up to 90 days from the Notifications page, a database row, or the "Mute this class" link in
+  batched Ask messages; Pages for the emergency stop, a failed rollback and a freeze red line ignore
+  mutes and quiet hours. The Notifications page and every digest show "N messages, M led to an
+  action" for the last 7 days (ux-09b).
+- **A searchable fleet table.** The Databases page's fleet table is now searched (name or host),
+  tag-filtered, sorted (Name, Execution Mode, Findings, Health) and paged 50 at a time by the
+  sidecar, with row checkboxes for a bulk connection test. `GET /api/v1/databases` accepts `q`,
+  `tag`, `sort`, `order`, `limit` (1-500) and `cursor` and adds `total`, `total_capped` and
+  `next_cursor`; with none of these parameters its response is unchanged (ux-10a).
+- **The decision loop from a terminal.** `pg_sage_sidecar plan` with no command lists what needs a
+  person now (Inbox items, plans and changes due, held-back changes with their first why-not link).
+  It exits 0 when nothing needs you, 2 when something does, 1 on error, 3 on an auth failure and 64
+  on a usage error, so CI jobs can gate on it. `approve <change-id>` approves exactly the card hash
+  it printed, after `--yes` or after you type the database name; `approve --plan` approves a plan.
+  `apply` resumes a halted plan or says when an approved change runs. `explain` prints the why-not
+  chain. All of them use an operator API token (`SAGE_API_TOKEN`). Approvals made with a token are
+  capped by `notification_policy.chat_approval_max_tier`, high-risk changes are always approved in
+  pg_sage, and agent tokens are refused. See docs/cli.md (cli-01a).
+- **Config as files.** `pg_sage_sidecar config validate <file>` (offline; prints every problem with
+  its key path, exit 2 when invalid), `config diff <file>` (each setting where the running sidecar
+  differs from the file, stored Settings overrides always listed, exit 2 when anything differs) and
+  `config export [--only-overrides]` (the effective settings as file YAML, with secrets always as
+  `${NAME}` placeholders). After a save, Settings offers the same YAML with a Copy button through
+  the new admin route `GET /api/v1/config/yaml` (cli-01b).
+- **GitOps directory.** Set `policy.directory` to hold policy sets, agent principals and
+  per-database grants as reviewed YAML files. The sidecar reconciles them in one audited
+  transaction and touches only the rows the files own. `policy.directory_mode` is `dry_run` by
+  default. A file narrows at once, but a widening is only proposed and waits for a person.
+  `config validate|diff <directory>` checks a directory, and Settings shows the last reconcile
+  (cli-02a).
+- **Approvals as pull requests.** Approval requests can be opened as pull requests on a config
+  repository (`policy.approval_prs`, token `SAGE_APPROVAL_PRS_TOKEN`, off by default). A merge by a
+  code-host login mapped in principals/users.yaml to a pg_sage user with the operator role approves
+  and runs that exact change through the normal approval path. Closing the PR rejects the change.
+  An edited file, an unmapped or viewer merger, or a change edited after the PR opened is refused
+  with a comment. High-risk changes, and tiers above `chat_approval_max_tier`, stay app-only
+  (cli-02b).
+- **Call sites.** With `agents.code_host` set (github or gitlab, repo, and a read token in
+  `SAGE_CODE_HOST_TOKEN`), the query page and an issue's evidence show "Called from <path:line>"
+  with its confidence (exact, likely or none). The call site comes from sqlcommenter file/line tags,
+  a matching SQL literal, or a controller/action/route search. The repository is read only: every
+  request goes through the egress floor, at most 4 run per host at once, the host's rate limits are
+  honoured, and the token is never logged or shown in errors. Lookups are off by default (pr-01a).
+- **PR mode.** With `agents.pr_mode` (off by default), pg_sage can open one pull request per schema
+  migration it cannot run, and per query rewrite at an exact call site, on the `agents.code_host`
+  repository. Each PR carries why, the verification-ladder receipt, the risk tier, the rollback and
+  a hidden marker. pg_sage never opens a second PR for the same change, records the PR as a source
+  fix, and follows it through declined, merged and deployed to the decision, opening one revert PR
+  for a regressed migration that has a rollback (pr-01b).
+- **Waiting for a decision over MCP.** The new `wait_for_decision` and `get_request_status` tools
+  let an agent wait (up to 60 s, 5 waits per principal) or check the state of its own held request
+  by handle; held results now point at them, `propose_plan` returns a plan handle, and Inbox items
+  an agent asked for name the agent and its handle (mcp-01b).
+- **Specialist contract 1.2.0.** New incident.io and Azure Monitor alert adapters, both off until
+  their secrets are set (`specialist.incidentio.*`, `specialist.azure_monitor.*`). Every result now
+  carries `summary_for_agent`: the root cause, the cited evidence with its numbers, the actions, and
+  why none can be requested. deploy/specialist adds an MCP server manifest and an agent instruction
+  file, so Datadog Bits, AWS DevOps Agent, Azure SRE Agent and incident.io can call pg_sage. Agents
+  still never approve (mcp-02).
+- **Published outcomes.** `pg_sage publish outcomes --since 90d --out DIR` writes a signed, static
+  outcome bundle: changes applied, verified improved, no change, inconclusive and reverted (with the
+  decision behind each revert), counted by action class and origin, plus the verifier's placebo
+  false-positive rate. It holds only numbers and fixed codes, folds any class under 5 changes into
+  "other", and checks with `evidence verify`. The signing key is `SAGE_EVIDENCE_SIGNING_KEY`. Also
+  added: the generated, CC BY 4.0 rubric page docs/rubric.md and a sample bundle in
+  docs/outcomes-sample (pub-01).
 
 ## v2.5.0 (2026-11-03) -- The Databricks release
 
