@@ -95,6 +95,9 @@ var runtimeEnvVars = []EnvVar{
 	{Name: "SAGE_API_TOKEN", Default: envNone, File: true, Doc: "Operator API token the " +
 		"`plan` command sends as a Bearer header (read scope to read, approve scope to " +
 		"decide); never printed"},
+	{Name: "SAGE_EVIDENCE_SIGNING_KEY", Default: envNone, File: true, Doc: "Ed25519 " +
+		"PKCS#8 PEM private key that `publish outcomes` signs the outcome bundle with " +
+		"(`--signing-key-env` names another variable); never printed"},
 	{Name: "SAGE_TLS_CERT", Default: envNone, Doc: "PEM certificate (chain) file; with " +
 		"`SAGE_TLS_KEY`, the API serves HTTPS only"},
 	{Name: "SAGE_TLS_KEY", Default: envNone, Doc: "PEM private key file for `SAGE_TLS_CERT`; " +

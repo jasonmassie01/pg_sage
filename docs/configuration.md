@@ -259,6 +259,7 @@ Variables that only the test suites and benches read (`SAGE_TEST_*`, `SAGE_BENCH
 | `SAGE_API_KEY` / `_FILE` | (none) | Legacy config field; the current web/API path uses session login cookies |
 | `SAGE_API_URL` | (none) | The sidecar API the `plan` command calls: `https://`, or `http://` only to a loopback host |
 | `SAGE_API_TOKEN` / `_FILE` | (none) | Operator API token the `plan` command sends as a Bearer header (read scope to read, approve scope to decide); never printed |
+| `SAGE_EVIDENCE_SIGNING_KEY` / `_FILE` | (none) | Ed25519 PKCS#8 PEM private key that `publish outcomes` signs the outcome bundle with (`--signing-key-env` names another variable); never printed |
 | `SAGE_TLS_CERT` | (none) | PEM certificate (chain) file; with `SAGE_TLS_KEY`, the API serves HTTPS only |
 | `SAGE_TLS_KEY` | (none) | PEM private key file for `SAGE_TLS_CERT`; set both or neither |
 | `SAGE_SUPERVISED` | (unset) | `1` or `true` declares a supervisor that relaunches the sidecar on exit code 42; only then does the dashboard's restart endpoint work (otherwise it answers 501) |
