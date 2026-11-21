@@ -1,0 +1,26 @@
+{
+  "format": "pg_sage-outcomes/1",
+  "generator": "pg_sage",
+  "created_at": "2026-11-01T00:00:00Z",
+  "scope": {},
+  "chain_ok": false,
+  "truncated": false,
+  "files": [
+    {
+      "name": "index.html",
+      "sha256": "09a9ea42991a8a31016468934479b04d534022c73ba3d809570678a199ac9903",
+      "bytes": 3548
+    },
+    {
+      "name": "outcomes.json",
+      "sha256": "47cc2882283c1e6099b399572b5c1318f23530d711be352b4c919a6808f94a9f",
+      "bytes": 2600
+    }
+  ],
+  "signer": {
+    "alg": "Ed25519",
+    "key_id": "8e9551e73b5e2f01",
+    "public_key": "6ec453d9193445381191e5c8bc7c4600429b9040f3c0c7dce13e910f5356261e"
+  },
+  "signed": true
+}

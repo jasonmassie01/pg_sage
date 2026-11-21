@@ -6,6 +6,14 @@
 
 **Agentic Postgres DBA.** No extension required.
 
+**Verified and reversible.** Every change pg_sage makes is checked against what it predicted,
+and every change that can be undone keeps a rollback. `pg_sage publish outcomes` turns that
+record into a signed public bundle:
+changes verified improved, no change, inconclusive and reverted, and the verifier's own
+false-positive rate ([publishing outcomes](docs/publish-outcomes.md),
+[sample bundle](docs/outcomes-sample/outcomes.json)). Databases are graded against an open,
+versioned [rubric](docs/rubric.md).
+
 ## What It Does
 
 pg_sage runs as a single Go binary alongside your PostgreSQL instance. It connects
