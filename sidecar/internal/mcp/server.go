@@ -98,20 +98,6 @@ func familyOf(name string) toolFamily {
 		return (*Server).callAskTool
 	case fleetToolNames[name]:
 		return (*Server).callFleetTool
-	case name == toolGetInbox:
-		return (*Server).callInboxTool
-	case name == toolGetOutcomes:
-		return (*Server).callOutcomesTool
-	case name == toolRestoreDrills:
-		return (*Server).callDrillTool
-	case name == toolReviewGrade:
-		return (*Server).callReviewTool
-	case name == toolReviewScorecard:
-		return (*Server).callReviewScorecardTool
-	case name == toolCheckPressure:
-		return (*Server).callPressureTool
-	case name == toolWhyNot:
-		return (*Server).callWhyNotTool
 	case requestStatusToolNames[name]:
 		return (*Server).callRequestStatusTool
 	case upgradeToolNames[name]:
@@ -120,12 +106,20 @@ func familyOf(name string) toolFamily {
 		return (*Server).callWorkloadPackTool
 	case agentBrokerToolNames[name]:
 		return (*Server).callAgentBrokerTool
-	case name == toolRequestCapability:
-		return (*Server).callGrantTool
-	case name == "list_databases":
-		return (*Server).listDatabases
+	}
+	if family, ok := singleToolFamilies[name]; ok {
+		return family
 	}
 	return (*Server).callIntentTool
+}
+
+// singleToolFamilies route the tools that are a family of one.
+var singleToolFamilies = map[string]toolFamily{
+	toolGetInbox: (*Server).callInboxTool, toolGetOutcomes: (*Server).callOutcomesTool,
+	toolRestoreDrills: (*Server).callDrillTool, toolReviewGrade: (*Server).callReviewTool,
+	toolReviewScorecard: (*Server).callReviewScorecardTool,
+	toolCheckPressure:   (*Server).callPressureTool, toolWhyNot: (*Server).callWhyNotTool,
+	toolRequestCapability: (*Server).callGrantTool, "list_databases": (*Server).listDatabases,
 }
 
 // callTool answers tools/call. Protocol problems (an unknown tool,
