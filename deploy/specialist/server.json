@@ -327,6 +327,31 @@
           "read_only": true
         },
         {
+          "name": "restore_drills",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "review_grade",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "review_scorecard",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "check_pressure",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "why_not",
+          "scope": "read",
+          "read_only": true
+        },
+        {
           "name": "get_request_status",
           "scope": "read",
           "read_only": true
