@@ -59,8 +59,6 @@ const GATE_REASONS = {
     'so it is blocked.',
   bound_by_fact: 'A recorded fact about this database rules the change out.',
   facts_unavailable: 'The database facts could not be read, so the change is held.',
-  exposure_shadow: 'The exposure mode is shadow: pg_sage records the change it would make ' +
-    'and changes nothing.',
   autonomy_unavailable: 'The autonomy settings could not be read, so the change is held.',
   observe_only: 'Observe only: pg_sage reports this and does not change the database.',
   autonomy_level: 'The autonomy level does not let pg_sage run this on its own.',
