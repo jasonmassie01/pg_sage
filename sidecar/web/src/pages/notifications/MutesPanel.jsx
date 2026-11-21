@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { formatTime } from '../../lib/time'
 import { cardStyle, StatusMessages } from './shared'
 import { MuteDialog } from './MuteDialog'
 import { apiError, classLabel, MUTES_URL } from './quietMute'
@@ -42,7 +43,7 @@ export function MutesPanel({ link }) {
   function saved(m) {
     setDialog(null)
     setSuccess(`Muted ${m.database} (${classLabel(m.class)}) until ` +
-      new Date(m.until).toLocaleString())
+      formatTime(m.until))
     load()
   }
 
@@ -80,7 +81,7 @@ function MuteList({ mutes, onUnmute }) {
           className="flex items-center justify-between py-1"
           style={{ borderBottom: '1px solid var(--border)' }}>
           <span style={{ color: 'var(--text-primary)' }}>
-            {m.database} - {classLabel(m.class)} - until {new Date(m.until).toLocaleString()}
+            {m.database} - {classLabel(m.class)} - until {formatTime(m.until)}
             <span className="text-xs ml-2" style={{ color: 'var(--text-secondary)' }}>
               by {m.actor}{m.reason ? `: ${m.reason}` : ''}
             </span>

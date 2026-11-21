@@ -66,7 +66,7 @@ export function QuietHoursForm({ channel, onSaved }) {
         <button type="button" data-testid="quiet-save"
           onClick={() => save({ start, end, timezone: tz })}
           className="px-3 py-1.5 rounded text-sm"
-          style={{ background: 'var(--accent)', color: '#fff' }}>
+          style={{ background: 'var(--accent-solid)', color: '#fff' }}>
           Save quiet hours
         </button>
         <button type="button" data-testid="quiet-clear" onClick={clear}

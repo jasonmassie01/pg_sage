@@ -76,7 +76,7 @@ export function MuteDialog({ initial, onSaved, onCancel }) {
           </button>
           <button type="submit" data-testid="mute-submit"
             className="px-3 py-1.5 rounded text-sm"
-            style={{ background: 'var(--accent)', color: '#fff' }}>
+            style={{ background: 'var(--accent-solid)', color: '#fff' }}>
             Mute
           </button>
         </div>
