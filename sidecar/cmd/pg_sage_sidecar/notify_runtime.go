@@ -55,6 +55,7 @@ func sharedNotifyDispatcher(controlPool *pgxpool.Pool) *notify.Dispatcher {
 	dispatcher := notify.NewDefaultDispatcher(store, notificationTargetPolicy(),
 		logStructuredWrapper)
 	notifyStores[controlPool] = store
+	dispatcher.SetAskBatch(askBatchWindow(cfg))
 	startNotifyOutbox(dispatcher, store)
 	withApprovalCardTokens(dispatcher, controlPool)
 	withFactCardTokens(dispatcher, controlPool)
@@ -112,6 +113,16 @@ func notificationKeys(
 
 // notificationTargetPolicy is the operator's notification target policy;
 // private networks are refused unless explicitly allowed (G7-B21).
+// askBatchWindow is notification_policy.ask_batch_minutes (ux-09a); with
+// no config yet it is the default.
+func askBatchWindow(c *config.Config) time.Duration {
+	minutes := config.DefaultNotificationPolicyAskBatchMinutes
+	if c != nil {
+		minutes = c.NotificationPolicy.AskBatchMinutes
+	}
+	return time.Duration(minutes) * time.Minute
+}
+
 func notificationTargetPolicy() notify.TargetPolicy {
 	return configTargetPolicy(cfg)
 }

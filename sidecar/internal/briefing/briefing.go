@@ -147,6 +147,9 @@ type Worker struct {
 	inbox    InboxCounter
 	// gate lists the review model gate's changes (review-05a); nil: none.
 	gate GateNotes
+	// weeklyLine is the digest's "N messages, M led to an action" line
+	// (ux-09b); nil leaves it out.
+	weeklyLine WeeklyLineFunc
 }
 
 // WithDatabaseName sets the fleet database the worker briefs, so the

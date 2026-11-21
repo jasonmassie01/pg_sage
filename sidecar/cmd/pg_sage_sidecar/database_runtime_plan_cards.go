@@ -55,7 +55,7 @@ func (rt *databaseRuntime) notifyPlan(ctx context.Context, p changeplan.Plan) {
 
 // planCardRef is the card of plan detail d: the decisions chat may make.
 func planCardRef(database string, d changeplan.Detail, expires time.Time) notify.PlanCardRef {
-	offer := changeplan.OfferForChat(d)
+	offer := changeplan.OfferForChat(d, chatApprovalCap())
 	ref := notify.PlanCardRef{Database: database, PlanID: d.Plan.ID,
 		PlanHash: changeplan.PlanHash(d.Plan), Title: d.Plan.Goal, Steps: len(d.Plan.Steps),
 		ExpiresAt: expires}
@@ -89,7 +89,7 @@ func planCardBody(database string, d changeplan.Detail) string {
 			tier, stepEffect(s)))
 	}
 	lines = append(lines, "Risk: highest step tier "+string(highest)+".")
-	if offer := changeplan.OfferForChat(d); offer.BlockedAt > 0 {
+	if offer := changeplan.OfferForChat(d, chatApprovalCap()); offer.BlockedAt > 0 {
 		lines = append(lines, fmt.Sprintf("From chat: %s, so step %d onward needs the "+
 			"pg_sage app.", offer.Blocked, offer.BlockedAt))
 	}

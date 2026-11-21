@@ -81,7 +81,7 @@ func telegramMessage(evt Event) map[string]any {
 	} else if token := factToken(evt); token != "" {
 		msg["reply_markup"] = factKeyboard(token)
 	} else if token := cardToken(evt); token != "" {
-		msg["reply_markup"] = cardKeyboard(token, cardSnooze(evt))
+		msg["reply_markup"] = cardKeyboard(token, cardRefOf(evt))
 	}
 	if replyTo, ok := evt.Data[DataReplyTo].(int64); ok && replyTo > 0 {
 		msg["reply_to_message_id"] = replyTo

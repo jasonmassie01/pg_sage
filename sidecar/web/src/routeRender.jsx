@@ -148,9 +148,13 @@ export const RENDERERS = Object.freeze({
   ),
   users: ctx => <UsersPage currentUser={ctx.user} authMode={ctx.authMode} />,
   notifications: ctx => {
-    const tab = new URLSearchParams(ctx.route.split('?')[1] || '').get('tab') || ''
-    return <NotificationsPage key={tab} user={ctx.user} database={ctx.database}
-      initialTab={tab} />
+    const params = new URLSearchParams(ctx.route.split('?')[1] || '')
+    const tab = params.get('tab') || ''
+    // ux-09b: ?mute=<db>&class=<class> opens the mute dialog filled in.
+    const muteLink = params.get('mute')
+      ? { database: params.get('mute'), class: params.get('class') || '' } : null
+    return <NotificationsPage key={`${tab}/${params.get('mute') || ''}`} user={ctx.user}
+      database={ctx.database} initialTab={tab} muteLink={muteLink} />
   },
   settings: ctx => (
     <SettingsPage database={ctx.database} user={ctx.user}

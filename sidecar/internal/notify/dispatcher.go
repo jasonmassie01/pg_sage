@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,7 +32,12 @@ type Dispatcher struct {
 	outbox   OutboxStore
 	policyMu sync.RWMutex
 	policy   *AlertPolicy
-	now      func() time.Time
+	// askWindow batches Ask-class deliveries per database (ux-09a); 0
+	// sends each alone. Guarded by policyMu.
+	askWindow time.Duration
+	now       func() time.Time
+	// muteFailures counts failed mute reads (ux-09b; the message went).
+	muteFailures atomic.Int64
 }
 
 // NewDispatcher creates a Dispatcher that reads rules and channels from
@@ -85,19 +91,20 @@ func (d *Dispatcher) SubmitWithOutcomes(
 	ctx context.Context, event Event,
 ) (DispatchResult, []ChannelOutcome, error) {
 	var res DispatchResult
-	rules, err := d.loadMatchingRules(ctx, event.Type)
+	rules, err := d.matchingRules(ctx, event)
 	if err != nil {
 		return res, nil, fmt.Errorf("loading rules: %w", err)
 	}
 	outs := make([]ChannelOutcome, 0, len(rules))
+	muted := len(rules) > 0 && d.muted(ctx, event)
 	for _, rule := range rules {
-		d.submitRule(ctx, rule, event, &res, &outs)
+		d.submitRule(ctx, rule, event, muted, &res, &outs)
 	}
 	return res, outs, nil
 }
 
 func (d *Dispatcher) submitRule(
-	ctx context.Context, rule Rule, event Event, res *DispatchResult,
+	ctx context.Context, rule Rule, event Event, muted bool, res *DispatchResult,
 	outs *[]ChannelOutcome,
 ) {
 	ch, sender, err := d.ruleTarget(ctx, rule, event)
@@ -111,7 +118,18 @@ func (d *Dispatcher) submitRule(
 		return
 	case ch == nil:
 		return
-	case d.outbox != nil && queueable(event):
+	case muted:
+		res.Suppressed++
+		*outs = append(*outs, ChannelOutcome{ChannelID: ch.ID, Channel: ch.Name,
+			Status: OutcomeMuted})
+		return
+	case d.batchesAsk(rule, *ch):
+		before := *res
+		d.enqueueAsk(ctx, *ch, event, res)
+		*outs = append(*outs, ChannelOutcome{ChannelID: ch.ID,
+			Channel: ch.Name, Status: queuedOutcome(before, *res)})
+		return
+	case d.outbox != nil && (queueable(event) || d.heldByQuiet(*ch, event)):
 		before := *res
 		d.enqueue(ctx, *ch, event, res)
 		*outs = append(*outs, ChannelOutcome{ChannelID: ch.ID,

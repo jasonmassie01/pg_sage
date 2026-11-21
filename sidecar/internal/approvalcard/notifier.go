@@ -27,6 +27,9 @@ type Notifier struct {
 	// trust reads the database's current trust level (it can change at run
 	// time); nil keeps the loader's.
 	trust func() string
+	// chatCap is notification_policy.chat_approval_max_tier ("" is the
+	// default, moderate): a card above it is sent without Approve.
+	chatCap string
 }
 
 // NewNotifier wraps inner for one database; nil when there is no inner
@@ -50,6 +53,14 @@ func (n *Notifier) WithLog(logFn func(string, string, ...any)) *Notifier {
 func (n *Notifier) WithTrust(trust func() string) *Notifier {
 	if n != nil {
 		n.trust = trust
+	}
+	return n
+}
+
+// WithChatCap sets the chat approval cap the cards are sent under.
+func (n *Notifier) WithChatCap(cap string) *Notifier {
+	if n != nil {
+		n.chatCap = cap
 	}
 	return n
 }
@@ -89,7 +100,11 @@ func (n *Notifier) enrich(ctx context.Context, evt notify.Event) (notify.Event, 
 		n.logFn("approvalcard", "queue item %d sent without its card: %v", id, err)
 		return evt, false
 	}
-	return notify.WithApprovalCard(evt, CardRefOf(c), Text(c, n.loader.now())), false
+	ref, text := CardRefOfCapped(c, n.chatCap), Text(c, n.loader.now())
+	if ref.NoApprove {
+		text += "\n\n" + ref.ApproveIn
+	}
+	return notify.WithApprovalCard(evt, ref, text), false
 }
 
 // TokenIssuer mints card tokens in the control database

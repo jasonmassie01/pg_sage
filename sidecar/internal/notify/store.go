@@ -101,10 +101,12 @@ func (s *PoolStore) Channel(ctx context.Context, id int) (*Channel, error) {
 	var ch Channel
 	var cfgJSON []byte
 	err := s.pool.QueryRow(qctx,
-		`/* pg_sage */ SELECT id, name, type, config, enabled
+		`/* pg_sage */ SELECT id, name, type, config, enabled, COALESCE(quiet_start, ''),
+		        COALESCE(quiet_end, ''), COALESCE(quiet_tz, '')
 		 FROM sage.notification_channels
 		 WHERE id = $1`, id,
-	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled)
+	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled, &ch.QuietStart, &ch.QuietEnd,
+		&ch.QuietTZ)
 	if err != nil {
 		return nil, fmt.Errorf("get channel %d: %w", id, err)
 	}

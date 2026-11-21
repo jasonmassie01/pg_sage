@@ -44,6 +44,10 @@ type CardRef struct {
 	// NoSnooze leaves out the Snooze button: a backend signal is decided
 	// now or not at all.
 	NoSnooze bool `json:"no_snooze,omitempty"`
+	// NoApprove leaves out the Approve button: the card is above the chat
+	// approval cap (ux-09a, D7) and ApproveIn says where it is approved.
+	NoApprove bool   `json:"no_approve,omitempty"`
+	ApproveIn string `json:"approve_in,omitempty"`
 }
 
 // CardTokenIssuer mints and revokes per-channel card tokens.

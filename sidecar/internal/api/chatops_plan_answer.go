@@ -82,7 +82,7 @@ func answerPlanDecision(w http.ResponseWriter, ch notify.Channel, a chatops.Acti
 		body["up_to"] = d.UpTo
 		text = fmt.Sprintf("Approved by %s up to step %d of plan #%d on %s.", user.Email,
 			d.UpTo, id, db)
-		if offer := changeplan.OfferForChat(t.detail); offer.BlockedAt > 0 {
+		if offer := changeplan.OfferForChat(t.detail, t.chatCap); offer.BlockedAt > 0 {
 			text += fmt.Sprintf(" Step %d onward needs the pg_sage app: %s.",
 				offer.BlockedAt, offer.Blocked)
 		} else {

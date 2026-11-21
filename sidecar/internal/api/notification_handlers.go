@@ -72,13 +72,27 @@ func createChannelHandler(
 			internalError(w, r, "create channel", err)
 			return
 		}
+		seeded := seedClassRules(r, ns, id)
 		w.WriteHeader(http.StatusCreated)
 		jsonResponse(w, map[string]any{
-			"id":   id,
-			"name": req.Name,
-			"type": req.Type,
+			"id":                 id,
+			"name":               req.Name,
+			"type":               req.Type,
+			"class_rules_seeded": seeded,
 		})
 	}
+}
+
+// seedClassRules gives a fresh install's first channel the class rules
+// (ux-09a). A failure is logged: the channel exists and the operator can
+// still add rules by hand.
+func seedClassRules(r *http.Request, ns *store.NotificationStore, id int) int {
+	seeded, err := ns.SeedClassRules(r.Context(), id)
+	if err != nil {
+		slog.Warn("class rules not seeded for the first channel", "channel_id", id,
+			"error", err)
+	}
+	return seeded
 }
 
 func updateChannelHandler(

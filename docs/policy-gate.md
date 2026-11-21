@@ -598,8 +598,9 @@ through its approval card only, and a signed Slack callback older than
 `propose_plan`) sends a plan card to the channels that already receive approval cards, with
 no new configuration. The card gives the goal, the step count, each step's expected effect
 and risk tier, and how to review the plan in the app. From chat a person may approve steps
-of risk tier `safe` and `moderate` (decision D7, `changeplan.ChatApprovableTiers`): a plan
-of such steps offers "Approve all" and "Approve step 1 only"; a plan whose first `high` or
+at or under `notification_policy.chat_approval_max_tier` (decision D7; default `moderate`,
+see [Chat approval cap](#chat-approval-cap)): a plan of such steps offers "Approve all" and
+"Approve step 1 only"; a plan whose first step above the cap (`high` always is) or first
 never-automatic step is step K offers "Approve up to step K-1" and says the rest needs the
 app; at step 1 the card offers only "Reject", which every card offers. The approval is
 plan-03a's coverage rule with `via` `chat`. A press is checked like an approval card: a
@@ -608,6 +609,21 @@ to this channel, unused and unexpired, offering that decision, on a plan still `
 the hash the card showed ("Refused: this plan changed" otherwise). What chat may approve is
 checked again against the plan when the button is pressed. Two clicks make one decision; if
 pg_sage cannot record the decision the card stays usable. No MCP tool approves a plan.
+
+### Chat approval cap
+
+`notification_policy.chat_approval_max_tier` (decision D7) is the highest risk tier a chat
+card may approve: `safe`, `moderate` (the default) or `none`. A `high` change is approved in
+the pg_sage app only, whatever the key says; the key cannot name `high`, and an unknown value
+stops startup with the allowed values. The key is YAML-only and restart-bound, so neither the
+settings API nor a stored override can raise it. An approval card above the cap is sent with
+Reject and Snooze but no Approve button, and says where in pg_sage it is approved. A press of
+Approve on such a card (an older card, or a hand-made callback) is refused with HTTP 403
+`tier_cap` before its token is used, nothing runs, and the reply reads "High-risk changes are
+approved in pg_sage: #/inbox?kind=change_approval&queue=<id> (<reason>)". The tier checked is
+the highest of the queue item's stored risk and the base tier of every executor contract it
+runs under (its action type and the one its SQL classifies as); anything unknown is `high`.
+Reject is never capped.
 
 **Agent policy proposals.** An agent can only propose a change to its own policy. A
 proposal that widens the current policy needs two different people to approve it, and the

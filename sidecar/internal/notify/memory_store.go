@@ -23,6 +23,7 @@ type MemoryStore struct {
 	channelSeq int
 	ruleSeq    int
 	hashes     map[string]string // "c<id>" / "r<id>" -> config_hash
+	mutes      map[muteKey]Mute
 
 	FailRules, FailSchedule, FailClaim error
 	// FailReconcile fails a reconcile write of channel FailReconcileAt.
@@ -71,6 +72,22 @@ func (m *MemoryStore) MatchingRules(_ context.Context, eventType string) ([]Rule
 	var out []Rule
 	for _, r := range m.rules {
 		if r.Event == eventType && r.Enabled {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+// ClassRules returns the enabled class rules of class c (ux-09a).
+func (m *MemoryStore) ClassRules(_ context.Context, c Class) ([]Rule, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.FailRules != nil {
+		return nil, fmt.Errorf("query class rules: %w", m.FailRules)
+	}
+	var out []Rule
+	for _, r := range m.rules {
+		if r.DeliveryClass == string(c) && r.Enabled {
 			out = append(out, r)
 		}
 	}

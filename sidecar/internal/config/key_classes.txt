@@ -75,6 +75,8 @@ safety_critical mcp.oauth.task_claim
 safety_critical mcp.stdio_principal
 safety_critical mcp.call_timeout_seconds
 safety_critical notification_policy.allow_private_targets
+safety_critical notification_policy.chat_approval_max_tier
+operator_preference notification_policy.ask_batch_minutes
 safety_critical policy.profile
 safety_critical self_config.enabled
 safety_critical self_config.soak_hours

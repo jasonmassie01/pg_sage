@@ -3012,6 +3012,20 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "notification_policy.ask_batch_minutes": {
+    "type": "int",
+    "default": 15,
+    "doc": "Minutes Ask-class notifications of one database are batched into one message (at most 10 items). 0 sends each alone. Range 0-1440. Requires restart. Default 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "notification_policy.chat_approval_max_tier": {
+    "type": "string",
+    "default": "moderate",
+    "doc": "Highest risk tier a chat card may approve: safe, moderate or none. High is always approved in pg_sage. Requires restart. Default moderate.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "oauth.break_glass.enabled": {
     "type": "bool",
     "default": false,

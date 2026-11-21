@@ -206,6 +206,10 @@ type RetentionConfig struct {
 // senders at startup, so it is deliberately not an API override.
 type NotificationPolicyConfig struct {
 	AllowPrivateTargets bool `yaml:"allow_private_targets" doc:"Allow webhook and SMTP channels to target loopback, RFC 1918, ULA or CGNAT hosts and plain http (e.g. an internal SMTP relay). Metadata and link-local stay blocked. Requires restart."`
+	// ChatApprovalMaxTier: see notification_classes.go (ux-09a, decision D7).
+	ChatApprovalMaxTier string `yaml:"chat_approval_max_tier" doc:"Highest risk tier a chat card may approve: safe, moderate or none. High is always approved in pg_sage. Requires restart. Default moderate."`
+	// AskBatchMinutes: see notification_classes.go (ux-09a).
+	AskBatchMinutes int `yaml:"ask_batch_minutes" doc:"Minutes Ask-class notifications of one database are batched into one message (at most 10 items). 0 sends each alone. Range 0-1440. Requires restart. Default 15."`
 }
 
 // OAuthConfig holds OAuth2/OIDC SSO settings.

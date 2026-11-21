@@ -8,7 +8,8 @@ import (
 
 // RecordDelivery records one delivery attempt with the event's incident
 // (ref_id), the provider's message id, and the event's database and
-// dedup key (alerting-06c; a fleet-wide event records NULL database). The
+// dedup key (alerting-06c; a fleet-wide event records NULL database), and
+// the items it carries (ux-09b, for the weekly line). The
 // error must already be redacted; it is redacted again here as defense in
 // depth.
 func (s *PoolStore) RecordDelivery(ctx context.Context, d Delivery) error {
@@ -20,12 +21,12 @@ func (s *PoolStore) RecordDelivery(ctx context.Context, d Delivery) error {
 	_, err := s.pool.Exec(qctx,
 		`/* pg_sage */ INSERT INTO sage.notification_log
 		    (channel_id, event, subject, body, status, error, ref_id, provider_message_id,
-		     database, dedup_key)
+		     database, dedup_key, item_refs)
 		 VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''),
-		         NULLIF($9, ''), NULLIF($10, ''))`,
+		         NULLIF($9, ''), NULLIF($10, ''), $11)`,
 		d.ChannelID, d.Event.Type, d.Event.Subject, d.Event.Body, d.Status,
 		RedactURLs(d.Error), d.Event.RefID, d.ProviderMessageID,
-		logDatabase(d.Event), EventDedupKey(d.Event))
+		logDatabase(d.Event), EventDedupKey(d.Event), eventItemRefs(d.Event))
 	if err != nil {
 		return fmt.Errorf("insert notification_log: %w", err)
 	}

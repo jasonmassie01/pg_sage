@@ -3,6 +3,8 @@ import { TabList, TabPanel } from '../components/Tabs'
 import { ChannelsTab } from './notifications/ChannelsTab'
 import { RulesTab } from './notifications/RulesTab'
 import { LogTab } from './notifications/LogTab'
+import { MutesPanel } from './notifications/MutesPanel'
+import { WeeklyLine } from './notifications/WeeklyLine'
 
 // alerting-06c: the delivery log is open to admins and operators (it
 // replaced the Alert log); channels and rules stay admin-only, as the API
@@ -15,7 +17,7 @@ function tabsFor(user) {
   return user?.role === 'admin' ? ADMIN_TABS : REVIEWER_TABS
 }
 
-export function NotificationsPage({ user, database, initialTab }) {
+export function NotificationsPage({ user, database, initialTab, muteLink }) {
   const tabs = tabsFor(user)
   const [tab, setTab] = useState(
     () => tabs.find(t => t.toLowerCase() === initialTab) || tabs[0])
@@ -26,6 +28,8 @@ export function NotificationsPage({ user, database, initialTab }) {
 
   return (
     <div>
+      <WeeklyLine />
+      {user?.role === 'admin' && <MutesPanel link={muteLink} />}
       <TabList id="notifications" label="Notification sections" tabs={tabList}
         active={tab} onSelect={setTab} className="flex gap-1 mb-4"
         tabClassName="px-4 py-2 rounded-t text-sm font-medium"

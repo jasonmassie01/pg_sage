@@ -3,9 +3,9 @@ import { WhyNotPanel } from '../../components/WhyNotPanel'
 import { RuntimeCells } from './RuntimeCells'
 
 // DatabaseRow is one managed registration of the fleet table with its
-// runtime state, its selection box and its Why not?, Test, Edit and Delete
-// controls. Why not? opens the why-not chain for the database in a row of
-// its own under the row (ux-08b).
+// runtime state, its selection box and its Why not?, Test, Mute (ux-09b),
+// Edit and Delete controls. Why not? opens the why-not chain for the
+// database in a row of its own under the row (ux-08b).
 
 const TRUST_COLORS = { observation: '#3b82f6', advisory: '#f59e0b', autonomous: '#10b981' }
 const MODE_COLORS = { auto: '#10b981', approval: '#f59e0b', manual: '#6b7280' }
@@ -30,6 +30,11 @@ function RowActions({ db, testing, onTest, onEdit, onDelete, whyNot, onWhyNot })
           style={{ color: 'var(--accent)' }}>
           {testing ? 'Testing...' : 'Test'}
         </button>
+        <a href={`#/notifications?mute=${encodeURIComponent(db.name)}`}
+          data-testid="db-mute-link" title="Mute this database's notifications"
+          className="px-2 py-1 rounded text-xs" style={{ color: 'var(--text-secondary)' }}>
+          Mute
+        </a>
         <button onClick={() => onEdit(db)} data-testid="db-edit-button"
           className="px-2 py-1 rounded text-xs" style={{ color: 'var(--text-secondary)' }}>
           Edit

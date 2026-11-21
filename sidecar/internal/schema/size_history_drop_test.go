@@ -43,10 +43,11 @@ func sizeHistoryExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool) bo
 // The drop is a T2 step (after every T1 step); later T2 steps follow it.
 func TestSizeHistoryDrop_IsATrancheTwoStepAndIdempotentSQL(t *testing.T) {
 	steps := migrationSteps()
-	// The T2 steps run after every T1 step and before the T3, T4, T5 and T6 steps.
+	// The T2 steps run after every T1 step and before the T3, T4, T5, T6
+	// and T7 steps.
 	firstT2 := len(steps) - len(trancheTwoMigrations()) - len(trancheThreeMigrations()) -
 		len(trancheFourMigrations()) - len(trancheFiveMigrations()) -
-		len(trancheSixMigrations())
+		len(trancheSixMigrations()) - len(trancheSevenMigrations())
 	var last migrationStep
 	for _, s := range steps[firstT2 : firstT2+len(trancheTwoMigrations())] {
 		if s.name == "ddlDropSizeHistory" {

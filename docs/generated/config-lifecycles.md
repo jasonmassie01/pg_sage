@@ -337,6 +337,8 @@
 | `migration.queue_waiters_threshold` | `restart` | `-` | `operator_preference` |
 | `mode` | `restart` | `-` | `safety_critical` |
 | `notification_policy.allow_private_targets` | `restart` | `-` | `safety_critical` |
+| `notification_policy.ask_batch_minutes` | `restart` | `-` | `operator_preference` |
+| `notification_policy.chat_approval_max_tier` | `restart` | `-` | `safety_critical` |
 | `oauth.break_glass.enabled` | `restart` | `-` | `safety_critical` |
 | `oauth.break_glass.password_hash` | `restart` | `-` | `safety_critical` |
 | `oauth.client_id` | `restart` | `-` | `safety_critical` |

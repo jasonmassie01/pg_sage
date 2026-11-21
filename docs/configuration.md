@@ -4206,6 +4206,69 @@ for rows written before the upgrade that added the column) and `dedup_key`.
 database pg_sage does not monitor; `all` or no parameter lists every database). The read is
 open to admins and operators; channels and rules stay admin-only.
 
+### Notification classes
+
+Every notification event has a class, so a channel can be routed by what a person must do
+instead of one rule per event type:
+
+| Class | Events | Delivery |
+|---|---|---|
+| Page | `finding_critical`, `incident_detected`, `incident_escalated`, `custodian_escalation`, `canary_interrupted`, `investigation_concluded`; any `critical` event; `action_failed` whose rollback failed too | At once, retried through the outbox |
+| Ask | `approval_needed` (approval, plan and fact cards), `approval_outcome` | One message per database and channel per `notification_policy.ask_batch_minutes` (default 15; `0` sends each alone), listing up to 10 items and "N more in pg_sage" |
+| Digest | Everything else | Only as the daily digest (`digest_ready`, see the briefing digest); never one by one |
+
+A critical event is always Page, whatever its type, so a class never holds back a critical
+event. A class rule is a row of `sage.notification_rules` whose `delivery_class` is `page`,
+`ask` or `digest` (its `event` is `class:<class>`); a rule with no class is a legacy rule of
+one event type and works as before. A channel that a legacy rule already serves for an event
+gets no second copy from a class rule. When the first alert channel of a fresh install is
+created (no other channel and no rule yet), it gets a Page, an Ask and a Digest class rule;
+the create response says `class_rules_seeded: 3`. A pager (PagerDuty, Opsgenie or
+incident.io) gets the Page and Ask rules only (`class_rules_seeded: 2`), because a daily
+summary must not page anyone. An install that already has rules keeps them. The first Ask of a window opens it and every Ask before it ends joins the one message;
+a window of one Ask sends the Ask itself. An interactive chat channel (Slack with
+`interactive` and a signing secret, Telegram with a webhook secret) is not batched, so each
+approval card still arrives with its buttons. Two Asks at the same instant, even from two
+sidecars, make one message (the batch is decided under the outbox's advisory lock). With no
+channel, classes are computed and nothing is sent.
+
+### Quiet hours, mutes and the weekly line
+
+**Per-channel quiet hours.** A channel may have its own quiet hours, set in the channel's
+Edit dialog (Notifications, Channels): from and to as `HH:MM` and an IANA timezone (UTC when
+empty). Start and end must differ; an unknown timezone is refused and named
+(`PUT /api/v1/notifications/channels/{id}/quiet-hours`, admin; all three empty clears them).
+Inside the window the channel's Ask and Digest messages wait in the outbox and go out when
+it ends, counted in local wall time, so a daylight-saving night is held for its real length;
+a Page goes out at once. The daily digest, otherwise sent at once, waits too. An approval card
+with live buttons (an interactive Slack or Telegram channel) is not held, because the outbox
+cannot keep its token. A channel without its own window keeps the global
+`alerting.quiet_hours_*` pair, which holds non-critical finding alerts only, as before; a
+channel's own window replaces that pair for its finding alerts. A stored window that no
+longer parses is logged and holds nothing.
+
+**Mutes.** Mute database (the Notifications page, a database row's Mute link) and "Mute
+this class" (the link `#/notifications?mute=<db>&class=<class>` in the batched Ask footer)
+write `sage.notification_mutes`: one row per database and class (or every class). A mute
+needs an end at most 90 days away. While it lasts, that database's messages of that class are
+neither sent nor queued; the Log tab shows nothing for them and a digest outcome reads
+`muted`. A mute ends exactly at its end time, with no sweep. Two admins muting the same
+database at once leave one mute with the later end. Unmute removes it
+(`GET`, `POST`, `DELETE /api/v1/notifications/mutes`, admin). If the mute table cannot be
+read, the message is sent, the failure is logged, and the sidecar counts it.
+
+These Page messages ignore mutes and quiet hours: the emergency stop, a failed rollback
+(`action_failed` with `rollback_failed`) and a freeze red line (the freeze custodian giving
+up on a red table, whatever its VACUUM profile), plus any event marked with `page_reason` `emergency_stop`,
+`rollback_failed` or `freeze_red_line`.
+
+**The weekly line.** The Notifications page and every digest show "N messages, M led to
+an action" for the last 7 days (`GET /api/v1/notifications/weekly-line`, operator). N counts
+the sent deliveries in `sage.notification_log`. M counts those followed within 24 hours,
+inclusive, by an approve, reject or snooze of an item the message carried (from any surface),
+or by a mute of the message's database. An empty week reads "No messages this week". An undo
+is not counted yet: no stored record tells a person's rollback from an automatic one.
+
 ### Notification delivery
 
 Notification rules (the Notifications page) are delivered through an outbox in the control
