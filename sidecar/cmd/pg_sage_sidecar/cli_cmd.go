@@ -45,9 +45,10 @@ type cliEnv struct {
 
 // cliCommands are the subcommands runCLI serves.
 var cliCommands = map[string]bool{planSubcommand: true, "approve": true, "apply": true,
-	"explain": true}
+	"explain": true, configSubcommand: true}
 
-const cliUsage = `usage: pg_sage_sidecar <plan|approve|apply|explain> [flags]; --help for each`
+const cliUsage = `usage: pg_sage_sidecar <plan|approve|apply|explain|config> [flags]; ` +
+	`--help for each`
 
 // run is the process seam: the decision-loop subcommand in args[0] with
 // the process environment (SAGE_API_TOKEN_FILE resolved) and stdin.
@@ -75,6 +76,8 @@ func runCLI(ctx context.Context, args []string, env cliEnv) int {
 		return runApply(ctx, args[1:], env)
 	case "explain":
 		return runExplain(ctx, args[1:], env)
+	case configSubcommand:
+		return runConfigCommand(ctx, args[1:], env)
 	}
 	_, _ = fmt.Fprintf(env.stderr, "unknown command %q\n%s\n", firstArg(args), cliUsage)
 	return planExitUsage

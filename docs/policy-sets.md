@@ -152,6 +152,10 @@ expires 2026-12-01)`.
 | `GET /api/v1/policy-exceptions` | viewer | every exception with its diff, who set it, why and when it expires |
 | `POST /api/v1/policy-exceptions` | admin | gives a database its own document (a copy of its set's) |
 
+A directory of set files can be held in git and reconciled by the sidecar: see
+[GitOps directory](gitops.md). Sets it owns carry `managed_by: config` in
+`GET /api/v1/policy-sets`.
+
 `GET /api/v1/policy?database_id=<id>` returns the document in force for that database. When
 the document comes from a set, `set` names the set.
 

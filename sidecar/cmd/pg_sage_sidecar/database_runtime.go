@@ -211,6 +211,7 @@ func buildDatabaseRuntime(
 	rt.startRunways()
 	rt.startAsk()
 	rt.startSourceFixVerifier() // mcp-06: verdicts decided in the background
+	rt.startPRMode()            // pr-01b: one PR per change it cannot apply
 	rt.startSelfConfig()
 	rt.logExecutorSettings()
 	rt.startPressure() // guard-01a, guard-01b

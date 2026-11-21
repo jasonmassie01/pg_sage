@@ -311,7 +311,7 @@ func applyOverrides(
 		if existing, ok := m[o.Key]; ok {
 			if em, ok := existing.(map[string]any); ok {
 				value := coerceValue(o.Key, replayed)
-				if isSecretConfigKey(o.Key) {
+				if IsSecretConfigKey(o.Key) {
 					value = maskSecret(o.Value)
 				}
 				em["value"] = value

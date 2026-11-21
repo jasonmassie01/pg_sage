@@ -109,6 +109,7 @@ func (h *approvalCardHandlers) list(w http.ResponseWriter, r *http.Request) {
 		}
 		cards = append(cards, offerAllowAlways(r, got)...)
 	}
+	withApprovalPRNotes(r.Context(), cards) // cli-02b
 	jsonResponse(w, map[string]any{"cards": cards, "total": len(cards), "errors": failures})
 }
 
@@ -177,6 +178,11 @@ func (h *approvalCardHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if err == nil && a.Status == "scheduled" {
 		body["schedule"] = cardSchedule(*a, time.Now())
 	}
+	if err != nil {
+		a = nil
+	}
+	c.ApprovalPR = approvalPRNote(r.Context(), inst.Name, c, a) // cli-02b
+	body["card"] = c
 	jsonResponse(w, body)
 }
 

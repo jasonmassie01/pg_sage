@@ -67,6 +67,7 @@ nav:
       - Agent safety bench: agent-safety-bench.md
       - Policy Gate: policy-gate.md
       - Policy Sets: policy-sets.md
+      - GitOps directory: gitops.md
   - "Sage SRE: permissions and data flow": sage-sre-permissions-and-data-flow.md
   - Deployment: deployment.md
   - Metrics reference: metrics.md

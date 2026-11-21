@@ -37,6 +37,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/config/audit"},
 	{"GET", "/api/v1/config/databases/7"},
 	{"GET", "/api/v1/config/global"},
+	{"GET", "/api/v1/config/yaml"}, // cli-01b
 	{"GET", "/api/v1/databases"},
 	{"GET", "/api/v1/databases/managed"},
 	{"GET", "/api/v1/databases/managed/7"},
@@ -81,7 +82,9 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/policy-sets/7/members"}, // fleetpol-01a
 	{"GET", "/api/v1/policy-sets/7/export"},  // fleetpol-01a
 	{"GET", "/api/v1/policy-exceptions"},     // fleetpol-01a
+	{"GET", "/api/v1/gitops"},                // cli-02a
 	{"GET", "/api/v1/queries/7"},             // market-01
+	{"GET", "/api/v1/queries/7/call-site"},   // pr-01a
 	{"GET", "/api/v1/queries/top"},           // market-01
 	{"GET", "/api/v1/queries/coverage"},      // evid-01b
 	{"GET", "/api/v1/query-hints"},

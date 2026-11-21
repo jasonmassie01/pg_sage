@@ -147,10 +147,12 @@ type policySetViewRow struct {
 	Version  int64  `json:"version,omitempty"`
 	Profile  string `json:"profile,omitempty"`
 	SHA256   string `json:"sha256,omitempty"`
+	// ManagedBy is "config" for a set a GitOps file owns (cli-02a).
+	ManagedBy string `json:"managed_by,omitempty"`
 }
 
 func policySetView(s policy.SetDocument) policySetViewRow {
-	out := policySetViewRow{PolicySet: s.Set}
+	out := policySetViewRow{PolicySet: s.Set, ManagedBy: s.ManagedBy}
 	if s.Policy != nil {
 		out.PolicyID, out.Version, out.Profile = s.Policy.ID, s.Policy.Version, s.Policy.Profile
 		if doc, err := policy.DocumentFromPolicy(*s.Policy); err == nil {

@@ -6,6 +6,7 @@ import { LadderSection } from './LadderSection'
 import { ShadowHistory } from './ShadowHistory'
 import { riskLabel } from './workflow'
 import { ApprovalActions } from './ApprovalActions'
+import { ApprovalPRLine } from './ApprovalPRLine'
 import { formatTime } from '../../lib/time'
 
 export { approvalOutcomeMessage } from './approvalOutcome'
@@ -223,6 +224,7 @@ export function ApprovalCard({ card, onDecided, facts = null, eligible, blockedR
           {card.snooze_reason ? ` — ${card.snooze_reason}` : ''}
         </div>
       )}
+      <ApprovalPRLine note={card.approval_pr} />
       <WhySection why={card.why_approval} />
       <TrustLine trust={card.trust} />
       <WaitLine wait={card.verification_wait} />

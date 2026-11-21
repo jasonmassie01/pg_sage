@@ -169,6 +169,10 @@ func wireRouter(p WireParams) (WireResult, error) {
 	}
 
 	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
+	callSites, err := callSiteSource(p.Cfg) // pr-01a
+	if err != nil {
+		return WireResult{}, err
+	}
 	autonomy := autonomyAPIDeps(p.FleetMgr, authPool)
 	// Auth audit retains the client address independently of App identity buckets.
 	api.SetClientIPResolver(clientIP)
@@ -185,6 +189,7 @@ func wireRouter(p WireParams) (WireResult, error) {
 			TelemetryStatus:   lakebaseTelemetryStatuses,
 			TelemetryHistory:  lakebaseTelemetryHistory,
 			LakebaseWaitLoad:  lakebaseWaitLoad, // market-01b
+			CallSites:         callSites,        // pr-01a
 			// Expiry times and failure classes only; never tokens (databricks-06).
 			LakebaseCredentials:  databricksauth.CredentialStatuses,
 			LakebaseEndpointInfo: databricksauth.EndpointInfoFor,

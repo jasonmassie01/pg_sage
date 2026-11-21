@@ -292,5 +292,8 @@ func trancheSevenMigrations() []namedStep {
 	return []namedStep{
 		{"ddlNotificationRuleClass", ddlNotificationRuleClass},         // ux-09a
 		{"ddlNotificationQuietAndMutes", ddlNotificationQuietAndMutes}, // ux-09b
+		{"ddlGitopsManagedBy", ddlGitopsManagedBy},                     // cli-02a
+		{"ddlSourceFixPROrigin", ddlSourceFixPROrigin},                 // pr-01b
+		{"ddlApprovalPRs", ddlApprovalPRs},                             // cli-02b
 	}
 }

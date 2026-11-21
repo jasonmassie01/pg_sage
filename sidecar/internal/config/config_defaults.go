@@ -33,7 +33,7 @@ func newDefaults() *Config {
 		NotificationPolicy: defaultNotificationPolicyConfig(),
 		Prometheus:         defaultPrometheusConfig(),
 		API:                defaultAPIConfig(),
-		Policy:             PolicyConfig{Profile: DefaultPolicyProfile},
+		Policy:             defaultPolicyConfig(),
 		Value:              ValueConfig{ToilModelVersion: DefaultToilModelVersion},
 		Verify:             defaultVerifyConfig(),
 		Clone:              defaultCloneConfig(),

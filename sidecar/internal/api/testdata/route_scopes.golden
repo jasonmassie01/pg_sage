@@ -105,6 +105,7 @@ bare POST /api/v1/managed-changes/{id}/approve gate:operator scope:database:quer
 bare POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 bare GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 bare GET /api/v1/provider-advice gate:viewer scope:aggregate
+bare GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 bare GET /api/v1/value gate:viewer scope:aggregate
 bare GET /api/v1/briefings gate:viewer scope:aggregate
 bare GET /api/v1/briefings/latest gate:viewer scope:aggregate
@@ -310,6 +311,7 @@ standalone POST /api/v1/managed-changes/{id}/reject gate:operator scope:database
 standalone GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 standalone GET /api/v1/provider-advice gate:viewer scope:aggregate
 standalone GET /api/v1/model-lift gate:viewer scope:fleet-only
+standalone GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 standalone POST /api/v1/mcp gate:self-auth scope:-
 standalone POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
 standalone GET /api/v1/value gate:viewer scope:aggregate
@@ -363,6 +365,7 @@ standalone POST /api/v1/config/validate-window gate:admin scope:-
 standalone GET /api/v1/config/global gate:admin scope:admin-only
 standalone PUT /api/v1/config/global gate:admin scope:-
 standalone DELETE /api/v1/config/global/{key} gate:admin scope:-
+standalone GET /api/v1/config/yaml gate:admin scope:admin-only
 standalone GET /api/v1/config/databases/{id} gate:admin scope:admin-only
 standalone PUT /api/v1/config/databases/{id} gate:admin scope:-
 standalone DELETE /api/v1/config/databases/{id}/{key} gate:admin scope:-
@@ -396,6 +399,7 @@ standalone GET /api/v1/policy-exceptions gate:viewer scope:fleet-only
 standalone POST /api/v1/policy-exceptions gate:admin scope:-
 standalone GET /api/v1/policy-sets/{name}/export gate:viewer scope:fleet-only
 standalone POST /api/v1/policy-sets/import gate:admin scope:-
+standalone GET /api/v1/gitops gate:admin scope:admin-only
 standalone GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 standalone POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 standalone POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
@@ -586,6 +590,7 @@ fleet-readonly POST /api/v1/managed-changes/{id}/approve gate:operator scope:dat
 fleet-readonly POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 fleet-readonly GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/provider-advice gate:viewer scope:aggregate
+fleet-readonly GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/value gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/briefings gate:viewer scope:aggregate
 fleet-readonly GET /api/v1/briefings/latest gate:viewer scope:aggregate
@@ -637,6 +642,7 @@ fleet-readonly POST /api/v1/config/validate-window gate:admin scope:-
 fleet-readonly GET /api/v1/config/global gate:admin scope:admin-only
 fleet-readonly PUT /api/v1/config/global gate:admin scope:-
 fleet-readonly DELETE /api/v1/config/global/{key} gate:admin scope:-
+fleet-readonly GET /api/v1/config/yaml gate:admin scope:admin-only
 fleet-readonly GET /api/v1/config/databases/{id} gate:admin scope:admin-only
 fleet-readonly PUT /api/v1/config/databases/{id} gate:admin scope:-
 fleet-readonly DELETE /api/v1/config/databases/{id}/{key} gate:admin scope:-
@@ -670,6 +676,7 @@ fleet-readonly GET /api/v1/policy-exceptions gate:viewer scope:fleet-only
 fleet-readonly POST /api/v1/policy-exceptions gate:admin scope:-
 fleet-readonly GET /api/v1/policy-sets/{name}/export gate:viewer scope:fleet-only
 fleet-readonly POST /api/v1/policy-sets/import gate:admin scope:-
+fleet-readonly GET /api/v1/gitops gate:admin scope:admin-only
 fleet-readonly GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 fleet-readonly POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 fleet-readonly POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
@@ -866,6 +873,7 @@ store-only-actions POST /api/v1/managed-changes/{id}/approve gate:operator scope
 store-only-actions POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 store-only-actions GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 store-only-actions GET /api/v1/provider-advice gate:viewer scope:aggregate
+store-only-actions GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 store-only-actions GET /api/v1/value gate:viewer scope:aggregate
 store-only-actions GET /api/v1/briefings gate:viewer scope:aggregate
 store-only-actions GET /api/v1/briefings/latest gate:viewer scope:aggregate
@@ -1091,6 +1099,7 @@ optional GET /api/v1/debug/pprof/{$} gate:admin scope:admin-only
 optional GET /api/v1/debug/pprof/{name} gate:admin scope:admin-only
 optional /api/v1/specialist/ gate:self-auth scope:-
 optional GET /api/v1/specialist-requests gate:operator scope:fleet-only
+optional GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 optional POST /api/v1/mcp gate:self-auth scope:-
 optional POST /api/v1/mcp/databases/{database} gate:self-auth scope:-
 optional GET /api/v1/value gate:viewer scope:aggregate
@@ -1144,6 +1153,7 @@ optional POST /api/v1/config/validate-window gate:admin scope:-
 optional GET /api/v1/config/global gate:admin scope:admin-only
 optional PUT /api/v1/config/global gate:admin scope:-
 optional DELETE /api/v1/config/global/{key} gate:admin scope:-
+optional GET /api/v1/config/yaml gate:admin scope:admin-only
 optional GET /api/v1/config/databases/{id} gate:admin scope:admin-only
 optional PUT /api/v1/config/databases/{id} gate:admin scope:-
 optional DELETE /api/v1/config/databases/{id}/{key} gate:admin scope:-
@@ -1177,6 +1187,7 @@ optional GET /api/v1/policy-exceptions gate:viewer scope:fleet-only
 optional POST /api/v1/policy-exceptions gate:admin scope:-
 optional GET /api/v1/policy-sets/{name}/export gate:viewer scope:fleet-only
 optional POST /api/v1/policy-sets/import gate:admin scope:-
+optional GET /api/v1/gitops gate:admin scope:admin-only
 optional GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 optional POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 optional POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-
@@ -1357,6 +1368,7 @@ databricks-app POST /api/v1/managed-changes/{id}/approve gate:operator scope:dat
 databricks-app POST /api/v1/managed-changes/{id}/reject gate:operator scope:database:query
 databricks-app GET /api/v1/cloud-telemetry gate:viewer scope:aggregate
 databricks-app GET /api/v1/provider-advice gate:viewer scope:aggregate
+databricks-app GET /api/v1/queries/{queryid}/call-site gate:viewer scope:aggregate
 databricks-app GET /api/v1/value gate:viewer scope:aggregate
 databricks-app GET /api/v1/briefings gate:viewer scope:aggregate
 databricks-app GET /api/v1/briefings/latest gate:viewer scope:aggregate
@@ -1391,6 +1403,7 @@ databricks-app POST /api/v1/config/validate-window gate:admin scope:-
 databricks-app GET /api/v1/config/global gate:admin scope:admin-only
 databricks-app PUT /api/v1/config/global gate:admin scope:-
 databricks-app DELETE /api/v1/config/global/{key} gate:admin scope:-
+databricks-app GET /api/v1/config/yaml gate:admin scope:admin-only
 databricks-app GET /api/v1/config/databases/{id} gate:admin scope:admin-only
 databricks-app PUT /api/v1/config/databases/{id} gate:admin scope:-
 databricks-app DELETE /api/v1/config/databases/{id}/{key} gate:admin scope:-
@@ -1423,6 +1436,7 @@ databricks-app GET /api/v1/policy-exceptions gate:viewer scope:fleet-only
 databricks-app POST /api/v1/policy-exceptions gate:admin scope:-
 databricks-app GET /api/v1/policy-sets/{name}/export gate:viewer scope:fleet-only
 databricks-app POST /api/v1/policy-sets/import gate:admin scope:-
+databricks-app GET /api/v1/gitops gate:admin scope:admin-only
 databricks-app GET /api/v1/agentdb/decommission gate:admin scope:admin-only
 databricks-app POST /api/v1/agentdb/decommission/ack gate:admin scope:-
 databricks-app POST /api/v1/agentdb/decommission/drop-legacy-tables gate:admin scope:-

@@ -100,7 +100,8 @@ var secretKeys = []string{
 	"clone.dle_token",
 }
 
-func isSecretConfigKey(key string) bool {
+// IsSecretConfigKey reports a key whose value is a credential (secretKeys).
+func IsSecretConfigKey(key string) bool {
 	for _, k := range secretKeys {
 		if k == key {
 			return true
@@ -114,7 +115,7 @@ func secretConfigKeys() []string {
 }
 
 func auditValues(key, oldValue, newValue string) (string, string) {
-	if !isSecretConfigKey(key) {
+	if !IsSecretConfigKey(key) {
 		return oldValue, newValue
 	}
 	if oldValue != "" {

@@ -21,6 +21,10 @@
 | `agents.broker.rotation_days` | `restart` | `-` | `safety_critical` |
 | `agents.capabilities.max_duration_minutes` | `restart` | `-` | `safety_critical` |
 | `agents.client_patterns` | `restart` | `-` | `operator_preference` |
+| `agents.code_host.base_url` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.provider` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.repo` | `restart` | `-` | `safety_critical` |
+| `agents.code_host.timeout_seconds` | `restart` | `-` | `operator_preference` |
 | `agents.control_database` | `restart` | `-` | `safety_critical` |
 | `agents.default_environment` | `restart` | `-` | `safety_critical` |
 | `agents.exposed_roles` | `restart` | `-` | `safety_critical` |
@@ -29,6 +33,10 @@
 | `agents.kill_verify_timeout_seconds` | `restart` | `-` | `safety_critical` |
 | `agents.posture.daily_at` | `restart` | `-` | `operator_preference` |
 | `agents.posture.memory_growth_gb_day` | `restart` | `-` | `operator_preference` |
+| `agents.pr_mode.enabled` | `restart` | `-` | `safety_critical` |
+| `agents.pr_mode.label` | `restart` | `-` | `operator_preference` |
+| `agents.pr_mode.migrations_path` | `restart` | `-` | `safety_critical` |
+| `agents.pr_mode.repo` | `restart` | `-` | `safety_critical` |
 | `agents.query.audit_retention_days` | `restart` | `-` | `operator_preference` |
 | `agents.query.max_bytes` | `restart` | `-` | `safety_critical` |
 | `agents.query.max_rows` | `restart` | `-` | `safety_critical` |
@@ -352,6 +360,15 @@
 | `oauth.redirect_url` | `restart` | `-` | `safety_critical` |
 | `oauth.role_mapping` | `restart` | `-` | `safety_critical` |
 | `oauth.unmapped_users` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.base_branch` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.base_url` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.expiry_hours` | `restart` | `-` | `operator_preference` |
+| `policy.approval_prs.path` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.provider` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.repo` | `restart` | `-` | `safety_critical` |
+| `policy.approval_prs.timeout_seconds` | `restart` | `-` | `operator_preference` |
+| `policy.directory` | `restart` | `-` | `safety_critical` |
+| `policy.directory_mode` | `restart` | `-` | `safety_critical` |
 | `policy.profile` | `restart` | `-` | `safety_critical` |
 | `postgres.action_dsn` | `restart` | `-` | `safety_critical` |
 | `postgres.cloud_resource.aws.cluster_identifier` | `restart` | `-` | `safety_critical` |

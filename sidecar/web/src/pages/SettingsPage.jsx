@@ -6,11 +6,13 @@ import { TabPanel } from '../components/Tabs'
 import { queryBlocked } from '../lib/queryState'
 import { MaskedOverridesContext } from './settings/SourceBadge'
 import { PendingRestartPanel } from './settings/PendingRestartPanel'
+import { GitopsBanner } from './settings/GitopsBanner'
 import { FeedbackBanner } from './settings/fields'
 import { TabContent } from './settings/tabs/TabContent'
 import { useSettingsConfig, useSettingsMode } from './settings/useSettingsConfig'
 import { useSettingsSave } from './settings/useSettingsSave'
 import { useRestartNow } from './settings/useRestartNow'
+import { SavedYAML } from '../components/ConfigDiff'
 import { CARD_STYLE } from './settings/styles'
 import {
   LifecycleBanner, SaveBar, ScopeNotice, SettingsDialogs, SettingsHeader, TabCards,
@@ -51,6 +53,7 @@ export function SettingsPage({ database, databaseId, user, linkedTab }) {
       <ScopeNotice s={s} database={database} />
       <LifecycleBanner supported={s.data?.restart_supported === true} restart={restart} />
       <PendingRestartPanel pending={s.data?.pending} />
+      {!s.isDatabaseScope && <GitopsBanner />}
       <TabPanel id="settings" active={view.tab} className="space-y-4">
         <TabCards tab={view.tab} database={database}
           databaseId={s.isDatabaseScope ? s.numericDatabaseId : undefined} />
@@ -60,6 +63,8 @@ export function SettingsPage({ database, databaseId, user, linkedTab }) {
             database={database} fieldProps={fieldProps} user={user} />
         </div>
         {view.tab !== 'General' && s.hasEdits && <SaveBar save={save} onDiscard={s.discard} />}
+        {/* cli-01b: outside the save bar, which hides once a save clears the edits. */}
+        <SavedYAML keys={save.savedKeys} onDismiss={save.dismissSaved} />
       </TabPanel>
     </div></QueryState>
     </MaskedOverridesContext.Provider>

@@ -106,6 +106,34 @@
     "class": "operator_preference",
     "lifecycle": "restart"
   },
+  "agents.code_host.base_url": {
+    "type": "string",
+    "default": "",
+    "doc": "API root of the code host. Empty means https://api.github.com or https://gitlab.com/api/v4; GitHub Enterprise is https://\u003chost\u003e/api/v3. https only, except a loopback relay. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.code_host.provider": {
+    "type": "string",
+    "default": "",
+    "doc": "Code host of the monitored application's repository: github or gitlab. Empty turns call-site lookups off. The read token comes from SAGE_CODE_HOST_TOKEN (or SAGE_CODE_HOST_TOKEN_FILE). Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.code_host.repo": {
+    "type": "string",
+    "default": "",
+    "doc": "Repository of the monitored application's code: owner/name (GitLab: group/sub/name). Required with provider. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.code_host.timeout_seconds": {
+    "type": "int",
+    "default": 15,
+    "doc": "Seconds one code-host request may take. 1 to 120. Default: 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
   "agents.control_database": {
     "type": "string",
     "default": "",
@@ -160,6 +188,34 @@
     "default": 5,
     "doc": "Growth in GB per day of an agent memory store (LangGraph checkpoint tables) without deletes that posture reports. Greater than 0. Default: 5.",
     "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "agents.pr_mode.enabled": {
+    "type": "bool",
+    "default": false,
+    "doc": "Open one pull request per migration or exact-literal query rewrite pg_sage cannot apply, on agents.code_host. SAGE_CODE_HOST_TOKEN then needs write access. A person merges. Default: false.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.pr_mode.label": {
+    "type": "string",
+    "default": "pg_sage",
+    "doc": "Label on every pull request PR mode opens; the duplicate check lists open pull requests with it. Default: pg_sage.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "agents.pr_mode.migrations_path": {
+    "type": "string",
+    "default": "",
+    "doc": "Directory of the application's SQL migrations, relative to the repository root. A new migration is named after the newest file there. Required when enabled. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "agents.pr_mode.repo": {
+    "type": "string",
+    "default": "",
+    "doc": "Repository the pull requests go to: owner/name (GitLab: group/sub/name). Empty means agents.code_host.repo. Default: empty.",
+    "class": "safety_critical",
     "lifecycle": "restart"
   },
   "agents.query.audit_retention_days": {
@@ -3137,6 +3193,71 @@
     "type": "string",
     "default": "deny",
     "doc": "When role_mapping is set, what a user in no mapped group gets: deny (default, refused) or default_role.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.base_branch": {
+    "type": "string",
+    "default": "",
+    "doc": "Branch approval PRs merge into. Empty means the repository's default branch. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.base_url": {
+    "type": "string",
+    "default": "",
+    "doc": "API root of the code host. Empty means https://api.github.com or https://gitlab.com/api/v4. https only, except a loopback relay. Default: empty.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.expiry_hours": {
+    "type": "int",
+    "default": 72,
+    "doc": "Hours an approval PR stays open before pg_sage closes it as expired (sooner when the change itself expires), 1 to 720. Default: 72.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.path": {
+    "type": "string",
+    "default": "approvals/",
+    "doc": "Directory of the repository the approval files are added under, as \u003cpath\u003e\u003cdatabase\u003e/\u003cqueue_id\u003e.yaml. Default: approvals/.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.provider": {
+    "type": "string",
+    "default": "github",
+    "doc": "Code host of the config repository: github or gitlab. Default: github.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.repo": {
+    "type": "string",
+    "default": "",
+    "doc": "Config repository approval PRs open on: owner/name (GitLab: group/sub/name). Empty: off. Needs policy.directory (principals/users.yaml). Token: SAGE_APPROVAL_PRS_TOKEN. Default: empty.",
+    "warning": "A merge of an approval PR by a mapped operator approves and runs that change. High-risk changes, and tiers above notification_policy.chat_approval_max_tier, are never opened as PRs.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.approval_prs.timeout_seconds": {
+    "type": "int",
+    "default": 15,
+    "doc": "Seconds one code-host request may take. 1 to 120. Default: 15.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "policy.directory": {
+    "type": "string",
+    "default": "",
+    "doc": "GitOps directory of policy-sets/, principals/ and grants/ YAML files reconciled into policy sets, agent principals and database grants; relative to the config file. Empty: off.",
+    "warning": "In apply mode the files own the rows they name: the reconciler creates, changes and retires them, and an empty directory retires every row it made. A widening is only proposed and waits for a person.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "policy.directory_mode": {
+    "type": "string",
+    "default": "dry_run",
+    "doc": "dry_run (show the diff, write nothing) or apply. Default: dry_run.",
     "class": "safety_critical",
     "lifecycle": "restart"
   },

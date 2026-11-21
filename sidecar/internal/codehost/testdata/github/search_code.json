@@ -1,0 +1,29 @@
+{
+  "total_count": 3,
+  "incomplete_results": false,
+  "items": [
+    {
+      "name": "orders_controller.rb",
+      "path": "app/controllers/orders_controller.rb",
+      "sha": "d7212f9ee2bbc2a3bd6bba2b1f7ad0f9d9e8ac2b",
+      "url": "https://api.github.com/repositories/1/contents/app/controllers/orders_controller.rb?ref=d7212f9",
+      "html_url": "https://github.com/acme/shop/blob/d7212f9/app/controllers/orders_controller.rb",
+      "repository": {"id": 1, "full_name": "acme/shop"},
+      "score": 1.0
+    },
+    {
+      "name": "orders_controller.rb",
+      "path": "app/controllers/admin/orders_controller.rb",
+      "sha": "a11f9ee2bbc2a3bd6bba2b1f7ad0f9d9e8ac2b00",
+      "repository": {"id": 1, "full_name": "acme/shop"},
+      "score": 0.8
+    },
+    {
+      "name": "evil",
+      "path": "../outside/evil.rb",
+      "sha": "0000000000000000000000000000000000000000",
+      "repository": {"id": 1, "full_name": "acme/shop"},
+      "score": 0.1
+    }
+  ]
+}

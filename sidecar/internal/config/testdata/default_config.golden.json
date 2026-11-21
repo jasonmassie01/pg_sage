@@ -524,7 +524,18 @@
     "DatabaseGrantMapping": null
   },
   "Policy": {
-    "Profile": "unattended"
+    "Profile": "unattended",
+    "Directory": "",
+    "DirectoryMode": "dry_run",
+    "ApprovalPRs": {
+      "Provider": "github",
+      "BaseURL": "",
+      "Repo": "",
+      "BaseBranch": "",
+      "Path": "approvals/",
+      "ExpiryHours": 72,
+      "TimeoutSeconds": 15
+    }
   },
   "Value": {
     "ToilModelVersion": 1
@@ -824,7 +835,19 @@
     "Capabilities": {
       "MaxDurationMinutes": 240
     },
-    "ReconcileIntervalSeconds": 60
+    "ReconcileIntervalSeconds": 60,
+    "CodeHost": {
+      "Provider": "",
+      "BaseURL": "",
+      "Repo": "",
+      "TimeoutSeconds": 15
+    },
+    "PRMode": {
+      "Enabled": false,
+      "Repo": "",
+      "MigrationsPath": "",
+      "Label": "pg_sage"
+    }
   },
   "Audit": {
     "SIEM": {

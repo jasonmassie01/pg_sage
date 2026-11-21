@@ -139,6 +139,9 @@ func writeGrantChangeError(w http.ResponseWriter, r *http.Request, err error) {
 		sreErrorCode(w, "this grant comes from the SSO group mapping: change the user's IdP "+
 			"groups or oauth.database_grant_mapping, or set a manual grant to override it",
 			"idp_grant", http.StatusConflict)
+	case errors.Is(err, auth.ErrConfigGrantReadOnly):
+		sreErrorCode(w, "this grant is set by a file under policy.directory (cli-02a): "+
+			"edit the file in its repository", "config_managed", http.StatusConflict)
 	case errors.Is(err, auth.ErrGrantStoreUnavailable):
 		writeGrantStoreUnavailable(w)
 	default:

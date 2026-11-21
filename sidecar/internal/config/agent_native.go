@@ -7,6 +7,41 @@ import (
 
 type PolicyConfig struct {
 	Profile string `yaml:"profile" doc:"Bootstrap standing-policy profile: staffed or unattended." api:"policy_profile" enum:"staffed|unattended"`
+	// The GitOps directory (cli-02a): policy-sets/, principals/ and
+	// grants/ YAML files reconciled into pg_sage's own tables.
+	Directory     string `yaml:"directory" doc:"GitOps directory of policy-sets/, principals/ and grants/ YAML files reconciled into policy sets, agent principals and database grants; relative to the config file. Empty: off." warning:"In apply mode the files own the rows they name: the reconciler creates, changes and retires them, and an empty directory retires every row it made. A widening is only proposed and waits for a person."`
+	DirectoryMode string `yaml:"directory_mode" doc:"dry_run (show the diff, write nothing) or apply. Default: dry_run."`
+	// ApprovalPRs opens approval requests as pull requests (cli-02b).
+	ApprovalPRs PolicyApprovalPRsConfig `yaml:"approval_prs"`
+}
+
+// GitOps directory modes (policy.directory_mode).
+const (
+	PolicyDirectoryDryRun = "dry_run"
+	PolicyDirectoryApply  = "apply"
+)
+
+func defaultPolicyConfig() PolicyConfig {
+	return PolicyConfig{Profile: DefaultPolicyProfile, DirectoryMode: PolicyDirectoryDryRun,
+		ApprovalPRs: defaultApprovalPRs()}
+}
+
+func (c PolicyConfig) validate() error {
+	if c.Profile != "staffed" && c.Profile != "unattended" {
+		return fmt.Errorf("policy.profile must be staffed or unattended")
+	}
+	if m := c.DirectoryMode; m != "" && m != PolicyDirectoryDryRun && m != PolicyDirectoryApply {
+		return fmt.Errorf("policy.directory_mode must be dry_run or apply, got %q", m)
+	}
+	return c.ApprovalPRs.validate(c.Directory)
+}
+
+// EffectiveDirectoryMode is policy.directory_mode, dry_run when unset.
+func (c PolicyConfig) EffectiveDirectoryMode() string {
+	if c.DirectoryMode == "" {
+		return PolicyDirectoryDryRun
+	}
+	return c.DirectoryMode
 }
 
 type ValueConfig struct {
@@ -126,8 +161,8 @@ func (c *Config) validateAgentNative() error {
 	if err := ValidStdioPrincipal(c.MCP.StdioPrincipal); err != nil {
 		return err
 	}
-	if c.Policy.Profile != "staffed" && c.Policy.Profile != "unattended" {
-		return fmt.Errorf("policy.profile must be staffed or unattended")
+	if err := c.Policy.validate(); err != nil {
+		return err
 	}
 	if c.Value.ToilModelVersion <= 0 {
 		return fmt.Errorf("value.toil_model_version must be positive")

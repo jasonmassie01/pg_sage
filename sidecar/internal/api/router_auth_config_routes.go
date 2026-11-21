@@ -105,6 +105,9 @@ func registerConfigRoutesRuntime(
 
 	globalDelete := http.HandlerFunc(configGlobalDeleteHandler(cs, base, controller))
 	route(mux, "DELETE /api/v1/config/global/{key}", gateAdmin, globalDelete)
+	// cli-01b: the settings as file YAML, secrets as placeholders.
+	route(mux, "GET /api/v1/config/yaml", gateAdmin,
+		http.HandlerFunc(configYAMLHandler(cs, controller)))
 
 	registerDatabaseConfigRoutes(mux, cs, baseCfg, cfg, pool, fm, controller)
 
@@ -150,6 +153,8 @@ func registerReadOnlyConfigRoutes(
 	route(mux, "GET /api/v1/config/global", gateAdmin, globalGet)
 	route(mux, "PUT /api/v1/config/global", gateAdmin, unavailable)
 	route(mux, "DELETE /api/v1/config/global/{key}", gateAdmin, unavailable)
+	route(mux, "GET /api/v1/config/yaml", gateAdmin,
+		http.HandlerFunc(configYAMLHandler(nil, controller)))
 	dbGet := http.HandlerFunc(configReadOnlyDBGetHandler(fm, controller))
 	route(mux, "GET /api/v1/config/databases/{id}", gateAdmin, dbGet)
 	route(mux, "PUT /api/v1/config/databases/{id}", gateAdmin, unavailable)
