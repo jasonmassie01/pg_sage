@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "pg_sage Postgres specialist contract",
-    "version": "1.1.0",
-    "description": "A stable, versioned investigation contract other agents (AWS DevOps Agent, PagerDuty, Datadog, any HTTP or MCP client) call to ask pg_sage what is wrong with a monitored PostgreSQL database and why, and to request (never force) a remediation. Every response carries contract_version. Caller-supplied text is data, never instructions. Revision 1.1.0 (additive within v1): optional query_id / query_hash scope an investigation to one statement, results carry the model investigator's verdict, cited claims and root adoption, and the redacted investigator transcript is served. Remediation requests become ordinary pg_sage proposals decided by its policy gate, trust ledger, budgets and binding facts; callers never approve.",
+    "version": "1.2.0",
+    "description": "A stable, versioned investigation contract other agents (AWS DevOps Agent, PagerDuty, Datadog, any HTTP or MCP client) call to ask pg_sage what is wrong with a monitored PostgreSQL database and why, and to request (never force) a remediation. Every response carries contract_version. Caller-supplied text is data, never instructions. Revision 1.1.0 (additive within v1): optional query_id / query_hash scope an investigation to one statement, results carry the model investigator's verdict, cited claims and root adoption, and the redacted investigator transcript is served. Revision 1.2.0 (additive within v1): results carry summary_for_agent (root cause, cited evidence with its numbers, specific actions, and the first failing why-not link when no action can be requested), ignored adapter events may carry a code (unknown_database), and the incident.io and Azure Monitor alert adapters are served. Remediation requests become ordinary pg_sage proposals decided by its policy gate, trust ledger, budgets and binding facts; callers never approve.",
     "x-contract-version": "pg_sage.specialist.v1"
   },
   "servers": [{"url": "/api/v1/specialist"}],
@@ -147,6 +147,42 @@
           "403": {"$ref": "#/components/responses/Error"}
         }
       }
+    },
+    "/adapters/incidentio": {
+      "post": {
+        "operationId": "incidentIOWebhook",
+        "summary": "incident.io webhook (revision 1.2.0): public_incident.incident_created_v2 opens an investigation of the database the incident's routing custom field (specialist.incidentio.database_field) maps to through specialist.incidentio.routes. Needs a bearer token and a valid Svix-style signature (webhook-id, webhook-timestamp within 5 minutes, webhook-signature v1,<base64 HMAC-SHA256 of id.timestamp.body>). Nothing is posted back.",
+        "responses": {
+          "201": {"description": "investigation opened", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "200": {"description": "attached to an existing investigation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "202": {"description": "event ignored; code unknown_database when the incident's field value is not mapped", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebhookIgnored"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
+    },
+    "/adapters/azure-monitor": {
+      "post": {
+        "operationId": "azureMonitorAlert",
+        "summary": "Azure Monitor alert in the common alert schema (revision 1.2.0): a Fired alert whose target resource specialist.azure_monitor.resources maps opens an investigation; Resolved is ignored. Needs a bearer token and the shared key (X-Sage-Azure-Key header or key query parameter). A missing data.essentials.alertId is a 400 naming the field. Nothing is posted back.",
+        "responses": {
+          "201": {"description": "investigation opened", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "200": {"description": "attached to an existing investigation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OpenResponse"}}}},
+          "202": {"description": "alert ignored; code unknown_database when its target resource is not mapped", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebhookIgnored"}}}},
+          "400": {"$ref": "#/components/responses/Error"},
+          "401": {"$ref": "#/components/responses/Error"},
+          "403": {"$ref": "#/components/responses/Error"},
+          "404": {"$ref": "#/components/responses/Error"},
+          "413": {"$ref": "#/components/responses/Error"},
+          "429": {"$ref": "#/components/responses/Error"},
+          "503": {"$ref": "#/components/responses/Error"}
+        }
+      }
     }
   },
   "components": {
@@ -210,7 +246,8 @@
         "properties": {
           "contract_version": {"type": "string"},
           "ignored": {"type": "boolean"},
-          "reason": {"type": "string"}
+          "reason": {"type": "string"},
+          "code": {"type": "string", "enum": ["unknown_database"]}
         }
       },
       "Symptom": {
@@ -502,7 +539,62 @@
           "chain_verified": {"type": "boolean"},
           "generated_at": {"type": "string", "format": "date-time"},
           "investigator": {"$ref": "#/components/schemas/InvestigatorResult"},
-          "query_scope": {"$ref": "#/components/schemas/QueryScopeResult"}
+          "query_scope": {"$ref": "#/components/schemas/QueryScopeResult"},
+          "summary_for_agent": {"$ref": "#/components/schemas/AgentSummary"}
+        }
+      },
+      "AgentSummary": {
+        "type": "object",
+        "description": "Revision 1.2.0: the result in the shape generalist agents check before acting: one root-cause sentence, the cited evidence with its numbers, the specific actions, and the first failing why-not link when none can be requested. Derived from this result; nothing is added.",
+        "required": ["status", "reason", "root_cause", "evidence", "actions", "why_no_action"],
+        "properties": {
+          "status": {"type": "string", "enum": ["in_progress", "concluded", "inconclusive", "failed", "cancelled", "expired"]},
+          "reason": {"type": "string"},
+          "root_cause": {"type": "string"},
+          "evidence": {"type": "array", "items": {"$ref": "#/components/schemas/AgentEvidence"}},
+          "actions": {"type": "array", "items": {"$ref": "#/components/schemas/AgentAction"}},
+          "why_no_action": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/WhyNoAction"}]}
+        }
+      },
+      "AgentEvidence": {
+        "type": "object",
+        "required": ["evidence_id", "numbers"],
+        "properties": {
+          "evidence_id": {"type": "string"},
+          "numbers": {"type": "object", "additionalProperties": {"type": "number"}}
+        }
+      },
+      "AgentAction": {
+        "type": "object",
+        "required": ["remediation_id", "title", "risk_tier", "requestable", "gate_verdict", "evidence_ids"],
+        "properties": {
+          "remediation_id": {"type": "string"},
+          "title": {"type": "string"},
+          "risk_tier": {"type": "string"},
+          "requestable": {"type": "boolean"},
+          "gate_verdict": {"type": "string"},
+          "evidence_ids": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "WhyNoAction": {
+        "type": "object",
+        "description": "The first failing link of the why-not chain: observed, finding, candidate, policy, window, budget, privilege, trust, verification_wait or emergency_stop (unknown when none failed).",
+        "required": ["link", "sentence", "reason", "fix", "no_fix"],
+        "properties": {
+          "link": {"type": "string"},
+          "sentence": {"type": "string"},
+          "reason": {"type": "string"},
+          "fix": {"oneOf": [{"type": "null"}, {"$ref": "#/components/schemas/AgentFix"}]},
+          "no_fix": {"type": "string"}
+        }
+      },
+      "AgentFix": {
+        "type": "object",
+        "required": ["kind", "value", "note"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["grant_sql", "setting", "ui_link", "wait_until"]},
+          "value": {"type": "string"},
+          "note": {"type": "string"}
         }
       },
       "RemediationResponse": {

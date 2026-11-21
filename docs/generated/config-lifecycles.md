@@ -473,7 +473,12 @@
 | `self_budget.storage_mb` | `restart` | `-` | `operator_preference` |
 | `self_config.enabled` | `restart` | `-` | `safety_critical` |
 | `self_config.soak_hours` | `restart` | `-` | `safety_critical` |
+| `specialist.azure_monitor.resources` | `restart` | `-` | `operator_preference` |
+| `specialist.azure_monitor.shared_secret` | `restart` | `-` | `safety_critical` |
 | `specialist.enabled` | `restart` | `-` | `safety_critical` |
+| `specialist.incidentio.database_field` | `restart` | `-` | `operator_preference` |
+| `specialist.incidentio.routes` | `restart` | `-` | `operator_preference` |
+| `specialist.incidentio.signing_secret` | `restart` | `-` | `safety_critical` |
 | `specialist.keep_identifiers` | `restart` | `-` | `safety_critical` |
 | `specialist.max_live_age_hours` | `restart` | `-` | `safety_critical` |
 | `specialist.max_open_per_identity` | `restart` | `-` | `safety_critical` |

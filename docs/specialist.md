@@ -15,8 +15,11 @@ and why**, and **request** (never force) a remediation.
 - The document's `info.version` counts revisions within `v1`: the minor
   number goes up with every additive change (new optional fields, values,
   paths). Revisions: `1.0.0` (v2.1.0), `1.1.0` (investigator results,
-  `query_id` / `query_hash`, the transcript path). A result without the new
-  data is byte for byte what `1.0.0` served.
+  `query_id` / `query_hash`, the transcript path), `1.2.0`
+  (`summary_for_agent`, the ignored-event `code`, the incident.io and Azure
+  Monitor adapters). A mapped result without the new data is byte for byte
+  what `1.0.0` served; `summary_for_agent` is added to every result the
+  contract serves.
 - The same contract is available over MCP (`specialist_*` tools, see
   [MCP](mcp.md)).
 
@@ -169,6 +172,30 @@ already allows it, `parked`, `blocked`, `already_requested`,
 `not_requestable`, `stale`) and `reason`. The request body has one field,
 `reason`, which is recorded and never acted on.
 
+**Summary for agents (1.2.0).** Every result read through the contract
+(HTTP, MCP and the result posts) carries `summary_for_agent`, the result in
+the shape generalist SRE agents check before they act on a specialist's
+answer. It is derived from the result; nothing is read or invented for it:
+
+- `status` and `reason`: the outcome and its reason. A failed investigation
+  is a `200` result with `status: failed` and the failure code, never a
+  `500`.
+- `root_cause`: one sentence (label, mechanism, subject); empty without one.
+- `evidence`: every evidence id the causal chain cites, root first, with the
+  numbers that evidence holds.
+- `actions`: every candidate remediation (`remediation_id`, `title`,
+  `risk_tier`, `requestable`, the gate preview's `gate_verdict`,
+  `evidence_ids`).
+- `why_no_action`: when the investigation is over and no action can be
+  requested, the first failing link of the why-not chain
+  ([policy-gate.md](policy-gate.md), "Why not?"): `link`, `sentence`, the
+  gate's `reason`, a typed `fix` for a person or `no_fix`. The chain is run
+  over the result alone (the diagnosis is the finding, the remediations the
+  candidates, their gate previews the verdicts), so links it cannot see
+  stay unknown and are never reported as the cause; without a root cause
+  the `finding` link fails with the outcome. `null` while an action can be
+  requested or the investigation runs.
+
 **Caller text is data.** The symptom never becomes an investigation subject,
 a prompt or an instruction; it is stored with secrets and PII removed and
 returned only to the caller who sent it, fenced (`caller_supplied.fenced`).
@@ -225,19 +252,118 @@ and a query scope are not posted (the adapter never scopes by statement).
 `specialist.webhook.result_url` set, the result JSON is posted there when the
 investigation finishes, signed the same way.
 
-## AWS DevOps Agent and Datadog
+## incident.io
 
-No vendor SDK is needed; both call the contract as an HTTP tool or MCP server.
+```yaml
+specialist:
+  incidentio:
+    signing_secret: ${INCIDENTIO_WEBHOOK_SECRET}   # whsec_... of the endpoint
+    database_field: Database                        # the routing custom field
+    routes: ["orders=orders:lock_blocking", "billing=billing"]
+```
 
-- **AWS DevOps Agent**: where it accepts a custom MCP server, register
-  `https://<sage>/api/v1/mcp` with the bearer token and let it use the
-  `specialist_*` tools. Where it accepts HTTP actions, import
-  `/api/v1/specialist/openapi.json`. Give it a read token first; add propose
-  once you want it to request remediations.
-- **Datadog**: a Workflow Automation HTTP action (or a monitor webhook through
-  the generic webhook adapter) calls `openInvestigation` with
-  `external_ref: {"system": "datadog", "id": "<monitor id>"}`, then polls
-  `getInvestigationResult` and attaches it to the incident.
+`POST /api/v1/specialist/adapters/incidentio` with a bearer token. Deliveries
+are verified the Svix way: `webhook-id`, `webhook-timestamp` (unix seconds,
+within 5 minutes) and `webhook-signature` (`v1,<base64 HMAC-SHA256 of
+"id.timestamp.body">` with the decoded `whsec_` secret; any one of several
+signatures passes). `public_incident.incident_created_v2` opens (or
+attaches to) an investigation of the database the incident's
+`database_field` custom field value names in `routes` (matched without
+case); other events answer `202` ignored. An incident with no value, or one
+no route names, answers `202` with `code: unknown_database` and the setting
+to add it to. Redeliveries of one incident share one investigation. Nothing
+is posted back to incident.io; the agent reads the result. The request is
+audited with transport `http` and `external_ref.system: incident_io`.
+
+Unverified: the payload fields pg_sage reads (`event_type`, the incident
+under a key named like the event type, `id`, `name`, `permalink`,
+`created_at`, `custom_field_entries[].custom_field.name` and
+`values[].value_option.value`, `value_catalog_entry.name` for a
+catalog-backed field, or `value_text`) and the Svix header names
+follow incident.io's public webhook documentation as of 2026-11 and were not
+checked against a live account.
+
+## Azure Monitor
+
+```yaml
+specialist:
+  azure_monitor:
+    shared_secret: ${AZURE_ALERT_KEY}
+    resources: ["/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.DBforPostgreSQL/flexibleServers/orders-pg=orders:connection_pressure"]
+```
+
+`POST /api/v1/specialist/adapters/azure-monitor` with a bearer token and the
+shared key in `X-Sage-Azure-Key` or the `key` query parameter (compared in
+constant time; a header that is present decides alone). The body is an
+action group webhook in the common alert schema (enable it on the action
+group): a `Fired` alert whose `data.essentials.alertTargetIDs` names a
+mapped resource (matched without case) opens an investigation; `Resolved`
+answers `202` ignored, an unmapped target `202` with `code:
+unknown_database`. `data.essentials.alertId` is required (`400` naming the
+field); its last segment is the external reference, so repeated firings of
+one alert share one investigation. An action group cannot add an
+`Authorization` header, so deliveries reach pg_sage through a relay that
+adds the token (an Azure Logic App or Function), or the Azure SRE Agent
+calls the contract itself (below). Nothing is posted back.
+
+## Packaging for generalist SRE agents
+
+`deploy/specialist/` holds what a generalist agent needs to find and call
+pg_sage:
+
+- `server.json`: an MCP server manifest (the MCP registry format): the
+  streamable HTTP endpoint `https://{sage_host}/api/v1/mcp`, bearer-token
+  auth, and the tool list with each tool's scope, generated from the tool
+  registry (`go test ./internal/mcp -run
+  TestSpecialistManifestMatchesTheRegistry -update-manifest`; a test fails
+  when it drifts).
+- `pg_sage-skill.md`: the agent instructions: when to call pg_sage, the
+  session order (open, poll status, read the result, request a remediation,
+  wait for the decision) and what pg_sage never does. Load it as the
+  agent's skill, runbook or knowledge item.
+
+Give every agent its own MCP token (its identity in the audit trail), with
+`read` first and `propose` once it should request remediations. No token
+holds approve: a person approves in pg_sage. A conformance test
+(`internal/specialist/conformance_test.go`) replays the session a
+generalist agent runs over MCP and fails if an agent could gain approval.
+
+The setups below are unverified against the vendors' current consoles
+(written from their public documentation as of 2026-11, without an
+account); the pg_sage side is tested.
+
+### Datadog Bits AI SRE
+
+Add pg_sage as an MCP server (Bits AI's custom MCP integration) with
+`server.json`'s endpoint and an `Authorization: Bearer <token>` header, and
+add `pg_sage-skill.md` to the agent's instructions. Without MCP, a Workflow
+Automation HTTP action (or a monitor webhook through the generic webhook
+adapter) calls `openInvestigation` with
+`external_ref: {"system": "datadog", "id": "<monitor id>"}`, then polls
+`getInvestigationResult` and attaches `summary_for_agent` to the incident.
+
+### AWS DevOps Agent
+
+Where it accepts a custom MCP server, register `https://<sage>/api/v1/mcp`
+with the bearer token and let it use the `specialist_*`,
+`get_request_status` and `wait_for_decision` tools, with
+`pg_sage-skill.md` as its runbook. Where it accepts HTTP actions, import
+`/api/v1/specialist/openapi.json`.
+
+### Azure SRE Agent
+
+Connect pg_sage as an MCP server (streamable HTTP, bearer token) and load
+`pg_sage-skill.md` as a custom instruction. Its hooks can require a root
+cause, evidence and actions before an answer is accepted:
+`summary_for_agent` carries exactly those. For alert-driven investigations
+without the agent, route Azure Monitor alerts to the adapter above.
+
+### incident.io
+
+Point an incident.io webhook endpoint at the incident.io adapter above (it
+opens the investigation when the incident is declared) and, where its AI
+agent accepts MCP servers, add `server.json`'s endpoint so it can read the
+result and request remediations itself.
 
 In every case the agent sees evidence-cited diagnoses and candidate
 remediations; what runs is still decided by pg_sage's gate.

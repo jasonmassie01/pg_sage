@@ -391,6 +391,11 @@ var excludedExactKeys = map[string]bool{
 	"specialist.webhook.signing_secret":              true,
 	"specialist.webhook.result_url":                  true,
 	"specialist.webhook.timestamp_tolerance_seconds": true,
+	"specialist.incidentio.signing_secret":           true,
+	"specialist.incidentio.database_field":           true,
+	"specialist.incidentio.routes":                   true,
+	"specialist.azure_monitor.shared_secret":         true,
+	"specialist.azure_monitor.resources":             true,
 
 	// Sage SRE M6: runways are read when a database runtime is built
 	// (restart lifecycle) and validated together at load, so they are

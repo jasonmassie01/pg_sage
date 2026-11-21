@@ -701,6 +701,15 @@
       "SigningSecret": "",
       "ResultURL": "",
       "TimestampToleranceSeconds": 300
+    },
+    "IncidentIO": {
+      "SigningSecret": "",
+      "DatabaseField": "Database",
+      "Routes": null
+    },
+    "AzureMonitor": {
+      "SharedSecret": "",
+      "Resources": null
     }
   },
   "Budgets": null,

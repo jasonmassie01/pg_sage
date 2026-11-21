@@ -4084,10 +4084,47 @@
     "class": "safety_critical",
     "lifecycle": "restart"
   },
+  "specialist.azure_monitor.resources": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Alert target resource id to database mappings, RESOURCE_ID=database or RESOURCE_ID=database:family, matched without case. Unmapped alerts are answered unknown_database.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "specialist.azure_monitor.shared_secret": {
+    "type": "string",
+    "default": null,
+    "doc": "Shared key Azure alert deliveries carry in the X-Sage-Azure-Key header or the key query parameter. Empty disables the adapter.",
+    "secret": true,
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
   "specialist.enabled": {
     "type": "bool",
     "default": true,
     "doc": "Serve the Postgres-specialist contract under /api/v1/specialist (MCP tokens only). Default: true.",
+    "class": "safety_critical",
+    "lifecycle": "restart"
+  },
+  "specialist.incidentio.database_field": {
+    "type": "string",
+    "default": "Database",
+    "doc": "incident.io custom field whose value names the database through routes. Default: Database.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "specialist.incidentio.routes": {
+    "type": "[]string",
+    "default": null,
+    "doc": "Field value to database mappings, VALUE=database or VALUE=database:family, matched without case. Unmapped incidents are answered unknown_database.",
+    "class": "operator_preference",
+    "lifecycle": "restart"
+  },
+  "specialist.incidentio.signing_secret": {
+    "type": "string",
+    "default": null,
+    "doc": "Signing secret (whsec_...) of the incident.io webhook endpoint; webhook-signature must match. Empty disables the adapter.",
+    "secret": true,
     "class": "safety_critical",
     "lifecycle": "restart"
   },

@@ -219,9 +219,12 @@ func (s *Service) result(ctx context.Context, b Backend, tokenID, database strin
 		return Result{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	d.Database = database
-	return MapResult(Snapshot{Detail: d, Proposals: proposals, Record: rec}, MapOptions{
+	r := MapResult(Snapshot{Detail: d, Proposals: proposals, Record: rec}, MapOptions{
 		KeepIdentifiers: s.keepIdentifiers, RedactKey: s.redactKey,
-		Calibration: s.calibration(ctx, database, d), Now: s.now()}), nil
+		Calibration: s.calibration(ctx, database, d), Now: s.now()})
+	summary := agentSummary(r, database)
+	r.SummaryForAgent = &summary
+	return r, nil
 }
 
 // calibration is advisory: a failure is logged and leaves the result

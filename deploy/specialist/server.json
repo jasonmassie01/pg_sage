@@ -1,0 +1,368 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "contract_schema": "/api/v1/specialist/openapi.json",
+      "contract_version": "pg_sage.specialist.v1",
+      "instructions": "pg_sage-skill.md",
+      "tools": [
+        {
+          "name": "get_policy",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "propose_policy_change",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "request_change",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "optimize_query",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "apply_migration",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "ensure_fk_indexes",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "declare_table_contract",
+          "scope": "approve",
+          "read_only": false
+        },
+        {
+          "name": "register_consumer",
+          "scope": "approve",
+          "read_only": false
+        },
+        {
+          "name": "set_maintenance_policy",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "get_guarantee_status",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "get_value",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "get_ledger",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_list_incidents",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_get_investigation",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_get_evidence",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_get_transcript",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_propose_action",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "sre_request_execution",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "sre_refresh_table_evidence",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "sre_propose_statistics",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "sre_request_statistics",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "sre_rollback_statistics",
+          "scope": "approve",
+          "read_only": false
+        },
+        {
+          "name": "sre_list_slos",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_get_slo",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_list_changes",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_list_runbooks",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_get_runbook",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_runbook_runs",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_similar_incidents",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_draft_runbook",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "sre_compile_runbook",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "sre_get_autonomy",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "sre_downgrade_autonomy",
+          "scope": "approve",
+          "read_only": false
+        },
+        {
+          "name": "sre_review_investigation",
+          "scope": "approve",
+          "read_only": false
+        },
+        {
+          "name": "sre_evaluate_autonomy",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "list_facts",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "propose_fact",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "decide_fact",
+          "scope": "approve",
+          "read_only": false
+        },
+        {
+          "name": "list_databases",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "top_queries",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "explain_query",
+          "scope": "propose",
+          "read_only": true
+        },
+        {
+          "name": "whatif_index",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "lint_migration",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "query_sources",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "mark_object",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "get_source_fix_packet",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "report_source_fix",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "specialist_open_investigation",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "specialist_investigation_status",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "specialist_investigation_result",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "specialist_investigation_transcript",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "specialist_request_remediation",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "ask_sage",
+          "scope": "read",
+          "read_only": false
+        },
+        {
+          "name": "fleet_findings",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "agent_query",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "agent_whoami",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "agent_request_capability",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "upgrade_readiness",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "get_inbox",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "get_workload_pack",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "get_outcomes",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "propose_plan",
+          "scope": "propose",
+          "read_only": false
+        },
+        {
+          "name": "list_plans",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "get_plan",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "get_request_status",
+          "scope": "read",
+          "read_only": true
+        },
+        {
+          "name": "wait_for_decision",
+          "scope": "read",
+          "read_only": true
+        }
+      ]
+    }
+  },
+  "description": "Agentic DBA for PostgreSQL: evidence-cited investigations, held remediations a person approves.",
+  "name": "io.github.jasonmassie01/pg_sage",
+  "remotes": [
+    {
+      "headers": [
+        {
+          "description": "A pg_sage MCP token (pgs_mcp_...): read to investigate, propose to request remediations. Never approve.",
+          "isRequired": true,
+          "isSecret": true,
+          "name": "Authorization",
+          "value": "Bearer {pg_sage_mcp_token}"
+        }
+      ],
+      "type": "streamable-http",
+      "url": "https://{sage_host}/api/v1/mcp",
+      "variables": {
+        "sage_host": {
+          "description": "pg_sage API host and port, such as sage.example.com:8080",
+          "isRequired": true
+        }
+      }
+    }
+  ],
+  "title": "pg_sage Postgres specialist",
+  "version": "2.5.0",
+  "websiteUrl": "https://github.com/jasonmassie01/pg_sage"
+}

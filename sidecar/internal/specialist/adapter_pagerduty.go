@@ -25,8 +25,9 @@ import (
 // whole incident).
 const maxAdapterBody = 256 << 10
 
-// PagerDutyRoute maps one PagerDuty service to a database and an optional
-// incident family.
+// PagerDutyRoute maps one alert source (a PagerDuty service, an
+// incident.io field value, an Azure resource) to a database and an
+// optional incident family.
 type PagerDutyRoute struct {
 	Database string
 	Family   string
@@ -42,26 +43,7 @@ var pdServiceID = regexp.MustCompile(`^[A-Za-z0-9]{1,32}$`)
 
 // ParsePagerDutyServices parses SERVICE_ID=database[:family] entries.
 func ParsePagerDutyServices(entries []string) (map[string]PagerDutyRoute, error) {
-	out := make(map[string]PagerDutyRoute, len(entries))
-	for _, entry := range entries {
-		service, target, ok := strings.Cut(entry, "=")
-		service, target = strings.TrimSpace(service), strings.TrimSpace(target)
-		database, family, _ := strings.Cut(target, ":")
-		switch {
-		case !ok || !pdServiceID.MatchString(service):
-			return nil, invalidf("pagerduty service mapping %q: SERVICE_ID=database", entry)
-		case !databaseName.MatchString(database):
-			return nil, invalidf("pagerduty service mapping %q: invalid database", entry)
-		case family != "" && families[family] == "":
-			return nil, invalidf("pagerduty service mapping %q: unknown family %q", entry,
-				family)
-		}
-		if _, dup := out[service]; dup {
-			return nil, invalidf("pagerduty service %s is mapped twice", service)
-		}
-		out[service] = PagerDutyRoute{Database: database, Family: family}
-	}
-	return out, nil
+	return parseRoutes("pagerduty service mapping", entries, false, pdServiceID.MatchString)
 }
 
 // VerifyPagerDutySignature checks X-PagerDuty-Signature: one or more

@@ -33,8 +33,8 @@ func (b strictBackend) GetTranscript(ctx context.Context, _ InvestigationRequest
 }
 
 // SpecialistCall decodes the open request with the contract's strict
-// decoder, as the production wiring does (cmd/pg_sage_sidecar,
-// specialistMCPBackend): the server leaves that request to the contract.
+// decoder, as the production adapter does (SpecialistService): the
+// server leaves that request to the contract.
 func (b strictBackend) SpecialistCall(ctx context.Context, tool string,
 	caller SpecialistCaller, database string, args json.RawMessage) (any, error) {
 	if tool == "specialist_open_investigation" {
