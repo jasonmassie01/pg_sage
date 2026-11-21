@@ -150,6 +150,16 @@ func TestCheckFile_UnreadableFileNamesPathAndOSError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		return // no unreadable-by-mode file on Windows; the missing file covers it
 	}
+	if os.Geteuid() == 0 { // root reads a mode-0 file, but not a directory as a file
+		dir := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := CheckFile(dir); err == nil || !strings.Contains(err.Error(), dir) {
+			t.Fatalf("unreadable as root: err %v; want it to name %s", err, dir)
+		}
+		return
+	}
 	locked := writeConfigFile(t, "mode: standalone\n")
 	if err := os.Chmod(locked, 0); err != nil {
 		t.Fatal(err)
