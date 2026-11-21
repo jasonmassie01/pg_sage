@@ -17,6 +17,14 @@ import (
 
 const metaDBTimeout = 10 * time.Second
 
+// metaSchemaBootTimeout bounds the meta database's schema boot. The boot
+// runs every migration step, each under its own lock_timeout, and a fresh
+// install takes most of metaDBTimeout already (8.7 s under load with -race
+// in T7 test round 2), so it gets a budget of its own: long enough for a
+// first boot on a slow server, short enough that a hung meta database still
+// fails startup with an error that names it. A var only as a test seam.
+var metaSchemaBootTimeout = time.Minute
+
 var bootstrapManagedDatabaseSchema = schema.Bootstrap
 
 // metaSchemaBootstrap is the meta database's schema boot (a test seam).
@@ -57,11 +65,11 @@ func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
 	return p, err
 }
 
-// bootstrapMetaSchema runs the schema boot within its own metaDBTimeout, so
+// bootstrapMetaSchema runs the schema boot within metaSchemaBootTimeout, so
 // a slow boot cannot spend the budget of the steps after it (the admin's
 // password hash among them).
 func bootstrapMetaSchema(metaPool *pgxpool.Pool) error {
-	ctx, cancel := context.WithTimeout(context.Background(), metaDBTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), metaSchemaBootTimeout)
 	defer cancel()
 	if err := metaSchemaBootstrap(ctx, metaPool); err != nil {
 		return fmt.Errorf("bootstrapping meta-db schema: %w", err)

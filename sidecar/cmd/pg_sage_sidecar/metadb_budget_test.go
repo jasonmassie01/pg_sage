@@ -23,8 +23,17 @@ func useMetaSchemaBootstrap(
 	t.Cleanup(func() { metaSchemaBootstrap = saved })
 }
 
+// useMetaSchemaBootTimeout shortens the boot's budget for the test.
+func useMetaSchemaBootTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	saved := metaSchemaBootTimeout
+	metaSchemaBootTimeout = d
+	t.Cleanup(func() { metaSchemaBootTimeout = saved })
+}
+
 // Error propagation and boundary: the boot gets a deadline of at most
-// metaDBTimeout, and its error comes back naming the meta-db schema.
+// metaSchemaBootTimeout, longer than the metaDBTimeout of the later steps,
+// and its error comes back naming the meta-db schema.
 func TestBootstrapMetaSchemaHasItsOwnBudgetAndNamesItsError(t *testing.T) {
 	boom := errors.New("boom")
 	var left time.Duration
@@ -40,8 +49,12 @@ func TestBootstrapMetaSchemaHasItsOwnBudgetAndNamesItsError(t *testing.T) {
 	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "bootstrapping meta-db schema") {
 		t.Fatalf("err = %v, want the boot's error wrapped as the meta-db schema", err)
 	}
-	if left <= metaDBTimeout-time.Second || left > metaDBTimeout {
-		t.Fatalf("boot deadline %s away, want just under %s", left, metaDBTimeout)
+	if left <= metaSchemaBootTimeout-time.Second || left > metaSchemaBootTimeout {
+		t.Fatalf("boot deadline %s away, want just under %s", left, metaSchemaBootTimeout)
+	}
+	if left <= metaDBTimeout {
+		t.Fatalf("boot deadline %s away, want more than the steps' %s: a fresh boot "+
+			"takes most of it", left, metaDBTimeout)
 	}
 	useMetaSchemaBootstrap(t, func(context.Context, *pgxpool.Pool) error { return nil })
 	if err := bootstrapMetaSchema(nil); err != nil {
@@ -56,6 +69,7 @@ func TestBootstrapMetaSchemaHasItsOwnBudgetAndNamesItsError(t *testing.T) {
 // exceeded".
 func TestInitMetaDBSlowSchemaBootLeavesTheRestTheirBudget(t *testing.T) {
 	state, _, _ := metaLifecycleFixture(t)
+	useMetaSchemaBootTimeout(t, metaDBTimeout) // the full minute would only slow the test
 	useMetaSchemaBootstrap(t, func(ctx context.Context, p *pgxpool.Pool) error {
 		if err := schema.Bootstrap(ctx, p); err != nil {
 			return err
@@ -69,7 +83,7 @@ func TestInitMetaDBSlowSchemaBootLeavesTheRestTheirBudget(t *testing.T) {
 	if err != nil || got == nil || len(got.EncryptKey) != 32 || got.Store == nil {
 		t.Fatalf("init after a slow boot: err=%v state present=%v", err, got != nil)
 	}
-	if took := time.Since(start); took < metaDBTimeout-time.Second {
+	if took := time.Since(start); took < metaSchemaBootTimeout-time.Second {
 		t.Fatalf("init took %s; the stand-in boot did not use its budget", took)
 	}
 }
