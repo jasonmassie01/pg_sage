@@ -51,7 +51,7 @@ func TestReviewRuntime_PreUpgradeStartsAReviewRunListingIt(t *testing.T) {
 		runs[0].Status == rubric.RunFailed || len(runs[0].Grade.Dimensions) != 8 {
 		t.Fatalf("runs = %+v, want one graded review run listing pre_upgrade", runs)
 	}
-	why, err := trigger.NewStore(rt.spec.Pool).WhyNow(ctx, runs[0].ID)
+	why, err := consumedWhyNow(ctx, t, rt, runs[0].ID)
 	if err != nil || len(why) != 1 || why[0].Kind != trigger.KindPreUpgrade ||
 		why[0].Detail["target_major"] != float64(18) || why[0].State != trigger.StateConsumed {
 		t.Fatalf("why now = %+v (%v), want the consumed pre_upgrade", why, err)
@@ -61,6 +61,24 @@ func TestReviewRuntime_PreUpgradeStartsAReviewRunListingIt(t *testing.T) {
 	if !strings.Contains(b.String(), `pg_sage_review_runs_total{cause="event"}`) {
 		t.Fatalf("metrics = %q, want the event-started run counted", b.String())
 	}
+}
+
+// consumedWhyNow waits for the run's "why now": the reviewer finishes the
+// run before the scheduler consumes its triggers (and counts the run), so
+// a finished run can briefly list no trigger.
+func consumedWhyNow(ctx context.Context, t *testing.T, rt *databaseRuntime,
+	runID int64) ([]trigger.Trigger, error) {
+	t.Helper()
+	var why []trigger.Trigger
+	var err error
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+		why, err = trigger.NewStore(rt.spec.Pool).WhyNow(ctx, runID)
+		if err != nil || len(why) > 0 {
+			return why, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return why, err
 }
 
 func TestReviewRuntime_DisabledRegistersNoQueue(t *testing.T) {
