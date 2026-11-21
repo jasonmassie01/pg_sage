@@ -78,12 +78,21 @@ var excludedPrefixes = []string{
 	"rehearsal.",
 	// provider advice reconciliation switch (market-09): YAML only, restart-bound
 	"provider_advice.",
+	// approval pull requests (cli-02b): YAML only, restart-bound, safety-critical
+	// (which repository and merger may approve a change)
+	"policy.approval_prs.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
 // struct but are intentionally excluded from the config override
 // registries.
 var excludedExactKeys = map[string]bool{
+	// The GitOps directory and its mode (cli-02a): YAML only, restart-bound,
+	// safety-critical; an API write must never move or arm the policy source.
+	"policy.directory":      true,
+	"policy.directory_mode": true,
+	// The allow-always ask threshold (ux-07a) is read at startup; YAML only.
+	"trust.ask_after_approvals": true,
 	// Workload budget proposals (market-08): YAML only, restart-bound.
 	"advisor.budget_proposals": true,
 	// The alerting engine switch (alerting-06b): YAML only, restart-bound;
