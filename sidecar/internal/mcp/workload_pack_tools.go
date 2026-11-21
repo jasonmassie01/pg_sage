@@ -36,13 +36,7 @@ var workloadPackToolNames = map[string]bool{"get_workload_pack": true}
 var packSHAPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func workloadPackTools() []Tool {
-	return []Tool{{Name: "get_workload_pack", Description: "Read a workload evidence " +
-		"pack's model tier: the redacted form a model may read (numeric column " +
-		"statistics, sanitized statement texts, plan shapes, schema and settings with " +
-		"literals redacted, sparkline charts as PNG data URIs) and its size. It never " +
-		"returns the local tier: no statement text as written, no most-common value, no " +
-		"plan condition. List packs and build one in the dashboard or with POST " +
-		"/api/v1/databases/{db}/workload-packs",
+	return []Tool{{Name: "get_workload_pack",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"content_sha256":{"type":"string","pattern":"^[0-9a-f]{64}$",` +
 			`"description":"the pack's content hash (64 lower-case hex)"}},` +

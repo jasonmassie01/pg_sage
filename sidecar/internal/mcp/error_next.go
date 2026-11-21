@@ -15,18 +15,12 @@ import (
 //   - retry_after: the known wait in whole seconds (at least 1);
 //   - approval_url: the dashboard page where a person decides.
 //
-// internal_error and unknown codes carry none of them.
+// internal_error and unknown codes carry none of them. mcp-01a gives
+// every other reason a next rule (errorNextRules) and held results the
+// same approval_url plus status and handle (held_result.go).
 
 // unavailableRetry is the wait suggested for a dependency that is down.
 const unavailableRetry = 30 * time.Second
-
-// waitCodes clear with time or a person's action; no tool helps sooner.
-var waitCodes = map[int]bool{codeRateLimited: true, codeTooManyInvestigations: true,
-	codeConflict: true, codeScopeRequired: true, codeUnavailable: true}
-
-// databaseCodes are fixed by naming a database the caller may use.
-var databaseCodes = map[int]bool{codeNotPermitted: true, codeDatabaseRequired: true,
-	codeUnknownDatabase: true}
 
 // notFoundLists name the tool that lists what a missing object could be.
 var notFoundLists = map[string]string{"decide_fact": "list_facts",
@@ -74,29 +68,77 @@ func (s *Server) callError(tool string, arguments json.RawMessage,
 	return out
 }
 
-// nextStep is the next key for failed, or nil when there is none.
-func (s *Server) nextStep(tool string, arguments json.RawMessage, failed *rpcError) any {
-	switch code := failed.Code; {
-	case code == codeInvalidParams, code == codeRunbookRejected:
-		required, ok := s.requiredArguments(tool)
-		if !ok {
+// nextRule is what an agent calls after a failure of one reason; nil
+// when, for this tool and failure, nothing it calls would help.
+type nextRule func(s *Server, tool string, arguments json.RawMessage, failed *rpcError) any
+
+// errorNextRules give every reason in errorReasons a next (mcp-01a),
+// except noNextCodes. TestEveryErrorReasonHasANextRuleOrIsExempt fails on
+// a reason with neither.
+var errorNextRules = map[int]nextRule{
+	codeInvalidParams: fixArguments, codeRunbookRejected: fixArguments,
+	codeApprovalReserved: func(_ *Server, _ string, arguments json.RawMessage,
+		_ *rpcError) any {
+		return map[string]any{"tool": toolGetInbox, "arguments": inboxArguments(arguments)}
+	},
+	codeNotPermitted: listDatabasesNext, codeDatabaseRequired: listDatabasesNext,
+	codeUnknownDatabase: listDatabasesNext, codeNotFound: findAgain,
+	codeUnavailable: func(_ *Server, _ string, _ json.RawMessage, failed *rpcError) any {
+		if failed.unconfigured { // a person must switch the feature on first
 			return nil
 		}
-		return map[string]any{"tool": tool, "required": required}
-	case code == codeApprovalReserved:
-		return map[string]any{"tool": toolGetInbox, "arguments": inboxArguments(arguments)}
-	case databaseCodes[code]:
-		return map[string]any{"tool": "list_databases", "arguments": map[string]any{}}
-	case code == codeNotFound:
-		if list, ok := notFoundLists[tool]; ok {
-			return map[string]any{"tool": list, "arguments": map[string]any{}}
-		}
-	case code == codeUnavailable && failed.unconfigured:
-		return nil
-	case waitCodes[code]:
 		return "wait"
+	},
+	codeRateLimited: waitNext, codeTooManyInvestigations: waitNext, codeConflict: waitNext,
+	codeScopeRequired: waitNext,
+}
+
+// noNextCodes carry no next: an internal error says nothing an agent can
+// act on (ux-05f).
+var noNextCodes = map[int]bool{codeInternal: true}
+
+// nextStep is the next key for failed, or nil when there is none.
+func (s *Server) nextStep(tool string, arguments json.RawMessage, failed *rpcError) any {
+	rule, ok := errorNextRules[failed.Code]
+	if !ok {
+		return nil
 	}
-	return nil
+	return rule(s, tool, arguments, failed)
+}
+
+// waitNext: the condition clears with time or a person's action.
+func waitNext(*Server, string, json.RawMessage, *rpcError) any { return "wait" }
+
+// listDatabasesNext: name a database the caller may use.
+func listDatabasesNext(*Server, string, json.RawMessage, *rpcError) any {
+	return map[string]any{"tool": "list_databases", "arguments": map[string]any{}}
+}
+
+// fixArguments: call the same tool again with its required arguments
+// (and, for request_change, an example intent).
+func fixArguments(s *Server, tool string, arguments json.RawMessage, _ *rpcError) any {
+	required, ok := s.requiredArguments(tool)
+	if !ok {
+		return nil
+	}
+	next := map[string]any{"tool": tool, "required": required}
+	if tool == "request_change" {
+		next["example"] = intentExample(arguments)
+	}
+	return next
+}
+
+// findAgain: list what the missing object could be, or else call the
+// same tool again with a corrected identifier. A tool that takes no
+// required argument has no identifier to correct, so it gets none.
+func findAgain(s *Server, tool string, arguments json.RawMessage, failed *rpcError) any {
+	if list, ok := notFoundLists[tool]; ok {
+		return map[string]any{"tool": list, "arguments": map[string]any{}}
+	}
+	if required, ok := s.requiredArguments(tool); !ok || len(required) == 0 {
+		return nil
+	}
+	return fixArguments(s, tool, arguments, failed)
 }
 
 // retryAfterSeconds is the wait in whole seconds, rounded up to at least

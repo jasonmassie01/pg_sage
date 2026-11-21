@@ -22,9 +22,7 @@ type TranscriptBackend interface {
 }
 
 func transcriptTool() Tool {
-	return Tool{Name: transcriptToolName, Description: "Read the tool-calling " +
-		"investigator's transcript of one investigation: plan, each tool call with its " +
-		"redacted result and digest, cited claims and the outcome with its authority",
+	return Tool{Name: transcriptToolName,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"database":{"type":"string","description":"fleet database name"},` +
 			`"investigation_id":{"type":"string","format":"uuid"},` +

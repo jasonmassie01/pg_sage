@@ -29,12 +29,7 @@ type ReviewScorecardBackend interface {
 }
 
 func reviewScorecardTool() Tool {
-	return Tool{Name: toolReviewScorecard, Description: "Sage Review's scorecard for the " +
-		"database: per review and overall, the plan steps each origin (generator, model, " +
-		"person) proposed and how many were accepted, verified improved, no change, " +
-		"inconclusive, regressed, reverted or unverifiable, by generator too, and the " +
-		"latest model gate evaluations (G-M1: may the model's steps run without their own " +
-		"approval; G-M2: does the model pass still add steps of its own). Read-only",
+	return Tool{Name: toolReviewScorecard,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"since":{` +
 			`"type":"string","format":"date-time","description":"Start of the window ` +
 			`(RFC 3339); default the last 90 days"}},"additionalProperties":false}`)}

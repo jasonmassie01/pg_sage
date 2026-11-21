@@ -195,6 +195,27 @@ function itemStyle(selected, keyed) {
 const BAR = 'approval-action-bar '
 const ROW = 'flex flex-wrap items-center gap-2'
 
+const PRINCIPAL_ID = /^agp_[a-z2-7]{20}$/
+
+// AskedBy (mcp-01b): the agent that asked for the item, linked to its page
+// (where its requests are listed), and the handle the agent waits on.
+function AskedBy({ item }) {
+  if (!item.agent && !item.handle) return null
+  const agentHref = PRINCIPAL_ID.test(item.agent || '')
+    ? `#/agents?agent=${encodeURIComponent(item.agent)}` +
+      `&database=${encodeURIComponent(item.database)}`
+    : null
+  return (
+    <div className="text-xs" style={muted} data-testid={`inbox-agent-${item.kind}-${item.id}`}>
+      Asked by agent {agentHref
+        ? <a href={agentHref} className="underline" style={{ color: 'var(--accent)' }}>
+          {item.agent}</a>
+        : <span>{item.agent || 'unknown'}</span>}
+      {item.handle && <> · waits on <code>{item.handle}</code></>}
+    </div>
+  )
+}
+
 function InboxItem({ item, onDecided, verbsRef, selected, keyed, checked, onToggle }) {
   const [reviewing, setReviewing] = useState(false)
   const verbs = useItemVerbs(item, setReviewing)
@@ -210,6 +231,7 @@ function InboxItem({ item, onDecided, verbsRef, selected, keyed, checked, onTogg
       </div>
       <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
       {item.why && <p className="text-sm" style={muted}>{item.why}</p>}
+      <AskedBy item={item} />
       <div data-testid="inbox-decision-bar" className={`${reviewing ? '' : BAR}${ROW}`}>
         <Decision item={item} onDecided={onDecided} reviewing={reviewing}
           onReview={() => setReviewing(open => !open)} />

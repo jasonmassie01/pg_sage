@@ -33,16 +33,7 @@ type PressureBackend interface {
 var ErrPressureDatabaseNotFound = errors.New("database not found")
 
 func pressureTools() []Tool {
-	return []Tool{{Name: toolCheckPressure, Description: "Ask whether a backfill or bulk " +
-		"write should proceed, slow down or stop. Call it between batches: the answer " +
-		"is proceed, slow (halve the batch for each input in its slow band, with a " +
-		"suggested batch size and a sleep in seconds) or stop, with each input's value, " +
-		"limits and freshness: replica replay lag, transaction and multixact ID age " +
-		"against the freeze maximum, a vacuum on the target table, WAL bytes per second, " +
-		"the lock queue on the target table and free storage. Limits are the policy's " +
-		"pressure block, by default half of each alert threshold, so the signal comes " +
-		"before the alert. Answers are cached for 2 s per table. Read-only: it never " +
-		"acts on the database or the job",
+	return []Tool{{Name: toolCheckPressure,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"table":{"type":"string","maxLength":260,"description":"the table the job ` +
 			`writes, schema-qualified (resolved with to_regclass)"},` +

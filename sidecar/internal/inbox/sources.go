@@ -58,15 +58,28 @@ func ChangeApprovals(in Instances) Source {
 		}
 		out := make([]Item, 0, len(pending))
 		for _, a := range pending {
-			id, due := strconv.Itoa(a.ID), a.ExpiresAt
-			out = append(out, Item{Kind: KindChangeApproval, ID: id, Database: db,
-				Title: "Approve " + nonEmpty(a.ActionType, "a change"), Why: a.Reason,
-				Risk: a.ActionRisk, CreatedAt: a.ProposedAt, DueAt: &due,
-				Href:   href("actions", "tab", "pending", "queue", id, "database", db),
-				Source: "sage.action_queue", Class: a.ActionType})
+			out = append(out, changeApprovalItem(db, a))
 		}
 		return out, nil
 	})
+}
+
+func changeApprovalItem(db string, a store.QueuedAction) Item {
+	id, due := strconv.Itoa(a.ID), a.ExpiresAt
+	it := Item{Kind: KindChangeApproval, ID: id, Database: db,
+		Title: "Approve " + nonEmpty(a.ActionType, "a change"), Why: a.Reason,
+		Risk: a.ActionRisk, CreatedAt: a.ProposedAt, DueAt: &due,
+		Href:   href("actions", "tab", "pending", "queue", id, "database", db),
+		Source: "sage.action_queue", Class: a.ActionType}
+	return askedBy(it, a.PrincipalID)
+}
+
+// askedBy names the agent that asked for it and the handle it waits on.
+func askedBy(it Item, agent string) Item {
+	if agent != "" {
+		it.Agent, it.Handle = agent, string(it.Kind)+":"+it.ID
+	}
+	return it
 }
 
 // Plans lists plans proposed or halted and steps waiting on a person.
@@ -146,17 +159,20 @@ func AgentRequests(in Instances) Source {
 		}
 		out := make([]Item, 0, len(got))
 		for _, r := range got {
-			id, due := strconv.FormatInt(r.ID, 10), r.ExpiresAt
-			out = append(out, Item{Kind: KindAgentRequest, ID: id, Database: db,
-				Title: fmt.Sprintf("Agent %s asks for %s for %d min", r.PrincipalID,
-					r.Capability, r.DurationMinutes),
-				Why: r.Reason, Risk: RiskHigh, CreatedAt: r.RequestedAt, DueAt: &due,
-				Href: href("agents", "agent", r.PrincipalID, "request", id,
-					"database", db),
-				Source: "sage.guard_grant_requests"})
+			out = append(out, agentRequestItem(db, r))
 		}
 		return out, nil
 	})
+}
+
+func agentRequestItem(db string, r grants.Request) Item {
+	id, due := strconv.FormatInt(r.ID, 10), r.ExpiresAt
+	return askedBy(Item{Kind: KindAgentRequest, ID: id, Database: db,
+		Title: fmt.Sprintf("Agent %s asks for %s for %d min", r.PrincipalID,
+			r.Capability, r.DurationMinutes),
+		Why: r.Reason, Risk: RiskHigh, CreatedAt: r.RequestedAt, DueAt: &due,
+		Href:   href("agents", "agent", r.PrincipalID, "request", id, "database", db),
+		Source: "sage.guard_grant_requests"}, r.PrincipalID)
 }
 
 // PolicyProposals lists policy proposals waiting for ratification (an
@@ -195,7 +211,7 @@ func policyItem(db string, p policy.Proposal) Item {
 		it.Why, it.Risk = "it widens what pg_sage or an agent may do; ratify or reject it",
 			RiskHigh
 	}
-	return it
+	return askedBy(it, p.PrincipalID)
 }
 
 func nonEmpty(s, fallback string) string {

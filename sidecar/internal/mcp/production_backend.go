@@ -102,6 +102,9 @@ type ProductionDependencies struct {
 	Pressure PressureBackend
 	// WhyNot serves why_not (ux-08b); optional.
 	WhyNot WhyNotBackend
+	// RequestStatus serves get_request_status and wait_for_decision
+	// (mcp-01b); optional.
+	RequestStatus RequestStatusBackend
 }
 
 type ProductionBackend struct {

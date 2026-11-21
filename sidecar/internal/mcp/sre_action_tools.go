@@ -37,15 +37,10 @@ func sreActionTools() []Tool {
 	}
 	db := `"database":{"type":"string","description":"fleet database name"}`
 	return []Tool{
-		{Name: "sre_propose_action", Description: "Propose the evidence-matched " +
-			"mitigation of a concluded investigation (cancel of the one root " +
-			"backend) with its repair contract and policy verdict, or why there is " +
-			"none. Never executes anything.",
+		{Name: "sre_propose_action",
 			InputSchema: schema(`{`+db+`,"investigation_id":{"type":"string",`+
 				`"format":"uuid"}}`, "investigation_id")},
-		{Name: "sre_request_execution", Description: "Queue exactly one approval " +
-			"item for a proposal in the existing approval flow. Never executes: a " +
-			"human approves, then pg_sage rechecks the target and runs it.",
+		{Name: "sre_request_execution",
 			InputSchema: schema(`{`+db+`,"proposal_id":{"type":"string",`+
 				`"format":"uuid"}}`, "proposal_id")},
 	}

@@ -25,15 +25,11 @@ func sreTools() []Tool {
 	db := `"database":{"type":"string","description":"fleet database name"}`
 	inv := `"investigation_id":{"type":"string","format":"uuid"}`
 	return []Tool{
-		{Name: "sre_list_incidents", Description: "List Sage SRE investigations of " +
-			"RCA incidents and plan regressions: family, state, case and conclusion",
+		{Name: "sre_list_incidents",
 			InputSchema: schema(`{`+db+`,"case_id":{"type":"string"}}`, `[]`)},
-		{Name: "sre_get_investigation", Description: "Read one investigation: " +
-			"observed facts, likely explanation, alternatives, ruled-out " +
-			"hypotheses with evidence, missing evidence and operator steps",
+		{Name: "sre_get_investigation",
 			InputSchema: schema(`{`+db+`,`+inv+`}`, `["investigation_id"]`)},
-		{Name: "sre_get_evidence", Description: "Read one typed, redacted evidence " +
-			"item of an investigation",
+		{Name: "sre_get_evidence",
 			InputSchema: schema(`{`+db+`,`+inv+`,"evidence_id":{"type":"string",`+
 				`"format":"uuid"}}`, `["investigation_id","evidence_id"]`)},
 		transcriptTool(),

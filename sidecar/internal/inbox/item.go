@@ -135,6 +135,11 @@ type Item struct {
 	// Class is a change approval's action class (its action type), so a
 	// list can offer "select all <class> on <db>" (ux-07b); "" otherwise.
 	Class string `json:"class,omitempty"`
+	// Agent is the agent principal that asked for the item and Handle the
+	// "<kind>:<id>" its get_request_status and wait_for_decision take
+	// (mcp-01b); both "" for an item no agent raised.
+	Agent  string `json:"agent,omitempty"`
+	Handle string `json:"handle,omitempty"`
 	// Actionable: the reader may decide it on its page. The service leaves
 	// it false; the API sets it from the caller's role (CanDecide).
 	Actionable bool `json:"actionable"`

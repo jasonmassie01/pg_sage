@@ -45,21 +45,23 @@ func planTools() []Tool {
 	}
 	db := `"database":{"type":"string","description":"fleet database name"}`
 	return []Tool{
-		{Name: "propose_plan", Description: "Propose a multi-step plan (goal, scope, steps " +
-			"and edges, each step citing a finding_id or evidence_ids that resolve) for a " +
-			"person to decide. It is stored proposed and nothing runs until a person " +
-			"approves it in pg_sage; agents can never approve. At most 5 open plans per " +
-			"principal",
+		{Name: "propose_plan", Description: "Use when a fix takes several ordered steps. " +
+			"Proposes a plan (goal, scope, steps and edges, each step citing a finding_id or " +
+			"evidence_ids that resolve) for a person to decide. Returns the stored plan, " +
+			"status proposed. Never runs a step and never approves: a person approves in " +
+			"pg_sage. At most 5 open plans per principal",
 			InputSchema: schema(`{`+db+`,"plan":{"type":["object","string"],`+
 				`"description":"the plan as a JSON object (goal, scope, pack_hash, steps, `+
 				`edges), or a string holding exactly that JSON, without markdown fences"}}`,
 				`["plan"]`)},
-		{Name: "list_plans", Description: "List a database's plans, newest first, with " +
-			"their status (proposed ones await a person)",
+		{Name: "list_plans", Description: "Use when you need a database's plans. Returns " +
+			"them newest first with their status (proposed ones await a person). Never " +
+			"changes a plan; read-only",
 			InputSchema: schema(`{`+db+`,"status":{"type":"string"},"limit":{"type":`+
 				`"integer","minimum":1,"maximum":500}}`, `[]`)},
-		{Name: "get_plan", Description: "Read one plan: its steps and edges, every " +
-			"approval and what each approval covers now",
+		{Name: "get_plan", Description: "Use when you need one plan in full. Returns its " +
+			"steps and edges, every approval and what each approval covers now. Never " +
+			"changes the plan; read-only",
 			InputSchema: schema(`{`+db+`,"plan_id":{"type":"integer","minimum":1}}`,
 				`["plan_id"]`)},
 	}

@@ -24,11 +24,7 @@ type ReviewGradeBackend interface {
 }
 
 func reviewTools() []Tool {
-	return []Tool{{Name: toolReviewGrade, Description: "Grade the database against " +
-		"pg_sage's well-run Postgres rubric: the latest grade (overall A to F or unknown, " +
-		"each of eight dimensions with its score, coverage and every check's result, " +
-		"evidence and reason), the previous grade and what changed. A check that could " +
-		"not run is unknown and only lowers a grade. Read-only: it never starts a grade",
+	return []Tool{{Name: toolReviewGrade,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{},` +
 			`"additionalProperties":false}`)}, reviewScorecardTool()}
 }

@@ -39,6 +39,7 @@ func toolDefinitions() []Tool {
 	tools = append(append(tools, drillTools()...), reviewTools()...)
 	tools = append(tools, pressureTools()...)
 	tools = append(tools, whyNotTools()...)
+	tools = append(tools, requestStatusTools()...)
 	for i := range tools {
 		tools[i] = finishTool(tools[i])
 	}
@@ -46,6 +47,9 @@ func toolDefinitions() []Tool {
 }
 
 func finishTool(tool Tool) Tool {
+	if description, ok := toolDescriptions[tool.Name]; ok {
+		tool.Description = description
+	}
 	if !fleetWideTool(tool.Name) {
 		tool.InputSchema = setDatabaseProperty(tool.Name, tool.InputSchema, nil)
 	}

@@ -31,12 +31,7 @@ type RestoreDrillsBackend interface {
 var ErrRestoreDrillsDatabaseNotFound = errors.New("database not found")
 
 func drillTools() []Tool {
-	return []Tool{{Name: toolRestoreDrills, Description: "Say whether each database can " +
-		"be restored: its newest restore drill (when, passed or failed, measured RPO and " +
-		"RTO, each invariant's evidence), its newest pass, and a status of passed (a pass " +
-		"in the last 35 days), failed, stale, never_drilled or unknown (no drill can run; " +
-		"advice says what to configure), plus the count and median RTO. Read-only: it " +
-		"never starts a drill. Without database it reads every database you may read",
+	return []Tool{{Name: toolRestoreDrills,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{},` +
 			`"additionalProperties":false}`)}}
 }

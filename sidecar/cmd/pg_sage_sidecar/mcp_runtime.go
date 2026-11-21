@@ -32,7 +32,8 @@ func startMCPRuntime() {
 		return
 	}
 	server := mcp.NewServer(backend).WithDirectory(fleetMCPDirectory{manager: fleetMgr}).
-		WithVersion(version)
+		WithVersion(version).
+		WithDecisionEvents(brokerSignals{broker: api.DefaultEventBroker()}) // mcp-01b
 	runtime, err := mcp.NewRuntime(cfg.MCP, server, os.Stdin, os.Stdout)
 	if err != nil {
 		logError("mcp", "runtime: %v", err)
@@ -103,6 +104,25 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Inbox:    api.InboxMCP(fleetMgr, processAutonomy().registry),
 		Outcomes: api.OutcomesMCP(fleetMgr), RestoreDrills: mcpRestoreDrills(fleetMgr),
 		Pressure: api.PressureMCP(fleetMgr), WhyNot: api.WhyNotMCP(fleetMgr),
+		// get_request_status and wait_for_decision (mcp-01b): the
+		// requester's own held item, read from its store.
+		RequestStatus: mcp.NewRequestStatusReader(fleetStatusPools(fleetMgr)),
+	}
+}
+
+// fleetStatusPools is a monitored database's pool for the status reads.
+func fleetStatusPools(manager *fleet.DatabaseManager) mcp.StatusPools {
+	return func(_ context.Context, database string) (*pgxpool.Pool, error) {
+		if manager == nil {
+			return nil, fmt.Errorf("request status: no monitored databases: %w",
+				mcp.ErrIntentUnavailable)
+		}
+		inst := manager.GetInstance(database)
+		if inst == nil || inst.Pool == nil {
+			return nil, fmt.Errorf("request status: database %q is not connected: %w",
+				database, mcp.ErrIntentUnavailable)
+		}
+		return inst.Pool, nil
 	}
 }
 

@@ -66,6 +66,8 @@ var toolClasses = map[string]toolClass{
 	"sre_list_incidents": read(), "sre_list_runbooks": read(), "sre_list_slos": read(),
 	"sre_runbook_runs": read(), "sre_similar_incidents": read(), "top_queries": read(),
 	"whatif_index": read(), "list_plans": read(), "get_plan": read(),
+	// mcp-01b: the requester's own held item; read-only, bounded waits.
+	"get_request_status": read(), "wait_for_decision": read(),
 	// market-05: one bounded read-only transaction; it writes nothing.
 	"upgrade_readiness": read(),
 	// ux-01a, ux-02a, evid-02c: read scope, read-only; they decide nothing

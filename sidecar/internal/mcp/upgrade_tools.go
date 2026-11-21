@@ -36,16 +36,7 @@ type UpgradeReadinessBackend interface {
 var upgradeToolNames = map[string]bool{"upgrade_readiness": true}
 
 func upgradeTools() []Tool {
-	return []Tool{{Name: "upgrade_readiness", Description: "Check the database for a " +
-		"major-version upgrade: tables logical replication cannot identify rows of, " +
-		"extensions against a target member, logical slots and subscriptions, data " +
-		"checksums against PG18's initdb default, collation versions and indexes to " +
-		"reindex, removed settings and dated support windows. Each check is pass, warn, " +
-		"block or unknown with up to 50 evidence rows. Read-only on the database. With " +
-		"brief: true it returns the upgrade brief instead: blockers, extension path, " +
-		"slot and CDC plan, collation reindex list, cost of waiting and an ordered " +
-		"checklist (the upgrade itself stays with the operator); pg_sage keeps a " +
-		"changed brief in its own sage schema",
+	return []Tool{{Name: "upgrade_readiness",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"target_major":{"type":"integer","minimum":1,"description":"the major to ` +
 			`upgrade to (above the server's, at most the newest pg_sage knows); ` +
