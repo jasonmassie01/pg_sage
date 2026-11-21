@@ -1097,11 +1097,11 @@ Tab stop after the bar. Every confirmation is the shared modal `Dialog`
 focus returns to the opener). Under 768 px an approval card's decision row,
 an Inbox item's decision row and a plan's approval row stay in view at the
 bottom of the screen. Two source lints keep this true for new code:
-`src/lint/colourPairs.test.js` resolves every colour pair the source states
+`sidecar/web/src/lint/colourPairs.test.js` resolves every colour pair the source states
 (an inline `background` with a `color`, or a Tailwind `bg-[..]` with a
 `text-[..]`) against the `index.css` tokens of each theme and fails any pair
 under 4.5:1, or any token no theme defines, with its file and line; and
-`src/lint/tableHeaders.test.js` fails any `<th>` without a `scope`. A pair
+`sidecar/web/src/lint/tableHeaders.test.js` fails any `<th>` without a `scope`. A pair
 whose colour is computed at run time is not checked by the lint.
 
 ### Alerting
