@@ -720,6 +720,7 @@ anything ([Reading decisions](policy-gate.md#reading-decisions)):
 |---|---|---|
 | `GET /api/v1/decisions` | Operator | The open withheld decisions, one entry per candidate |
 | `GET /api/v1/policy/explain` | Operator | How the gate would decide a finding's candidates now |
+| `GET /api/v1/whynot` | Operator | The ten-link "why not" chain for a finding, object, category or database |
 
 A signed-in user whose role is none of admin, operator or viewer is refused
 everywhere except public and self-authenticating routes. The gate sits on the

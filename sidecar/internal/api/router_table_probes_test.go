@@ -72,6 +72,7 @@ var routeProbes = []routeProbe{
 	{"GET", "/api/v1/policy"},
 	{"GET", "/api/v1/provider-advice"},
 	{"GET", "/api/v1/policy/explain"},
+	{"GET", "/api/v1/whynot"},
 	{"GET", "/api/v1/policy/history"},
 	{"GET", "/api/v1/policy-sets"},           // fleetpol-01a
 	{"GET", "/api/v1/policy-sets/7/members"}, // fleetpol-01a
