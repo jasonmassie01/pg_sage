@@ -26,8 +26,10 @@ const pageData = {
 vi.mock('../hooks/useAPI', () => ({
   withTimeRange: base => base,
   useAPI: url => {
-    if (!url) return { data: null, loading: false, error: null, refetch: vi.fn() }
-    const path = url.split('?')[0]
+    // useAPI also takes a function returning the url (a windowed chart).
+    const target = typeof url === 'function' ? url() : url
+    if (!target) return { data: null, loading: false, error: null, refetch: vi.fn() }
+    const path = target.split('?')[0]
     return { ...state, data: state.data && (pageData[path] || state.data) }
   },
 }))
