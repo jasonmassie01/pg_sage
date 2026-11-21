@@ -380,7 +380,7 @@ standalone PUT /api/v1/notifications/channels/{id}/quiet-hours gate:admin scope:
 standalone GET /api/v1/notifications/mutes gate:admin scope:admin-only
 standalone POST /api/v1/notifications/mutes gate:admin scope:-
 standalone DELETE /api/v1/notifications/mutes gate:admin scope:-
-standalone GET /api/v1/notifications/weekly-line gate:operator scope:-
+standalone GET /api/v1/notifications/weekly-line gate:operator scope:fleet-only
 standalone GET /api/v1/notifications/log gate:operator scope:fleet-only
 standalone GET /api/v1/case-tickets gate:viewer scope:fleet-only
 standalone POST /api/v1/case-tickets gate:operator scope:database:body
@@ -654,7 +654,7 @@ fleet-readonly PUT /api/v1/notifications/channels/{id}/quiet-hours gate:admin sc
 fleet-readonly GET /api/v1/notifications/mutes gate:admin scope:admin-only
 fleet-readonly POST /api/v1/notifications/mutes gate:admin scope:-
 fleet-readonly DELETE /api/v1/notifications/mutes gate:admin scope:-
-fleet-readonly GET /api/v1/notifications/weekly-line gate:operator scope:-
+fleet-readonly GET /api/v1/notifications/weekly-line gate:operator scope:fleet-only
 fleet-readonly GET /api/v1/notifications/log gate:operator scope:fleet-only
 fleet-readonly GET /api/v1/case-tickets gate:viewer scope:fleet-only
 fleet-readonly POST /api/v1/case-tickets gate:operator scope:database:body
@@ -1161,7 +1161,7 @@ optional PUT /api/v1/notifications/channels/{id}/quiet-hours gate:admin scope:-
 optional GET /api/v1/notifications/mutes gate:admin scope:admin-only
 optional POST /api/v1/notifications/mutes gate:admin scope:-
 optional DELETE /api/v1/notifications/mutes gate:admin scope:-
-optional GET /api/v1/notifications/weekly-line gate:operator scope:-
+optional GET /api/v1/notifications/weekly-line gate:operator scope:fleet-only
 optional GET /api/v1/notifications/log gate:operator scope:fleet-only
 optional GET /api/v1/case-tickets gate:viewer scope:fleet-only
 optional POST /api/v1/case-tickets gate:operator scope:database:body
@@ -1408,7 +1408,7 @@ databricks-app PUT /api/v1/notifications/channels/{id}/quiet-hours gate:admin sc
 databricks-app GET /api/v1/notifications/mutes gate:admin scope:admin-only
 databricks-app POST /api/v1/notifications/mutes gate:admin scope:-
 databricks-app DELETE /api/v1/notifications/mutes gate:admin scope:-
-databricks-app GET /api/v1/notifications/weekly-line gate:operator scope:-
+databricks-app GET /api/v1/notifications/weekly-line gate:operator scope:fleet-only
 databricks-app GET /api/v1/notifications/log gate:operator scope:fleet-only
 databricks-app GET /api/v1/case-tickets gate:viewer scope:fleet-only
 databricks-app POST /api/v1/case-tickets gate:operator scope:database:body

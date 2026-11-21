@@ -81,6 +81,8 @@ var readRouteScopes = map[string]readScope{
 	"GET /api/v1/upgrade-readiness":             readFleetOnly,
 	"GET /api/v1/case-tickets":                  readFleetOnly,
 	"GET /api/v1/notifications/log":             readFleetOnly,
+	// ux-09b: the fleet-wide "N messages, M led to an action" line.
+	"GET /api/v1/notifications/weekly-line":     readFleetOnly,
 	"GET /api/v1/fleet/lookalikes":              readFleetOnly,
 	"GET /api/v1/fleet/leader":                  readFleetOnly,
 	"GET /api/v1/sre/autonomy":                  readFleetOnly,
