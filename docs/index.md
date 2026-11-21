@@ -134,6 +134,7 @@ can differ by managed-service constraints.
 - [Architecture](architecture.md) — Tier 1 rules engine, Tier 2 LLM analysis, Tier 3 executor
 - [Fleet Mode](fleet.md) — control database, tenant boundaries, fleet learning, leader election, fleet routes
 - [Configuration](configuration.md) — YAML config, environment variables, runtime overrides
+- [Command-line client](cli.md) — `plan`, `approve`, `apply`, `explain`, `ledger`, `doctor` and their exit codes
 - [Finding Types](findings.md) — All diagnostic findings and severity levels
 - [Owner Checks](custom-checks.md) — Read-only house rules you write as one SELECT
 - [SQL Schema](sql-reference.md) — `sage.*` tables, views, and functions

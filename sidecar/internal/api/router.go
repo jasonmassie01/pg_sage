@@ -197,7 +197,7 @@ func NewRouterFullRuntime(
 		registerActionRoutes(apiMux, actions)
 	}
 	if mgr != nil {
-		registerChangeDecisionRoutes(apiMux, mgr, pool, rt)
+		registerChangeDecisionRoutes(apiMux, mgr, cfg, pool, rt)
 	}
 	if dbDeps != nil && dbDeps.Store != nil {
 		registerDatabaseRoutes(apiMux, dbDeps)
@@ -209,7 +209,8 @@ func NewRouterFullRuntime(
 		middlewares = append(append([]func(http.Handler) http.Handler{}, middlewares...), databricksAppProtocolGuard)
 	}
 	authz := routerDatabaseAuthz(cfg, pool, rt.DatabaseGrants)
-	apiHandler := wrapAPIHandler(withDatabaseAuthz(authz, apiMux), middlewares,
+	apiHandler := wrapAPIHandler(withDatabaseAuthz(authz, cliTokenMux(apiMux, pool, rt)),
+		middlewares,
 		newCrossOriginProtection(cfg, rt.DatabricksAppAuth), askRequestTimeout(cfg),
 		accessLogOn(cfg))
 
@@ -236,13 +237,27 @@ func NewRouterFullRuntime(
 	return root, nil
 }
 
+// cliTokenMux takes the decision-loop CLI's operator tokens on its
+// routes (cli-01a, cli_token.go); in a Databricks App the platform owns
+// the Authorization header, so there it is apiMux alone.
+func cliTokenMux(apiMux *http.ServeMux, pool *pgxpool.Pool, rt RuntimeDeps) http.Handler {
+	if rt.DatabricksAppAuth {
+		return apiMux
+	}
+	return withCLIToken(lintTokenStore(mcpTokenStore(pool)), apiMux)
+}
+
 // registerChangeDecisionRoutes registers the approval cards and the plan routes
 // (plan-03a), which decide changes on one monitored database each. Outside
 // a Databricks App the plan routes also take an operator API token from
 // pool's store.
 func registerChangeDecisionRoutes(apiMux *http.ServeMux, mgr *fleet.DatabaseManager,
-	pool *pgxpool.Pool, rt RuntimeDeps) {
-	registerApprovalCardRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy))
+	cfg *config.Config, pool *pgxpool.Pool, rt RuntimeDeps) {
+	remoteCap := ""
+	if cfg != nil {
+		remoteCap = cfg.NotificationPolicy.ChatApprovalMaxTier
+	}
+	registerApprovalCardRoutes(apiMux, mgr, autonomyRegistry(rt.Autonomy), remoteCap)
 	registerPlanRoutes(apiMux, mgr, lintTokenStore(mcpTokenStore(pool)), rt.DatabricksAppAuth)
 }
 

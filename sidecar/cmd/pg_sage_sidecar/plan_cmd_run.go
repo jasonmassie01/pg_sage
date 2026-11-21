@@ -1,9 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,12 +12,8 @@ import (
 
 // The plan command's requests and output (plan_cmd.go).
 
-// planAnswer is one sidecar answer: its status and decoded body.
-type planAnswer struct {
-	status int
-	raw    []byte
-	body   map[string]any
-}
+// planAnswer is one sidecar answer (cli_client.go).
+type planAnswer = apiAnswer
 
 // run performs cmd and prints its answer; the exit code follows it.
 func (c *planClient) run(ctx context.Context, cmd string, a planArgs) int {
@@ -89,45 +84,6 @@ func (c *planClient) approveStep(ctx context.Context, a planArgs) int {
 // the sidecar's message.
 func (c *planClient) call(ctx context.Context, method, path string, a planArgs,
 	body any) (planAnswer, int) {
-	req, err := c.request(ctx, method, path, a, body)
-	if err != nil {
-		_, _ = fmt.Fprintf(c.stderr, "plan: build the request: %v\n", err)
-		return planAnswer{}, planExitUsage
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		_, _ = fmt.Fprintf(c.stderr, "plan: cannot reach the sidecar at %s: %v\n",
-			c.base.Redacted(), err)
-		return planAnswer{}, planExitRefused
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-	if err != nil {
-		_, _ = fmt.Fprintf(c.stderr, "plan: read the sidecar's answer: %v\n", err)
-		return planAnswer{}, planExitRefused
-	}
-	ans := planAnswer{status: resp.StatusCode, raw: raw}
-	_ = json.Unmarshal(raw, &ans.body)
-	if resp.StatusCode/100 == 2 {
-		return ans, planExitOK
-	}
-	msg, _ := ans.body["error"].(string)
-	if msg == "" {
-		msg = strings.TrimSpace(string(raw))
-	}
-	codeName, _ := ans.body["code"].(string)
-	_, _ = fmt.Fprintf(c.stderr, "plan: the sidecar refused (HTTP %d %s): %s\n",
-		resp.StatusCode, codeName, msg)
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return ans, planExitAuth
-	}
-	return ans, planExitRefused
-}
-
-func (c *planClient) request(ctx context.Context, method, path string, a planArgs,
-	body any) (*http.Request, error) {
-	u := *c.base
-	u.Path = strings.TrimRight(u.Path, "/") + path
 	q := url.Values{}
 	if a.database != "" {
 		q.Set("database", a.database)
@@ -135,35 +91,30 @@ func (c *planClient) request(ctx context.Context, method, path string, a planArg
 	if a.status != "" {
 		q.Set("status", a.status)
 	}
-	u.RawQuery = q.Encode()
-	var reader io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
+	ans, err := c.api.send(ctx, method, path, q, body)
+	var refusal *cliRefusal
+	var transport *cliTransportError
+	switch {
+	case err == nil:
+		return ans, planExitOK
+	case errors.As(err, &transport):
+		_, _ = fmt.Fprintf(c.stderr, "plan: %v\n", transport)
+		return ans, planExitRefused
+	case errors.As(err, &refusal):
+		_, _ = fmt.Fprintf(c.stderr, "plan: %v\n", refusal)
+		if refusal.status == http.StatusUnauthorized || refusal.status == http.StatusForbidden {
+			return ans, planExitAuth
 		}
-		reader = bytes.NewReader(raw)
+		return ans, planExitRefused
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), reader)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	return req, nil
+	_, _ = fmt.Fprintf(c.stderr, "plan: %v\n", err)
+	return ans, planExitUsage
 }
 
 // print writes the answer: the sidecar's JSON with --json, else a summary.
 func (c *planClient) print(cmd string, a planArgs, ans planAnswer) {
 	if a.json {
-		var out bytes.Buffer
-		if json.Indent(&out, ans.raw, "", "  ") != nil {
-			out.Write(ans.raw)
-		}
-		_, _ = fmt.Fprintln(c.stdout, out.String())
+		_, _ = fmt.Fprintln(c.stdout, c.api.redact(indentJSON(ans.raw)))
 		return
 	}
 	switch cmd {

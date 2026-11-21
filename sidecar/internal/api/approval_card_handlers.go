@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/approvalcard"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/inbox"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -28,18 +29,21 @@ const (
 )
 
 // approvalCardHandlers serve the cards of the fleet's databases, each with
-// its class trust from the trust ledgers (nil: none).
+// its class trust from the trust ledgers (nil: none). remoteCap is
+// notification_policy.chat_approval_max_tier, which caps an approval made
+// with an API token (the CLI) as it caps one made from chat (D7).
 type approvalCardHandlers struct {
 	mgr     *fleet.DatabaseManager
 	ledgers *earned.Registry
 	// allower resolves a database's ledger for allow-always (ux-07a); nil
 	// reads ledgers.
-	allower func(database string) (alwaysAllower, bool)
+	allower   func(database string) (alwaysAllower, bool)
+	remoteCap string
 }
 
 func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	ledgers *earned.Registry) {
-	h := &approvalCardHandlers{mgr: mgr, ledgers: ledgers}
+	ledgers *earned.Registry, remoteCap string) {
+	h := &approvalCardHandlers{mgr: mgr, ledgers: ledgers, remoteCap: remoteCap}
 	view := func(read func(*approvalCardHandlers, http.ResponseWriter, *http.Request)) func(
 		*fleet.DatabaseManager) http.Handler {
 		return func(m *fleet.DatabaseManager) http.Handler {
@@ -53,7 +57,8 @@ func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 		view((*approvalCardHandlers).get))
 	card := approvalCardDatabase(mgr)
 	routeDB(mux, "POST /api/v1/approvals/{id}/approve", gateOperator, card,
-		http.HandlerFunc(h.approve))
+		timeDecision(inbox.KindChangeApproval, actionWaitingSince(fleetActions(mgr)),
+			http.HandlerFunc(h.approve)))
 	routeDB(mux, "POST /api/v1/approvals/{id}/reject", gateOperator, card,
 		http.HandlerFunc(h.reject))
 	routeDB(mux, "POST /api/v1/approvals/{id}/snooze", gateOperator, card,
@@ -128,7 +133,7 @@ func (h *approvalCardHandlers) cardTarget(w http.ResponseWriter,
 		db = instances[0].Name
 	}
 	inst := h.mgr.GetInstance(db)
-	if inst == nil || inst.Pool == nil || inst.Executor == nil {
+	if inst == nil || inst.Pool == nil || inst.Executor == nil || !tokenMayUse(r, db) {
 		sreErrorCode(w, "database not found", "not_found", http.StatusNotFound)
 		return nil, 0, false
 	}
@@ -161,13 +166,16 @@ func (h *approvalCardHandlers) get(w http.ResponseWriter, r *http.Request) {
 	}
 	c = offerAllowAlways(r, []approvalcard.Card{c})[0]
 	body := map[string]any{"card": c, "eligible": false}
-	if a, err := store.NewActionStore(inst.Pool).GetByID(r.Context(), id); err == nil &&
-		a.Status == "pending" {
+	a, err := store.NewActionStore(inst.Pool).GetByID(r.Context(), id)
+	if err == nil && a.Status == "pending" {
 		readiness := inst.Executor.ApprovalReadiness(*a, time.Now().UTC())
 		body["eligible"] = readiness.Eligible
 		if readiness.DeferReason != "" {
 			body["defer_reason"] = readiness.DeferReason
 		}
+	}
+	if err == nil && a.Status == "scheduled" {
+		body["schedule"] = cardSchedule(*a, time.Now())
 	}
 	jsonResponse(w, body)
 }
@@ -220,7 +228,7 @@ func (h *approvalCardHandlers) approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, ok := h.pendingCard(w, r, inst, id, req.CardHash, true)
-	if !ok {
+	if !ok || !h.remoteApprovalAllowed(w, r, inst, id) {
 		return
 	}
 	user := UserFromContext(r.Context())

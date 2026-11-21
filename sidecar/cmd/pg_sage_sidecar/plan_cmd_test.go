@@ -235,12 +235,12 @@ func TestPlanCLI_DefaultClientRefusesMetadataAddresses(t *testing.T) {
 		"SAGE_API_TOKEN": "tok"}
 	pc, code := newPlanClient(func(k string) string { return env[k] }, nil,
 		io.Discard, io.Discard)
-	if code != planExitOK || pc == nil || pc.http == nil {
+	if code != planExitOK || pc == nil || pc.api == nil || pc.api.http == nil {
 		t.Fatalf("newPlanClient = %v, %d, want a client", pc, code)
 	}
 	for _, target := range []string{"https://169.254.169.254/latest/meta-data/",
 		"https://metadata.google.internal/"} {
-		resp, err := pc.http.Get(target)
+		resp, err := pc.api.http.Get(target)
 		if resp != nil {
 			_ = resp.Body.Close()
 		}

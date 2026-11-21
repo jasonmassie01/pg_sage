@@ -1,0 +1,13 @@
+{"database":"orders","finding_id":"901","links":[
+ {"name":"observed","status":"pass","sentence":"pg_sage collected a snapshot 40 s ago.","first_fail":false},
+ {"name":"finding","status":"pass","sentence":"Finding 901 is open.","first_fail":false},
+ {"name":"candidate","status":"pass","sentence":"A change was proposed for it.","first_fail":false},
+ {"name":"policy","status":"pass","sentence":"The standing policy allows it.","first_fail":false},
+ {"name":"window","status":"fail","sentence":"It is outside the maintenance window; the next one opens Thu 19 Nov 02:00 UTC.",
+  "fix":{"kind":"wait_until","value":"2026-11-19T02:00:00Z","note":"the executor runs it then"},"first_fail":true},
+ {"name":"budget","status":"pass","sentence":"The change budget has room.","first_fail":false},
+ {"name":"privilege","status":"pass","sentence":"pg_sage holds the privileges it needs.","first_fail":false},
+ {"name":"trust","status":"pass","sentence":"Trust allows it with approval.","first_fail":false},
+ {"name":"verification_wait","status":"pass","sentence":"No verification is pending.","first_fail":false},
+ {"name":"emergency_stop","status":"pass","sentence":"The emergency stop is off.","first_fail":false}],
+ "first_fail":"window","failing":["window"]}

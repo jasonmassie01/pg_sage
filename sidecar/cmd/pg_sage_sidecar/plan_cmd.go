@@ -11,9 +11,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // `pg_sage_sidecar plan list|show|approve|reject|resume|cancel` (plan-03a)
@@ -57,11 +54,9 @@ type planArgs struct {
 	json     bool
 }
 
-// planClient is the sidecar API the command talks to.
+// planClient is the sidecar API the command talks to (cli_client.go).
 type planClient struct {
-	base   *url.URL
-	token  string
-	http   *http.Client
+	api    *apiClient
 	stdout io.Writer
 	stderr io.Writer
 }
@@ -99,12 +94,7 @@ func newPlanClient(getenv func(string) string, client *http.Client, stdout,
 			"API token (read scope to read, approve scope to decide)")
 		return nil, planExitAuth
 	}
-	if client == nil {
-		// The egress floor refuses metadata and link-local destinations
-		// on every dial and redirect.
-		client = egress.HTTPClient(30 * time.Second)
-	}
-	return &planClient{base: base, token: token, http: client, stdout: stdout,
+	return &planClient{api: newAPIClient(base, token, client), stdout: stdout,
 		stderr: stderr}, planExitOK
 }
 

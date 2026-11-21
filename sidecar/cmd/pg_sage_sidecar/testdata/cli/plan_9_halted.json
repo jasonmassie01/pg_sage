@@ -1,0 +1,5 @@
+{"database":"orders","plan_hash":"9f9f0c7a9b8f6e4d3c2b1a0918273645f5e4d3c2b1a0918273645f5e4d3c2b1a",
+ "plan":{"id":9,"goal":"swap the orders index","status":"halted","steps":[
+ {"id":90,"ordinal":1,"proposed_sql":"CREATE INDEX CONCURRENTLY idx_n ON t (n)","runtime":{"state":"kept"}},
+ {"id":91,"ordinal":2,"proposed_sql":"DROP INDEX CONCURRENTLY idx_o","runtime":{"state":"halted"}}]},
+ "coverage":[]}

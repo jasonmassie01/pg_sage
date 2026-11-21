@@ -1,0 +1,10 @@
+{"items":[
+ {"kind":"change_approval","id":"42","database":"orders","title":"Approve analyze_table",
+  "why":"statistics are stale","risk":"safe","created_at":"2026-11-18T08:00:00Z",
+  "href":"#/actions?tab=pending&queue=42&database=orders","source":"sage.action_queue",
+  "actionable":true},
+ {"kind":"plan_approval","id":"7","database":"orders","title":"Approve plan: cut blocks",
+  "why":"a plan waits for approval","risk":"moderate","created_at":"2026-11-18T07:00:00Z",
+  "href":"#/plans/7?database=orders","source":"sage.plans","actionable":true}],
+ "counts_by_kind":{"change_approval":1,"plan_approval":1},"total":2,
+ "lower_bound":false,"truncated":false,"errors":[]}
