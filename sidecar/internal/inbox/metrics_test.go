@@ -107,3 +107,21 @@ func TestRecordDecisionConcurrently(t *testing.T) {
 		t.Fatalf("concurrent records = %+v, want 50", s)
 	}
 }
+
+// Boundary: /metrics exports at most eight buckets per histogram, +Inf
+// included (cmd/pg_sage_sidecar TestContractGaugeAndCounterSuffixes, which
+// sees this family only once a decision was recorded), and the bounds rise.
+func TestDecisionBoundsFitTheMetricsContract(t *testing.T) {
+	if n := len(DecisionBounds) + 1; n < 2 || n > 8 {
+		t.Fatalf("%d buckets with +Inf, want 2-8", n)
+	}
+	for i := 1; i < len(DecisionBounds); i++ {
+		if DecisionBounds[i] <= DecisionBounds[i-1] {
+			t.Fatalf("bound %d (%v) does not rise above %v", i, DecisionBounds[i],
+				DecisionBounds[i-1])
+		}
+	}
+	if DecisionBounds[0] != 60 || DecisionBounds[len(DecisionBounds)-1] != 7*24*3600 {
+		t.Fatalf("bounds %v, want a minute to a week", DecisionBounds)
+	}
+}

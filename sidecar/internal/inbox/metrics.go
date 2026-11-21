@@ -31,8 +31,9 @@ func Surface(header string) string {
 }
 
 // DecisionBounds are the histogram's upper bounds in seconds: a minute,
-// five, fifteen, an hour, four, twelve, a day, three and a week.
-var DecisionBounds = []float64{60, 300, 900, 3600, 14400, 43200, 86400, 259200, 604800}
+// five, fifteen, an hour, four, a day and a week. With +Inf that is eight
+// buckets, the most /metrics exports for one histogram.
+var DecisionBounds = []float64{60, 300, 900, 3600, 14400, 86400, 604800}
 
 // DecisionSeries is one kind and surface's histogram; Buckets[i] counts
 // the decisions at most DecisionBounds[i] (not cumulative).
