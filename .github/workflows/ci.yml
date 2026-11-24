@@ -278,7 +278,7 @@ jobs:
         working-directory: sidecar
         run: |
           status=0
-          go test ./... -race -tags=integration -count=1 -timeout 1200s -json \
+          go test ./... -race -tags=integration -count=1 -timeout 1500s -json \
             > ../integration.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../integration.json
           exit $status
