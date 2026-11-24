@@ -67,10 +67,13 @@ func findingCategories(r Rubric) []string {
 // database's rows.
 func (l *DBLoader) producersRan(ctx context.Context) (map[string]bool, error) {
 	var snapshot, history, advisor bool
+	// The oldest snapshot answers both, read along the collected_at index:
+	// an EXISTS over the history was planned as a seq scan of the history
+	// partition (perf gate A).
 	err := histstore.Resolve(l.Pool).QueryRow(ctx, `/* pg_sage review v1 */
-		SELECT EXISTS (SELECT 1 FROM sage.snapshots s WHERE {db:s}),
-		       EXISTS (SELECT 1 FROM sage.snapshots s
-		               WHERE {db:s} AND s.collected_at < now() - interval '1 day')`).
+		SELECT o.first IS NOT NULL, COALESCE(o.first < now() - interval '1 day', false)
+		  FROM (SELECT min(s.collected_at) AS first FROM sage.snapshots s
+		         WHERE {db:s}) o`).
 		Scan(&snapshot, &history)
 	if err != nil {
 		return nil, fmt.Errorf("read the snapshot history of %s: %w", l.Database, err)
