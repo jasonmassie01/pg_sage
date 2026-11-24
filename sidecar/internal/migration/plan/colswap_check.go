@@ -85,7 +85,7 @@ func checkSwapColumn(c SwapColumn, target string) error {
 			"plan it by hand")
 	case c.Generated:
 		return errors.New("a generated column is computed, not copied; plan it by hand")
-	case c.Default != "" && !(c.DefaultIsSeq && reSeqDefault.MatchString(c.Default)):
+	case c.Default != "" && (!c.DefaultIsSeq || !reSeqDefault.MatchString(c.Default)):
 		return fmt.Errorf("column default %s is not the column's own sequence; plan it "+
 			"by hand", c.Default)
 	}

@@ -41,7 +41,7 @@ func logStructured(level, component, msg string, args ...any) {
 	if out == nil {
 		out = os.Stderr
 	}
-	fmt.Fprintf(out, "%s [%s] [%s] %s\n", ts, level, component, fmt.Sprintf(msg, args...))
+	_, _ = fmt.Fprintf(out, "%s [%s] [%s] %s\n", ts, level, component, fmt.Sprintf(msg, args...))
 }
 
 func logStructuredWrapper(component, msg string, args ...any) {

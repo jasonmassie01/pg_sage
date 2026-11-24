@@ -61,7 +61,7 @@ func (e *Executor) runClaimedRollback(
 		decision.LockCeilingMS)
 	note, execErr := executeRollbackSQL(ctx, e.pool, rollbackSQL, cfg)
 	if execErr != nil {
-		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_failed",
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_failed",
 			"manual rollback failed: "+execErr.Error())
 		return fmt.Errorf("executing rollback SQL: %w", execErr)
 	}

@@ -97,7 +97,7 @@ func restoredOutside(ctx context.Context, pool *pgxpool.Pool, actionID int64,
 		reason := "the index is already back with the same definition (recreated " +
 			"outside pg_sage); nothing to roll back"
 		logFn("rollback", "action %d: %s", actionID, reason)
-		recordActionOutcome(ctx, pool, logFn, actionID, "already_restored", reason)
+		_ = recordActionOutcome(ctx, pool, logFn, actionID, "already_restored", reason)
 		_, _ = finalizeActionVerification(ctx, pool, actionID, "revert", reason)
 		_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(ctx, actionID,
 			"already_restored")
@@ -106,7 +106,7 @@ func restoredOutside(ctx context.Context, pool *pgxpool.Pool, actionID int64,
 		reason := "rollback not run: an index of that name already exists with a " +
 			"different definition (" + def + "); it was not replaced"
 		logFn("rollback", "action %d: %s", actionID, reason)
-		recordActionOutcome(ctx, pool, logFn, actionID, "rollback_failed", reason)
+		_ = recordActionOutcome(ctx, pool, logFn, actionID, "rollback_failed", reason)
 		return true
 	case rollbackTargetInvalid:
 		logFn("rollback", "action %d: an INVALID index of that name exists (%s), left "+

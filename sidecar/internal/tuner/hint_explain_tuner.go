@@ -57,7 +57,7 @@ func (t *Tuner) compareHint(ctx context.Context, queryID int64, query, hint stri
 	switch {
 	case t.pool == nil:
 		return unverifiable(base, "no connection for the hinted EXPLAIN"), nil
-	case avail == nil || !(avail.SharedPreload || avail.Preload || avail.SessionLoad):
+	case avail == nil || !avail.SharedPreload && !avail.Preload && !avail.SessionLoad:
 		return unverifiable(base, "pg_hint_plan is neither preloaded nor loadable into "+
 			"pg_sage's session"), nil
 	}

@@ -88,7 +88,7 @@ func (c *apiClient) send(ctx context.Context, method, path string, query url.Val
 		return apiAnswer{}, &cliTransportError{host: c.base.Host,
 			err: errors.New(c.redact(transportCause(err)))}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, cliMaxAnswer))
 	if err != nil {
 		return apiAnswer{}, &cliTransportError{host: c.base.Host,

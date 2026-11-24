@@ -101,7 +101,7 @@ func seal(s Spec, sections map[string]any) (*workpack.Pack, error) {
 		entry := evidence.FileEntry{Name: n, SHA256: hex.EncodeToString(h[:]),
 			Bytes: int64(len(data))}
 		m.Files = append(m.Files, entry)
-		fmt.Fprintf(sum, "%s %s\n", n, entry.SHA256)
+		_, _ = fmt.Fprintf(sum, "%s %s\n", n, entry.SHA256)
 		hdr := &tar.Header{Name: n, Mode: 0o644, Size: int64(len(data)),
 			ModTime: time.Unix(0, 0).UTC(), Format: tar.FormatPAX}
 		if err := tw.WriteHeader(hdr); err != nil {

@@ -105,7 +105,7 @@ func contentSHA256(sums map[string]string) string {
 	sort.Strings(names)
 	h := sha256.New()
 	for _, n := range names {
-		fmt.Fprintf(h, "%s %s\n", n, sums[n])
+		_, _ = fmt.Fprintf(h, "%s %s\n", n, sums[n])
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

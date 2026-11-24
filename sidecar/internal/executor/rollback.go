@@ -271,11 +271,11 @@ func rollbackRegressedAction(
 	}
 	if err != nil {
 		logFn("rollback", "rollback failed for action %d: %v", actionID, err)
-		recordActionOutcome(ctx, pool, logFn, actionID, "rollback_failed",
+		_ = recordActionOutcome(ctx, pool, logFn, actionID, "rollback_failed",
 			"rollback execution failed: "+err.Error())
 		return
 	}
-	recordActionOutcome(ctx, pool, logFn, actionID, "rolled_back", reason)
+	_ = recordActionOutcome(ctx, pool, logFn, actionID, "rolled_back", reason)
 	_, _ = finalizeActionVerification(ctx, pool, actionID, "revert", reason)
 	_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
 }

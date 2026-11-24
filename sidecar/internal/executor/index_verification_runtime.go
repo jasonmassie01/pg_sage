@@ -105,7 +105,7 @@ func (a *executorIndexActions) Revert(
 	exec := a.exec
 	recordVerdict(ctx, exec.pool, exec.engineOutcome(ctx, actionID, verdict), exec.logFn)
 	if exec.checkEmergencyStop(ctx) {
-		recordActionOutcome(ctx, exec.pool, exec.logFn, actionID, "rollback_skipped",
+		_ = recordActionOutcome(ctx, exec.pool, exec.logFn, actionID, "rollback_skipped",
 			"emergency stop active; automatic rollback withheld")
 		return errors.New("emergency stop withheld verified index rollback")
 	}
@@ -133,7 +133,7 @@ func (e *Executor) dropCreatedIndex(
 ) error {
 	dropSQL := "DROP INDEX CONCURRENTLY IF EXISTS " + qualified
 	if !e.authorizeCreatedIndexRevert(ctx, dropSQL, qualified) {
-		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
 			"standing policy withheld automatic rollback")
 		return errors.New("standing policy withheld verified index rollback")
 	}
@@ -149,7 +149,7 @@ func (e *Executor) dropCreatedIndex(
 		lockOpt, timeout = WithLockTimeout(cfg.Safety.LockTimeout()), cfg.Safety.DDLTimeout()
 	}
 	if err := ExecConcurrently(ctx, e.actionDB(), dropSQL, timeout, lockOpt); err != nil {
-		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_failed", err.Error())
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_failed", err.Error())
 		return fmt.Errorf("revert verified index action %d: %w", actionID, err)
 	}
 	e.finishRevert(ctx, actionID, verdict.Reason)
@@ -157,7 +157,7 @@ func (e *Executor) dropCreatedIndex(
 }
 
 func (e *Executor) finishRevert(ctx context.Context, actionID int64, reason string) {
-	recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rolled_back", reason)
+	_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rolled_back", reason)
 	e.completeVerificationRevert(ctx, actionID)
 	_, _ = value.NewPostgresRepository(e.pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
 }
@@ -179,7 +179,7 @@ func refusedRevertRetry(outcome, reason string) error {
 // abandonRevert records a revert that can never be performed safely and
 // closes the verification so it is not retried against the wrong object.
 func (e *Executor) abandonRevert(ctx context.Context, actionID int64, reason string) error {
-	recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
+	_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
 		revertRefusedPrefix+reason)
 	e.completeVerificationRevert(ctx, actionID)
 	return fmt.Errorf("revert of action %d refused: %s", actionID, reason)

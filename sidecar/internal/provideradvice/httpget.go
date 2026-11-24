@@ -33,7 +33,7 @@ func newHTTPClient(client *http.Client) *http.Client {
 func checkEndpoint(raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.User != nil ||
-		(u.Scheme != "https" && !(u.Scheme == "http" && loopback(u.Hostname()))) {
+		(u.Scheme != "https" && (u.Scheme != "http" || !loopback(u.Hostname()))) {
 		return "", fmt.Errorf("endpoint %q must be an https URL", raw)
 	}
 	return strings.TrimRight(raw, "/"), nil

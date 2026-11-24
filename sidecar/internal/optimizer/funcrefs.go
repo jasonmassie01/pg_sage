@@ -293,7 +293,7 @@ func (cs *callScanner) dottedName() ([]namePart, error) {
 }
 
 func isNameStart(c byte) bool {
-	return isIdentByte(c) && !(c >= '0' && c <= '9') && c != '$'
+	return isIdentByte(c) && (c < '0' || c > '9') && c != '$'
 }
 
 func (cs *callScanner) namePart() (namePart, error) {

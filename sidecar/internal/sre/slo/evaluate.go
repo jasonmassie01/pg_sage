@@ -127,7 +127,7 @@ func applyBudget(st *Status, o Objective, budget Window) {
 	} else {
 		st.BudgetUnknown = unknownOf(budget)
 	}
-	if st.CoverageUnverified || !(budget.Unknown == "" || sparseReason(budget.Unknown)) {
+	if st.CoverageUnverified || (budget.Unknown != "" && !sparseReason(budget.Unknown)) {
 		return
 	}
 	coverage := budget.Coverage
