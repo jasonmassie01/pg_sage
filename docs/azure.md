@@ -170,8 +170,9 @@ What pg_sage does for each clone:
   a failed or canceled operation, or a server not `Ready` afterwards, is deleted before the
   error returns. A restore not done by the deadline leaves its receipt `create_uncertain`,
   and the reaper finds the server by name and destroys it. Azure has no server-side expiry,
-  so the reaper is the backstop: check `az postgres flexible-server list --resource-group
-  <group>` for `sage-*` servers if a sidecar was down for long.
+  so the reaper is the backstop: check
+  `az postgres flexible-server list --resource-group <group>` for `sage-*` servers if a
+  sidecar was down for long.
 - The receipt and the rehearsal bound cover the clone: a rehearsal may run
   `restore_deadline_minutes` plus one hour, and its receipt lives 15 minutes longer.
   Receipts are scoped `azure/<subscription>/<resource group>`.
