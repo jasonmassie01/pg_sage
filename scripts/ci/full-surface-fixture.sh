@@ -94,7 +94,7 @@ psql_in() {
 
 start_postgres() {
   local major=$1
-  local image=${PG_SAGE_E2E_IMAGE:-ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg$major-r1}
+  local image=${PG_SAGE_E2E_IMAGE:-ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg$major-r2}
   docker run -d --name "$container" -e POSTGRES_PASSWORD=postgres \
     -p "127.0.0.1:$pg_port:5432" "$image" >/dev/null
   local ready=0

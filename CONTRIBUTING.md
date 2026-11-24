@@ -62,7 +62,7 @@ build it with the base digest from `.github/workflows/mirror-ci-images.yml`:
 
 ```bash
 docker run -d --name pgsage-test -e POSTGRES_PASSWORD=postgres \
-  -p 127.0.0.1:55432:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+  -p 127.0.0.1:55432:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
 # or: docker build -f scripts/ci/images/Dockerfile.pg --build-arg PG_MAJOR=17 \
 #   --build-arg BASE_DIGEST=sha256:<pg17 base> -t pgsage-ci:17 scripts/ci/images
 bash scripts/ci/verify-test-postgres.sh pgsage-test 17
@@ -145,7 +145,7 @@ export it next to the first:
 
 ```bash
 docker run -d --name pgsage-test-exclusive -e POSTGRES_PASSWORD=postgres \
-  -p 127.0.0.1:55433:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+  -p 127.0.0.1:55433:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
 bash scripts/ci/verify-test-postgres.sh pgsage-test-exclusive 17
 export SAGE_TEST_EXCLUSIVE_URL="postgres://postgres:postgres@127.0.0.1:55433/postgres?sslmode=disable"
 ```

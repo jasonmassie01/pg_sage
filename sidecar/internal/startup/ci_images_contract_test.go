@@ -229,7 +229,8 @@ func TestParseCIConf(t *testing.T) {
 }
 
 // The image carries what scripts/ci/setup-test-postgres.sh applied by hand
-// before ci-03b (with two restarts per job), and nothing else.
+// before ci-03b (with two restarts per job), plus the connection limit the
+// parallel suites need (r2), and nothing else.
 func TestCIImageBakesTheTestServerSettings(t *testing.T) {
 	conf, err := parseCIConf(readImageFile(t, "postgresql.ci.conf"))
 	if err != nil {
@@ -240,6 +241,7 @@ func TestCIImageBakesTheTestServerSettings(t *testing.T) {
 		"wal_level":                 "logical",
 		"max_prepared_transactions": "10",
 		"pg_stat_statements.max":    "50000",
+		"max_connections":           "300",
 	}
 	if !maps.Equal(conf, want) {
 		t.Errorf("postgresql.ci.conf = %v, want %v", conf, want)

@@ -37,7 +37,7 @@ jobs:
       packages: read
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -55,7 +55,7 @@ jobs:
       # ci-12: a second server, from the same image, that only the tests
       # measuring cluster-wide state use, one at a time (testdb.Exclusive).
       postgres-exclusive:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -71,9 +71,9 @@ jobs:
         ports:
           - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
-      PGHOST: localhost
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
+      PGHOST: 127.0.0.1
       PGPORT: "5432"
       PGUSER: postgres
       PGPASSWORD: postgres
@@ -156,7 +156,7 @@ jobs:
       # 2 risky); a tool error (3) fails the step.
       - name: Migration lint gate (fixture migrations)
         env:
-          SAGE_LINT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+          SAGE_LINT_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
         run: |
           (cd sidecar && go build -o ../pg_sage_sidecar ./cmd/pg_sage_sidecar)
           scripts/ci/lint-migration-fixtures.sh ./pg_sage_sidecar
@@ -225,7 +225,7 @@ jobs:
         pg: ["14", "15", "16", "18"]
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -243,7 +243,7 @@ jobs:
       # ci-12: a second server, from the same image, that only the tests
       # measuring cluster-wide state use, one at a time (testdb.Exclusive).
       postgres-exclusive:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -259,8 +259,8 @@ jobs:
         ports:
           - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -318,7 +318,7 @@ jobs:
       packages: read
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -336,7 +336,7 @@ jobs:
       # ci-12: a second server, from the same image, that only the tests
       # measuring cluster-wide state use, one at a time (testdb.Exclusive).
       postgres-exclusive:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -352,8 +352,8 @@ jobs:
         ports:
           - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -430,7 +430,7 @@ jobs:
             families: sequence_runway
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -448,7 +448,7 @@ jobs:
       # ci-12: a second server, from the same image, that only the tests
       # measuring cluster-wide state use, one at a time (testdb.Exclusive).
       postgres-exclusive:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -464,8 +464,8 @@ jobs:
         ports:
           - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
       # Roadmap 1.1: every PGIncidentBench report names the pg_sage build it
       # scored, so a sidecar refuses a report made for another build.
       SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
@@ -541,7 +541,7 @@ jobs:
         pg: ["14", "15", "16", "17", "18"]
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -559,7 +559,7 @@ jobs:
       # ci-12: a second server, from the same image, that only the tests
       # measuring cluster-wide state use, one at a time (testdb.Exclusive).
       postgres-exclusive:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -575,8 +575,8 @@ jobs:
         ports:
           - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
       SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
       SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
     steps:
@@ -637,7 +637,7 @@ jobs:
       packages: read
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -655,7 +655,7 @@ jobs:
       # ci-12: a second server, from the same image, that only the tests
       # measuring cluster-wide state use, one at a time (testdb.Exclusive).
       postgres-exclusive:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -671,8 +671,8 @@ jobs:
         ports:
           - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -728,7 +728,7 @@ jobs:
       contents: read
       packages: read
     env:
-      KILL_TOPOLOGY_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+      KILL_TOPOLOGY_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
     steps:
       - uses: actions/checkout@v4
 
@@ -773,7 +773,7 @@ jobs:
         timeout-minutes: 10
         run: |
           status=0
-          url=postgres://postgres:postgres@localhost:5435/postgres?sslmode=disable
+          url=postgres://postgres:postgres@127.0.0.1:5435/postgres?sslmode=disable
           SAGE_TEST_DATABASE_URL=$url SAGE_TEST_PSS_SMALL_URL=$url             go test ./internal/pgaudit ./internal/agentguard/broker -race -count=1             -timeout 600s -json             -run '^(TestRealPGAuditCorrelation|TestActivityReportsDeallocAndFallsBack)$'             > ../agent-audit.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../agent-audit.json
           exit $status
@@ -1248,7 +1248,7 @@ jobs:
       signed: ${{ steps.sign.outputs.signed }}
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -1266,7 +1266,7 @@ jobs:
       # ci-12: a second server, from the same image, that only the tests
       # measuring cluster-wide state use, one at a time (testdb.Exclusive).
       postgres-exclusive:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -1282,8 +1282,8 @@ jobs:
         ports:
           - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
       SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench-live
       SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
       SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
@@ -1460,7 +1460,7 @@ jobs:
       - name: Plain and TLS containers report healthy
         timeout-minutes: 20
         env:
-          PG_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r1
+          PG_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         run: scripts/ci/container-healthcheck.sh
 
   # ci-05: one leg per arch on a native runner (no QEMU). Each leg pushes

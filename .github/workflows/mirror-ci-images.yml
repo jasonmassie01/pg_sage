@@ -50,8 +50,8 @@ jobs:
           - pg: "18"
             base: sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d
     env:
-      REVISION: r1
-      TAG: ghcr.io/${{ github.repository_owner }}/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r1
+      REVISION: r2
+      TAG: ghcr.io/${{ github.repository_owner }}/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
     steps:
       - name: Log in to the GitHub container registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" |
