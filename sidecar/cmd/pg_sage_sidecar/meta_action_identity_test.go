@@ -54,6 +54,26 @@ func TestClassifyMemberAction(t *testing.T) {
 // Error propagation: the fail-closed pool never connects; its ping names
 // the database and both sentinels, and the executor would report "action
 // identity unavailable".
+// A password in the environment (CI sets PGPASSWORD) is not carried by
+// the fail-closed pool either: pgx would otherwise fill it in.
+func TestUnavailableActionPool_IgnoresEnvironmentPassword(t *testing.T) {
+	t.Setenv("PGPASSWORD", "from-env")
+	wrong := fmt.Errorf("database 9: action password: %w", crypto.ErrWrongEncryptionKey)
+	a, err := classifyMemberAction("", wrong, "actor", obsMemberDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := a.open(obsMemberDSN, "orders")
+	if err != nil || p == nil {
+		t.Fatalf("open = %v, %v; want a refusing pool", p, err)
+	}
+	defer p.Close()
+	cc := p.Config().ConnConfig
+	if cc.User != "actor" || cc.Password != "" {
+		t.Fatalf("pool user %q password %q, want actor and none", cc.User, cc.Password)
+	}
+}
+
 func TestUnavailableActionPool_RefusesEveryConnection(t *testing.T) {
 	wrong := fmt.Errorf("database 9: action password: %w", crypto.ErrWrongEncryptionKey)
 	a, err := classifyMemberAction("", wrong, "actor", obsMemberDSN)

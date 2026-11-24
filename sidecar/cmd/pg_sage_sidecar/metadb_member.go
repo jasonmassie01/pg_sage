@@ -77,6 +77,9 @@ func (a memberAction) open(observation, name string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("db %q: action identity address does not parse", name)
 	}
+	// The address has no password, but pgx fills one from PGPASSWORD or a
+	// passfile: a pool that never dials carries no credential at all.
+	pc.ConnConfig.Password = ""
 	refusal := fmt.Errorf("%w: db %q: the stored action password does not open: %w",
 		executor.ErrActionIdentityUnavailable, name, a.err)
 	pc.MaxConns, pc.MinConns = 1, 0
