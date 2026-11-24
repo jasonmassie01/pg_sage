@@ -122,7 +122,7 @@ func TestCustodianVacuumWithheldWhileTargetIsBeingVacuumed(t *testing.T) {
 
 // With nothing vacuuming the target, the same proposal runs.
 func TestCustodianVacuumRunsWhenNothingVacuumsTheTarget(t *testing.T) {
-	f := newVacuumFixture(t, 2000, "0")
+	f := newFreezeFixture(t, 2000, "0")
 	exec, decisionID := admissionExecutor(t, f)
 	// FREEZE: the post-check needs the horizon to advance, which a plain
 	// VACUUM of a table younger than its freeze table age need not do.

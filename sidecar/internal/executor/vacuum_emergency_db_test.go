@@ -95,7 +95,7 @@ func TestCapFailuresPrefixStoredByACappedCustodianVacuum(t *testing.T) {
 // session's raised 20ms would hold it for many seconds), completes,
 // advances relfrozenxid and records the replaced value.
 func TestCustodianEmergencyVacuumDropsCostDelayAndRecordsIt(t *testing.T) {
-	f := newVacuumFixture(t, 40000, "20ms")
+	f := newFreezeFixture(t, 40000, "20ms")
 	custodianFixtureGate(t, f)
 	sql := emergencySQLFor(f)
 	start := time.Now()

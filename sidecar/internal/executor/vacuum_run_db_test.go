@@ -37,6 +37,22 @@ type vacuumFixture struct {
 func newVacuumFixture(t *testing.T, rows int, costDelay string) *vacuumFixture {
 	t.Helper()
 	pool, ctx := requireDB(t)
+	return vacuumFixtureOn(t, pool, ctx, rows, costDelay)
+}
+
+// newFreezeFixture is newVacuumFixture on the exclusive server, for tests
+// that assert relfrozenxid advanced: a freeze stops at the cluster's
+// oldest xmin, which other packages' sessions on the shared server hold
+// back (CI saw age 1531 after a completed VACUUM FREEZE).
+func newFreezeFixture(t *testing.T, rows int, costDelay string) *vacuumFixture {
+	t.Helper()
+	pool, ctx := exclusiveDB(t, "relfrozenxid advances only past the cluster's oldest xmin")
+	return vacuumFixtureOn(t, pool, ctx, rows, costDelay)
+}
+
+func vacuumFixtureOn(t *testing.T, pool *pgxpool.Pool, ctx context.Context, rows int,
+	costDelay string) *vacuumFixture {
+	t.Helper()
 	f := &vacuumFixture{t: t, pool: pool, ctx: ctx,
 		table: fmt.Sprintf("public.vac_%d", time.Now().UnixNano())}
 	// Autovacuum off: an insert-triggered autovacuum would race the test's
@@ -143,7 +159,7 @@ func requireCanceled(t *testing.T, err error) {
 // runs well past it with statement_timeout 0 while its progress advances,
 // and completes.
 func TestVacuumWatchedRunsPastOneSecondCapStandInAndCompletes(t *testing.T) {
-	f := newVacuumFixture(t, 40000, "10ms")
+	f := newFreezeFixture(t, 40000, "10ms")
 	f.exec.cfg.Safety.DDLTimeoutSeconds = 1
 	f.exec.vacuumHooks.readProgress = f.recordingReader()
 	took, err := f.vacuum()
