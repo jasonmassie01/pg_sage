@@ -54,7 +54,7 @@ run)
     [[ -z ${STUB_NO_GCC:-} ]] || exit 1; echo /usr/bin/gcc
   elif [[ $* == *"-race"*"/probe"* || $* == *"/probe"*"-race"* ]]; then
     [[ -z ${STUB_RACE_FAIL:-} ]] || { echo "ld: cannot find -lracego" >&2; exit 1; }
-    echo "go version go1.27.3 linux/amd64"
+    echo "go version go1.27.4 linux/amd64"
   elif [[ -n ${STUB_GO_SLEEP:-} && $* == *"go test"* ]]; then
     # A Go container that outlives the runner's timeout keeps running.
     echo "$name $label" >>"$STUB_STATE"

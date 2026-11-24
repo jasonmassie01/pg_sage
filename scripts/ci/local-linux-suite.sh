@@ -21,7 +21,7 @@
 # another run's container even when two runs race for one name.
 #
 # Environment:
-#   GO_IMAGE               Go image, needs gcc (default golang:1.27.3-alpine3.24,
+#   GO_IMAGE               Go image, needs gcc (default golang:1.27.4-alpine3.24,
 #                          which has none, so the run stops on exit 7)
 #   GO_ROOT                Linux Go tree mounted read-only at /opt/go, set as
 #                          GOROOT and put first on PATH (default: none)
@@ -70,7 +70,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=local-linux-suite-server.sh
 . "$here/local-linux-suite-server.sh"
 repo=$(cd "$here/../.." && pwd -P)
-GO_IMAGE=${GO_IMAGE-golang:1.27.3-alpine3.24}
+GO_IMAGE=${GO_IMAGE-golang:1.27.4-alpine3.24}
 GO_ROOT=${GO_ROOT:-}
 GO_ROOT_VOLUME=${GO_ROOT_VOLUME:-}
 PREFIX=${LOCAL_SUITE_PREFIX-improve-ci-}

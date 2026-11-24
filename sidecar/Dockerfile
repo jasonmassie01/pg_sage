@@ -7,7 +7,7 @@ COPY internal/api/dist/ ./internal/api/dist/
 RUN cd web && npm run build
 
 # The Go release is the toolchain line in go.mod (TestToolchainPinsAgree).
-FROM golang:1.27.3-alpine3.24 AS builder
+FROM golang:1.27.4-alpine3.24 AS builder
 # build-base: cgo compiles libpg_query for parse-tree SQL validation.
 RUN apk add --no-cache git build-base
 WORKDIR /build

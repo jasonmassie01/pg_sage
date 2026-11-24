@@ -59,7 +59,7 @@ func stubBinary(t *testing.T, dir, body, code string) string {
 }
 
 const goodVersionLine = "pg_sage 2.6.0 (commit: abc1234, built: 2026-11-09T00:00:00Z, " +
-	"sql-ast: libpg_query, go: go1.27.3)\n"
+	"sql-ast: libpg_query, go: go1.27.4)\n"
 
 func TestSmokeVersionAcceptsTheTaggedLibpgQueryBuild(t *testing.T) {
 	smoke := ciScript(t, "smoke-version.sh")

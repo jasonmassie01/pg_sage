@@ -25,11 +25,14 @@ var (
 	toolchainLine = regexp.MustCompile(`^toolchain\s+go(\d+\.\d+\.\d+)\s*(//.*)?$`)
 	goLine        = regexp.MustCompile(`^go\s+(\d+\.\d+(?:\.\d+)?)\s*(//.*)?$`)
 	fromLine      = regexp.MustCompile(`(?i)^FROM\s+(?:--platform=\S+\s+)?(\S+)`)
-	crossImage    = regexp.MustCompile(`ghcr\.io/goreleaser/goreleaser-cross:([^\s'"]+)`)
-	nodeVersion   = regexp.MustCompile(`(?m)^\s*node-version:\s*["']?([^"'\s]*)`)
-	literalGo     = regexp.MustCompile(`(?m)^\s*go-version:\s`)
-	digestSuffix  = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
-	leadingMajor  = regexp.MustCompile(`^v?(\d+)(?:[.-]|$)`)
+	// A docker run (its continued lines up to the image) and the
+	// goreleaser-cross image it runs.
+	crossImage = regexp.MustCompile(
+		`(docker run(?:[^\n]*\\\n)*?)[^\n]*ghcr\.io/goreleaser/goreleaser-cross:([^\s'"]+)`)
+	nodeVersion  = regexp.MustCompile(`(?m)^\s*node-version:\s*["']?([^"'\s]*)`)
+	literalGo    = regexp.MustCompile(`(?m)^\s*go-version:\s`)
+	digestSuffix = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
+	leadingMajor = regexp.MustCompile(`^v?(\d+)(?:[.-]|$)`)
 )
 
 // shippedDockerfiles are the Dockerfiles that build released artifacts.
@@ -145,6 +148,56 @@ func checkCrossTag(tag, version string) error {
 		tag, version, want)
 }
 
+// checkCrossRun accepts a goreleaser-cross image of exactly version, or,
+// while goreleaser-cross has not published that Go release yet, an older
+// patch of the same minor whose docker run sets GOTOOLCHAIN=go<version>,
+// so the release binaries are still built by go.mod's toolchain.
+func checkCrossRun(runLine, tag, version string) error {
+	err := checkCrossTag(tag, version)
+	if err == nil {
+		return nil
+	}
+	if !olderPatchOfMinor(tag, version) {
+		return err
+	}
+	if !strings.Contains(runLine, "-e GOTOOLCHAIN=go"+version+" ") {
+		return fmt.Errorf("goreleaser-cross:%s is older than go.mod toolchain go%s and its "+
+			"docker run does not set -e GOTOOLCHAIN=go%s", tag, version, version)
+	}
+	return nil
+}
+
+// olderPatchOfMinor reports whether tag is v<major>.<minor>.<p> (or a -N
+// rebuild of it) with p below version's patch, in the same major.minor.
+func olderPatchOfMinor(tag, version string) bool {
+	vMaj, vMin, vPatch, ok := splitVersion(version)
+	if !ok {
+		return false
+	}
+	base, _, _ := strings.Cut(strings.TrimPrefix(tag, "v"), "-")
+	if !strings.HasPrefix(tag, "v") {
+		return false
+	}
+	maj, min, patch, ok := splitVersion(base)
+	return ok && maj == vMaj && min == vMin && patch < vPatch
+}
+
+func splitVersion(v string) (major, minor, patch int, ok bool) {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	nums := make([]int, 3)
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return 0, 0, 0, false
+		}
+		nums[i] = n
+	}
+	return nums[0], nums[1], nums[2], true
+}
+
 // checkDigestPinned fails unless ref ends in a full sha256 digest.
 func checkDigestPinned(ref string) error {
 	if digestSuffix.MatchString(ref) {
@@ -231,7 +284,7 @@ func TestToolchainPinsAgree(t *testing.T) {
 		t.Fatalf("%s names no goreleaser-cross image", path)
 	}
 	for _, m := range tags {
-		if err := checkCrossTag(m[1], version); err != nil {
+		if err := checkCrossRun(m[1], m[2], version); err != nil {
 			t.Errorf("%s: %v", path, err)
 		}
 	}

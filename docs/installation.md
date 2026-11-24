@@ -207,7 +207,7 @@ prometheus:
 ## Build from Source
 
 Requires Go 1.26+ and Node.js 22+. Releases are built with the Go release named
-by the `toolchain` line in `sidecar/go.mod` (Go 1.27.3); with the default
+by the `toolchain` line in `sidecar/go.mod` (Go 1.27.4); with the default
 `GOTOOLCHAIN=auto` the `go` command fetches that release automatically.
 A C compiler (gcc or clang) is also needed: with cgo the binary links
 libpg_query, which checks every executor statement against its PostgreSQL

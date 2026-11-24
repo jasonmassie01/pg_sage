@@ -134,6 +134,30 @@ func TestCheckCrossTagBoundaries(t *testing.T) {
 	}
 }
 
+func TestCheckCrossRunBoundaries(t *testing.T) {
+	const pinned = `docker run --rm -e GOTOOLCHAIN=go1.27.4 \`
+	cases := []struct {
+		name, run, tag string
+		ok             bool
+	}{
+		{"exact tag, no GOTOOLCHAIN", `docker run --rm \`, "v1.27.4", true},
+		{"older patch with GOTOOLCHAIN", pinned, "v1.27.3", true},
+		{"older patch rebuild with GOTOOLCHAIN", pinned, "v1.27.3-1", true},
+		{"older patch without GOTOOLCHAIN", `docker run --rm \`, "v1.27.3", false},
+		{"older patch, GOTOOLCHAIN for another release", `docker run --rm -e GOTOOLCHAIN=go1.27.5 \`,
+			"v1.27.3", false},
+		{"older minor with GOTOOLCHAIN", pinned, "v1.26.9", false},
+		{"newer patch with GOTOOLCHAIN", pinned, "v1.27.5", false},
+		{"no v prefix", pinned, "1.27.3", false},
+		{"empty tag", pinned, "", false},
+	}
+	for _, c := range cases {
+		if err := checkCrossRun(c.run, c.tag, "1.27.4"); (err == nil) != c.ok {
+			t.Errorf("%s: checkCrossRun(%q) = %v, want ok=%v", c.name, c.tag, err, c.ok)
+		}
+	}
+}
+
 func TestCheckDigestPinnedBoundaries(t *testing.T) {
 	cases := map[string]bool{
 		"alpine:3.24@sha256:" + testDigest:                  true,

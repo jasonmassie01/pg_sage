@@ -60,7 +60,7 @@ grep -q 'plan pg15 server=improve-ci-pg15 image=postgres:15 go=improve-ci-go-pg1
 grep -q 'plan pg17 server=improve-ci-pg17 image=improve-pg:17 go=improve-ci-go-pg17' <<<"$out" ||
   fail "dry run: pg17 plan line missing: $out"
 [[ $(grep -c '^plan pg' <<<"$out") -eq 3 ]] || fail "dry run: want 3 plan lines: $out"
-grep -q 'go-image=golang:1.27.3-alpine3.24 go-root=none' <<<"$out" ||
+grep -q 'go-image=golang:1.27.4-alpine3.24 go-root=none' <<<"$out" ||
   fail "dry run: empty GO_ROOT must mount nothing: $out"
 grep -q 'go=improve-ci-go-pg17 exclusive=improve-ci-exclusive-pg17 ' <<<"$out" ||
   fail "dry run: pg17 lacks its exclusive server (SAGE_TEST_EXCLUSIVE_URL): $out"
@@ -323,7 +323,7 @@ grep -vqx 'improve-go1273-root:/opt/go:ro' <<<"$mounts" &&
   fail "the Go volume was mounted writable: $mounts"
 grep -qx 'go_root=volume:improve-go1273-root' "$o/run.txt" ||
   fail "run.txt lacks the Go volume: $(cat "$o/run.txt")"
-grep -qx 'go_version=go version go1.27.3 linux/amd64' "$o/run.txt" ||
+grep -qx 'go_version=go version go1.27.4 linux/amd64' "$o/run.txt" ||
   fail "run.txt lacks the toolchain's go version: $(cat "$o/run.txt")"
 
 # ci-20: a package under its floor fails the run; covfloor runs on PG17 only.
