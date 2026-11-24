@@ -123,22 +123,33 @@ func perCall(blocks, calls float64) *float64 {
 // flipOpenSQL reads the open flips ($1 the category) and those resolved
 // by pg_sage's ANALYZE in the last 7 days whose verdict is not recorded
 // and whose identity has no open row, each with its latest ANALYZE action.
+// The two sets are read apart (UNION ALL) so each uses its partial index:
+// the open ones idx_findings_dedup, the resolved ones
+// idx_findings_resolved_at. One OR over both read every finding (perf
+// gate: a seq scan of sage.findings every analyzer cycle).
 const flipOpenSQL = `/* pg_sage analyzer */
 SELECT f.id, f.object_identifier, f.status, f.severity, f.title,
        COALESCE(f.detail, '{}'::jsonb), al.id, al.executed_at
-  FROM sage.findings f
+  FROM (SELECT o.id, o.object_identifier, o.status, o.severity, o.title, o.detail,
+               o.action_log_id
+          FROM sage.findings o
+         WHERE o.category = $1 AND o.status = 'open'
+        UNION ALL
+        SELECT r.id, r.object_identifier, r.status, r.severity, r.title, r.detail,
+               r.action_log_id
+          FROM sage.findings r
+         WHERE r.category = $1 AND r.status = 'resolved'
+           AND r.resolved_at > now() - interval '7 days'
+           AND r.action_log_id IS NOT NULL
+           AND NOT (COALESCE(r.detail, '{}'::jsonb) ? 'reanalyze_verdict')
+           AND NOT EXISTS (SELECT 1 FROM sage.findings o
+                            WHERE o.category = r.category AND o.status = 'open'
+                              AND o.object_identifier = r.object_identifier)) f
   LEFT JOIN LATERAL (
        SELECT a.id, a.executed_at FROM sage.action_log a
         WHERE a.finding_id = f.id AND a.action_type = 'analyze' AND a.outcome <> 'failed'
         ORDER BY a.executed_at DESC, a.id DESC LIMIT 1) al ON true
- WHERE f.category = $1
-   AND (f.status = 'open'
-        OR (f.status = 'resolved' AND al.id IS NOT NULL AND f.action_log_id = al.id
-            AND f.resolved_at > now() - interval '7 days'
-            AND NOT (COALESCE(f.detail, '{}'::jsonb) ? 'reanalyze_verdict')
-            AND NOT EXISTS (SELECT 1 FROM sage.findings o
-                             WHERE o.category = f.category AND o.status = 'open'
-                               AND o.object_identifier = f.object_identifier)))
+ WHERE f.status = 'open' OR (al.id IS NOT NULL AND f.action_log_id = al.id)
  ORDER BY f.id LIMIT 200`
 
 func (d pgPlanFlipDB) openFlips(ctx context.Context) ([]openFlip, error) {
