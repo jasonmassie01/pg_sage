@@ -37,6 +37,9 @@ WHERE catcode <> 'U' ORDER BY word`)
 
 // Ident agrees with the server's own quote_ident on every key word and on
 // plain, mixed-case and odd names: both quote exactly what must be quoted.
+// The one allowed difference: the table is the union over supported
+// versions, so a word another version reserves (json is unreserved on 16,
+// a column-name key word on 17) is quoted even where this server would not.
 func TestIdentMatchesQuoteIdent(t *testing.T) {
 	conn, ctx := liveConn(t)
 	rows, err := conn.Query(ctx, `SELECT w, pg_catalog.quote_ident(w) FROM (
@@ -51,7 +54,12 @@ func TestIdentMatchesQuoteIdent(t *testing.T) {
 		t.Fatalf("scan quote_ident: %v", err)
 	}
 	for _, p := range pairs {
-		if got := Ident(p.In); got != p.Want {
+		got := Ident(p.In)
+		_, otherVersion := keywords[p.In]
+		if got == `"`+p.In+`"` && p.Want == p.In && otherVersion {
+			continue
+		}
+		if got != p.Want {
 			t.Errorf("Ident(%q) = %s, server quote_ident gives %s", p.In, got, p.Want)
 		}
 	}

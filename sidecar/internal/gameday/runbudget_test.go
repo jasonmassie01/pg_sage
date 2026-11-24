@@ -13,15 +13,18 @@ import (
 // that still run after the budget ends.
 
 // checkBudget asserts that the fault programs ran under a deadline of
-// runBudget from (about) when the run started.
-func checkBudget(t *testing.T, f *fakeFaults, started time.Time) {
+// runBudget from when the run started: the run reads the clock after
+// started and before finished, so its deadline lies between started and
+// finished plus runBudget (a minute's slack below).
+func checkBudget(t *testing.T, f *fakeFaults, started, finished time.Time) {
 	t.Helper()
 	if len(f.deadlines) != 1 || f.deadlines[0].IsZero() {
 		t.Fatalf("fault program deadlines = %v, want one deadline", f.deadlines)
 	}
-	left := f.deadlines[0].Sub(started)
-	if left > runBudget || left < runBudget-time.Minute {
-		t.Fatalf("fault programs had %s, want the %s run budget", left, runBudget)
+	d := f.deadlines[0]
+	if d.After(finished.Add(runBudget)) || d.Before(started.Add(runBudget-time.Minute)) {
+		t.Fatalf("fault programs had %s from the start, want the %s run budget",
+			d.Sub(started), runBudget)
 	}
 }
 
@@ -40,7 +43,7 @@ func TestLocalBenchRunIsBoundedByTheRunBudget(t *testing.T) {
 	if _, err := b.Run(context.Background(), nil); err != nil {
 		t.Fatal(err)
 	}
-	checkBudget(t, f, started)
+	checkBudget(t, f, started, time.Now())
 }
 
 // A background local run (Start) outlives its request's context, but not
@@ -55,7 +58,7 @@ func TestStartedLocalBenchRunIsBoundedByTheRunBudget(t *testing.T) {
 	}
 	cancel()
 	waitLocalIdle(t, b)
-	checkBudget(t, f, started)
+	checkBudget(t, f, started, time.Now())
 	if len(p.destroyed) != 1 {
 		t.Fatalf("destroyed %d clones, want 1", len(p.destroyed))
 	}
@@ -67,7 +70,7 @@ func TestGameDayIsBoundedByTheRunBudget(t *testing.T) {
 	if _, err := f.runner().Run(f.ctx); err != nil {
 		t.Fatal(err)
 	}
-	checkBudget(t, f.faults, started)
+	checkBudget(t, f.faults, started, time.Now())
 }
 
 func waitLocalIdle(t *testing.T, b *LocalBench) {
