@@ -99,7 +99,7 @@ start_postgres() {
     -p "127.0.0.1:$pg_port:5432" "$image" >/dev/null
   local ready=0
   for _ in $(seq 1 60); do
-    docker exec "$container" pg_isready -U postgres >/dev/null 2>&1 && { ready=1; break; }
+    docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && { ready=1; break; }
     sleep 1
   done
   ((ready)) || die "PostgreSQL in container '$container' did not accept connections" \

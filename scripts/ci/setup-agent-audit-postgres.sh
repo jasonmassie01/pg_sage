@@ -21,7 +21,7 @@ psql_admin() {
 restart_and_wait() {
   docker restart "$container" >/dev/null
   for _ in $(seq 1 60); do
-    if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then
+    if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
       return 0
     fi
     sleep 1

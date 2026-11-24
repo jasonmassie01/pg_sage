@@ -31,10 +31,10 @@ docker network create "$net" >/dev/null
 docker run -d --name "${prefix}-pg" --network "$net" \
   -e POSTGRES_PASSWORD=postgres "$pg_image" >/dev/null
 for _ in $(seq 1 60); do
-  docker exec "${prefix}-pg" pg_isready -U postgres >/dev/null 2>&1 && break
+  docker exec "${prefix}-pg" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break
   sleep 1
 done
-docker exec "${prefix}-pg" pg_isready -U postgres >/dev/null
+docker exec "${prefix}-pg" pg_isready -h 127.0.0.1 -U postgres >/dev/null
 docker exec "${prefix}-pg" createdb -U postgres plain
 docker exec "${prefix}-pg" createdb -U postgres tls
 
