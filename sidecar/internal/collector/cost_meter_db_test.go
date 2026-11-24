@@ -138,17 +138,20 @@ func TestCostMeter_SlowestStatementExceedsTheProbe(t *testing.T) {
 
 // Error propagation: a statement held past the deadline by a
 // before-statement sleep is a counted timeout naming its step; the step's
-// retry then succeeds, so the cycle has exactly one.
+// retry then succeeds, so the cycle has exactly one. The deadline is wide
+// enough that no other read on a loaded CI server reaches it (at 300 ms,
+// statements_usage did); the injected sleep is well past it.
 func TestCostMeter_TimeoutIsCountedAndItsStepNamed(t *testing.T) {
+	const deadlineMs = 2000
 	pool := testPool(t)
-	c := meteredCollector(t, pool, 300)
+	c := meteredCollector(t, pool, deadlineMs)
 	var slept atomic.Bool
 	ctx := catalogread.WithBeforeStatement(context.Background(),
 		func(ctx context.Context, tx pgx.Tx) error {
 			if stepOf(ctx) != "foreign_keys" || !slept.CompareAndSwap(false, true) {
 				return nil
 			}
-			_, err := tx.Exec(ctx, "SELECT pg_sleep(3)")
+			_, err := tx.Exec(ctx, "SELECT pg_sleep(5)")
 			return err
 		})
 	c.cycle(ctx, &fakeTicker{})
@@ -159,9 +162,9 @@ func TestCostMeter_TimeoutIsCountedAndItsStepNamed(t *testing.T) {
 	if cost.Timeouts != 1 || !slices.Equal(cost.TimeoutSteps, []string{"foreign_keys"}) {
 		t.Fatalf("timeouts %d in %v, want 1 in foreign_keys", cost.Timeouts, cost.TimeoutSteps)
 	}
-	if cost.SlowestMs < 290 || cost.SlowestStep != "foreign_keys" {
-		t.Fatalf("slowest %.1f ms in %q, want the ~300 ms timed-out read", cost.SlowestMs,
-			cost.SlowestStep)
+	if cost.SlowestMs < deadlineMs*0.97 || cost.SlowestStep != "foreign_keys" {
+		t.Fatalf("slowest %.1f ms in %q, want the ~%d ms timed-out read", cost.SlowestMs,
+			cost.SlowestStep, deadlineMs)
 	}
 	snap := c.LatestSnapshot()
 	if snap == nil || !snap.Available("foreign_keys") {
@@ -170,8 +173,9 @@ func TestCostMeter_TimeoutIsCountedAndItsStepNamed(t *testing.T) {
 	ev := selfconfig.Evidence{}.WithCollectorCost(asSelfConfigCost(cost))
 	r, _ := selfconfig.Lookup("safety.query_timeout_ms")
 	p := r.Evaluate(ev, c.cfg)
-	if !p.OK || p.Value < 600 {
-		t.Fatalf("after a timeout the deadline derived %+v, want at least 2x 300 ms", p)
+	if !p.OK || p.Value < 2*deadlineMs {
+		t.Fatalf("after a timeout the deadline derived %+v, want at least 2x %d ms", p,
+			deadlineMs)
 	}
 }
 

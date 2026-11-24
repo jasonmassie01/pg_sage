@@ -475,8 +475,10 @@ func TestRevokePublic_VerifierRevertsWhenAReaderStops(t *testing.T) {
 	if err := reader.QueryRow(ctx, readSQL).Scan(&n); err == nil {
 		t.Fatal("the PUBLIC reader still succeeds after the revoke")
 	}
+	// The revert's GRANT commits before its outcome is recorded: wait for
+	// both, or the outcome can still read rolling_back.
 	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) && f.acl(t) != before {
+	for time.Now().Before(deadline) && (f.acl(t) != before || !rolledBack(f.actions(t))) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if after := f.acl(t); after != before {
@@ -489,4 +491,9 @@ func TestRevokePublic_VerifierRevertsWhenAReaderStops(t *testing.T) {
 	if err := reader.QueryRow(ctx, readSQL).Scan(&n); err != nil {
 		t.Fatalf("reader after the revert: %v", err)
 	}
+}
+
+// rolledBack reports whether the only action recorded is rolled back.
+func rolledBack(acts []map[string]any) bool {
+	return len(acts) == 1 && acts[0]["outcome"] == "rolled_back"
 }

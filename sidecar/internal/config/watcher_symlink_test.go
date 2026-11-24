@@ -39,6 +39,24 @@ func (r *changeRecorder) onChange(candidate *Config) error {
 	return nil
 }
 
+// waitCurrent waits for Current to reach want. The recorder hears onChange
+// before the watcher advances Current, which it does only after onChange
+// returns, so Current read right after waitCall can still be the old value.
+func waitCurrent(t *testing.T, w *Watcher, want int, what string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got := w.Current().Collector.IntervalSeconds
+		if got == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Current interval = %d %s, want %d", got, what, want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 func (r *changeRecorder) snapshot() []int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -187,9 +205,7 @@ func TestWatcherKeepsCurrentWhenDataTargetVanishesMidSwap(t *testing.T) {
 	want := initial.Collector.IntervalSeconds + 3
 	mount.swap("..2026_c", withInterval(initial, want))
 	rec.waitCall(t, "swap after broken link")
-	if got := watcher.Current().Collector.IntervalSeconds; got != want {
-		t.Fatalf("Current interval = %d after good swap, want %d", got, want)
-	}
+	waitCurrent(t, watcher, want, "after good swap")
 }
 
 func TestWatcherDebouncesBurstOfWritesIntoOneReload(t *testing.T) {
@@ -246,9 +262,7 @@ func TestWatcherSurvivesConfigFileRemovalAndReloadsWhenRestored(t *testing.T) {
 	want := initial.Collector.IntervalSeconds + 4
 	overwriteWatcherConfig(t, path, withInterval(initial, want))
 	rec.waitCall(t, "restored config file")
-	if got := watcher.Current().Collector.IntervalSeconds; got != want {
-		t.Fatalf("Current interval = %d after restore, want %d", got, want)
-	}
+	waitCurrent(t, watcher, want, "after restore")
 }
 
 func TestWatcherDoesNotRetryRejectedFileUntilItChanges(t *testing.T) {
@@ -287,9 +301,7 @@ func TestWatcherDoesNotRetryRejectedFileUntilItChanges(t *testing.T) {
 	}
 	rec.waitCall(t, "retry after touch")
 	rec.assertCalls(t, []int{want, want})
-	if got := watcher.Current().Collector.IntervalSeconds; got != want {
-		t.Fatalf("Current interval = %d after accepted retry, want %d", got, want)
-	}
+	waitCurrent(t, watcher, want, "after accepted retry")
 }
 
 func TestWatcherStopWhileDebounceArmedFiresNoReload(t *testing.T) {
@@ -370,7 +382,5 @@ func TestWatcherStartedBeforeFileExistsReloadsFirstVersion(t *testing.T) {
 	overwriteWatcherConfig(t, path, withInterval(initial, want))
 	rec.waitCall(t, "first version of a late config file")
 	rec.assertCalls(t, []int{want})
-	if got := watcher.Current().Collector.IntervalSeconds; got != want {
-		t.Fatalf("Current interval = %d, want %d", got, want)
-	}
+	waitCurrent(t, watcher, want, "for the late file")
 }

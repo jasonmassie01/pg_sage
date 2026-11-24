@@ -105,7 +105,5 @@ func TestWatcherReloadsDuringSteadyStreamOfUnrelatedEvents(t *testing.T) {
 			"(calls=%v)", deadline, rec.snapshot())
 	}
 	rec.assertCalls(t, []int{want})
-	if got := watcher.Current().Collector.IntervalSeconds; got != want {
-		t.Fatalf("Current interval = %d, want %d", got, want)
-	}
+	waitCurrent(t, watcher, want, "under unrelated events")
 }
