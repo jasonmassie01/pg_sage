@@ -7,7 +7,6 @@ package lockqueue
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -138,5 +137,5 @@ func await(t testing.TB, admin *pgx.Conn, pid int, check string, extra ...any) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal(fmt.Sprintf("lockqueue: pid %d did not reach %q within 10s", pid, check))
+	t.Fatalf("lockqueue: pid %d did not reach %q within 10s", pid, check)
 }

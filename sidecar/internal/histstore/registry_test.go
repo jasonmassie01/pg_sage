@@ -154,7 +154,7 @@ func TestResolveMetaModeKeepsNilAndStores(t *testing.T) {
 	if _, err := Resolve(mon).Exec(context.Background(), "SELECT 1"); err != nil {
 		t.Fatalf("a monitored Store passed directly must still run in meta mode: %v", err)
 	}
-	type unhashable struct{ tags []string }
+	type unhashable struct{ _ []string } // a slice field makes it unhashable
 	refusesAll(t, Resolve(unhashable{}), nil)
 }
 

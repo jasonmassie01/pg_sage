@@ -22,7 +22,7 @@ func azureSourceFor(c *config.Config, host string, r config.CloudResourceAzure,
 	}
 	switch {
 	case target.SubscriptionID == "" || target.ResourceGroup == "":
-		return nil, errors.New("Azure Monitor metrics need the server's resource ID; set " +
+		return nil, errors.New("metrics from Azure Monitor need the server's resource ID; set " +
 			"azure.subscription_id and azure.resource_group (or cloud_resource.azure on " +
 			"this database)")
 	case server == "":

@@ -378,15 +378,15 @@ func (cs *callScanner) castType() error {
 func (cs *callScanner) skipParens() error {
 	depth := 0
 	for cs.pos < cs.end {
-		switch c := cs.src[cs.pos]; {
-		case c == '\'':
+		switch cs.src[cs.pos] {
+		case '\'':
 			if err := cs.literal(false); err != nil {
 				return err
 			}
 			continue
-		case c == '(':
+		case '(':
 			depth++
-		case c == ')':
+		case ')':
 			depth--
 			if depth == 0 {
 				cs.pos++

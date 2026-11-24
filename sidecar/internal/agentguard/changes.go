@@ -52,12 +52,11 @@ type PatchDoc struct {
 }
 
 func (patch Patch) doc() PatchDoc {
-	return PatchDoc{SponsorUserID: patch.SponsorUserID, Profile: patch.Profile,
-		EnvCeiling: patch.EnvCeiling}
+	return PatchDoc(patch)
 }
 
 func (d PatchDoc) patch() Patch {
-	return Patch{SponsorUserID: d.SponsorUserID, Profile: d.Profile, EnvCeiling: d.EnvCeiling}
+	return Patch(d)
 }
 
 func sameField[T comparable](a, b *T) bool {

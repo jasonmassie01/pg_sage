@@ -25,7 +25,7 @@ func (e *Executor) settleConfigChange(ctx context.Context, actionID int64, c *co
 	case readbackInEffect:
 		return true
 	case readbackPendingRestart:
-		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "applied_pending_restart", note)
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "applied_pending_restart", note)
 		_, _ = finalizeActionVerification(ctx, e.pool, actionID, "unverifiable",
 			"pending restart: "+note)
 	case readbackUnconfirmed:
@@ -121,6 +121,6 @@ func (e *Executor) revertIneffective(
 		reason += "; reverted (" + rolled + ")"
 	}
 	e.logFn("executor", "config change %q %s", c.sql, reason)
-	recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed", reason)
+	_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed", reason)
 	_, _ = finalizeActionVerification(ctx, e.pool, actionID, "failed", reason)
 }

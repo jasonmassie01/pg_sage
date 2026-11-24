@@ -148,12 +148,12 @@ func azureAPIError(api, role string, status int, raw []byte) error {
 	_ = json.Unmarshal(raw, &e)
 	detail := fmt.Sprintf("%s HTTP %d %s: %s", api, status, sanitize(e.Error.Code),
 		sanitize(e.Error.Message))
-	switch {
-	case status == http.StatusTooManyRequests:
+	switch status {
+	case http.StatusTooManyRequests:
 		return fmt.Errorf("%w: %s", ErrThrottled, detail)
-	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+	case http.StatusUnauthorized, http.StatusForbidden:
 		return fmt.Errorf("%w: %s; grant the credential the %s role", ErrAuth, detail, role)
-	case status == http.StatusNotFound:
+	case http.StatusNotFound:
 		return fmt.Errorf("%w: %s", ErrIdentity, detail)
 	}
 	return fmt.Errorf("%w: %s", ErrProvider, detail)

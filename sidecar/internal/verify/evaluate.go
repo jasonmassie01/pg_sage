@@ -123,12 +123,12 @@ func (e *Engine) decide(state WatchState, observed observations) Verdict {
 		state.Criterion.TargetIDs, e.thresholds(state.Criterion))
 	samples := pooled.After.Samples
 	var verdict Verdict
-	switch {
-	case pooled.Verdict == OutcomeInsufficient:
+	switch pooled.Verdict {
+	case OutcomeInsufficient:
 		verdict = e.insufficientVerdict(state, samples)
-	case pooled.Verdict == OutcomeRegressed:
+	case OutcomeRegressed:
 		verdict = revertVerdict(state.Window, samples, "query_regression")
-	case pooled.Verdict == OutcomeNeutral:
+	case OutcomeNeutral:
 		verdict = revertVerdict(state.Window, samples, "no_gain")
 	default:
 		verdict = Verdict{Retain: true, Status: "success", Samples: samples,
@@ -189,10 +189,6 @@ func (e *Engine) insufficientVerdict(state WatchState, samples int) Verdict {
 		Status: "extended", Reason: "insufficient_samples", Samples: samples,
 		Window: window, NextEvaluationAt: state.ExecutedAt.Add(window),
 	}
-}
-
-func exceeds(after, before time.Duration, percent float64) bool {
-	return float64(after)*100 > float64(before)*(100+percent)
 }
 
 func revertVerdict(window time.Duration, samples int, reason string) Verdict {

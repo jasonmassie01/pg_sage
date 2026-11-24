@@ -41,15 +41,15 @@ func main() {
 func run(args []string, stderr io.Writer, deps resetDeps) int {
 	cfg, err := loadResetConfig(args)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 2
 	}
 	rows, err := resetAdmin(context.Background(), cfg, deps)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stderr, "reset password for %s (rows=%d)\n", cfg.Email, rows)
+	_, _ = fmt.Fprintf(stderr, "reset password for %s (rows=%d)\n", cfg.Email, rows)
 	return 0
 }
 

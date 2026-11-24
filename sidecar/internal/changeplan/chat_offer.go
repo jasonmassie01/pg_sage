@@ -89,10 +89,10 @@ func OfferForChat(d Detail, cap string) ChatOffer {
 			break
 		}
 	}
-	switch {
-	case o.BlockedAt == 0:
+	switch o.BlockedAt {
+	case 0:
 		o.All, o.Next = true, len(steps) > 1
-	case o.BlockedAt == steps[0].Ordinal:
+	case steps[0].Ordinal:
 	default:
 		o.Next = true
 		if last := o.BlockedAt - 1; last > steps[0].Ordinal {

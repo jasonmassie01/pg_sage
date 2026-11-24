@@ -254,7 +254,7 @@ type Plan struct {
 // Defaults for a step's minimum evidence (verify.min_samples' default).
 const (
 	DefaultMinCalls   int64 = 30
-	DefaultMinSamples       = 30
+	DefaultMinSamples int   = 30
 )
 
 // defaultActions are the outcome actions a step gets when it names none.

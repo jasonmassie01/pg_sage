@@ -28,7 +28,7 @@ type onlineSwapRecorder struct {
 func (r onlineSwapRecorder) Record(ctx context.Context, record schemaguard.DecisionRecord) error {
 	evidence := schemaDecisionEvidence(record)
 	if r.swap != nil {
-		for key, value := range r.swap(ctx, record.Remediation.Invariant) {
+		for key, value := range r.swap(ctx, record.Invariant) {
 			if _, taken := evidence[key]; !taken {
 				evidence[key] = value
 			}

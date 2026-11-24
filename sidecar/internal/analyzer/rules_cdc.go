@@ -32,7 +32,7 @@ func cdcStallLimit(cfg *config.Config) time.Duration {
 // inactive_slot's; synced slots on a standby are never consumed there).
 func stallTracked(s collector.SlotInfo, standby bool) bool {
 	return s.SlotType == "logical" && s.Active && !s.Temporary &&
-		!(s.Synced && standby) && s.ConfirmedFlushLSN != nil &&
+		(!s.Synced || !standby) && s.ConfirmedFlushLSN != nil &&
 		s.ConfirmedFlushLagBytes != nil
 }
 

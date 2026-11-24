@@ -75,7 +75,7 @@ func registerChatOpsRoutes(root, apiMux *http.ServeMux, pool *pgxpool.Pool,
 	}
 	logOn := accessLogOn(cfg)
 	wrap := func(h http.HandlerFunc) http.Handler {
-		var next http.Handler = timeoutMiddleware(h)
+		next := timeoutMiddleware(h)
 		if logOn {
 			// The callbacks decide actions, so they are access-logged like
 			// every mutating API request; the root mux set r.Pattern.

@@ -422,7 +422,7 @@ func wrapAPIHandler(
 	crossOrigin *http.CrossOriginProtection, askTimeout time.Duration, accessLog bool,
 ) http.Handler {
 	// Stack middlewares onto API routes only.
-	var apiHandler http.Handler = apiMux
+	apiHandler := apiMux
 	if accessLog {
 		apiHandler = accessStampMiddleware(apiHandler)
 	}

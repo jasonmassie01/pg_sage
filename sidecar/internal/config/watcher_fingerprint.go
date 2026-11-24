@@ -28,7 +28,7 @@ func fingerprintFile(path string) (fileFingerprint, error) {
 	if err != nil {
 		return fileFingerprint{}, fmt.Errorf("open config %s: %w", resolved, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
 		return fileFingerprint{}, fmt.Errorf("stat config %s: %w", resolved, err)

@@ -170,14 +170,6 @@ func minus(a, b map[time.Time]float64) map[time.Time]float64 {
 	return out
 }
 
-func shifted(m map[time.Time]float64, by float64) map[time.Time]float64 {
-	out := make(map[time.Time]float64, len(m))
-	for t, v := range m {
-		out[t] = v + by
-	}
-	return out
-}
-
 func sortedTimes(m map[time.Time]float64) []time.Time {
 	out := make([]time.Time, 0, len(m))
 	for t := range m {

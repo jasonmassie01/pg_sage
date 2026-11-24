@@ -78,7 +78,7 @@ func pressureFromWire(raw json.RawMessage) (PressurePolicy, error) {
 		if err := decodeStrict(raw, &lw); err != nil {
 			return PressurePolicy{}, fmt.Errorf("pressure.limits.%s: %w", name, err)
 		}
-		p.Limits[name] = PressureLimit{Slow: lw.Slow, Stop: lw.Stop}
+		p.Limits[name] = PressureLimit(lw)
 	}
 	return p, ValidatePressurePolicy(p)
 }
@@ -145,7 +145,7 @@ func pressureJSON(p PressurePolicy) map[string]any {
 	if p.Limits != nil {
 		limits := make(map[string]pressureLimitWire, len(p.Limits))
 		for name, l := range p.Limits {
-			limits[name] = pressureLimitWire{Slow: l.Slow, Stop: l.Stop}
+			limits[name] = pressureLimitWire(l)
 		}
 		out["limits"] = limits
 	}

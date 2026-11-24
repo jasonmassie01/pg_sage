@@ -176,7 +176,7 @@ func (a *alloyDBHTTP) do(ctx context.Context, op, method, path string, query url
 	if err != nil {
 		return fmt.Errorf("alloydb %s: %w", op, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, cloudSQLMaxBody))
 	if err != nil {
 		return fmt.Errorf("alloydb %s: read the reply: %w", op, err)

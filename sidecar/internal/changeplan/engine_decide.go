@@ -39,11 +39,6 @@ var inFlightStates = map[StepState]bool{
 	StateJudging: true, StateReverting: true,
 }
 
-// endedStates are the states a step finishes in without halting the plan.
-var endedStates = map[StepState]bool{
-	StateKept: true, StateReverted: true, StateSkipped: true,
-}
-
 // Skip reasons.
 const (
 	ReasonPredecessorReverted = "predecessor_reverted"

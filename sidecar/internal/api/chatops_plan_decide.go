@@ -143,7 +143,7 @@ func chatPlanDecision(w http.ResponseWriter, ch notify.Channel, a chatops.Action
 	offer := changeplan.OfferForChat(t.detail, t.chatCap)
 	d := changeplan.Decision{PlanHash: t.card.PlanHash, Via: changeplan.ViaChat,
 		ProposedOnly: true}
-	allowed := true
+	var allowed bool
 	switch a.PlanChoice {
 	case chatops.PlanReject:
 		return d, true

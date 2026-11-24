@@ -20,7 +20,7 @@ func TestFleetControlDatabase_NotInDatabasesFailsValidation(t *testing.T) {
 	c.FleetLearning.ControlDatabase = "nope"
 	err := c.Validate()
 	if err == nil || !strings.Contains(err.Error(),
-		`fleet_learning.control_database "nope" is not a name under databases:`) {
+		`fleet_learning.control_database "nope" is not a name under the databases key`) {
 		t.Fatalf("Validate = %v, want the unknown pin named", err)
 	}
 }
@@ -38,8 +38,8 @@ func TestFleetControlDatabase_Rules(t *testing.T) {
 		{"named database", "db2", "", ""},
 		{"unset", "", "", ""},
 		{"unset with meta", "", "postgres://meta", ""},
-		{"case differs", "DB1", "", `"DB1" is not a name under databases:`},
-		{"spaces", " db1", "", `" db1" is not a name under databases:`},
+		{"case differs", "DB1", "", `"DB1" is not a name under the databases key`},
+		{"spaces", " db1", "", `" db1" is not a name under the databases key`},
 		{"with meta_db", "db1", "postgres://meta", "with meta_db the meta database"},
 	}
 	for _, tc := range cases {

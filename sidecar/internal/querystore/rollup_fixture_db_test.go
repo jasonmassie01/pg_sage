@@ -181,5 +181,3 @@ func sub(a, b qc) hourRow {
 		hit: a.hit - b.hit, read: a.read - b.read, tread: a.tread - b.tread,
 		twrite: a.twrite - b.twrite, wal: a.wal - b.wal}
 }
-
-func epochAt(t time.Time) *time.Time { return &t }

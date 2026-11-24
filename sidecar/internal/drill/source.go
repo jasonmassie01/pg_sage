@@ -17,9 +17,7 @@ import (
 // write.
 
 const (
-	// maxTables is how many of the source's largest tables are checked.
-	maxTables = 20
-	// exactCountTables is how many of them (the smallest) get count(*).
+	// exactCountTables is how many of the 20 tables read (the smallest) get count(*).
 	exactCountTables = 3
 	// sampleRows bounds the checksum sample.
 	sampleRows = 1000

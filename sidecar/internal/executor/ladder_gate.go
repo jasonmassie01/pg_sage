@@ -56,9 +56,15 @@ var (
 // revertCostByClass is read-only after package initialisation.
 var revertCostByClass = func() map[string]revertCost {
 	out := map[string]revertCost{}
-	for cost, classes := range [][]string{cheapClasses, costlyClasses, notGatedClasses} {
-		for _, class := range classes {
-			out[class] = revertCost(cost)
+	for _, g := range []struct {
+		cost    revertCost
+		classes []string
+	}{
+		{revertCheap, cheapClasses}, {revertCostly, costlyClasses},
+		{revertNotGated, notGatedClasses},
+	} {
+		for _, class := range g.classes {
+			out[class] = g.cost
 		}
 	}
 	return out

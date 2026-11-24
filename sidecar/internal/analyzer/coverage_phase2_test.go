@@ -184,26 +184,6 @@ func phase2CleanFindings(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// phase2CleanSnapshots removes test snapshots.
-func phase2CleanSnapshots(t *testing.T, pool *pgxpool.Pool) {
-	t.Helper()
-	ctx := context.Background()
-	_, err := pool.Exec(ctx,
-		`DELETE FROM sage.snapshots
-		 WHERE category = 'queries'
-		   AND data::text LIKE '%phase2_test%'`)
-	if err != nil && strings.Contains(err.Error(), "does not exist") {
-		ensurePhase2SageSchema(t, pool)
-		_, err = pool.Exec(ctx,
-			`DELETE FROM sage.snapshots
-			 WHERE category = 'queries'
-			   AND data::text LIKE '%phase2_test%'`)
-	}
-	if err != nil {
-		t.Fatalf("cleanup snapshots: %v", err)
-	}
-}
-
 // phase2CleanExplainCache removes test explain_cache entries.
 func phase2CleanExplainCache(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()

@@ -24,13 +24,13 @@ func stringLiterals(s string) []string {
 // literalAt reads the literal starting at i: its body and the index after
 // it, or false when none starts there.
 func literalAt(s string, i int) (string, int, bool) {
-	switch {
-	case s[i] == '\'':
+	switch s[i] {
+	case '\'':
 		escapes := i > 0 && (s[i-1] == 'E' || s[i-1] == 'e') &&
 			(i == 1 || !isIdentByte(s[i-2]))
 		body, end := quotedBody(s, i, escapes)
 		return body, end, true
-	case s[i] == '$':
+	case '$':
 		j := i + 1
 		for j < len(s) && (isIdentByte(s[j]) && s[j] != '$') {
 			j++

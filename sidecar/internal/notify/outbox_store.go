@@ -83,9 +83,7 @@ type storedEvent struct {
 }
 
 func encodeEvent(e Event) ([]byte, error) {
-	b, err := json.Marshal(storedEvent{Type: e.Type, Severity: e.Severity,
-		Subject: e.Subject, Body: e.Body, Data: e.Data, DedupKey: e.DedupKey,
-		Resolve: e.Resolve, RefID: e.RefID})
+	b, err := json.Marshal(storedEvent(e))
 	if err != nil {
 		return nil, fmt.Errorf("encode %s event: %w", e.Type, err)
 	}
@@ -97,8 +95,7 @@ func decodeEvent(b []byte) (Event, error) {
 	if err := json.Unmarshal(b, &s); err != nil {
 		return Event{}, fmt.Errorf("decode stored event: %w", err)
 	}
-	return Event{Type: s.Type, Severity: s.Severity, Subject: s.Subject, Body: s.Body,
-		Data: s.Data, DedupKey: s.DedupKey, Resolve: s.Resolve, RefID: s.RefID}, nil
+	return Event(s), nil
 }
 
 // syncOnlyData are Data keys holding typed values (card references,

@@ -61,30 +61,30 @@ func Run(run func() int, packageID string) int {
 // chooseTemplate picks for root and bootstrap (template0 for nil).
 func runFixtureWith(run func() int, packageID, root string, bootstrap BootstrapFunc) int {
 	if strings.TrimSpace(os.Getenv(EnvName)) == "" {
-		fmt.Fprintf(diag(), "testdb: %s unset; database tests in %s will skip\n",
+		_, _ = fmt.Fprintf(diag(), "testdb: %s unset; database tests in %s will skip\n",
 			EnvName, packageID)
 		return runWithSharedPools(run, disabledDSN)
 	}
 	baseDSN, err := DesignatedDSN()
 	if err != nil {
-		fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
+		_, _ = fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
 		return 1
 	}
 	template, err := chooseTemplate(baseDSN, root, bootstrap)
 	if err != nil {
-		fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
+		_, _ = fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
 		return 1
 	}
 	setFixtureTemplate(template)
 	name := fixtureDatabaseName(packageID, os.Getpid())
 	fixtureURL, err := createFixtureFrom(baseDSN, name, "designated", template)
 	if err != nil {
-		fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
+		_, _ = fmt.Fprintf(diag(), "test fixture setup failed: %v\n", err)
 		return 1
 	}
 	code := runWithSharedPools(run, fixtureURL)
 	if err := dropFixture(baseDSN, name); err != nil {
-		fmt.Fprintf(diag(), "test fixture cleanup failed: %v\n", err)
+		_, _ = fmt.Fprintf(diag(), "test fixture cleanup failed: %v\n", err)
 		return 1
 	}
 	return code

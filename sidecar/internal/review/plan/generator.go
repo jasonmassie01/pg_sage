@@ -96,10 +96,10 @@ func (b *builder) measureCandidate(c candidate.Candidate, r *rendered) {
 	if r.metric != "" {
 		return
 	}
-	switch {
-	case c.ActionType == "drop_unused_index":
+	switch c.ActionType {
+	case "drop_unused_index":
 		r.metric, r.direction = changeplan.MetricTimePerCall, changeplan.DirectionNone
-	case c.ActionType == "create_index_concurrently":
+	case "create_index_concurrently":
 		r.metric, r.direction = changeplan.MetricBlocksPerCall, direction(c)
 	default:
 		r.metric, r.direction = changeplan.MetricTimePerCall, direction(c)

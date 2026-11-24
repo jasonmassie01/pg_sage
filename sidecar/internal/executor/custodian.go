@@ -226,13 +226,13 @@ func (r *custodianRun) execute(
 	}
 	r.executed = true
 	if managed {
-		recordActionOutcome(ctx, e.pool, e.logFn, actionID,
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID,
 			outcomeStatus(managedResult.InEffect), managedResult.Note)
 	} else if isAlterSystem(r.proposal.SQL) {
 		outcome := applyConfigChange(
 			ctx, e.actionDB(), r.proposal.SQL, e.cfg.CloudEnvironment, e.logFn,
 		)
-		recordActionOutcome(ctx, e.pool, e.logFn, actionID,
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID,
 			outcomeStatus(outcome.InEffect), outcome.Note)
 	}
 	return actionID, nil
@@ -249,7 +249,7 @@ func (r *custodianRun) verify(ctx context.Context, actionID int64) error {
 		verificationID, _ := finalizeActionVerification(
 			ctx, e.pool, actionID, "unverifiable", verifyErr.Error())
 		setCustodianVerificationCriterion(ctx, e.pool, verificationID, criterion)
-		recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed",
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed",
 			"custodian post-check failed: "+verifyErr.Error())
 		return fmt.Errorf("verify custodian proposal: %w", verifyErr)
 	}

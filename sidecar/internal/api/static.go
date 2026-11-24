@@ -181,7 +181,7 @@ func (h *staticHandler) serveIdentity(w http.ResponseWriter, r *http.Request, a 
 		staticAssetError(w, a.name, err)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if rs, ok := f.(io.ReadSeeker); ok {
 		http.ServeContent(w, r, a.name, time.Time{}, rs)
 		return

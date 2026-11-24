@@ -82,7 +82,7 @@ func readDoc(path string) ([]Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read glossary %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return Parse(f, filepath.Base(path))
 }
 

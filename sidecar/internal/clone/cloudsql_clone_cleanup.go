@@ -27,7 +27,7 @@ func (r *sqlClone) cleanupByName(cause error) error {
 	defer cancel()
 	_, err := r.api.GetInstance(ctx, r.name)
 	if errors.Is(err, ErrCloudSQLNotFound) {
-		err = fmt.Errorf("Cloud SQL does not describe instance %s yet, and the clone may "+
+		err = fmt.Errorf("the Cloud SQL API does not describe instance %s yet, and the clone may "+
 			"have been accepted", r.name)
 	} else if err == nil {
 		err = r.api.deleteOwned(ctx, r.name)

@@ -33,15 +33,15 @@ func main() {
 func run(getenv func(string) string, stderr io.Writer, deps adminDeps) int {
 	cfg, err := loadAdminConfig(getenv)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 	id, err := createAdmin(context.Background(), cfg, deps)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
-	fmt.Fprintf(stderr,
+	_, _ = fmt.Fprintf(stderr,
 		"Created admin user id=%d\n  email: %s\n"+
 			"  password: [set via PG_SAGE_ADMIN_PASSWORD]\n",
 		id, cfg.Email,

@@ -180,7 +180,7 @@ func (a *azureHTTP) do(ctx context.Context, op, method, target string,
 	if err != nil {
 		return azureReply{}, fmt.Errorf("azure %s: %w", op, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, cloudSQLMaxBody))
 	if err != nil {
 		return azureReply{}, fmt.Errorf("azure %s: read the reply: %w", op, err)

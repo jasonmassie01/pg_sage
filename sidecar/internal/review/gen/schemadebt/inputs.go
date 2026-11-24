@@ -17,8 +17,6 @@ type ColumnRef struct{ Schema, Table, Column string }
 // String is schema.table.column.
 func (c ColumnRef) String() string { return c.Schema + "." + c.Table + "." + c.Column }
 
-func (c ColumnRef) table() string { return c.Schema + "." + c.Table }
-
 // Point is one runway sample: when it was taken and its value.
 type Point struct {
 	At    time.Time

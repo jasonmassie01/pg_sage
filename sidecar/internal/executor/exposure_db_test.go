@@ -25,10 +25,9 @@ import (
 // relied on.
 
 type exposureFixture struct {
-	pool   *pgxpool.Pool
-	table  string // bare name in public
-	qual   string // public.<table>
-	finger string
+	pool  *pgxpool.Pool
+	table string // bare name in public
+	qual  string // public.<table>
 }
 
 func newExposureFixture(t *testing.T, grants ...string) exposureFixture {

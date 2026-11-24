@@ -107,8 +107,8 @@ func (r *auroraCreate) resolveSource(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("aurora_clone: read the monitored cluster %s: %w", id, err)
 	}
-	if c.Engine != auroraEngine || !(sameHost(c.Endpoint, r.prod.host) ||
-		sameHost(c.ReaderEndpoint, r.prod.host)) {
+	if c.Engine != auroraEngine || (!sameHost(c.Endpoint, r.prod.host) &&
+		!sameHost(c.ReaderEndpoint, r.prod.host)) {
 		return fmt.Errorf("%w: cluster %s (engine %q) is not an Aurora cluster serving the "+
 			"monitored host %s as aurora-postgresql", ErrNotAuroraCluster, id, c.Engine,
 			r.prod.host)

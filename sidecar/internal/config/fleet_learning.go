@@ -87,7 +87,7 @@ func (c *Config) validateFleetLearning() error {
 		}
 	}
 	return fmt.Errorf("fleet_learning.control_database %q is not a name under "+
-		"databases:", pin)
+		"the databases key", pin)
 }
 
 func (f FleetLearningConfig) validate() error {

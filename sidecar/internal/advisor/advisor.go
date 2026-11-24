@@ -191,7 +191,7 @@ func (a *Advisor) analyzeSnapshot(ctx context.Context, snap *collector.Snapshot,
 	for _, c := range advisorCategories {
 		// A non-owner leaves its open instance rows to the owner: they are
 		// neither re-checked nor resolved here.
-		if res.evaluated[c] && !(own.defers() && instanceCategories[c]) {
+		if res.evaluated[c] && (!own.defers() || !instanceCategories[c]) {
 			evaluated = append(evaluated, c)
 		}
 	}

@@ -36,7 +36,6 @@ func deliveryEvent(t *testing.T, scope Scope, s Stream, at time.Time) Event {
 func TestDBPoisonEventDoesNotStallLaterEventsInSamePoll(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	scope := testScope()
 	o := testOptions()
 	o.Streams = []Stream{Plans}
 	o.Window = SourceRetention
@@ -54,7 +53,7 @@ func TestDBPoisonEventDoesNotStallLaterEventsInSamePoll(t *testing.T) {
 		return staticReader(events)(c, s, sc, w)
 	})
 	rt, s := runtimeStore(t, reader, o, consumer)
-	scope = rt.Scope()
+	scope := rt.Scope()
 	for i := range 3 {
 		at := now.Add(-time.Hour + time.Duration(i)*time.Second)
 		events = append(events, deliveryEvent(t, scope, Plans, at))

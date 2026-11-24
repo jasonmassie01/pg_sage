@@ -166,7 +166,7 @@ func (r *rest) do(ctx context.Context, c call) ([]byte, error) {
 	if err != nil {
 		return nil, r.transportError(ctx, c, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 	if err != nil {
 		return nil, r.transportError(ctx, c, err)
