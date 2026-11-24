@@ -216,9 +216,11 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// Remembered what-if rejections age from their last measurement.
 		{table: "optimizer_rejection", timeCol: "measured_at", days: r.FindingsDays},
 		{table: "tuning_budget_day", timeCol: "updated_at", days: r.FindingsDays},
-		// workload budgets (market-08): the warn-mode ledger and proposal evidence
-		{table: "budget_shadow", timeCol: "updated_at", days: r.FindingsDays},
-		{table: "workload_role_daily", timeCol: "updated_at", days: r.FindingsDays},
+		// workload budgets (market-08): the warn-mode ledger and proposal
+		// evidence age by their UTC day, which is indexed: updated_at moves on
+		// every upsert and may not be (HOT updates).
+		{table: "budget_shadow", timeCol: "day", days: r.FindingsDays},
+		{table: "workload_role_daily", timeCol: "day", days: r.FindingsDays},
 		{table: "alert_log", timeCol: "sent_at", days: r.ActionsDays},
 		{table: "notification_log", timeCol: "sent_at", days: r.ActionsDays},
 		// Approval cards age from their follow-up (open cards are closed by the

@@ -295,5 +295,6 @@ func trancheSevenMigrations() []namedStep {
 		{"ddlGitopsManagedBy", ddlGitopsManagedBy},                     // cli-02a
 		{"ddlSourceFixPROrigin", ddlSourceFixPROrigin},                 // pr-01b
 		{"ddlApprovalPRs", ddlApprovalPRs},                             // cli-02b
+		{"ddlIntegrationPerfIndexes", ddlIntegrationPerfIndexes()},     // perf gate
 	}
 }

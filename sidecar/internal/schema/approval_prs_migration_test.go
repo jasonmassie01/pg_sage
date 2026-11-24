@@ -5,18 +5,21 @@ import (
 	"testing"
 )
 
-// cli-02b: ddlApprovalPRs is the last T7 step, bounded and idempotent in
-// its text. No concurrent access test: the step is a constant string (the
-// bootstrap lock serializes it; the DB test boots twice).
-func TestApprovalPRsStep_IsTheLastT7StepBoundedAndIdempotent(t *testing.T) {
+// cli-02b: ddlApprovalPRs follows pr-01b's step in T7, bounded and
+// idempotent in its text. No concurrent access test: the step is a
+// constant string (the bootstrap lock serializes it; the DB test boots
+// twice).
+func TestApprovalPRsStep_FollowsSourceFixPROriginBoundedAndIdempotent(t *testing.T) {
 	steps := trancheSevenMigrations()
-	last := steps[len(steps)-1]
-	if last[0] != "ddlApprovalPRs" || last[1] != ddlApprovalPRs {
-		t.Fatalf("tranche seven ends %v, want ddlApprovalPRs", last[0])
+	at := -1
+	for i, s := range steps {
+		if s[0] == "ddlApprovalPRs" {
+			at = i
+		}
 	}
-	all := migrationSteps()
-	if all[len(all)-1].name != "ddlApprovalPRs" {
-		t.Fatalf("migrationSteps ends %s, want ddlApprovalPRs", all[len(all)-1].name)
+	if at < 1 || steps[at][1] != ddlApprovalPRs || steps[at-1][0] != "ddlSourceFixPROrigin" {
+		t.Fatalf("ddlApprovalPRs at %d of tranche seven, want right after ddlSourceFixPROrigin",
+			at)
 	}
 	for _, want := range []string{"SET LOCAL lock_timeout",
 		"CREATE TABLE IF NOT EXISTS sage.approval_prs",
