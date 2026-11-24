@@ -123,7 +123,10 @@ func (s *Scorer) evidence(ctx context.Context, p pendingDecision, queue []queueR
 // pendingSQL reads the oldest $1 and the newest $2 pending decisions, each
 // once, oldest first: decisions that wait (up to the horizon) never keep
 // a newer one, whose evidence is in, from being scored. The rows are read
-// by primary key (a join may hash every pending row).
+// by primary key (a join may hash every pending row). The outer read does
+// not repeat status = 'pending': one statement reads one snapshot, so the
+// picked ids are pending, and the repeat let the planner walk the whole
+// partial pending index instead (PG16, 44 pending rows).
 const pendingSQL = `/* pg_sage */ WITH picked AS (
 	(SELECT id FROM sage.shadow_decision WHERE status = 'pending'
 	 ORDER BY recorded_at, id LIMIT $1)
@@ -133,7 +136,7 @@ const pendingSQL = `/* pg_sage */ WITH picked AS (
 	SELECT ` + decisionColumns + `,
 	extract(epoch FROM now() - recorded_at)::float8, now()
 	FROM sage.shadow_decision
-	WHERE id = ANY (ARRAY(SELECT id FROM picked)) AND status = 'pending'
+	WHERE id = ANY (ARRAY(SELECT id FROM picked))
 	ORDER BY recorded_at, id`
 
 func (s *Scorer) pending(ctx context.Context) ([]pendingDecision, error) {
