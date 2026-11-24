@@ -165,7 +165,7 @@ func (a *cloudSQLHTTP) do(ctx context.Context, op, method, path string, body,
 	if err != nil {
 		return fmt.Errorf("cloudsql %s: %w", op, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, cloudSQLMaxBody))
 	if err != nil {
 		return fmt.Errorf("cloudsql %s: read the reply: %w", op, err)

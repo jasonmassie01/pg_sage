@@ -157,7 +157,7 @@ func (l *NeonLister) get(ctx context.Context, op, project, path string, q url.Va
 	if err != nil {
 		return fmt.Errorf("neon %s: %w", op, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, neonMaxBody))
 	if err != nil {
 		return fmt.Errorf("neon %s: read the reply: %w", op, err)

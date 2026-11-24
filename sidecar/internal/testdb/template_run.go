@@ -46,7 +46,7 @@ func chooseTemplate(baseDSN, root string, bootstrap BootstrapFunc) (string, erro
 	hash, err := templateHash(root)
 	if err != nil {
 		noTemplateOnce.Do(func() {
-			fmt.Fprintf(diag(), "testdb: no fixture template (%v); fixtures start "+
+			_, _ = fmt.Fprintf(diag(), "testdb: no fixture template (%v); fixtures start "+
 				"from template0\n", err)
 		})
 		return "template0", nil

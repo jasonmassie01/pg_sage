@@ -104,7 +104,7 @@ func parseBase(raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("%w: code host URL must not carry credentials, a query "+
 			"or a fragment", ErrInvalid)
 	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && isLoopback(u.Hostname())) {
+	if u.Scheme != "https" && (u.Scheme != "http" || !isLoopback(u.Hostname())) {
 		return nil, fmt.Errorf("%w: code host URL %s must use https", ErrInvalid, u.Host)
 	}
 	if err := egress.CheckURL(u); err != nil {

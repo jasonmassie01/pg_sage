@@ -247,7 +247,7 @@ func (e *Executor) partialReplace(ctx context.Context, rec *indexReplaceRecord,
 	stateErr := e.moveReplace(ctx, rec, replaceDropFailed, dropErr.Error(), replaceDropping)
 	id := e.logReplaceAction(ctx, *rec, cause, claim)
 	if id > 0 {
-		recordActionOutcome(ctx, e.pool, e.logFn, id, "partial", cause.Error())
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, id, "partial", cause.Error())
 	}
 	rec.ActionLogID = id
 	if err := e.setReplaceFields(ctx, *rec); err != nil {

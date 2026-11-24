@@ -278,8 +278,8 @@ func isSlotBoundGUC(toks []token, i int) bool {
 // unboundedValue reports "= -1" or "TO '-1'" (one optional trailing
 // semicolon, nothing after it).
 func unboundedValue(rest []token) bool {
-	if len(rest) == 0 || !(isPunct(rest[0], "=") ||
-		rest[0].kind == tokWord && strings.EqualFold(rest[0].text, "TO")) {
+	if len(rest) == 0 || !isPunct(rest[0], "=") &&
+		(rest[0].kind != tokWord || !strings.EqualFold(rest[0].text, "TO")) {
 		return false
 	}
 	v := rest[1:]

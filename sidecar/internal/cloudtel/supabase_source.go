@@ -76,7 +76,7 @@ func NewSupabaseHTTPAPI(opts SupabaseHTTPOptions) (*SupabaseHTTPAPI, error) {
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" || u.User != nil ||
-		(u.Scheme != "https" && !(u.Scheme == "http" && isLoopbackHost(u.Hostname()))) {
+		(u.Scheme != "https" && (u.Scheme != "http" || !isLoopbackHost(u.Hostname()))) {
 		return nil, fmt.Errorf("supabase data API: endpoint %q must be an https URL",
 			endpoint)
 	}

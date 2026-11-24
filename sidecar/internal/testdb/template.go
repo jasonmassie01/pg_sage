@@ -111,7 +111,7 @@ func templateHash(root string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("read %s: %w", path, err)
 		}
-		fmt.Fprintf(h, "\x00%s\x00%d\x00", filepath.Base(path), len(body))
+		_, _ = fmt.Fprintf(h, "\x00%s\x00%d\x00", filepath.Base(path), len(body))
 		h.Write(body)
 	}
 	return hex.EncodeToString(h.Sum(nil)[:8]), nil
@@ -152,7 +152,7 @@ func ensureTemplate(ctx context.Context, baseDSN, name string, bootstrap Bootstr
 	}
 	dropped, err := sweepTemplates(ctx, admin, name, time.Now().Add(-templateSweepAge))
 	if err != nil || len(dropped) > 0 {
-		fmt.Fprintf(diag(), "testdb: swept fixture templates %v (%v)\n", dropped, err)
+		_, _ = fmt.Fprintf(diag(), "testdb: swept fixture templates %v (%v)\n", dropped, err)
 	}
 	return nil
 }
