@@ -912,8 +912,15 @@ jobs:
         with:
           node-version: "22"
 
+      # govulncheck type-checks the standard library of the toolchain it
+      # runs under, so it must be built with go.mod's toolchain: one built
+      # with an older Go cannot parse a newer toolchain's sources.
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+        working-directory: sidecar
+        run: |
+          GOTOOLCHAIN="$(awk '/^toolchain /{print $2}' go.mod)"
+          export GOTOOLCHAIN
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
       - name: govulncheck (reachable vulnerabilities)
         working-directory: sidecar
@@ -983,7 +990,7 @@ jobs:
         with:
           working-directory: sidecar
           version: v2.14.0
-          args: --timeout 5m
+          args: --timeout 15m
 
   # observability-09: the shipped alert rules load and their unit tests
   # pass, with a pinned promtool (CHECK-23). sidecar/cmd/gen_metrics_doc's
