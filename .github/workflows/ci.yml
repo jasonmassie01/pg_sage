@@ -29,7 +29,9 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04, which Playwright 1.59 cannot install
+    # Chromium's dependencies on; stay on 24.04 until Playwright supports it.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
@@ -810,7 +812,9 @@ jobs:
   # The browser layer does not vary by major, so PostgreSQL 17 only; the
   # Go matrix covers the others.
   web-e2e-full:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04, which Playwright 1.59 cannot install
+    # Chromium's dependencies on; stay on 24.04 until Playwright supports it.
+    runs-on: ubuntu-24.04
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
