@@ -164,7 +164,7 @@ read -r _ TOT_P TOT_F TOT_S < <(tail -1 <<<"$body")
   pkgs=./... e2e=" (PostgreSQL 17 also runs the e2e step)"
   if [ -n "$scope" ] && [ "$scope" != all ]; then pkgs=$scope e2e=; fi
   echo "**Command:** \`go test $pkgs -race -cover -tags=integration -count=1" \
-    "-timeout 1500s -json -p 4\`$e2e"
+    "-timeout 2400s -json -p 4\`$e2e"
   if [ -z "$e2e" ]; then
     echo "**Scope:** packages $scope only, in place of ./... (no e2e step; the skip" \
       "budget runs -stale=off without the -require lines)"

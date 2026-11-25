@@ -60,7 +60,7 @@ set -uo pipefail
 # The test job's commands in ci.yml (internal/startup/local_suite_contract_test.go
 # keeps them equal; -p 4 is the one local addition, a resource cap).
 readonly SUITE_CMD="go test ./... -race -cover -tags=integration -count=1 \
-  -timeout 1500s -json -p 4"
+  -timeout 2400s -json -p 4"
 readonly E2E_CMD='go test ./e2e -cover -tags=e2e -count=1 -timeout 900s -json'
 readonly VALID_MAJORS="14 15 16 17 18"
 readonly DEFAULT_MAJORS="14 15 17"

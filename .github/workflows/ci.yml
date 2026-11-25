@@ -179,7 +179,7 @@ jobs:
         working-directory: sidecar
         run: |
           status=0
-          go test ./... -race -cover -tags=integration -count=1 -timeout 1500s -json \
+          go test ./... -race -cover -tags=integration -count=1 -timeout 2400s -json \
             > ../unit.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../unit.json
           exit $status
@@ -274,11 +274,14 @@ jobs:
           scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
           scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} ${{ matrix.pg }}
 
+      # 2400 s: cmd/pg_sage_sidecar alone took 1250-1500 s under the race
+      # detector (a five-minute real-time collector test among them), and the
+      # 1500 s budget timed it out on a loaded runner (PG15, 2026-11-25).
       - name: Integration tests (race detector)
         working-directory: sidecar
         run: |
           status=0
-          go test ./... -race -tags=integration -count=1 -timeout 1500s -json \
+          go test ./... -race -tags=integration -count=1 -timeout 2400s -json \
             > ../integration.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../integration.json
           exit $status

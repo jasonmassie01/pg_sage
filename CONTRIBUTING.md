@@ -74,7 +74,7 @@ floors:
 
 ```bash
 cd sidecar
-go test -race -cover -count=1 -tags=integration -timeout 1500s ./... -json > ../unit.json
+go test -race -cover -count=1 -tags=integration -timeout 2400s ./... -json > ../unit.json
 go test -count=1 -tags=e2e -timeout 900s ./e2e -json > ../e2e.json
 cat ../unit.json ../e2e.json | go run ./cmd/skipbudget -pg 17
 go run ./cmd/covfloor < ../unit.json
