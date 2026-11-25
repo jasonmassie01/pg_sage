@@ -43,7 +43,9 @@ var schemaTablesSQL = `/* pg_sage */ SELECT c.oid, n.nspname, c.relname,
 
 // schemaPartsSQL lists each table's columns (kind c), constraints (k) and
 // index definitions (i), in the tables' order, at most one past the bound
-// of each kind.
+// of each kind. PostgreSQL 18 also stores NOT NULL as constraints (contype
+// n); those are left out, as the columns' not-null already says it, so the
+// section reads the same on every server version.
 var schemaPartsSQL = `/* pg_sage */ WITH t AS (
     SELECT u.oid, u.ord FROM unnest($1::oid[]) WITH ORDINALITY AS u(oid, ord))
 (SELECT 'c', t.oid, a.attname::text, format_type(a.atttypid, a.atttypmod), a.attnotnull
@@ -52,7 +54,7 @@ var schemaPartsSQL = `/* pg_sage */ WITH t AS (
   ORDER BY t.ord, a.attnum LIMIT ` + fmt.Sprint(MaxSchemaColumns+1) + `)
 UNION ALL
 (SELECT 'k', t.oid, k.conname::text, pg_get_constraintdef(k.oid), false
-   FROM t JOIN pg_constraint k ON k.conrelid = t.oid
+   FROM t JOIN pg_constraint k ON k.conrelid = t.oid AND k.contype <> 'n'
   ORDER BY t.ord, k.conname LIMIT ` + fmt.Sprint(MaxSchemaColumns+1) + `)
 UNION ALL
 (SELECT 'i', t.oid, ci.relname::text, pg_get_indexdef(i.indexrelid), false
