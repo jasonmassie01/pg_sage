@@ -87,6 +87,7 @@ func TestResetStatementsClearsOnlyItsDatabase(t *testing.T) {
 	if got := markerCalls(t, a, dsnB, "ci13_scope_b"); got != 4 || entriesB == 0 {
 		t.Fatalf("fixture: database B marker calls = %d (%d entries), want 4", got, entriesB)
 	}
+	before := readDealloc(t, a)
 	dealloc, err := ResetStatements(context.Background(), a)
 	if err != nil {
 		t.Fatalf("ResetStatements: %v", err)
@@ -102,14 +103,23 @@ func TestResetStatementsClearsOnlyItsDatabase(t *testing.T) {
 	if got := databaseEntries(t, a, dsnB); got != entriesB {
 		t.Errorf("database B entries after A's reset = %d, want %d", got, entriesB)
 	}
-	var want int64
-	if err := a.QueryRow(context.Background(),
-		"SELECT dealloc FROM pg_stat_statements_info").Scan(&want); err != nil {
+	// dealloc is server-wide: other packages' evictions move it between
+	// reads, so the reset's value lies between the reads around it.
+	if after := readDealloc(t, a); dealloc < before || dealloc > after {
+		t.Errorf("dealloc = %d, want pg_stat_statements_info's, between %d and %d",
+			dealloc, before, after)
+	}
+}
+
+// readDealloc is pg_stat_statements_info's server-wide eviction count.
+func readDealloc(t *testing.T, pool *pgxpool.Pool) int64 {
+	t.Helper()
+	var n int64
+	if err := pool.QueryRow(context.Background(),
+		"SELECT dealloc FROM pg_stat_statements_info").Scan(&n); err != nil {
 		t.Fatalf("read dealloc: %v", err)
 	}
-	if dealloc != want || dealloc < 0 {
-		t.Errorf("dealloc = %d, want pg_stat_statements_info's %d", dealloc, want)
-	}
+	return n
 }
 
 // Nil/empty: resetting a database that has nothing left is not an error.
