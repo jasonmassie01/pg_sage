@@ -10,6 +10,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/firstlook"
 	"github.com/pg-sage/sidecar/internal/onboarding"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // firstlook-05 on real PostgreSQL: the re-check after the operator
@@ -135,9 +136,13 @@ func startupPass(t *testing.T, ctx context.Context, run *firstLookRun) firstlook
 }
 
 // CHECK-18: restarts and re-checks with an unchanged catalog reuse the
-// stored summary (no model call); a changed catalog asks once.
+// stored summary (no model call); a changed catalog asks once. The report
+// lists cluster-wide objects (AP-08 names every login role), so it runs on
+// the exclusive server: on the shared one another package creating a role
+// between two passes changes the catalog, and a model call is then right.
 func TestFirstLookSummary_UnchangedCatalogReusesTheSummary(t *testing.T) {
-	_, p, ctx := firstLookDB(t)
+	_, p, ctx := firstLookOn(t, testdb.Exclusive(t,
+		"the first look reports cluster-wide roles, which must not change between passes"))
 	seedDuplicateIndex(t, ctx, p)
 	chat := &countingChatter{reply: `{"summary":"Two indexes duplicate each other."}`}
 	newRun := func() *firstLookRun {

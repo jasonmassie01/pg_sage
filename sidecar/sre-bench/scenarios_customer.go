@@ -151,14 +151,25 @@ func holderError(b gameday.Binding, err error) error {
 }
 
 // recoverCustomer ends the program's sessions (only bench_* ones: the
-// holder and the waiters) and checks no lock wait is left. The table is
-// left as it was.
+// holder and the waiters), waits until they are gone and checks no lock
+// wait is left. pg_terminate_backend only signals, so a terminated session
+// stays in pg_stat_activity until its backend exits. The table is left as
+// it was.
 func recoverCustomer(ctx context.Context, e *Env) error {
 	if _, err := e.Pool.Exec(ctx, `SELECT pg_catalog.pg_terminate_backend(pid)
 		FROM pg_catalog.pg_stat_activity
 		WHERE datname = current_database() AND pid <> pg_backend_pid()
 		  AND application_name LIKE 'bench\_%'`); err != nil {
 		return fmt.Errorf("end the customer program's sessions: %w", err)
+	}
+	err := waitFor(ctx, "the customer program's sessions to end", func() (bool, error) {
+		n, err := e.count(ctx, `SELECT count(*) FROM pg_catalog.pg_stat_activity
+			WHERE datname = current_database() AND pid <> pg_backend_pid()
+			  AND application_name LIKE 'bench\_%'`)
+		return n == 0, err
+	})
+	if err != nil {
+		return err
 	}
 	return noWaiters(ctx, e)
 }

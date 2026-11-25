@@ -6,18 +6,27 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/testdb"
+	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
 // rca-08: client_backends counts every database's client sessions, the
 // connections max_connections limits, and none of the server's background
 // processes. Two databases on one server see the same cluster-wide count,
-// which is why only the cluster owner raises connections_high.
+// which is why only the cluster owner raises connections_high. The count is
+// the whole cluster's, so it is read on the exclusive server: on the shared
+// one, other packages' sessions open and close between the two reads.
 func TestSystemStatsClientBackendsAreClusterWide(t *testing.T) {
-	c, pool := sageCollector(t)
 	ctx := context.Background()
-	ensureOtherDatabase(t, ctx, pool)
+	dsn := testdb.Exclusive(t, "client_backends counts the whole cluster's sessions")
+	pool := selfload.SagePool(t, dsn)
+	var version int
+	if err := pool.QueryRow(ctx,
+		"SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
+		t.Fatalf("server version: %v", err)
+	}
+	c := New(pool, testConfig(), version, noopLog)
+	other := testdb.ExclusiveDatabase(t, "rca08_other")
 	before, err := c.collectSystem(ctx)
 	if err != nil {
 		t.Fatalf("collectSystem: %v", err)
@@ -29,15 +38,15 @@ func TestSystemStatsClientBackendsAreClusterWide(t *testing.T) {
 	}
 	const extra = 3
 	for i := 0; i < extra; i++ {
-		openOtherDatabase(t, ctx)
+		openOtherDatabase(t, ctx, other)
 	}
 	after, err := c.collectSystem(ctx)
 	if err != nil {
 		t.Fatalf("collectSystem: %v", err)
 	}
 	if got := after.ClientBackends - before.ClientBackends; got < extra {
-		t.Fatalf("client_backends rose by %d after %d sessions on database %s, "+
-			"want at least %d: the count is the cluster's", got, extra, otherDatabase, extra)
+		t.Fatalf("client_backends rose by %d after %d sessions on another database, "+
+			"want at least %d: the count is the cluster's", got, extra, extra)
 	}
 	if after.TotalBackends-after.ClientBackends < 1 {
 		t.Fatalf("background backends = %d, want them still left out",
@@ -45,43 +54,23 @@ func TestSystemStatsClientBackendsAreClusterWide(t *testing.T) {
 	}
 }
 
-// otherDatabase is a second database of the test server.
-const otherDatabase = "rca08_other"
-
-// ensureOtherDatabase creates otherDatabase when the server lacks it.
-func ensureOtherDatabase(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+// openOtherDatabase holds one session on the database dsn names, which is
+// not the collector's, until the test ends.
+func openOtherDatabase(t *testing.T, ctx context.Context, dsn string) {
 	t.Helper()
-	var exists bool
-	if err := pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database "+
-		"WHERE datname = $1)", otherDatabase).Scan(&exists); err != nil {
-		t.Fatalf("look up database %s: %v", otherDatabase, err)
-	}
-	if exists {
-		return
-	}
-	if _, err := pool.Exec(ctx, "CREATE DATABASE "+otherDatabase); err != nil {
-		t.Fatalf("create database %s: %v", otherDatabase, err)
-	}
-}
-
-// openOtherDatabase holds one session on otherDatabase until the test
-// ends.
-func openOtherDatabase(t *testing.T, ctx context.Context) {
-	t.Helper()
-	cfg, err := pgx.ParseConfig(testdb.SkipUnlessLive(t))
+	cfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Database = otherDatabase
 	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
-		t.Fatalf("connect to database %s: %v", otherDatabase, err)
+		t.Fatalf("connect to database %s: %v", cfg.Database, err)
 	}
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	var db string
 	if err := conn.QueryRow(ctx, "SELECT current_database()").Scan(&db); err != nil ||
-		db != otherDatabase {
-		t.Fatalf("second database session on %q: %v", db, err)
+		db != cfg.Database {
+		t.Fatalf("second database session on %q, want %q: %v", db, cfg.Database, err)
 	}
 }
 

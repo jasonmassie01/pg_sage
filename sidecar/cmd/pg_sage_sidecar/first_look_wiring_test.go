@@ -23,7 +23,12 @@ import (
 // schema and returns its DSN and a pool.
 func firstLookDB(t *testing.T) (string, *pgxpool.Pool, context.Context) {
 	t.Helper()
-	dsn := testdb.CreateDatabase(t, "firstlook")
+	return firstLookOn(t, testdb.CreateDatabase(t, "firstlook"))
+}
+
+// firstLookOn bootstraps the database dsn names for a first look.
+func firstLookOn(t *testing.T, dsn string) (string, *pgxpool.Pool, context.Context) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
 	p, err := pgxpool.New(ctx, dsn)
