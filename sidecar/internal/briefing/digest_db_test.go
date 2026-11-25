@@ -364,6 +364,13 @@ func TestDigestDB_TwoFlapsSendOnce(t *testing.T) {
 	a := &recordingNotifier{result: sentTo("team-slack")}
 	b := &recordingNotifier{result: sentTo("team-slack")}
 	workers := []*Worker{digestWorker(pool, a, true, 2), digestWorker(pool, b, true, 2)}
+	// Both leaders read the same (empty) history before racing, as two
+	// flaps that started together do: otherwise a leader that starts after
+	// the other stored its briefing builds an empty window, a different
+	// digest, and the race under test is not the delivery claim.
+	for _, w := range workers {
+		w.loadLastRun()
+	}
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	for _, w := range workers {
