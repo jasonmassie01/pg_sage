@@ -255,14 +255,17 @@ func TestCollectIndexBloat_ClosedPoolFails(t *testing.T) {
 // Review (rules-13): an index read whose key column has no statistics has
 // no estimate. It is left out of the rows but named in the gaps, so the
 // analyzer can hold its open finding instead of resolving it; the step
-// copies the gaps onto the snapshot.
+// copies the gaps onto the snapshot. VACUUM (no ANALYZE) gives nostats
+// the table reltuples the read requires without any pg_stats: PostgreSQL
+// 18's CREATE INDEX leaves a never-vacuumed table's reltuples at -1, so
+// the index would not be read at all.
 func TestCollectIndexBloat_UnknownEstimateNamedInGaps(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 	ibFixture(t, ctx, pool)
 	bloatTable(t, ctx, pool, "known", 50000)
 	bloatTable(t, ctx, pool, "nostats", 50000)
-	ibExec(t, ctx, pool, "ANALYZE "+ibSchema+".known")
+	ibExec(t, ctx, pool, "ANALYZE "+ibSchema+".known", "VACUUM "+ibSchema+".nostats")
 	c := ibCollector(t, pool, 8192)
 	rows, gaps, err := c.collectIndexBloat(ctx)
 	if err != nil {

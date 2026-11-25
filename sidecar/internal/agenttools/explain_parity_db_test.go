@@ -22,6 +22,7 @@ func TestExplainQueryIDParityMCPAndREST(t *testing.T) {
 	rest := explain.New(f.pool, &config.ExplainConfig{Enabled: true, TimeoutMs: 10000},
 		func(string, string, ...any) {})
 	pgssepoch.Attempt(t, f.ctx, f.pool, 3, func() []string {
+		f.resetOwnStatements()
 		for i := 0; i < 3; i++ {
 			f.execArgs("SELECT id FROM "+orders+" WHERE status = $1", "open")
 		}

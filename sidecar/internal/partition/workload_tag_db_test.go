@@ -31,6 +31,10 @@ var partitionStatementMarks = []string{
 // pg_stat_statements_info unchanged), so a probe statement run first tells
 // interference from a real miss: the attempt repeats only when the probe
 // is gone (t2-test-round3).
+// The package's functions run on a pool configured as pg_sage's own
+// (selfmonitor.ConfigurePool), as in production: its wire tagger puts the
+// tag after the first keyword, where PostgreSQL 18 keeps it. The setup and
+// the reads use the plain pool, so they stay out of the measurement.
 // No concurrent access test: the statements are constants; the
 // concurrent conversion paths are covered in convert_safe_db_test.go.
 func TestStatementsCarryThePgSageTag(t *testing.T) {
@@ -72,16 +76,30 @@ func partitionStatements(t *testing.T, ctx context.Context,
 	exec(t, ctx, pool, "SELECT 1 AS "+probe)
 	tbl := scratch(t, ctx, pool, []string{"id"})
 	fill(t, ctx, pool, tbl, 200)
-	if res, err := Convert(ctx, pool, tbl); err != nil || !res.Converted {
+	sage := sagePool(t, ctx, pool)
+	if res, err := Convert(ctx, sage, tbl); err != nil || !res.Converted {
 		t.Fatalf("Convert = %+v, %v", res, err)
 	}
-	if _, err := Ensure(ctx, pool, tbl, time.Now(), 3); err != nil {
+	if _, err := Ensure(ctx, sage, tbl, time.Now(), 3); err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	if parts, err := List(ctx, pool, tbl); err != nil || len(parts) == 0 {
+	if parts, err := List(ctx, sage, tbl); err != nil || len(parts) == 0 {
 		t.Fatalf("List = %v, %v", parts, err)
 	}
 	return recordedStatements(t, ctx, pool, probe)
+}
+
+// sagePool is a pool on pool's database configured as pg_sage's own.
+func sagePool(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
+	cfg := pool.Config()
+	selfmonitor.ConfigurePool(cfg)
+	sage, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connect a pg_sage pool: %v", err)
+	}
+	t.Cleanup(sage.Close)
+	return sage
 }
 
 // recordedStatements reads this database's pg_stat_statements texts.

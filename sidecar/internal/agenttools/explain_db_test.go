@@ -138,10 +138,11 @@ func TestExplainQueryByQueryID(t *testing.T) {
 	orders := f.ordersTable(1000)
 	tools := New(f.pool, Options{})
 	pgssepoch.Attempt(t, f.ctx, f.pool, 3, func() []string {
+		f.resetOwnStatements()
 		for i := 0; i < 3; i++ {
 			f.execArgs("SELECT id FROM "+orders+" WHERE customer_id = $1", 7)
 		}
-		id, ok := f.statementID("customer_id = $1")
+		id, ok := f.statementID(orders + " WHERE customer_id = $1")
 		if !ok {
 			return []string{"statement missing from pg_stat_statements"}
 		}
@@ -150,7 +151,7 @@ func TestExplainQueryByQueryID(t *testing.T) {
 		require.NoError(t, err)
 		requirePlanJSON(t, res)
 		require.False(t, res.Analyzed, "a $n statement gets a generic plan, never ANALYZE")
-		require.Contains(t, res.Query, "customer_id = $1")
+		require.Contains(t, res.Query, orders+" WHERE customer_id = $1")
 		require.Positive(t, res.EstimatedCost)
 		return nil
 	})
@@ -162,8 +163,9 @@ func TestExplainQueryByQueryIDOfWriteIsInvalid(t *testing.T) {
 	orders := f.ordersTable(200)
 	tools := New(f.pool, Options{})
 	pgssepoch.Attempt(t, f.ctx, f.pool, 3, func() []string {
+		f.resetOwnStatements()
 		f.execArgs("UPDATE "+orders+" SET amount = amount WHERE id = $1", 1)
-		id, ok := f.statementID("SET amount = amount")
+		id, ok := f.statementID(orders + " SET amount = amount")
 		if !ok {
 			return []string{"UPDATE missing from pg_stat_statements"}
 		}

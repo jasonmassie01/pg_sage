@@ -181,7 +181,12 @@ func (f *fixture) resetOwnStatements() {
 }
 
 // statementID returns the queryid of the fixture database's
-// pg_stat_statements entry whose text contains fragment.
+// pg_stat_statements entry whose text contains fragment. PostgreSQL 18
+// jumbles a relation by its name, not its OID, so every test's
+// <schema>.orders statement of one shape shares a queryid whose text names
+// the first test's (by now dropped) schema: a test that explains by
+// queryid resets the database's entries first (resetOwnStatements) and
+// names its own table in fragment.
 func (f *fixture) statementID(fragment string) (int64, bool) {
 	f.t.Helper()
 	var id int64

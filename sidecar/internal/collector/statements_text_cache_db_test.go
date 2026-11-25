@@ -82,7 +82,9 @@ func seedTextWorkload(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// textReads is how many text reads this database has run.
+// textReads is how many text reads this database has run. pg_sage's pool
+// sends the tag after the first keyword (selfmonitor.ConfigurePool), so
+// it is matched anywhere in the text.
 func textReads(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 {
 	t.Helper()
 	view, err := extschema.StatementsRel(ctx, pool, "pg_stat_statements")
@@ -92,7 +94,7 @@ func textReads(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int64 {
 	var n int64
 	err = pool.QueryRow(ctx, `SELECT COALESCE(sum(calls), 0)::int8 FROM `+view+`
 		WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-		  AND starts_with(query, $1)`, statementTextsTag).Scan(&n)
+		  AND strpos(query, $1) > 0`, statementTextsTag).Scan(&n)
 	if err != nil {
 		t.Fatalf("count text reads: %v", err)
 	}
@@ -140,12 +142,15 @@ func hasQueryText(qs []QueryStats, sub string) bool {
 }
 
 // Cycle 1 reads once, cycles 2-3 read nothing, a new query adds one read.
+// The collector's pool is tagged as in production: PostgreSQL 18's
+// pg_stat_statements drops the text read's leading tag otherwise.
 func TestCollectQueries_TextReadsFollowTheCache(t *testing.T) {
 	ctx := context.Background()
 	pool := textTestDB(t, ctx)
 	seedTextWorkload(t, pool)
+	sage := taggedPool(t, ctx, pool)
 	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
-		c := warmCollector(t, ctx, pool, 5000, false)
+		c := warmCollector(t, ctx, sage, 5000, false)
 		base := textReads(t, ctx, pool)
 		var problems []string
 		expect := func(stage string, want int64) {

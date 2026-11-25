@@ -170,7 +170,9 @@ func (g *gateRun) workload() (stop func()) {
 			}
 		}()
 	}
-	loop(5*time.Millisecond, `/* gate */ INSERT INTO public.gate_t3 (payload)
+	// The insert's marker follows its first keyword: PostgreSQL 18 drops a
+	// comment ahead of the first token from pg_stat_statements' text.
+	loop(5*time.Millisecond, `INSERT /* gate */ INTO public.gate_t3 (payload)
 		VALUES (rpad(md5(clock_timestamp()::text), 200, 'y'))`,
 		func(int) []any { return nil })
 	loop(20*time.Millisecond, `/* gate */ SELECT count(*) FROM public.gate_t1 WHERE a = $1`,
@@ -202,7 +204,7 @@ func (g *gateRun) stat(pattern string) (calls, ms, wal float64) {
 // the reads like readPattern and the WAL bytes per t3 insert.
 func (g *gateRun) measure(readPattern string) (readMs, walPerInsert float64) {
 	g.t.Helper()
-	const insert = "/* gate */ INSERT INTO public.gate_t3%"
+	const insert = "INSERT /* gate */ INTO public.gate_t3%"
 	rc0, rms0, _ := g.stat(readPattern)
 	ic0, _, iw0 := g.stat(insert)
 	time.Sleep(gateWindow)

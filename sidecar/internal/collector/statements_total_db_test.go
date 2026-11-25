@@ -12,14 +12,20 @@ import (
 // evid-01a on a real server: StatementsTotalExecMs, StatementsCalls and
 // StatementsEntries equal the sums over this database's pg_stat_statements
 // entries less pg_sage's own, read directly, and the 500 cap does not
-// touch them (600 statements).
+// touch them (600 statements). The collector's pool is tagged as in
+// production: on PostgreSQL 18 an untagged pool's statements lose their
+// leading tag, none is known as pg_sage's own, and the totals read counts
+// in the view one call more than it saw of itself. The database is on the
+// exclusive server (ci-23): on the shared one other packages' statements
+// fill the cluster-wide hash and evict some of the 600, once-called rows.
 
 func TestStatementTotals_EqualTheViewUnaffectedByTheCap(t *testing.T) {
 	ctx := context.Background()
-	pool := textTestDB(t, ctx)
-	c := New(pool, testConfig(), 0, noopLog)
+	pool := exclusiveTextTestDB(t, "pg_stat_statements entries of one database")
+	// The tagged pool's pinned search_path does not resolve the view bare.
+	requireStatStatements(t, ctx, New(pool, testConfig(), 0, noopLog))
+	c := New(taggedPool(t, ctx, pool), testConfig(), 0, noopLog)
 	c.cfg.Collector.MaxQueries = 500
-	requireStatStatements(t, ctx, c)
 	// The collector's reads run in transactions whose COMMIT lands after
 	// the read and is no pg_sage statement anyone can tell apart from an
 	// application's: count statements only, so the comparison is exact.

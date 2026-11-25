@@ -15,6 +15,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -140,8 +141,8 @@ func TestRefresherStatementsFollowTheCadenceNotTheScrapes(t *testing.T) {
 	preserveValueGlobals(t)
 	withMetricsRegistry(t)
 	installValueFleet(nil)
-	p := statementsPool(t)
-	m := registerValueRefresher(t, "cadence", p)
+	p, sage := statementsPool(t)
+	m := registerValueRefresher(t, "cadence", sage)
 	for _, scrapes := range []int{0, 50} {
 		resetDatabaseStatements(t, p)
 		for i := 0; i < 3; i++ {
@@ -167,11 +168,17 @@ func TestRefresherStatementsFollowTheCadenceNotTheScrapes(t *testing.T) {
 	}
 }
 
-func statementsPool(t *testing.T) *pgxpool.Pool {
+// statementsPool returns a plain pool for reading and resetting
+// pg_stat_statements (its unqualified name resolves in public) and a pool
+// configured like the runtime's for the refresher: the runtime's tagger
+// moves each statement's tag after its first keyword, which PostgreSQL 18
+// needs to keep it (a leading comment is dropped from the recorded text).
+func statementsPool(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	p := openComposedPool(t, ctx, testdb.CreateDatabase(t, "metrics_cadence"))
+	dsn := testdb.CreateDatabase(t, "metrics_cadence")
+	p := openComposedPool(t, ctx, dsn)
 	if _, err := p.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
 		t.Skipf("pg_stat_statements unavailable on the test server: %v", err)
 	}
@@ -179,7 +186,17 @@ func statementsPool(t *testing.T) *pgxpool.Pool {
 	if err := p.QueryRow(ctx, "SELECT count(*) FROM pg_stat_statements").Scan(&n); err != nil {
 		t.Skipf("pg_stat_statements not preloaded on the test server: %v", err)
 	}
-	return p
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selfmonitor.ConfigurePool(cfg)
+	sage, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open the runtime-configured pool: %v", err)
+	}
+	t.Cleanup(sage.Close)
+	return p, sage
 }
 
 func resetDatabaseStatements(t *testing.T, p *pgxpool.Pool) {

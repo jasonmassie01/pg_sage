@@ -176,8 +176,9 @@ func TestExplainAsAgentResolvesQueryIDText(t *testing.T) {
 	orders := f.ordersTable(500)
 	tools := New(f.pool, Options{})
 	pgssepoch.Attempt(t, f.ctx, f.pool, 3, func() []string {
+		f.resetOwnStatements()
 		f.execArgs("SELECT id FROM "+orders+" WHERE customer_id = $1", 7)
-		id, ok := f.statementID("customer_id = $1")
+		id, ok := f.statementID(orders + " WHERE customer_id = $1")
 		if !ok {
 			return []string{"statement missing from pg_stat_statements"}
 		}
