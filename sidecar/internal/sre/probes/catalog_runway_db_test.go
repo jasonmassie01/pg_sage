@@ -113,9 +113,13 @@ func TestCatalog_WraparoundTablesUseTheTableMaximum(t *testing.T) {
 
 // Every kind of horizon holder is listed with its age; the probe's own
 // session never is.
+// It runs on the exclusive server: the horizon, burned XIDs and slots are
+// cluster-wide, and creating a logical slot waits for every running
+// transaction of the cluster, so other packages' open and prepared
+// transactions on the shared server timed the slot out (PG15, 2026-11-25).
 func TestCatalog_XminHorizonListsHolders(t *testing.T) {
-	pool, ctx := livePool(t)
-	dsn := testdb.SkipUnlessLive(t)
+	dsn := testdb.Exclusive(t, "the xmin horizon and its holders are cluster-wide")
+	pool, ctx := livePoolOn(t, dsn)
 	slot := catalogSlotHolder(t, ctx, pool)
 	pid := sessionHolder(t, ctx, dsn)
 	gid := preparedHolder(t, ctx, pool, dsn)
