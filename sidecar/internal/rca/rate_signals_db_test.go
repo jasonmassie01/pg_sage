@@ -128,7 +128,10 @@ func (l *walLoad) clean(a, b *collector.Snapshot) bool {
 
 func walLivePool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testdb.CreateDatabase(t, "rca_wal_rate"))
+	// WAL is cluster-wide: on the shared server other suites' writes hid the
+	// steady load on every CI run, so the test skipped instead of judging.
+	pool, err := pgxpool.New(context.Background(),
+		testdb.Exclusive(t, "the WAL rate is measured across the whole cluster"))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
