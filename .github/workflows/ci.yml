@@ -774,8 +774,23 @@ jobs:
         run: |
           status=0
           url=postgres://postgres:postgres@127.0.0.1:5435/postgres?sslmode=disable
-          SAGE_TEST_DATABASE_URL=$url SAGE_TEST_PSS_SMALL_URL=$url             go test ./internal/pgaudit ./internal/agentguard/broker -race -count=1             -timeout 600s -json             -run '^(TestRealPGAuditCorrelation|TestActivityReportsDeallocAndFallsBack)$'             > ../agent-audit.json || status=$?
+          SAGE_TEST_DATABASE_URL=$url SAGE_TEST_PSS_SMALL_URL=$url             go test ./internal/pgaudit ./internal/agentguard/broker -race -count=1             -timeout 600s -json             -run '^(TestRealPGAuditCorrelation|TestRealPGAuditTaggedLongAction|TestActivityReportsDeallocAndFallsBack)$'             > ../agent-audit.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../agent-audit.json
+          exit $status
+
+      # The heap bound is meaningless under the race detector, which every
+      # other suite runs with, so the test runs here without it.
+      - name: Audit chain memory bound (no race detector)
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        timeout-minutes: 10
+        run: |
+          status=0
+          url=postgres://postgres:postgres@127.0.0.1:5435/postgres?sslmode=disable
+          SAGE_TEST_DATABASE_URL=$url go test ./internal/auditchain -tags=integration \
+            -count=1 -timeout 600s -json -run '^TestFullVerificationMemoryIsBounded$' \
+            > ../norace.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../norace.json
           exit $status
 
       # -require: a renamed test would make -run select nothing and pass.
@@ -784,13 +799,16 @@ jobs:
         working-directory: sidecar
         shell: bash
         run: |
-          cat ../kill.json ../agent-audit.json | go run ./cmd/skipbudget -pg 17 -stale=off \
+          cat ../kill.json ../agent-audit.json ../norace.json |
+            go run ./cmd/skipbudget -pg 17 -stale=off \
             -require 'internal/agentguard TestKill_.*' \
             -require 'internal/agentguard TestUnfreeze_.*' \
             -require 'internal/agentguard TestRelease_.*' \
             -require 'internal/pgaudit TestRealPGAuditCorrelation' \
+            -require 'internal/pgaudit TestRealPGAuditTaggedLongAction' \
+            -require 'internal/auditchain TestFullVerificationMemoryIsBounded' \
             -require 'internal/agentguard/broker TestActivityReportsDeallocAndFallsBack'
-          if cat ../kill.json ../agent-audit.json |
+          if cat ../kill.json ../agent-audit.json ../norace.json |
             jq -e 'select(.Action=="skip" and .Test != null)' >/dev/null; then
             echo "a test skipped on its dedicated server" >&2
             exit 1

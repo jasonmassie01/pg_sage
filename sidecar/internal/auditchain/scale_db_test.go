@@ -132,7 +132,7 @@ func TestFullVerificationMemoryIsBounded(t *testing.T) {
 	}
 	if raceDetector {
 		t.Skip("skipped under -race: the detector's own memory and slowdown make " +
-			"the heap bound meaningless; the non-race integration job runs it")
+			"the heap bound meaningless; ci.yml agent-servers runs it without -race")
 	}
 	pool := freshDB(t, "chain_scale")
 	buildLargeChain(t, pool, scaleRows)

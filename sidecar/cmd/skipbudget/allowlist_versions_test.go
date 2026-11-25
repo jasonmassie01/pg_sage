@@ -146,8 +146,8 @@ func TestRepoAllowlistPG15GatedRulesNeedTheirOwnReason(t *testing.T) {
 }
 
 // image-limited skips (the extension is absent from postgres:15, not from
-// CI's image) must never be allowed: CI's PG15 leg has HypoPG, pg_hint_plan,
-// pgvector and pgaudit, and there these tests run.
+// CI's image) must never be allowed: CI's PG15 leg has HypoPG, pg_hint_plan
+// and pgvector, and there these tests run.
 func TestRepoAllowlistNeverAllowsImageLimitedPG15Skips(t *testing.T) {
 	rules := repoRules(t)
 	cases := []struct{ pkg, test, text string }{
@@ -158,8 +158,9 @@ func TestRepoAllowlistNeverAllowsImageLimitedPG15Skips(t *testing.T) {
 				" (pg_hint_plan 1.4-1.6, PG14-16)"},
 		{"internal/optimizer", "TestCheckDuplicate_VectorAndVarcharOnRealPostgres",
 			"validate_db_test.go:59: pgvector server extension unavailable"},
-		{"internal/pgaudit", "TestRealPGAuditTaggedLongAction",
-			"correlate_real_tag_db_test.go:23: pgaudit is not in shared_preload_libraries"},
+		// Not TestRealPGAuditTaggedLongAction: CI's image installs pgaudit but
+		// does not preload it or write jsonlog, so it skips on every leg; like
+		// TestRealPGAuditCorrelation it runs, required, in ci.yml agent-servers.
 	}
 	for _, c := range cases {
 		for _, pg := range []int{14, 15} {

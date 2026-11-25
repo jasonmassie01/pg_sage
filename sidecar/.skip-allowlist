@@ -31,13 +31,25 @@ tests/lakebaselive TestLakebaseProviderProbeCompatibility # native strict provid
 tests/lakebaselive TestLakebaseTelemetry # controlled selected-resource system-table reads/delivery, PG_SAGE_LIVE_LAKEBASE_TELEMETRY=1, exact isolated native fixture and explicit SQL warehouse; absent delivery remains skipped/unverified
 tests/lakebaselive TestLakebaseTelemetryAttribution # bounded read-only counts for exact owned telemetry fixture identities, PG_SAGE_LIVE_LAKEBASE_TELEMETRY_ATTRIBUTION=1 plus prior owned report
 internal/databricksauth TestGatewayModelDiscoveryLive # real Unity Gateway catalog, PG_SAGE_LIVE_LLM=1 and selected workspace credentials
+internal/clone TestLakebaseLive_BranchRehearsalRoundTrip reason=/live\sLakebase\sbranch\srehearsal:\sset\sSAGE_LAKEBASE_LIVE=1/ # live Lakebase branch rehearsal, SAGE_LAKEBASE_LIVE=1 and a real endpoint
 internal/clone TestAlloyDBLive_ContractOnARealCluster|TestAuroraLive_ContractOnARealCluster|TestAzureRestoreLive_ContractOnARealServer|TestCloudSQLLive_ContractOnARealInstance|TestNeonLive_ContractOnARealProject|TestRDSRestoreLive_ContractOnARealInstance reason=/live\sclone\sprovider\scontract\sskipped/ # live clone provider contracts (lab-05), opt-in per provider via SAGE_<PROVIDER>_LIVE=1 and real cloud credentials
 
 # Live LLM calls: need a provider key and spend quota.
 internal/rca TestTier2Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
 internal/llm TestChat(WithTools)?Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
-e2e TestLLM.* # live LLM, SAGE_LLM_API_KEY opt-in
-e2e TestTuningAgentLive # live LLM, PG_SAGE_LIVE_LLM=1 and SAGE_LLM_API_KEY opt-in
+e2e TestLLM.* pg>=17 pg<18 # live LLM, SAGE_LLM_API_KEY opt-in; only the PG17 test job runs ./e2e
+e2e TestTuningAgentLive pg>=17 pg<18 # live LLM, PG_SAGE_LIVE_LLM=1 and SAGE_LLM_API_KEY opt-in; only the PG17 test job runs ./e2e
+
+# Servers no CI job provides; each test runs where its URL is set.
+cmd/pg_sage_sidecar TestLocalBenchRunCountsForTheFamilyItCovered|TestFleetInstanceOwner_TwoClustersTwoOwners|TestGameDayRefusesAFleetPoolAddedAfterStart reason=/SAGE_TEST_SECOND_CLUSTER_URL\snot\sset/ # needs a second PostgreSQL server
+internal/gameday TestLocalTargetOnASecondCluster reason=/SAGE_TEST_SECOND_CLUSTER_URL\snot\sset/ # needs a second PostgreSQL server
+internal/gameday TestLocalTargetReplicaOfTheMonitoredPrimaryIsRefused reason=/SAGE_TEST_REPLICA_URL\snot\sset/ # needs a streaming replica of the test server
+internal/logwatch TestIntegration_(KilledBackendOpensCrashIncident|ServerCSVLogDeadlockNamesBothPIDs|ServerCSVLogDeadlockParticipants) reason=/SAGE_TEST_CSVLOG_URL,\sSAGE_TEST_CSVLOG_CONTAINER\sand\sSAGE_TEST_CSVLOG_DIR\snot\sset/ # needs a csvlog server with its log directory mounted locally
+internal/executor TestRoleBudgetRevert_ServerCSVLog reason=/SAGE_TEST_SERVER_CSVLOG_DIR\snot\sset/ # needs the test server's csvlog directory mounted locally
+internal/analyzer TestArchiverRules_FailingArchiveCommandFires reason=/archive_mode=off/ # archive_mode needs a restart; the CI image runs with it off
+internal/pgaudit TestRealPGAuditTaggedLongAction reason=/pgaudit\sis\snot\sin\sshared_preload_libraries/ # needs pgaudit preloaded and jsonlog: ci.yml agent-servers
+internal/auditchain TestFullVerificationMemoryIsBounded reason=/skipped\sunder\s-race/ # the heap bound is meaningless under -race: ci.yml agent-servers runs it without
+sre-bench TestReplayCompare reason=/compare\smode\soff/ # opt-in comparison mode, -args --compare
 
 # Helper subprocesses that only run when a parent test re-executes the binary.
 internal/rca TestRCAChildProcessFixture # subprocess helper for TestPreflightRCAProcessRestart*
@@ -47,6 +59,13 @@ internal/logwatch TestResolveLogDir_Absolute(Unix|Windows) # OS path semantics, 
 
 # Version-gated features. Each rule names the majors that lack the feature,
 # so the same skip on a major that has it is UNLISTED and fails the gate.
+internal/firstlook TestInvalidIndexNullsNotDistinctKeepsNulls pg<15 # NULLS NOT DISTINCT is PG15+
+internal/optimizer TestSkipScanDB_GenericPlansOnABoundedConnection pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/optimizer TestSkipScanDB_PG18DropsTheServedCandidate pg<18 # btree skip scan is PG18+
+internal/executor TestHint(Apply|Rollback)_.* pg<17 reason=/pg_hint_plan\s<\s1\.7/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestHint.*|TestCheckHint_.*|TestCompareHint_.*|TestRecordHint_.*|TestUpsertQueryHint_.*|TestRevalidate_FastHintSurvivesPasses pg<17 reason=/pg_hint_plan\s<\s1\.7/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestDetectHintPlan_DB_.*|TestTune_DB_PicksUpEnableHintTableWithoutRestart pg<17 reason=/pg_hint_plan\s1\.7\shint\stable\snot\sinstalled/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestDetectHintPlan_DB_PreQueryIDLayoutIsNotReady pg>=17 reason=/needs\sthe\spre-1\.7\shint\stable/ # the pre-1.7 hint table ships with pg_hint_plan 1.4-1.6 (PG14-16)
 internal/collector TestCollectIO|TestPhase2_CollectIO_FieldsPopulated pg<16 # pg_stat_io is PG16+
 internal/collector TestCollectQueries_BlockReadTimeFromStatements pg>=16 pg<17 # PG16 does not time local-buffer reads in pg_stat_statements
 internal/autoexplain TestCaptureOnDemand_(ParameterizedUsesGenericPlan|NormalizedParameterizedQuery) pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
