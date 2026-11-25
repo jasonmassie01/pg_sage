@@ -167,8 +167,12 @@ func statementCalls(t *testing.T, ctx context.Context, q interface {
 }
 
 // CHECK-03: the explorer adds exactly one aggregate statement per cycle.
+// It counts its own pg_stat_statements entries, so it runs on the exclusive
+// server: the shared one's entries are near pg_stat_statements.max, and a
+// new entry can be evicted before it is read (PG18, 2026-11-25).
 func TestWaitEvents_OneStatementPerCycle(t *testing.T) {
-	c, pool := sageCollector(t)
+	c, pool := sageCollectorOn(t, testdb.Exclusive(t,
+		"counts its own statements in pg_stat_statements"))
 	ctx := context.Background()
 	if err := schema.Bootstrap(ctx, pool); err != nil {
 		t.Fatalf("bootstrap: %v", err)

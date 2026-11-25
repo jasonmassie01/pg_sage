@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/testdb"
-	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
 // rca-08: client_backends counts every database's client sessions, the
@@ -19,13 +18,7 @@ import (
 func TestSystemStatsClientBackendsAreClusterWide(t *testing.T) {
 	ctx := context.Background()
 	dsn := testdb.Exclusive(t, "client_backends counts the whole cluster's sessions")
-	pool := selfload.SagePool(t, dsn)
-	var version int
-	if err := pool.QueryRow(ctx,
-		"SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
-		t.Fatalf("server version: %v", err)
-	}
-	c := New(pool, testConfig(), version, noopLog)
+	c, _ := sageCollectorOn(t, dsn)
 	other := testdb.ExclusiveDatabase(t, "rca08_other")
 	before, err := c.collectSystem(ctx)
 	if err != nil {

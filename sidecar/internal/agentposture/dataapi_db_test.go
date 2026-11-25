@@ -149,8 +149,11 @@ func TestAP04_DataAPIStateOnPolicies(t *testing.T) {
 // State transitions: a change of the Data API state alone (no catalog
 // change) makes the next sweep run and changes the severity it publishes;
 // the same state again runs nothing.
+// It asserts an unchanged state runs no sweep, so it runs on the exclusive
+// server: the fingerprint hashes cluster-wide roles another package may
+// change on the shared one.
 func TestSweep_DataAPIChangeAppliesAtTheNextSweep(t *testing.T) {
-	f := newFixture(t)
+	f := exclusiveFixture(t, "an unchanged cluster catalog must run no sweep")
 	tbl := f.q("leads")
 	f.exec("CREATE TABLE "+tbl+" (id int)", "GRANT SELECT ON "+tbl+" TO "+f.exposed)
 	var platform atomic.Pointer[Platform]

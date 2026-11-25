@@ -24,7 +24,13 @@ import (
 func sageCollector(t *testing.T) (*Collector, *pgxpool.Pool) {
 	t.Helper()
 	testPool(t) // skips when the database is unavailable
-	pool := selfload.SagePool(t, testdb.SkipUnlessLive(t))
+	return sageCollectorOn(t, testdb.SkipUnlessLive(t))
+}
+
+// sageCollectorOn is sageCollector on the database dsn names.
+func sageCollectorOn(t *testing.T, dsn string) (*Collector, *pgxpool.Pool) {
+	t.Helper()
+	pool := selfload.SagePool(t, dsn)
 	var version int
 	if err := pool.QueryRow(context.Background(),
 		"SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {

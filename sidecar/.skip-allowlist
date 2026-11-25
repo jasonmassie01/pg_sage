@@ -62,6 +62,9 @@ internal/logwatch TestResolveLogDir_Absolute(Unix|Windows) # OS path semantics, 
 internal/firstlook TestInvalidIndexNullsNotDistinctKeepsNulls pg<15 # NULLS NOT DISTINCT is PG15+
 internal/optimizer TestSkipScanDB_GenericPlansOnABoundedConnection pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
 internal/optimizer TestSkipScanDB_PG18DropsTheServedCandidate pg<18 # btree skip scan is PG18+
+internal/optimizer TestSkipScanDB_BeforePG18TheFloorAdmitsWithoutEvidence pg>=18 reason=/TestSkipScanDB_PG18DropsTheServedCandidate\scovers\sthis\sserver/ # before PG18 only; PG18's skip scan has its own test
+internal/upgradecheck (TestAWSUpgraderDB|TestBriefDB|TestLiveRehearsalReceiptDB|TestPostUpgradeDB|TestRehearsalDB|TestRehearsalStoreDB|TestRun)_.*|TestMonitor_FindingOpensAndResolves pg>=18 reason=/no\sknown\smajor\sabove\sit\sto\splan/ # upgrade planning targets PG18: a PG18 server has no newer known major
+internal/api TestUpgradeBriefMCP_.* pg>=18 reason=/no\sknown\smajor\sabove\sit\sto\splan/ # upgrade planning targets PG18: a PG18 server has no newer known major
 internal/executor TestHint(Apply|Rollback)_.* pg<17 reason=/pg_hint_plan\s<\s1\.7/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 internal/tuner TestHint.*|TestCheckHint_.*|TestCompareHint_.*|TestRecordHint_.*|TestUpsertQueryHint_.*|TestRevalidate_FastHintSurvivesPasses pg<17 reason=/pg_hint_plan\s<\s1\.7/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 internal/tuner TestDetectHintPlan_DB_.*|TestTune_DB_PicksUpEnableHintTableWithoutRestart pg<17 reason=/pg_hint_plan\s1\.7\shint\stable\snot\sinstalled/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)

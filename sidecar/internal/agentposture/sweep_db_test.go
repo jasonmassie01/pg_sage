@@ -121,9 +121,11 @@ func TestSweep_NothingExposedStillEvaluates(t *testing.T) {
 
 // Boundary: an unchanged fingerprint for 23 h 59 m runs nothing in the
 // sweeper; the daily run stays the analyzer's, which runs every detector.
+// It runs on the exclusive server: the fingerprint hashes cluster-wide
+// roles, which another package may change on the shared one.
 func TestSweep_UnchangedFingerprintRunsNothingAndDailyStaysTheAnalyzers(t *testing.T) {
-	pool, ctx := livePool(t)
-	testdb.LockAgentRoles(t)
+	pool, ctx := livePoolOn(t, testdb.Exclusive(t,
+		"an unchanged cluster catalog must run no sweep"))
 	start := time.Date(2026, 11, 15, 12, 0, 0, 0, time.Local)
 	now := nowAt(start)
 	exp, rest := &countingDetector{id: "AP-03"}, &countingDetector{id: "AP-06"}
@@ -185,10 +187,13 @@ func (d *serialDetector) Detect(ctx context.Context, in Input) ([]Finding, error
 
 // Concurrency: a sweep and an analyzer cycle started together run each
 // detector once, never at the same time, and report one finding per
-// detector between them.
+// detector between them. The catalog fingerprint hashes cluster-wide rows
+// (pg_roles), so it runs on the exclusive server: on the shared one another
+// package creating a role between the cycle and the sweep changes the
+// catalog, and the sweep then rightly runs the exposure detector again.
 func TestSweep_AndCycleTogetherRunEachDetectorOnceSerially(t *testing.T) {
-	pool, ctx := livePool(t)
-	testdb.LockAgentRoles(t)
+	pool, ctx := livePoolOn(t, testdb.Exclusive(t,
+		"the posture fingerprint hashes cluster-wide roles"))
 	for i := 0; i < 5; i++ {
 		exp := &serialDetector{countingDetector: countingDetector{id: "AP-03"}}
 		rest := &serialDetector{countingDetector: countingDetector{id: "AP-06"}}
