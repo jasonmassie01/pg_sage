@@ -49,12 +49,26 @@ func (b *settingsBeginner) BeginTx(ctx context.Context, o pgx.TxOptions) (pgx.Tx
 func samplerTestConn(t *testing.T) *pgx.Conn {
 	t.Helper()
 	requireAutonomyDB(t) // a live, bootstrapped server
-	conn, err := pgx.Connect(context.Background(), testdb.SkipUnlessLive(t))
+	return samplerConnOn(t, testdb.SkipUnlessLive(t))
+}
+
+// samplerConnOn is one connection to the database dsn names.
+func samplerConnOn(t *testing.T, dsn string) *pgx.Conn {
+	t.Helper()
+	conn, err := pgx.Connect(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect PostgreSQL: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	return conn
+}
+
+// lockedCatalogDSN is a database on the exclusive server for a test that
+// holds its catalog lock (holdCatalogLock).
+func lockedCatalogDSN(t *testing.T) string {
+	t.Helper()
+	return exclusiveAutonomyDSN(t, "holds pg_class ACCESS EXCLUSIVE; another "+
+		"package's DDL makes the next BEGIN wait on it")
 }
 
 // liveDeadline bounds a test that reads under a held catalog lock: a
@@ -67,11 +81,16 @@ func liveDeadline(t *testing.T) context.Context {
 	return ctx
 }
 
-// holdCatalogLock takes ACCESS EXCLUSIVE on pg_class, which the horizon
-// read scans, as DDL waiting on a catalog would; release ends it.
-func holdCatalogLock(t *testing.T) (release func()) {
+// holdCatalogLock takes ACCESS EXCLUSIVE on dsn's pg_class, which the
+// horizon read scans, as DDL waiting on a catalog would; release ends it.
+//
+// Its tests run on the exclusive server (lockedCatalogDSN): other packages'
+// DDL can overflow a backend's invalidation queue, and the cache rebuild
+// that follows at the next BEGIN waits on this lock before any bound is
+// set, so the reading ends at the context deadline instead of a timeout.
+func holdCatalogLock(t *testing.T, dsn string) (release func()) {
 	t.Helper()
-	holder := samplerTestConn(t)
+	holder := samplerConnOn(t, dsn)
 	tx, err := holder.Begin(context.Background())
 	if err != nil {
 		t.Fatalf("begin lock holder: %v", err)
@@ -115,13 +134,14 @@ func TestFreezeSamplerLiveReadRunsUnderItsBounds(t *testing.T) {
 // reading at the lock timeout; once it is released, the next reading
 // succeeds and advances the rates from the last good counters.
 func TestFreezeSamplerLiveLockTimeoutThenRecovers(t *testing.T) {
-	sampler := NewFreezeSampler(samplerTestConn(t), 0, 0)
+	dsn := lockedCatalogDSN(t)
+	sampler := NewFreezeSampler(samplerConnOn(t, dsn), 0, 0)
 	sampler.bounds = catalogread.Timeouts{Statement: 5 * time.Second, Lock: 200 * time.Millisecond}
 	ctx := liveDeadline(t)
 	if _, err := sampler.Read(ctx); err != nil { // warms the connection's caches
 		t.Fatalf("first Read: %v", err)
 	}
-	release := holdCatalogLock(t)
+	release := holdCatalogLock(t, dsn)
 
 	started := time.Now()
 	_, err := sampler.Read(ctx)
@@ -146,8 +166,8 @@ func TestFreezeSamplerLiveLockTimeoutThenRecovers(t *testing.T) {
 // The custodian takes its sampler's bounds from WithBloatBounds and
 // proposes nothing in a cycle whose reading timed out.
 func TestFreezeSamplerCustodianProposesNothingOnLockTimeout(t *testing.T) {
-	requireAutonomyDB(t)
-	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
+	dsn := lockedCatalogDSN(t)
+	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}
@@ -163,7 +183,7 @@ func TestFreezeSamplerCustodianProposesNothingOnLockTimeout(t *testing.T) {
 	if _, err := c.Sampler().Read(ctx); err != nil {
 		t.Fatalf("warm-up Read: %v", err)
 	}
-	holdCatalogLock(t)
+	holdCatalogLock(t, dsn)
 
 	started := time.Now()
 	proposals, err := c.Scan(ctx)
@@ -183,13 +203,14 @@ func TestFreezeSamplerCustodianProposesNothingOnLockTimeout(t *testing.T) {
 // lock timeout (30 s): a held catalog lock then ends the reading at the
 // statement timeout, and the error names that bound.
 func TestFreezeSamplerLiveStatementTimeoutUnderAHeldLock(t *testing.T) {
-	sampler := NewFreezeSampler(samplerTestConn(t), 0, 0)
+	dsn := lockedCatalogDSN(t)
+	sampler := NewFreezeSampler(samplerConnOn(t, dsn), 0, 0)
 	sampler.bounds = catalogread.Timeouts{Statement: 200 * time.Millisecond, Lock: 5 * time.Second}
 	ctx := liveDeadline(t)
 	if _, err := sampler.Read(ctx); err != nil { // warms the connection's caches
 		t.Fatalf("first Read: %v", err)
 	}
-	holdCatalogLock(t)
+	holdCatalogLock(t, dsn)
 
 	started := time.Now()
 	_, err := sampler.Read(ctx)

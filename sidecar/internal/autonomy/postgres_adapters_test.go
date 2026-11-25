@@ -76,7 +76,21 @@ func requireAutonomyDB(t *testing.T) *pgxpool.Pool {
 // that measure XID ages, which every other package's writes move (ci-13).
 func exclusiveAutonomyDB(t *testing.T, reason string) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testdb.Exclusive(t, reason))
+	return exclusiveAutonomyPool(t, testdb.Exclusive(t, reason))
+}
+
+// exclusiveAutonomyDSN is exclusiveAutonomyDB's database, bootstrapped,
+// as a DSN: for tests that open their own connections to it.
+func exclusiveAutonomyDSN(t *testing.T, reason string) string {
+	t.Helper()
+	dsn := testdb.Exclusive(t, reason)
+	exclusiveAutonomyPool(t, dsn)
+	return dsn
+}
+
+func exclusiveAutonomyPool(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connect the exclusive test database: %v", err)
 	}
