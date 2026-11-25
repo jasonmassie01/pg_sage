@@ -66,16 +66,18 @@ func taggedLongIndexBuild(t *testing.T, pool *pgxpool.Pool, table string,
 		" IN SHARE UPDATE EXCLUSIVE MODE"); err != nil {
 		t.Fatalf("lock: %v", err)
 	}
-	go func() {
-		time.Sleep(2 * time.Second)
-		_ = blocker.Rollback(context.Background())
-	}()
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
 	defer conn.Release()
+	// The lock is held 2 s from start, so the build, timed from start too,
+	// waits at least that long (timed from before Acquire, it took 1.986 s).
 	start := time.Now()
+	go func() {
+		time.Sleep(2 * time.Second)
+		_ = blocker.Rollback(context.Background())
+	}()
 	for _, s := range []string{"SET pgaudit.log = 'ddl'",
 		"SET application_name = '" + selfmonitor.ActionApplicationName(decision) + "'",
 		"CREATE INDEX CONCURRENTLY " + table + "_idx ON " + table + " (a)",
