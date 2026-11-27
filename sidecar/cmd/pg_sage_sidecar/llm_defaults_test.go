@@ -102,21 +102,32 @@ func TestExplicitOptOutsWinWithConfiguredLLM(t *testing.T) {
 	}
 }
 
-// captureStderr returns what fn writes to os.Stderr.
+// swapStderr sets os.Stderr to f and returns the previous file. It holds
+// the log lock, under which logStructured reads os.Stderr: a runtime
+// worker the test started may log while the test swaps.
+func swapStderr(f *os.File) *os.File {
+	logOutputMu.Lock()
+	defer logOutputMu.Unlock()
+	previous := os.Stderr
+	os.Stderr = f
+	return previous
+}
+
+// captureStderr returns what fn writes to os.Stderr, with what runtime
+// workers log while fn runs.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
-	original := os.Stderr
-	os.Stderr = writer
+	original := swapStderr(writer)
 	done := make(chan string)
 	go func() {
 		data, _ := io.ReadAll(reader)
 		done <- string(data)
 	}()
-	defer func() { os.Stderr = original }()
+	defer swapStderr(original)
 	fn()
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close pipe: %v", err)

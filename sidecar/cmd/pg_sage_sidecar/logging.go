@@ -9,9 +9,10 @@ import (
 	"time"
 )
 
-// logOutput, when set, receives the log lines instead of os.Stderr (read
-// at each line, so tests that swap os.Stderr keep working); tests set it
-// through setLogOutput while goroutines of earlier tests may still log.
+// logOutput, when set, receives the log lines instead of os.Stderr. Each
+// line reads both under logOutputMu, and tests change them only under it
+// (setLogOutput, and swapStderr for os.Stderr): runtime workers a test
+// started, or that earlier tests left draining, still log meanwhile.
 var (
 	logOutputMu sync.RWMutex
 	logOutput   io.Writer
@@ -37,10 +38,10 @@ func logStructured(level, component, msg string, args ...any) {
 	ts := time.Now().UTC().Format(time.RFC3339)
 	logOutputMu.RLock()
 	out := logOutput
-	logOutputMu.RUnlock()
 	if out == nil {
 		out = os.Stderr
 	}
+	logOutputMu.RUnlock()
 	_, _ = fmt.Fprintf(out, "%s [%s] [%s] %s\n", ts, level, component, fmt.Sprintf(msg, args...))
 }
 

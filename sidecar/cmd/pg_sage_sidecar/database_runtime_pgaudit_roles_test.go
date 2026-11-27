@@ -62,10 +62,9 @@ func stderrOf(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
-	saved := os.Stderr
-	os.Stderr = w
+	saved := swapStderr(w)
 	fn()
-	os.Stderr = saved
+	swapStderr(saved)
 	if err := w.Close(); err != nil {
 		t.Fatalf("close pipe: %v", err)
 	}

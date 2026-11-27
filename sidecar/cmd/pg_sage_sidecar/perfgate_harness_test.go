@@ -50,8 +50,7 @@ func capturePerfLogs(t *testing.T) *perfLogCapture {
 	if err != nil {
 		t.Fatalf("log pipe: %v", err)
 	}
-	real := os.Stderr
-	os.Stderr = w
+	real := swapStderr(w)
 	c := &perfLogCapture{}
 	done := make(chan struct{})
 	go func() {
@@ -65,7 +64,7 @@ func capturePerfLogs(t *testing.T) *perfLogCapture {
 		}
 	}()
 	t.Cleanup(func() {
-		os.Stderr = real
+		swapStderr(real)
 		_ = w.Close()
 		<-done
 		_ = r.Close()
