@@ -31,8 +31,8 @@ func NewStore(pool *pgxpool.Pool, database string) *Store {
 func (s *Store) Record(ctx context.Context, day time.Time, tallies []Tally) error {
 	batch := &pgx.Batch{}
 	for _, t := range tallies {
-		batch.Queue(`/* pg_sage budget */
-INSERT INTO sage.budget_shadow (database_name, budget, definition, day, would_cancel,
+		batch.Queue(`INSERT /* pg_sage budget */
+INTO sage.budget_shadow (database_name, budget, definition, day, would_cancel,
     would_reject, protected_cancels, worst_ms)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (database_name, budget, definition, day) DO UPDATE SET
@@ -55,8 +55,8 @@ func (s *Store) RecordRoles(ctx context.Context, day time.Time,
 		if r.Calls <= 0 {
 			continue
 		}
-		batch.Queue(`/* pg_sage budget */
-INSERT INTO sage.workload_role_daily (database_name, role_name, day, p99_estimate_ms,
+		batch.Queue(`INSERT /* pg_sage budget */
+INTO sage.workload_role_daily (database_name, role_name, day, p99_estimate_ms,
     max_exec_ms, calls)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (database_name, role_name, day) DO UPDATE SET

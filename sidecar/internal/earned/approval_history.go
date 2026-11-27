@@ -137,7 +137,7 @@ func countApprovals(marks []approvalMark, since time.Time, required int) Approva
 	return h
 }
 
-const approvalMarksSQL = `/* pg_sage */ SELECT p.family, p.action_class, m.action_log_id,
+const approvalMarksSQL = `SELECT /* pg_sage */ p.family, p.action_class, m.action_log_id,
 	m.level, m.source, m.verdict, m.result, m.at
 	FROM unnest($3::text[], $4::text[]) AS p(family, action_class)
 	CROSS JOIN LATERAL (
@@ -263,7 +263,7 @@ func proposalKind(p Proposal) string {
 	return body.Kind
 }
 
-const askSnoozesSQL = `/* pg_sage */ SELECT DISTINCT family, action_class
+const askSnoozesSQL = `SELECT /* pg_sage */ DISTINCT family, action_class
 	FROM sage.sre_autonomy_proposals
 	WHERE deployment_id = $1 AND database_name = $2 AND status = 'rejected'
 	  AND evidence->>'kind' = 'approval_history' AND decided_at >= $3`

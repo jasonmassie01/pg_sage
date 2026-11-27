@@ -2,26 +2,33 @@ package selfmonitor
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
-	"net"
+	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgproto3"
 )
 
-// captureConn records what the tagging wrapper hands the network.
+// captureConn stands in for the connection the tagging writer sends
+// through: it records every byte handed to it. With err set, each write
+// takes the first accept bytes (none by default) and fails with err.
 type captureConn struct {
-	net.Conn
 	out    bytes.Buffer
 	err    error
+	accept int
 	writes int
 }
 
 func (c *captureConn) Write(p []byte) (int, error) {
 	c.writes++
 	if c.err != nil {
-		return 0, c.err
+		n := min(c.accept, len(p))
+		c.out.Write(p[:n])
+		return n, c.err
 	}
 	return c.out.Write(p)
 }
@@ -85,11 +92,13 @@ func copyFrontend(t *testing.T, msg pgproto3.FrontendMessage) pgproto3.FrontendM
 	}
 }
 
-func writeAll(t *testing.T, conn net.Conn, stream []byte, chunk int) {
+// writeAll writes stream to w in chunk-sized writes; each must report its
+// whole input consumed, which is what pgx's frontend expects of a writer.
+func writeAll(t *testing.T, w io.Writer, stream []byte, chunk int) {
 	t.Helper()
 	for len(stream) > 0 {
 		n := min(chunk, len(stream))
-		wrote, err := conn.Write(stream[:n])
+		wrote, err := w.Write(stream[:n])
 		if err != nil {
 			t.Fatalf("write: %v", err)
 		}
@@ -100,10 +109,9 @@ func writeAll(t *testing.T, conn net.Conn, stream []byte, chunk int) {
 	}
 }
 
-func TestTagConn_SimpleQueryGetsTag(t *testing.T) {
+func TestTagWriter_SimpleQueryGetsTag(t *testing.T) {
 	cc := &captureConn{}
-	conn := TagConn(cc)
-	writeAll(t, conn, append(startup(t),
+	writeAll(t, TagWriter(cc), append(startup(t),
 		encode(t, &pgproto3.Query{String: "SELECT 1"})...), 1<<20)
 	msgs := decodeFrontend(t, cc.out.Bytes())
 	if len(msgs) != 1 {
@@ -115,12 +123,11 @@ func TestTagConn_SimpleQueryGetsTag(t *testing.T) {
 	}
 }
 
-func TestTagConn_ParseKeepsNameAndParameterTypes(t *testing.T) {
+func TestTagWriter_ParseKeepsNameAndParameterTypes(t *testing.T) {
 	cc := &captureConn{}
-	conn := TagConn(cc)
 	parse := &pgproto3.Parse{Name: "stmtcache_1", Query: "SELECT $1::int + $2",
 		ParameterOIDs: []uint32{23, 20}}
-	writeAll(t, conn, append(startup(t), encode(t, parse,
+	writeAll(t, TagWriter(cc), append(startup(t), encode(t, parse,
 		&pgproto3.Describe{ObjectType: 'S', Name: "stmtcache_1"},
 		&pgproto3.Sync{})...), 1<<20)
 	msgs := decodeFrontend(t, cc.out.Bytes())
@@ -147,7 +154,7 @@ func TestTagConn_ParseKeepsNameAndParameterTypes(t *testing.T) {
 func queryThroughTagger(t *testing.T, sql string) string {
 	t.Helper()
 	cc := &captureConn{}
-	writeAll(t, TagConn(cc), append(startup(t),
+	writeAll(t, TagWriter(cc), append(startup(t),
 		encode(t, &pgproto3.Query{String: sql})...), 1<<20)
 	return decodeFrontend(t, cc.out.Bytes())[0].(*pgproto3.Query).String
 }
@@ -158,7 +165,7 @@ func queryThroughTagger(t *testing.T, sql string) string {
 // query (a tag in front of it was dropped on 18). A leading pg_sage
 // comment (with its component label) moves there instead of being
 // repeated; one already there stays put.
-func TestTagConn_TagSitsAfterTheFirstKeyword(t *testing.T) {
+func TestTagWriter_TagSitsAfterTheFirstKeyword(t *testing.T) {
 	cases := map[string]string{
 		"/* pg_sage */SELECT 1":  "SELECT /* pg_sage */ 1",
 		"/* pg_sage */ SELECT 1": "SELECT /* pg_sage */ 1",
@@ -187,15 +194,15 @@ func TestTagConn_TagSitsAfterTheFirstKeyword(t *testing.T) {
 	}
 }
 
-func TestTagConn_WhitespaceOnlyQueryUnchanged(t *testing.T) {
+func TestTagWriter_WhitespaceOnlyQueryUnchanged(t *testing.T) {
 	if got := queryThroughTagger(t, " \n\t"); got != " \n\t" {
 		t.Fatalf("whitespace query = %q, want it left alone", got)
 	}
 }
 
-func TestTagConn_EmptyQueryUnchanged(t *testing.T) {
+func TestTagWriter_EmptyQueryUnchanged(t *testing.T) {
 	cc := &captureConn{}
-	writeAll(t, TagConn(cc), append(startup(t),
+	writeAll(t, TagWriter(cc), append(startup(t),
 		encode(t, &pgproto3.Query{String: ""})...), 1<<20)
 	if q := decodeFrontend(t, cc.out.Bytes())[0].(*pgproto3.Query); q.String != "" {
 		t.Fatalf("empty query = %q, want it left empty", q.String)
@@ -203,8 +210,8 @@ func TestTagConn_EmptyQueryUnchanged(t *testing.T) {
 }
 
 // A message split across writes is reassembled; each Write reports its
-// whole input consumed, which is what pgx expects from a net.Conn.
-func TestTagConn_SplitWritesMatchSingleWrite(t *testing.T) {
+// whole input consumed, which is what pgx's frontend expects.
+func TestTagWriter_SplitWritesMatchSingleWrite(t *testing.T) {
 	stream := append(startup(t), encode(t,
 		&pgproto3.Parse{Query: "SELECT $1::text"},
 		&pgproto3.Bind{Parameters: [][]byte{[]byte("x")}},
@@ -212,10 +219,10 @@ func TestTagConn_SplitWritesMatchSingleWrite(t *testing.T) {
 		&pgproto3.Sync{},
 		&pgproto3.Query{String: "SELECT 42"})...)
 	whole := &captureConn{}
-	writeAll(t, TagConn(whole), stream, len(stream))
+	writeAll(t, TagWriter(whole), stream, len(stream))
 	for _, chunk := range []int{1, 3, 7, 64} {
 		split := &captureConn{}
-		writeAll(t, TagConn(split), stream, chunk)
+		writeAll(t, TagWriter(split), stream, chunk)
 		if !bytes.Equal(split.out.Bytes(), whole.out.Bytes()) {
 			t.Fatalf("chunk %d: split output differs from single write", chunk)
 		}
@@ -229,9 +236,40 @@ func TestTagConn_SplitWritesMatchSingleWrite(t *testing.T) {
 	}
 }
 
+// Boundary: a message is forwarded only once all of it has arrived. A part
+// shorter than the header (4 bytes for the untyped startup message, 5 for
+// a typed one) or than the declared length is held, Write still reports it
+// consumed, and the connection is not written to until the rest arrives.
+func TestTagWriter_IncompleteMessageIsHeldUntilComplete(t *testing.T) {
+	st := startup(t)
+	query := encode(t, &pgproto3.Query{String: "SELECT 1"})
+	for _, cut := range []int{1, 4, 5, len(query) - 1} {
+		cc := &captureConn{}
+		w := TagWriter(cc)
+		writeAll(t, w, st[:3], 3)
+		if cc.writes != 0 {
+			t.Fatalf("cut %d: 3 bytes of the startup message were forwarded", cut)
+		}
+		writeAll(t, w, st[3:], len(st)-3)
+		writeAll(t, w, query[:cut], cut)
+		if cc.writes != 1 {
+			t.Fatalf("cut %d: connection writes = %d, want 1 (the startup message)",
+				cut, cc.writes)
+		}
+		writeAll(t, w, query[cut:], len(query)-cut)
+		msgs := decodeFrontend(t, cc.out.Bytes())
+		q, ok := msgs[0].(*pgproto3.Query)
+		if cc.writes != 2 || len(msgs) != 1 || !ok || q.String != "SELECT /* pg_sage */ 1" {
+			t.Fatalf("cut %d: writes = %d, messages = %#v, want one tagged Query",
+				cut, cc.writes, msgs)
+		}
+	}
+}
+
 // Messages other than Parse and Query are passed through byte for byte,
-// even when their payload happens to look like a query.
-func TestTagConn_OtherMessagesByteIdentical(t *testing.T) {
+// even when their payload happens to look like a query, and so is the
+// startup message.
+func TestTagWriter_OtherMessagesByteIdentical(t *testing.T) {
 	others := encode(t,
 		&pgproto3.Bind{DestinationPortal: "p", PreparedStatement: "s",
 			Parameters: [][]byte{[]byte("Q\x00\x00\x00\x09SELECT")}},
@@ -244,39 +282,141 @@ func TestTagConn_OtherMessagesByteIdentical(t *testing.T) {
 		&pgproto3.Terminate{})
 	stream := append(startup(t), others...)
 	cc := &captureConn{}
-	writeAll(t, TagConn(cc), stream, len(stream))
+	writeAll(t, TagWriter(cc), stream, len(stream))
 	if !bytes.Equal(cc.out.Bytes(), stream) {
 		t.Fatal("non-query messages were modified")
 	}
 }
 
-func TestTagConn_WriteErrorPropagates(t *testing.T) {
+func TestTagWriter_WriteErrorPropagates(t *testing.T) {
 	wantErr := errors.New("connection reset")
 	cc := &captureConn{err: wantErr}
-	conn := TagConn(cc)
-	n, err := conn.Write(append(startup(t), encode(t, &pgproto3.Query{String: "SELECT 1"})...))
+	n, err := TagWriter(cc).Write(append(startup(t),
+		encode(t, &pgproto3.Query{String: "SELECT 1"})...))
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("err = %v, want %v", err, wantErr)
 	}
 	if n != 0 {
-		t.Fatalf("n = %d, want 0 when nothing reached the network", n)
+		t.Fatalf("n = %d, want 0 when nothing reached the connection", n)
 	}
 }
 
-func TestTagConn_CorruptLengthIsAnError(t *testing.T) {
+// A write the connection took only part of reports 1 byte written: not 0
+// (pgx would take the message as unsent and safe to retry) and not all of
+// it (pgx would miss the failure).
+func TestTagWriter_PartialWriteIsNotReportedAsUnsent(t *testing.T) {
+	wantErr := errors.New("broken pipe")
 	cc := &captureConn{}
-	conn := TagConn(cc)
-	writeAll(t, conn, startup(t), 1<<20)
-	// 'Q' with a length of 2: shorter than the length field itself.
-	_, err := conn.Write([]byte{'Q', 0, 0, 0, 2})
-	if err == nil || !strings.Contains(err.Error(), "length") {
-		t.Fatalf("err = %v, want a message-length error", err)
+	w := TagWriter(cc)
+	writeAll(t, w, startup(t), 1<<20)
+	cc.err, cc.accept = wantErr, 3
+	n, err := w.Write(encode(t, &pgproto3.Query{String: "SELECT 1"}))
+	if !errors.Is(err, wantErr) || n != 1 {
+		t.Fatalf("n = %d err = %v, want 1 and %v", n, err, wantErr)
 	}
 }
 
-func TestTagConn_NilConnIsNil(t *testing.T) {
-	if TagConn(nil) != nil {
-		t.Fatal("TagConn(nil) must stay nil")
+func TestTagWriter_CorruptLengthIsAnError(t *testing.T) {
+	cc := &captureConn{}
+	w := TagWriter(cc)
+	writeAll(t, w, startup(t), 1<<20)
+	// 'Q' with a length of 2: shorter than the length field itself.
+	n, err := w.Write([]byte{'Q', 0, 0, 0, 2})
+	if err == nil || !strings.Contains(err.Error(), "invalid message length 2") || n != 0 {
+		t.Fatalf("n = %d err = %v, want 0 and a message-length error", n, err)
+	}
+	if cc.writes != 1 {
+		t.Fatalf("connection writes = %d, want 1: a corrupt message is never sent", cc.writes)
+	}
+}
+
+// Boundary: a declared length below 4 (the length field alone) or above
+// maxMessageBytes is an error; 4 (an empty body, as Sync has) is sent and
+// maxMessageBytes itself is accepted and held for its body.
+func TestTagWriter_MessageLengthBounds(t *testing.T) {
+	cases := []struct {
+		size       uint32
+		wantErr    bool
+		wantWrites int
+	}{
+		{3, true, 1},
+		{4, false, 2},
+		{maxMessageBytes, false, 1},
+		{maxMessageBytes + 1, true, 1},
+	}
+	for _, c := range cases {
+		cc := &captureConn{}
+		w := TagWriter(cc)
+		writeAll(t, w, startup(t), 1<<20)
+		header := binary.BigEndian.AppendUint32([]byte{'S'}, c.size)
+		n, err := w.Write(header)
+		want := fmt.Sprintf("invalid message length %d", c.size)
+		switch {
+		case c.wantErr && (err == nil || !strings.Contains(err.Error(), want) || n != 0):
+			t.Errorf("size %d: n = %d err = %v, want 0 and %q", c.size, n, err, want)
+		case !c.wantErr && (err != nil || n != len(header)):
+			t.Errorf("size %d: n = %d err = %v, want %d and no error",
+				c.size, n, err, len(header))
+		case cc.writes != c.wantWrites:
+			t.Errorf("size %d: connection writes = %d, want %d", c.size, cc.writes,
+				c.wantWrites)
+		}
+	}
+}
+
+func TestTagWriter_NilWriterIsNil(t *testing.T) {
+	if TagWriter(nil) != nil {
+		t.Fatal("TagWriter(nil) must stay nil")
+	}
+}
+
+// TagWriter wraps exactly the writer it is given, starting before the
+// startup message.
+func TestTagWriter_WrapsTheGivenWriter(t *testing.T) {
+	cc := &captureConn{}
+	tw, ok := TagWriter(cc).(*tagWriter)
+	if !ok || tw.w != cc || tw.started || tw.pending != nil {
+		t.Fatalf("TagWriter(cc) = %#v, want a fresh *tagWriter around cc", tw)
+	}
+}
+
+// Concurrent access: every TagWriter keeps its own state (startup seen,
+// held tail), so the writers of connections used at once never mix their
+// bytes; under -race this also finds any shared mutable state.
+func TestTagWriter_IndependentWritersConcurrently(t *testing.T) {
+	const writers = 16
+	outs := make([]*captureConn, writers)
+	streams := make([][]byte, writers)
+	for i := range writers {
+		outs[i] = &captureConn{}
+		streams[i] = append(startup(t), encode(t,
+			&pgproto3.Query{String: fmt.Sprintf("SELECT %d", i)})...)
+	}
+	errs := make(chan error, writers)
+	var wg sync.WaitGroup
+	for i := range writers {
+		w, stream := TagWriter(outs[i]), streams[i]
+		wg.Go(func() {
+			for len(stream) > 0 {
+				n := min(3, len(stream))
+				if _, err := w.Write(stream[:n]); err != nil {
+					errs <- fmt.Errorf("writer %d: %w", i, err)
+					return
+				}
+				stream = stream[n:]
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	for i, cc := range outs {
+		want := fmt.Sprintf("SELECT /* pg_sage */ %d", i)
+		if q := decodeFrontend(t, cc.out.Bytes())[0].(*pgproto3.Query); q.String != want {
+			t.Errorf("writer %d sent %q, want %q", i, q.String, want)
+		}
 	}
 }
 

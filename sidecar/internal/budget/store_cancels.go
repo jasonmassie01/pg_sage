@@ -30,8 +30,7 @@ type CancelLedger interface {
 // recordCancelSQL adds a row's cancels to its day, or to today's row when
 // pg_sage did not measure that day (a row is never invented for it: a
 // measured day counts toward promotion).
-const recordCancelSQL = `/* pg_sage budget */
-UPDATE sage.budget_shadow
+const recordCancelSQL = `UPDATE /* pg_sage budget */ sage.budget_shadow
    SET actual_cancels = actual_cancels + $5, cancel_source = $6,
        cancels_lower_bound = cancels_lower_bound OR $7, updated_at = now()
  WHERE database_name = $1 AND budget = $2 AND definition = $3
@@ -46,8 +45,7 @@ func (s *Store) RecordCancels(ctx context.Context, today time.Time, source strin
 	rows []CancelRow) error {
 	batch := &pgx.Batch{}
 	day := utcDay(today)
-	batch.Queue(`/* pg_sage budget */
-UPDATE sage.budget_shadow SET cancel_source = $3
+	batch.Queue(`UPDATE /* pg_sage budget */ sage.budget_shadow SET cancel_source = $3
  WHERE database_name = $1 AND day = $2::date AND cancel_source <> $3`, s.database, day,
 		source)
 	for _, r := range rows {

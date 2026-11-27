@@ -156,7 +156,7 @@ func (s *DiscoveryStore) Upsert(ctx context.Context, source, owner string,
 	defer cancel()
 	// A batch is one implicit transaction, so the lock is held to its end.
 	batch := &pgx.Batch{}
-	batch.Queue(`/* pg_sage */ SELECT pg_advisory_xact_lock($1)`, discoveryLock)
+	batch.Queue(`SELECT /* pg_sage */ pg_advisory_xact_lock($1)`, discoveryLock)
 	for _, c := range cands {
 		batch.Queue(upsertDiscoveredSQL, source, c.ExternalID, c.Host, c.Port, c.DBName,
 			owner, now, candidateTags(c.Tags), c.Creator, nullTime(c.CreatedAt),
@@ -182,7 +182,7 @@ func (s *DiscoveryStore) Upsert(ctx context.Context, source, owner string,
 
 // upsertDiscoveredSQL records one candidate; $1-$7 as before
 // fleetpol-01b, $8-$11 its tags, creator, creation time and set.
-const upsertDiscoveredSQL = `/* pg_sage */ INSERT INTO sage.discovered_databases AS d
+const upsertDiscoveredSQL = `INSERT /* pg_sage */ INTO sage.discovered_databases AS d
 	    (source, external_id, host, port, dbname, owner, first_seen, last_seen,
 	     tags, creator, created_at, set_name)
 	 VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11)

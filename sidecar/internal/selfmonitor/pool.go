@@ -3,11 +3,12 @@ package selfmonitor
 import (
 	"context"
 	"fmt"
-	"net"
+	"io"
 	"regexp"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -18,8 +19,8 @@ import (
 // exclude it with StatementExclusionSQL and ActivityExclusionSQL. Every
 // session is pinned to READ COMMITTED (pinReadCommitted), then to
 // search_path = pg_catalog, pg_temp (pinSearchPath), so no object a
-// database user creates resolves in pg_sage's own statements. An
-// AfterNetConnect or AfterConnect hook already set runs first.
+// database user creates resolves in pg_sage's own statements. A
+// BuildFrontend or AfterConnect hook already set runs first.
 func ConfigurePool(cfg *pgxpool.Config) {
 	if cfg == nil {
 		return
@@ -38,23 +39,22 @@ func ConfigureConn(cfg *pgx.ConnConfig) {
 		cfg.RuntimeParams = map[string]string{}
 	}
 	cfg.RuntimeParams["application_name"] = ApplicationName
-	inner := cfg.AfterNetConnect
-	cfg.AfterNetConnect = func(
-		ctx context.Context, pc *pgconn.Config, conn net.Conn,
-	) (net.Conn, error) {
-		if inner != nil {
-			var err error
-			if conn, err = inner(ctx, pc, conn); err != nil {
-				return nil, err
-			}
-		}
-		if conn == nil {
-			return nil, errNilConn
-		}
-		return TagConn(conn), nil
-	}
+	tagFrontend(&cfg.Config)
 	pinReadCommitted(cfg)
 	pinSearchPath(cfg)
+}
+
+// tagFrontend makes cfg's protocol frontend send through TagWriter. A
+// BuildFrontend already set builds the frontend over the tagging writer;
+// none (a config not from ParseConfig) gets pgx's default frontend.
+func tagFrontend(cfg *pgconn.Config) {
+	inner := cfg.BuildFrontend
+	cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+		if inner != nil {
+			return inner(r, TagWriter(w))
+		}
+		return pgproto3.NewFrontend(r, TagWriter(w))
+	}
 }
 
 // pinReadCommittedSQL makes every transaction of the session READ

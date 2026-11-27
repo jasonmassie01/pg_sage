@@ -1324,9 +1324,12 @@ settings).
 
 Every pool and connection pg_sage opens goes through `selfmonitor.ConfigurePool` (or
 `ConfigureConn`): it sets `application_name` to `pg_sage` (`pg_sage action:<decision id>`
-for an executor action's session) and wraps the network connection with
-`selfmonitor.TagConn`. The wrapper rewrites the protocol's Query and Parse messages, so
-every statement from every code path, pgx's own included, carries the tag:
+for an executor action's session) and installs `selfmonitor.TagWriter` through
+`pgconn.Config.BuildFrontend`. The tagger wraps the writer pgx's protocol frontend sends
+through, not the network connection, so pgx keeps its `*tls.Conn` and SCRAM channel
+binding works (pgx offers `SCRAM-SHA-256-PLUS` only over a `*tls.Conn`,
+`pgconn/auth_scram.go:56`). It rewrites the Query and Parse messages the frontend sends,
+so every statement that goes through the frontend, pgx's own included, carries the tag:
 
 - The tag sits right after the statement's first keyword (`SELECT /* pg_sage */ ...`),
   or after the opening parenthesis of a parenthesized query, because PostgreSQL 18's
@@ -1335,6 +1338,19 @@ every statement from every code path, pgx's own included, carries the tag:
 - The tag names the component that sent the statement (`/* pg_sage collector */`,
   `/* pg_sage sre:probe v1 */`), so the meter can charge each component.
 - pg_sage does not hide from `pg_stat_statements`: a DBA sees and prices its work there.
+
+One path is untagged: a batch pgx sends in `QueryExecModeExec` (`default_query_exec_mode=exec`
+in the DSN, common behind PgBouncer) goes through `pgconn.ExecBatch`, which writes to the
+connection directly. So every SQL text pg_sage queues into a batch is recognizable without
+the tagger: its tag sits after the first keyword in the source, where the tagger leaves it
+alone (`SELECT /* pg_sage */ pg_advisory_xact_lock($1)`,
+`INSERT /* pg_sage budget */ INTO sage.budget_shadow ...`), or the text names the `sage`
+schema. The batch census (`TestBatchSQLCensus` in `internal/selfcost`) keeps it that way: it
+resolves the SQL of every non-test `Queue` call (constants, and a forwarding function's
+parameter through its callers), drops the leading comments as PostgreSQL 18 does, and fails
+when `selfmonitor.IsStatementText` would not recognize the text, when a tag sat in front of
+the first keyword, or when the component the tag names is lost. SQL it cannot resolve must
+be on its allow-list with a reason.
 
 pg_sage's own readers leave that work out of the workload they analyze with one rule in
 SQL and in Go. `selfmonitor.StatementExclusionSQL` keeps a statement whose text has no

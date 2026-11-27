@@ -56,7 +56,7 @@ func (s *PostgresStore) queryEach(ctx context.Context, what, sql string, args []
 	return storeErr(what, rows.Err())
 }
 
-const shadowSetSQL = `/* pg_sage */ SELECT f.family, s.reviewed, s.accepted, s.first
+const shadowSetSQL = `SELECT /* pg_sage */ f.family, s.reviewed, s.accepted, s.first
 	FROM unnest($3::text[]) AS f(family)
 	CROSS JOIN LATERAL (
 		SELECT count(*) FILTER (WHERE r.reviewed_at >= $4) AS reviewed,
@@ -94,7 +94,7 @@ func (s *PostgresStore) readShadow(ctx context.Context, r reads, families []stri
 		})
 }
 
-const reviewMarksSQL = `/* pg_sage */ SELECT f.family, m.reviewed_at, m.accepted
+const reviewMarksSQL = `SELECT /* pg_sage */ f.family, m.reviewed_at, m.accepted
 	FROM unnest($3::text[]) AS f(family)
 	CROSS JOIN LATERAL (
 		SELECT r.reviewed_at, r.verdict = 'accepted' AS accepted
@@ -134,7 +134,7 @@ func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Ti
 // operator later rolled back (a rollback row for its action) is no
 // credit: it counts as unverified, as it does when the rollback landed
 // before the reconciler first read the action (earned-01).
-const liveSetSQL = `/* pg_sage */ SELECT p.family, p.action_class, l.verified, l.harmful,
+const liveSetSQL = `SELECT /* pg_sage */ p.family, p.action_class, l.verified, l.harmful,
 	l.unverified
 	FROM unnest($3::text[], $4::text[]) AS p(family, action_class)
 	CROSS JOIN LATERAL (
@@ -194,7 +194,7 @@ type familySafetyRow struct {
 	last time.Time
 }
 
-const safetySetSQL = `/* pg_sage */ SELECT f.family, s.n, s.last
+const safetySetSQL = `SELECT /* pg_sage */ f.family, s.n, s.last
 	FROM unnest($4::text[]) AS f(family)
 	CROSS JOIN LATERAL (
 		SELECT count(*) AS n, max(o.recorded_at) AS last

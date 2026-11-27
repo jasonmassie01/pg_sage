@@ -1,86 +1,153 @@
 package selfmonitor
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
-func TestConfigurePool_SetsApplicationNameAndTagging(t *testing.T) {
-	cfg, err := pgxpool.ParseConfig("postgres://u@127.0.0.1:1/db?application_name=other")
+func parsePoolConfig(t *testing.T, dsn string) *pgxpool.Config {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return cfg
+}
+
+func TestConfigurePool_SetsApplicationNameAndTaggingFrontend(t *testing.T) {
+	cfg := parsePoolConfig(t, "postgres://u@127.0.0.1:1/db?application_name=other")
 	ConfigurePool(cfg)
 	if got := cfg.ConnConfig.RuntimeParams["application_name"]; got != ApplicationName {
 		t.Fatalf("application_name = %q, want %q", got, ApplicationName)
 	}
-	if cfg.ConnConfig.AfterNetConnect == nil {
-		t.Fatal("AfterNetConnect not set: statements would go out untagged")
+	got := frontendQuery(t, cfg.ConnConfig.BuildFrontend, "SELECT 1")
+	if got != "SELECT /* pg_sage */ 1" {
+		t.Fatalf("query on a pool connection = %q, want the tag after SELECT", got)
 	}
-	raw := &captureConn{}
-	conn, err := cfg.ConnConfig.AfterNetConnect(context.Background(), &cfg.ConnConfig.Config, raw)
-	if err != nil {
-		t.Fatalf("AfterNetConnect: %v", err)
-	}
-	if _, ok := conn.(*tagConn); !ok {
-		t.Fatalf("AfterNetConnect returned %T, want the tagging conn", conn)
+	if cfg.ConnConfig.AfterNetConnect != nil {
+		t.Fatal("ConfigurePool installed an AfterNetConnect hook: the connection pgx " +
+			"holds would no longer be its *tls.Conn, so channel binding would be refused")
 	}
 }
 
-func TestConfigurePool_ChainsExistingAfterNetConnect(t *testing.T) {
-	cfg, err := pgxpool.ParseConfig("postgres://u@127.0.0.1:1/db")
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestConfigurePool_ChainsExistingBuildFrontend(t *testing.T) {
+	cfg := parsePoolConfig(t, "postgres://u@127.0.0.1:1/db")
 	called := 0
-	inner := &captureConn{}
-	cfg.ConnConfig.AfterNetConnect = func(
-		_ context.Context, _ *pgconn.Config, c net.Conn,
-	) (net.Conn, error) {
+	var gotW io.Writer
+	cfg.ConnConfig.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
 		called++
-		return inner, nil
+		gotW = w
+		return pgproto3.NewFrontend(r, w)
 	}
 	ConfigurePool(cfg)
-	conn, err := cfg.ConnConfig.AfterNetConnect(context.Background(),
-		&cfg.ConnConfig.Config, &captureConn{})
-	if err != nil || called != 1 {
-		t.Fatalf("chained hook: err=%v called=%d", err, called)
+	raw := &captureConn{}
+	if fe := cfg.ConnConfig.BuildFrontend(bytes.NewReader(nil), raw); fe == nil || called != 1 {
+		t.Fatalf("frontend = %p, earlier BuildFrontend calls = %d: want it to build, once",
+			fe, called)
 	}
-	tc, ok := conn.(*tagConn)
-	if !ok || tc.Conn != inner {
-		t.Fatalf("tagging must wrap the conn the earlier hook returned, got %T", conn)
+	tw, ok := gotW.(*tagWriter)
+	if !ok || tw.w != raw {
+		t.Fatalf("earlier BuildFrontend got %T, want a *tagWriter around the connection", gotW)
 	}
 }
 
-func TestConfigurePool_ChainedHookErrorPropagates(t *testing.T) {
-	cfg, err := pgxpool.ParseConfig("postgres://u@127.0.0.1:1/db")
-	if err != nil {
-		t.Fatal(err)
-	}
+// An AfterNetConnect hook a caller set (a proxy handshake) is kept as the
+// very same function: its error reaches pgx unchanged, not wrapped.
+func TestConfigurePool_LeavesAfterNetConnectHookAndItsError(t *testing.T) {
+	cfg := parsePoolConfig(t, "postgres://u@127.0.0.1:1/db")
 	wantErr := errors.New("proxy handshake failed")
-	cfg.ConnConfig.AfterNetConnect = func(
-		context.Context, *pgconn.Config, net.Conn,
-	) (net.Conn, error) {
+	calls := 0
+	hook := func(context.Context, *pgconn.Config, net.Conn) (net.Conn, error) {
+		calls++
 		return nil, wantErr
 	}
+	cfg.ConnConfig.AfterNetConnect = hook
 	ConfigurePool(cfg)
-	_, err = cfg.ConnConfig.AfterNetConnect(context.Background(),
-		&cfg.ConnConfig.Config, &captureConn{})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("err = %v, want %v", err, wantErr)
+	if reflect.ValueOf(cfg.ConnConfig.AfterNetConnect).Pointer() !=
+		reflect.ValueOf(hook).Pointer() {
+		t.Fatal("ConfigurePool replaced the caller's AfterNetConnect hook")
+	}
+	conn, err := cfg.ConnConfig.AfterNetConnect(context.Background(),
+		&cfg.ConnConfig.Config, nil)
+	if err != wantErr || conn != nil || calls != 1 {
+		t.Fatalf("conn = %v err = %v calls = %d, want the hook's own error once",
+			conn, err, calls)
+	}
+}
+
+// State transition: a configured pool config copied (the agent broker
+// copies pg_sage's connection config) keeps the tagging frontend.
+func TestConfigurePool_CopyKeepsTaggingFrontend(t *testing.T) {
+	cfg := parsePoolConfig(t, "postgres://u@127.0.0.1:1/db")
+	ConfigurePool(cfg)
+	cp := cfg.Copy()
+	if got := frontendQuery(t, cp.ConnConfig.BuildFrontend, "SELECT 4"); got !=
+		"SELECT /* pg_sage */ 4" {
+		t.Fatalf("query through a copied config = %q, want it tagged", got)
+	}
+	if got := cp.ConnConfig.RuntimeParams["application_name"]; got != ApplicationName {
+		t.Fatalf("copied application_name = %q, want %q", got, ApplicationName)
+	}
+}
+
+// Concurrent access: a pool opens its connections at once from one config;
+// each frontend gets its own tagging writer, so no connection's bytes or
+// startup state leak into another's.
+func TestConfigurePool_FrontendsBuiltConcurrentlyDoNotShareState(t *testing.T) {
+	cfg := parsePoolConfig(t, "postgres://u@127.0.0.1:1/db")
+	ConfigurePool(cfg)
+	build := cfg.ConnConfig.BuildFrontend
+	const conns = 16
+	outs := make([]*captureConn, conns)
+	errs := make([]error, conns)
+	var wg sync.WaitGroup
+	for i := range conns {
+		outs[i] = &captureConn{}
+		wg.Go(func() {
+			fe := build(bytes.NewReader(nil), outs[i])
+			fe.Send(&pgproto3.StartupMessage{ProtocolVersion: pgproto3.ProtocolVersionNumber,
+				Parameters: map[string]string{"user": "u"}})
+			fe.Send(&pgproto3.Query{String: fmt.Sprintf("SELECT %d", i)})
+			errs[i] = fe.Flush()
+		})
+	}
+	wg.Wait()
+	for i, cc := range outs {
+		if errs[i] != nil {
+			t.Fatalf("connection %d: flush: %v", i, errs[i])
+		}
+		want := fmt.Sprintf("SELECT /* pg_sage */ %d", i)
+		if q := decodeFrontend(t, cc.out.Bytes())[0].(*pgproto3.Query); q.String != want {
+			t.Errorf("connection %d carried %q, want %q", i, q.String, want)
+		}
 	}
 }
 
 // A nil pool config is left alone.
 func TestConfigurePool_NilIsNoop(t *testing.T) {
 	require.NotPanics(t, func() { ConfigurePool(nil) })
+}
+
+// Nil/empty: a pool config without a connection config is left alone.
+func TestConfigurePool_NilConnConfigIsNoop(t *testing.T) {
+	cfg := &pgxpool.Config{}
+	require.NotPanics(t, func() { ConfigurePool(cfg) })
+	if cfg.ConnConfig != nil {
+		t.Fatalf("ConnConfig = %#v, want it left nil", cfg.ConnConfig)
+	}
 }
 
 func TestStatementExclusionSQL_Shape(t *testing.T) {

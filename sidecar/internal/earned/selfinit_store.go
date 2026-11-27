@@ -57,7 +57,7 @@ func (s *PostgresStore) saveCursors(ctx context.Context, c selfCursors) error {
 
 // lastChangesSQL reads each pair's newest level-changing event through the
 // pair's index.
-const lastChangesSQL = `/* pg_sage */ SELECT e.id, e.family, e.action_class, e.event_type,
+const lastChangesSQL = `SELECT /* pg_sage */ e.id, e.family, e.action_class, e.event_type,
 	e.from_level, e.to_level, e.actor, e.reason, e.database_name, e.proposal_id,
 	e.action_log_id, e.evidence, e.created_at
 	FROM unnest($3::text[], $4::text[]) AS p(family, action_class)

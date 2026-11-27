@@ -88,7 +88,7 @@ func TestTagConn_UncertainBoundariesTagOnlyTheFirstStatement(t *testing.T) {
 // its first statement is tagged, as before.
 func TestTagConn_ParseTagsOneStatement(t *testing.T) {
 	cc := &captureConn{}
-	writeAll(t, TagConn(cc), append(startup(t), encode(t,
+	writeAll(t, TagWriter(cc), append(startup(t), encode(t,
 		&pgproto3.Parse{Query: "SELECT $1; SELECT 2"})...), 1<<20)
 	p, ok := decodeFrontend(t, cc.out.Bytes())[0].(*pgproto3.Parse)
 	if !ok || p.Query != "SELECT /* pg_sage */ $1; SELECT 2" {
