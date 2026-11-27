@@ -22,6 +22,36 @@ func compressSelfConfig(t *testing.T, timing perfgate.Timing) {
 	t.Cleanup(func() { selfConfigInterval = old })
 }
 
+// requireSteadyMeasured fails unless the steady phase measured what its
+// gates judge: a live derivation pass, and enough sage.findings updates
+// for gate F.
+func requireSteadyMeasured(t *testing.T, steady perfgate.Phase) {
+	t.Helper()
+	requireLiveDerivation(t, steady)
+	requireFindingsJudged(t, steady)
+}
+
+// requireFindingsJudged fails unless the phase holds the HotMinUpdates
+// updates of sage.findings gate F needs to judge it: the refreshes of the
+// open findings each analyzer cycle makes (perfConfig keeps pg_sage's
+// self-budget finding open). Fewer, and a refresh that stopped being HOT
+// would pass unjudged.
+func requireFindingsJudged(t *testing.T, phase perfgate.Phase) {
+	t.Helper()
+	least := perfgate.DefaultBudgets().HotMinUpdates
+	var updates int64
+	for _, d := range phase.Tables {
+		if d.Name == "sage.findings" {
+			updates = d.Updates
+		}
+	}
+	if updates < least {
+		t.Errorf("%s phase: %d updates of sage.findings, fewer than the %d gate F judges; "+
+			"its refreshes went unmeasured (perfConfig's one-block self budget keeps "+
+			"pg_sage's own finding open so every cycle refreshes it)", phase.Name, updates, least)
+	}
+}
+
 // requireLiveDerivation fails unless a live derivation pass ran in the
 // phase: its catalog-size evidence read is among the phase's statements.
 func requireLiveDerivation(t *testing.T, phase perfgate.Phase) {

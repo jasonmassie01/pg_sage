@@ -78,7 +78,7 @@ func runPerfRuntime(
 	explainPerfPhases(t, ctx, harness, &warmup, &steady)
 	requirePostureMeasured(t, warmup)
 	requirePostureMeasured(t, steady)
-	requireLiveDerivation(t, steady)
+	requireSteadyMeasured(t, steady)
 	return []perfgate.Phase{warmup, steady}
 }
 
@@ -99,7 +99,9 @@ func perfFakeModel(t *testing.T) string {
 
 // perfConfig is the shipped default configuration with the general LLM off and
 // every periodic component compressed to one interval, so each runs about
-// once per collector cycle in the window.
+// once per collector cycle in the window. Its one other change from the
+// default is a one-block self_budget.blocks_per_hour, which keeps pg_sage's
+// own budget finding open so gate F judges its refreshes.
 func perfConfig(t *testing.T, dsn string, timing perfgate.Timing) *config.Config {
 	t.Helper()
 	conn, err := pgx.ParseConfig(dsn)
@@ -119,6 +121,15 @@ func perfConfig(t *testing.T, dsn string, timing perfgate.Timing) *config.Config
 	c.Collector.IntervalSeconds, c.Analyzer.IntervalSeconds = secs, secs
 	c.SRE.Runways.IntervalSeconds, c.SRE.Runways.SequenceIntervalSeconds = secs, secs
 	c.SRE.TriggerIntervalSeconds = secs
+	// At these 15 s cycles (four a minute; the default is one) pg_sage's
+	// own block use per hour sits at the default self_budget.blocks_per_hour:
+	// its sage_self_budget finding opened and resolved every cycle or two,
+	// and a resolve moves status between indexes, so it is never HOT. The
+	// steady phase then held a few refreshes of an open finding, the
+	// recurring findings write gate F judges, among a timing-dependent
+	// number of resolves (CI: 3 of 7 HOT). A one-block budget keeps the
+	// finding open from the first measured cycle: every cycle refreshes it.
+	c.SelfBudget.BlocksPerHour = 1
 	c.Postgres = config.PostgresConfig{
 		Host: conn.Host, Port: int(conn.Port), User: conn.User,
 		Password: conn.Password, Database: conn.Database,
