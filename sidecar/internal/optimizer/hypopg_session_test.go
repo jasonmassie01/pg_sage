@@ -27,6 +27,13 @@ func hypopgSessionPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	admin := connectTestDB(t)
 	t.Cleanup(admin.Close)
+	return hypopgSessionPoolOn(t, admin)
+}
+
+// hypopgSessionPoolOn is hypopgSessionPool on admin's database: HypoPG in
+// hypopg_session_test, and a one-connection pool on admin's settings.
+func hypopgSessionPoolOn(t *testing.T, admin *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
 	var available bool
 	if err := admin.QueryRow(t.Context(), `SELECT EXISTS
 		(SELECT 1 FROM pg_available_extensions WHERE name='hypopg')`).Scan(&available); err != nil {

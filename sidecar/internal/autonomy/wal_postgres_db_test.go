@@ -207,11 +207,15 @@ func TestWALConcurrentScansWithProviderCapacity(t *testing.T) {
 	}
 }
 
-// Integration: a real logical slot retaining WAL on the live server. With
-// provider capacity the custodian reads pg_replication_slots and proposes
-// for the slot; without it the small retention proposes nothing.
+// Integration: a real logical slot retaining WAL on the exclusive server.
+// With provider capacity the custodian reads pg_replication_slots and
+// proposes for the slot; without it the small retention proposes nothing.
+// The slot retains the whole cluster's WAL: on the shared server other
+// packages' writes between the retained read and the second scan can push
+// disk_pct past 60, and creating the slot waits for every transaction
+// running there.
 func TestWALLiveLogicalSlotWithProviderCapacity(t *testing.T) {
-	pool := requireAutonomyDB(t)
+	pool := exclusiveAutonomyDB(t, "retained WAL of a logical slot is cluster-wide")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	slot := fmt.Sprintf("clouds07_slot_%d", time.Now().UnixNano()%1_000_000)

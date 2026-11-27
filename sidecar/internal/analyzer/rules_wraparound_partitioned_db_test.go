@@ -20,10 +20,14 @@ import (
 // unknown (-1) instead of 2147483647, the wraparound rule (vacuum-08: on
 // the shared horizon reader) flags only the leaves, and a leaf frozen
 // with VACUUM (FREEZE) drops out on the next cycle while its sibling
-// stays. No stored snapshot carries 2147483647.
+// stays. No stored snapshot carries 2147483647. The database is on the
+// exclusive server: the frozen leaf must read under 2,000 XIDs old a
+// collector cycle later, but on the shared one other packages burn more
+// than that meanwhile, and on PostgreSQL 14 each backend still logging in
+// holds back the horizon the freeze advances to.
 func TestWraparoundFreeze_PartitionedTreeOnRealPostgres(t *testing.T) {
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "wrap_parted"))
+	pool, err := pgxpool.New(ctx, testdb.Exclusive(t, "the XID age of a freshly frozen leaf"))
 	if err != nil {
 		t.Fatal(err)
 	}

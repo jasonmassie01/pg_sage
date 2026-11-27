@@ -280,27 +280,27 @@ func waitServerIdleAge(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	t.Fatalf("server never reported pid %d idle for %v s", pid, seconds)
 }
 
+// A primary without standbys has no replication_lag rows, and an inactive
+// physical slot shows in replication_slots. It runs on the exclusive
+// server: both views are cluster-wide, and on the shared server another
+// package's subscription adds a walsender and PGIncidentBench's WAL
+// scenarios would see the slot. The slot is dropped before the release.
 func TestCatalog_ReplicationProbesOnAPrimaryWithoutReplicas(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := exclusivePool(t, "pg_stat_replication and replication slots are cluster-wide")
 	r := NewRunner(pool, Catalog(), NewLimiter(1))
 	if res := r.Run(ctx, ReplicationLag, Args{}); res.Status != StatusEmpty {
 		t.Fatalf("replication_lag without replicas = %+v, want empty", res)
 	}
-	// Slots are cluster-wide: serialize with PGIncidentBench's WAL
-	// scenarios, which would otherwise see this inactive slot.
-	release, err := testdb.LockCluster(ctx, testdb.SkipUnlessLive(t), "wal")
-	if err != nil {
-		t.Fatalf("cluster lock: %v", err)
-	}
-	t.Cleanup(release)
 	slot := fmt.Sprintf("sre_probe_slot_%d", os.Getpid())
 	if _, err := pool.Exec(ctx,
 		"SELECT pg_create_physical_replication_slot($1, true)", slot); err != nil {
 		t.Fatalf("create slot: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"SELECT pg_drop_replication_slot($1)", slot)
+		if _, err := pool.Exec(context.Background(),
+			"SELECT pg_drop_replication_slot($1)", slot); err != nil {
+			t.Errorf("drop slot %s: %v", slot, err)
+		}
 	})
 	res := r.Run(ctx, ReplicationSlots, Args{})
 	if res.Status != StatusOK {

@@ -76,9 +76,12 @@ func waitForGate(t *testing.T, pool *pgxpool.Pool) {
 // XIDs the cluster consumes after the holders were read must not shrink a
 // holder's share of the tables it pins: the holders and the horizons are
 // read at one age reference, so an idle writer about as old as its table
-// still makes a freeze futile.
+// still makes a freeze futile. The test holds the exclusive server: on the
+// shared one PostgreSQL 14 dates the table's freeze back to the oldest XID
+// running in any database while a backend logs in, and the writer's 0.93
+// share can then need more than the 2M XIDs a settle step may burn.
 func TestFreezeScanReadsHoldersAndHorizonsAtOneAgeReference(t *testing.T) {
-	pool := requireAutonomyDB(t)
+	pool := exclusiveAutonomyDB(t, "holder and table XID ages at one reference")
 	holderSchema(t, pool)
 	tables := holderTables(t, pool, "r", 1, "")
 	pid := idleWriter(t, pool, tables[0])

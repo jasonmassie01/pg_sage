@@ -5,19 +5,23 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/planhash"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // indexes-07 on real PostgreSQL with HypoPG 1.4+: a replacement is
 // measured with the old index hidden, a covered drop is measured by hiding
-// the index, and the hidden state never outlives the session.
+// the index, and the hidden state never outlives the session. The tests
+// run on the package's database of the shared server, except the one whose
+// verdict needs an all-visible heap (newExclusiveHideFixture).
 
 // hideFixture is a table with a real index items_a on (a) and a true
-// duplicate items_a_dup, vacuumed so index-only scans are planned.
+// duplicate items_a_dup, vacuumed and analyzed.
 type hideFixture struct {
 	pool              *pgxpool.Pool
 	itemsA, itemsDup  uint32
@@ -25,11 +29,58 @@ type hideFixture struct {
 	pointLookup, pair string
 }
 
+// newHideFixture builds the fixture on the shared server with one VACUUM
+// ANALYZE. Its tests' verdicts hold whether or not that VACUUM could mark
+// the heap all-visible, though the point lookup's plan and cost change with it.
 func newHideFixture(t *testing.T) hideFixture {
 	t.Helper()
 	pool := hypopgSessionPool(t)
 	admin := connectTestDB(t)
 	defer admin.Close()
+	f := seedHideFixture(t, pool, admin)
+	if _, err := admin.Exec(t.Context(), "VACUUM ANALYZE hypopg_hide_test.items"); err != nil {
+		t.Fatalf("vacuum the fixture: %v", err)
+	}
+	return f
+}
+
+// newExclusiveHideFixture builds the fixture on a fresh database of the
+// exclusive server, held for t alone (testdb.Exclusive), and vacuums until
+// every heap page is all-visible, so "SELECT a" is planned as an
+// index-only scan. On the shared server PostgreSQL 14 counts a backend
+// still logging in to any database in this database's horizon, back to the
+// oldest transaction running there, so a VACUUM can leave every page unmarked.
+func newExclusiveHideFixture(t *testing.T, reason string) hideFixture {
+	t.Helper()
+	admin := connectExclusiveTestDB(t, reason)
+	f := seedHideFixture(t, hypopgSessionPoolOn(t, admin), admin)
+	err := testdb.VacuumAllVisible(t.Context(), admin, "hypopg_hide_test.items",
+		60*time.Second)
+	if err != nil {
+		t.Fatalf("all-visible fixture: %v", err)
+	}
+	return f
+}
+
+// connectExclusiveTestDB is connectTestDB on a fresh database of the
+// exclusive server, closed before that database is dropped.
+func connectExclusiveTestDB(t *testing.T, reason string) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), testdb.Exclusive(t, reason))
+	if err != nil {
+		t.Fatalf("connect to the exclusive test database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(context.Background()); err != nil {
+		t.Fatalf("ping the exclusive test database: %v", err)
+	}
+	return pool
+}
+
+// seedHideFixture creates the table and its two indexes through admin,
+// unvacuumed, and returns the fixture on the session pool.
+func seedHideFixture(t *testing.T, pool, admin *pgxpool.Pool) hideFixture {
+	t.Helper()
 	for _, sql := range []string{
 		"DROP SCHEMA IF EXISTS hypopg_hide_test CASCADE",
 		"CREATE SCHEMA hypopg_hide_test",
@@ -38,7 +89,6 @@ func newHideFixture(t *testing.T) hideFixture {
 			"repeat(md5(i::text), 10) FROM generate_series(1,20000) i",
 		"CREATE INDEX items_a ON hypopg_hide_test.items (a)",
 		"CREATE INDEX items_a_dup ON hypopg_hide_test.items (a)",
-		"VACUUM ANALYZE hypopg_hide_test.items",
 	} {
 		if _, err := admin.Exec(t.Context(), sql); err != nil {
 			t.Fatalf("%s: %v", sql, err)
@@ -105,9 +155,15 @@ func TestHypoPGSessionDetectsHideSupport(t *testing.T) {
 }
 
 // Replacing (a) with the much wider (a, big_text) makes the hot point
-// lookup costlier once (a) is hidden: rejected, naming the queryid.
+// lookup costlier once (a) is hidden: rejected, naming the queryid. The
+// regression is the index-only scan of (a) against the wide index, so the
+// heap must be all-visible. Without that both plans are bitmap heap scans
+// under 10% apart, below the guarded-regression bar, so the rejection is
+// only for missing the 10% improvement minimum and names neither the
+// queryid nor items_a.
 func TestHypoPGReplacementRejectsGuardedRegression(t *testing.T) {
-	f := newHideFixture(t)
+	f := newExclusiveHideFixture(t,
+		"the point lookup's index-only scan needs an all-visible heap")
 	f.dropDup(t)
 	tc := TableContext{Schema: "hypopg_hide_test", Table: "items",
 		Queries: []QueryInfo{{QueryID: 4101, Calls: 1000, TotalTimeMs: 5000,

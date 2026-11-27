@@ -47,7 +47,9 @@ func holderTables(t *testing.T, pool *pgxpool.Pool, prefix string, n int, with s
 			WITH (autovacuum_enabled = false%s); INSERT INTO %s VALUES (1)`, name, with, name))
 		// A new table's relfrozenxid is the cluster's RecentXmin, which a
 		// concurrent test's transaction can date back; freezing dates it
-		// from this database's horizon.
+		// from this database's horizon. On the shared server PostgreSQL 14
+		// holds that horizon back to the oldest XID running in any database
+		// while a backend logs in, so every caller holds the exclusive one.
 		bloatTestExec(t, pool, "VACUUM (FREEZE) "+name)
 		names = append(names, name)
 	}
@@ -122,8 +124,13 @@ func idleWriter(t *testing.T, pool *pgxpool.Pool, table string) int {
 	return int(conn.Conn().PgConn().PID())
 }
 
+// The test holds the exclusive server: on the shared one PostgreSQL 14
+// dates a freeze back to the oldest XID running in any database while a
+// backend logs in (CI: a table frozen just before read 161018 XIDs old),
+// and the writer's 0.93 share of that table's age can then need more
+// than the 2M XIDs a settle step may burn.
 func TestFreezeHoldersNameAnIdleWriterByItsXID(t *testing.T) {
-	pool := requireAutonomyDB(t)
+	pool := exclusiveAutonomyDB(t, "table XID ages against an idle writer's XID")
 	holderSchema(t, pool)
 	tables := holderTables(t, pool, "w", 2, "")
 	pid := idleWriter(t, pool, tables[0])
@@ -156,8 +163,8 @@ func TestFreezeHoldersOneProposalForFiftyRedTablesLive(t *testing.T) {
 	tables := holderTables(t, pool, "f", 50, "")
 	pid := holdSnapshot(t, pool, "orders_api")
 	testdb.BurnXIDs(t, context.Background(), pool, burnForRed(t, pool))
-	// A writer another package holds in this database while a table is
-	// created dates its relfrozenxid back; the holder must still pin all 50.
+	// The tables were frozen one after another, so the oldest gives the
+	// holder its lowest share; the holder must still pin all 50.
 	bands := map[string]shareBand{}
 	for _, table := range tables {
 		bands[table] = pinsAll
@@ -223,10 +230,11 @@ var (
 )
 
 // settleShares consumes XIDs until the holder (holderSQL, an age, with
-// $2 = arg) is within its band of every table's XID age. Other packages'
-// tests use XIDs of the same cluster and their snapshots can date a new
-// table's relfrozenxid back by any amount, so the fixture is measured,
-// not assumed, and each step burns what the measured gap still needs.
+// $2 = arg) is within its band of every table's XID age. It measures each
+// table's gap instead of assuming it, burns what the gap still needs, and
+// fails when the bands cannot all be met or a step would need more than
+// maxSettleBurn. Its callers hold the exclusive server (see holderTables)
+// so that each freeze reaches about the XID it ran at.
 func settleShares(t *testing.T, pool *pgxpool.Pool, holderSQL string, arg any,
 	bands map[string]shareBand) {
 	t.Helper()
@@ -276,8 +284,13 @@ func burnToShare(holderAge, tableAge, share float64) int {
 	return int(math.Ceil((share*tableAge - holderAge) / (1 - share)))
 }
 
+// The test holds the exclusive server: the older table's band
+// (pinsAndFreezes) and the younger one's (pinsAll) fit together only while
+// each freeze reaches about the XID it ran at, and on the shared server
+// PostgreSQL 14 dates a freeze back to the oldest XID running in any
+// database while a backend logs in.
 func TestFreezeHoldersEscalatePreparedTransactions(t *testing.T) {
-	pool := requireAutonomyDB(t)
+	pool := exclusiveAutonomyDB(t, "table XID ages against a prepared transaction")
 	holderSchema(t, pool)
 	burn := burnForRed(t, pool)
 	older := holderTables(t, pool, "old", 1, "")

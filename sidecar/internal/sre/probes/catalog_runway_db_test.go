@@ -268,8 +268,13 @@ func TestCatalog_AutovacuumCancellationsReadLoggedIncidents(t *testing.T) {
 	}
 }
 
+// The WAL runway probe reads the WAL position and the settings that bound
+// it. It runs on the exclusive server: max_wal_size and
+// max_slot_wal_keep_size are cluster-wide, and on the shared server other
+// packages ALTER SYSTEM and reload them between the probe and the re-read
+// it is compared with.
 func TestCatalog_WALRunwayReadsPositionAndSettings(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := exclusivePool(t, "max_wal_size and max_slot_wal_keep_size are cluster-wide")
 	before, err := WALRunwayOf(catalogRun(t, ctx, pool, WALRunwayProbe, Args{}))
 	if err != nil {
 		t.Fatalf("first: %v", err)

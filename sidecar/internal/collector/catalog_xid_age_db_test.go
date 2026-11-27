@@ -59,9 +59,12 @@ func TestCollectTables_PartitionedParentAgesUnknown(t *testing.T) {
 // vacuum-01: the row's XID age is the older of the heap's and its TOAST
 // table's. VACUUM (FREEZE, PROCESS_TOAST false) advances only the heap
 // (PG14+), leaving the TOAST relation older; the collected age must be the
-// TOAST age, which is what autovacuum's anti-wraparound pass acts on.
+// TOAST age, which is what autovacuum's anti-wraparound pass acts on. It
+// runs on the exclusive server: on the shared one other packages' XID burns
+// outrun the 5000 slack between the two age reads, and on PostgreSQL 14 a
+// backend still logging in holds back the horizon the heap-only freeze needs.
 func TestCollectTables_ToastOlderThanHeapReadsToastAge(t *testing.T) {
-	pool := testPool(t)
+	pool := exclusivePool(t, "the TOAST age a heap-only freeze leaves behind")
 	ctx := context.Background()
 	heapAge, toastAge := createToastOlderThanHeap(t, ctx, pool)
 	c := New(pool, testConfig(), serverVersion(t, pool), noopLog)

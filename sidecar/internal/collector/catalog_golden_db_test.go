@@ -145,7 +145,8 @@ func legacyIndexes(t *testing.T, ctx context.Context, pool *pgxpool.Pool) map[ui
 
 // sameXIDAge copies want's xid age into got when got is at most a few
 // thousand transactions older: age(relfrozenxid) moves with every
-// transaction anywhere in the cluster between the two reads. The legacy
+// transaction anywhere in the cluster between the two reads, so its callers
+// hold the exclusive server (goldenXIDAgeReason). The legacy
 // view reads age(relfrozenxid) of the heap only, which is 2147483647 for
 // a partitioned parent (relfrozenxid 0); the rewrite reads it as unknown,
 // -1 (vacuum-01). The rewrite's relkind and mxid_age have no legacy
@@ -183,8 +184,13 @@ func goldenTables(tables []TableStats) map[string]TableStats {
 	return out
 }
 
+// goldenXIDAgeReason is why the tests that call sameXIDAge hold the
+// exclusive server: on the shared one other packages burn XIDs by the ten
+// thousand between the legacy read and the rewrite's, past its 5000 slack.
+const goldenXIDAgeReason = "xid ages compared across two catalog reads"
+
 func TestCollectTables_GoldenAgainstLegacyView(t *testing.T) {
-	pool := testPool(t)
+	pool := exclusivePool(t, goldenXIDAgeReason)
 	ctx := context.Background()
 	createGoldenCatalog(t, ctx, pool)
 	want := legacyTables(t, ctx, pool)
@@ -227,7 +233,7 @@ func tablesByKey(tables []TableStats) map[string]bool {
 }
 
 func TestCollectTables_SizesAreEstimatesOutsideTopN(t *testing.T) {
-	pool := testPool(t)
+	pool := exclusivePool(t, goldenXIDAgeReason)
 	ctx := context.Background()
 	createGoldenCatalog(t, ctx, pool)
 	want := legacyTables(t, ctx, pool)

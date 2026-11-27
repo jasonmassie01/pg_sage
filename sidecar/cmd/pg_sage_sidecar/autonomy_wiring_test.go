@@ -31,7 +31,22 @@ import (
 
 func autonomyPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	p, err := pgxpool.New(context.Background(), testdb.SkipUnlessLive(t))
+	return autonomyPoolOn(t, testdb.SkipUnlessLive(t))
+}
+
+// exclusiveAutonomyPool is autonomyPool on a fresh database of the
+// exclusive test server, held for t alone (testdb.Exclusive): for tests
+// that bound XID ages or need a freeze to advance relfrozenxid, which other
+// packages' XIDs and open transactions move on the shared server.
+func exclusiveAutonomyPool(t *testing.T, reason string) *pgxpool.Pool {
+	t.Helper()
+	return autonomyPoolOn(t, testdb.Exclusive(t, reason))
+}
+
+// autonomyPoolOn connects to dsn and bootstraps the sage schema there.
+func autonomyPoolOn(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	p, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}

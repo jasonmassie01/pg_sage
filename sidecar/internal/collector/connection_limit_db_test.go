@@ -14,48 +14,40 @@ import (
 // reserved_connections is superuser_reserved_connections plus, on PG 16+,
 // reserved_connections.
 
-// connLimitDatabases are the three idle databases of the test.
-var connLimitDatabases = []string{"f08_idle_a", "f08_idle_b", "f08_idle_c"}
+// connLimitLabels label the three idle databases of the test.
+var connLimitLabels = []string{"f08_idle_a", "f08_idle_b", "f08_idle_c"}
 
-// holdIdleSessions creates each database when missing and holds one idle
-// session on it until the test ends.
-func holdIdleSessions(t *testing.T, ctx context.Context, admin *pgx.Conn) {
+// holdIdleSessions creates the three idle databases on the exclusive
+// server t holds, holds one idle session on each until the test ends, and
+// returns their names.
+func holdIdleSessions(t *testing.T, ctx context.Context) []string {
 	t.Helper()
-	cfg, err := pgx.ParseConfig(testdb.SkipUnlessLive(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, db := range connLimitDatabases {
-		var exists bool
-		if err := admin.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database "+
-			"WHERE datname = $1)", db).Scan(&exists); err != nil {
-			t.Fatalf("look up database %s: %v", db, err)
-		}
-		if !exists {
-			sql := "CREATE DATABASE " + pgx.Identifier{db}.Sanitize()
-			if _, err := admin.Exec(ctx, sql); err != nil {
-				t.Fatalf("create database %s: %v", db, err)
-			}
-		}
-		c := cfg.Copy()
-		c.Database = db
-		conn, err := pgx.ConnectConfig(ctx, c)
+	names := make([]string, 0, len(connLimitLabels))
+	for _, label := range connLimitLabels {
+		dsn := testdb.ExclusiveDatabase(t, label)
+		cfg, err := pgx.ParseConfig(dsn)
 		if err != nil {
-			t.Fatalf("connect to %s: %v", db, err)
+			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = conn.Close(context.Background()) })
+		openOtherDatabase(t, ctx, dsn)
+		names = append(names, cfg.Database)
 	}
+	return names
 }
 
+// client_backends and the later count of client backends both read the
+// whole cluster's sessions, so the test holds the exclusive server: on the
+// shared one, other packages' sessions close between the two reads.
 func TestConnectionLimitClientBackendsExcludeBackgroundProcesses(t *testing.T) {
-	c, _ := sageCollector(t)
+	dsn := testdb.Exclusive(t, "client_backends counts the whole cluster's sessions")
+	c, _ := sageCollectorOn(t, dsn)
 	ctx := context.Background()
-	admin, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
+	admin, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(func() { _ = admin.Close(context.Background()) })
-	holdIdleSessions(t, ctx, admin)
+	idleDBs := holdIdleSessions(t, ctx)
 	var background int
 	if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
 		WHERE backend_type IN ('checkpointer', 'walwriter', 'autovacuum launcher')`).
@@ -74,10 +66,10 @@ func TestConnectionLimitClientBackendsExcludeBackgroundProcesses(t *testing.T) {
 	if err := admin.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE backend_type = 'client backend'),
 		count(*) FILTER (WHERE backend_type = 'client backend' AND datname = ANY($1))
-		FROM pg_stat_activity`, connLimitDatabases).Scan(&clients, &idle); err != nil {
+		FROM pg_stat_activity`, idleDBs).Scan(&clients, &idle); err != nil {
 		t.Fatalf("count clients: %v", err)
 	}
-	if idle != len(connLimitDatabases) {
+	if idle != len(idleDBs) {
 		t.Fatalf("idle sessions on the three databases = %d, want 3", idle)
 	}
 	// The collector's own reading session is not counted (pid <>

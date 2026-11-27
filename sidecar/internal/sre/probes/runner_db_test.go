@@ -28,7 +28,7 @@ func livePool(t *testing.T) (*pgxpool.Pool, context.Context) {
 
 // exclusivePool is livePool on a fresh database of the exclusive test
 // server, held for t alone (testdb.Exclusive): for tests that force a
-// CHECKPOINT (ci-13).
+// CHECKPOINT (ci-13) or read cluster-wide state other packages move.
 func exclusivePool(t *testing.T, reason string) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	return livePoolOn(t, testdb.Exclusive(t, reason))

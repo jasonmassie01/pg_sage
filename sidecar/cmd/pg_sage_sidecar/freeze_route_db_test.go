@@ -16,9 +16,11 @@ import (
 // is measured before and after. Before, the only live custodian test
 // passed with zero proposals. Tables are made red by a 100,000 freeze
 // maximum reloption and an 80,000 XID burn (redReloptionTable), so every
-// other table stays green. No concurrency test: one custodian per
-// database runs in a serial loop (TestFreezeCustodianIsBuiltOncePerRuntime
-// pins that).
+// other table stays green. The tests hold the exclusive server
+// (freezeAgeReason): the post-check needs the freeze to lower the table's
+// XID age, and the credit needs it under 50,000. No concurrency test: one
+// custodian per database runs in a serial loop
+// (TestFreezeCustodianIsBuiltOncePerRuntime pins that).
 
 // v09MaxRouteTime bounds one routed freeze: the VACUUM of a one-row table
 // takes milliseconds and the post-check waits at most the executor's
@@ -165,7 +167,7 @@ func v09Credits(t *testing.T, pool *pgxpool.Pool, sql string) int {
 // red is proposed once, executed, verified and credited once; the table
 // is then green and the next scan proposes nothing.
 func TestFreezeRouteRedTableExecutesVerifiesAndCredits(t *testing.T) {
-	pool := autonomyPool(t)
+	pool := exclusiveAutonomyPool(t, freezeAgeReason)
 	const table = "public.vacuum09_red"
 	const sql = `VACUUM (FREEZE) "public"."vacuum09_red"`
 	redReloptionTable(t, pool, table)
@@ -198,7 +200,7 @@ func TestFreezeRouteRedTableExecutesVerifiesAndCredits(t *testing.T) {
 // A partitioned parent has no storage (relfrozenxid 0) and is never
 // proposed; its red leaf is, and its freeze runs and verifies.
 func TestFreezeRoutePartitionedParentNeverProposedLeafIs(t *testing.T) {
-	pool := autonomyPool(t)
+	pool := exclusiveAutonomyPool(t, freezeAgeReason)
 	const parent, leaf = "public.vacuum09_parts", "public.vacuum09_parts_a"
 	v02Exec(t, pool, "DROP TABLE IF EXISTS "+parent+" CASCADE")
 	t.Cleanup(func() {
@@ -223,7 +225,7 @@ func TestFreezeRoutePartitionedParentNeverProposedLeafIs(t *testing.T) {
 // while its heap is green is proposed as its owner; the owner's freeze
 // brings the TOAST horizon back and earns the near-miss credit.
 func TestFreezeRouteRedTOASTProposesAndCreditsTheOwner(t *testing.T) {
-	pool := autonomyPool(t)
+	pool := exclusiveAutonomyPool(t, freezeAgeReason)
 	const table = "public.vacuum09_toast"
 	v02Exec(t, pool, "DROP TABLE IF EXISTS "+table)
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })

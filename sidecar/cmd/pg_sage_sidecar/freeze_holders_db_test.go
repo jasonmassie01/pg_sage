@@ -18,7 +18,19 @@ import (
 // pins red tables reaches the ledger as one parked freeze_blocker
 // decision, whatever the number of tables; the freeze runs only while it
 // can still advance relfrozenxid (holder younger than 0.9x the table age).
-// No concurrency test: one custodian per database runs in a serial loop.
+// Both tests hold the exclusive server (freezeAgeReason). No concurrency
+// test: one custodian per database runs in a serial loop.
+
+// freezeAgeReason is why the freeze tests that measure XID ages hold the
+// exclusive server (exclusiveAutonomyPool): a holder's share of a table's
+// age, a routed freeze's post-check and its green-after credit count the
+// whole cluster's XIDs and stop at the cluster's horizon. On the shared
+// server other packages burn XIDs by the ten thousand and, on PostgreSQL
+// 14, every backend still logging in holds each database's horizon back to
+// the oldest transaction running anywhere (CI, PG14: a table frozen just
+// before read 161018 XIDs old).
+const freezeAgeReason = "XID ages and a freeze's advance of relfrozenxid need a " +
+	"cluster no other package ages or holds back"
 
 // v02RedBuffer makes tables red from an XID age of 1e-5 of
 // autovacuum_freeze_max_age.
@@ -57,8 +69,8 @@ func v02Fixture(t *testing.T, pool *pgxpool.Pool, schema string, n int) ([]strin
 		v02Exec(t, pool, "CREATE TABLE "+table+
 			" (id int) WITH (autovacuum_enabled = false); INSERT INTO "+table+
 			" VALUES (1); ANALYZE "+table)
-		// Freezing dates relfrozenxid from this database's horizon, not
-		// from a concurrent test's transaction (the cluster's RecentXmin).
+		// Freezing re-dates relfrozenxid from the server's horizon now,
+		// not from the RecentXmin the CREATE TABLE took.
 		v02Exec(t, pool, "VACUUM (FREEZE) "+table)
 		tables = append(tables, table)
 	}
@@ -179,7 +191,7 @@ func v02Counts(t *testing.T, pool *pgxpool.Pool, schema string, since time.Time)
 }
 
 func TestFreezeHolderFiftyTablesOneDecisionNoFutileVacuum(t *testing.T) {
-	pool := autonomyPool(t)
+	pool := exclusiveAutonomyPool(t, freezeAgeReason)
 	tables, burn := v02Fixture(t, pool, "v02a", 50)
 	v02Prepare(t, pool, tables[0])
 	v02Burn(t, pool, burn)
@@ -201,9 +213,9 @@ func TestFreezeHolderFiftyTablesOneDecisionNoFutileVacuum(t *testing.T) {
 
 // v02Settle consumes XIDs until this database's prepared transaction is
 // at least lo of every schema table's XID age, failing once one reaches
-// hi. Concurrent tests use XIDs of the same cluster, and their snapshots
-// can date a new table's relfrozenxid back by any amount, so the shares
-// are measured and each step burns what the measured gap still needs.
+// hi. The shares are measured, not computed from the burns (the horizon
+// at each table's freeze dates its relfrozenxid), and each step burns what
+// the measured gap still needs.
 func v02Settle(t *testing.T, pool *pgxpool.Pool, schema string, lo, hi float64) {
 	t.Helper()
 	for step := 0; step < 20; step++ {
@@ -247,7 +259,7 @@ func v02BurnToShare(holderAge, tableAge, share float64) int {
 }
 
 func TestFreezeHolderYoungerThanTheTableStillFreezes(t *testing.T) {
-	pool := autonomyPool(t)
+	pool := exclusiveAutonomyPool(t, freezeAgeReason)
 	tables, burn := v02Fixture(t, pool, "v02b", 1)
 	v02Burn(t, pool, burn)
 	v02Prepare(t, pool, tables[0])

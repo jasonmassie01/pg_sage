@@ -14,11 +14,13 @@ import (
 // sage.decision as a budget bypass ("xid runway critical") with its hard
 // deadline ahead of now. Before the fix the multixact deadline at the
 // 0.001/s rate floor overflowed time.Duration into the far past and won
-// the earlier-deadline race, so the bypass never fired. No concurrency
-// test: one custodian per database runs in a serial loop.
+// the earlier-deadline race, so the bypass never fired. The test holds the
+// exclusive server (freezeAgeReason): the routed freeze's post-check fails
+// unless the VACUUM advances relfrozenxid. No concurrency test: one
+// custodian per database runs in a serial loop.
 
 func TestFreezeRedTableRecordsWraparoundBypassDecision(t *testing.T) {
-	pool := autonomyPool(t)
+	pool := exclusiveAutonomyPool(t, freezeAgeReason)
 	ctx := context.Background()
 	schema := "v03a"
 	table := schema + ".t00"

@@ -17,9 +17,15 @@ import (
 // FREEZE are judged by the table metric they were predicted to move.
 
 // VACUUM is verified by the dead tuples it was predicted to remove, not
-// marked successful the moment it returns.
+// marked successful the moment it returns. VACUUM removes them only past
+// the cluster's horizon, so the test holds the exclusive server: on the
+// shared one, PostgreSQL 14 counts a backend still logging in to any
+// database in this database's horizon, with a snapshot reaching back to
+// the oldest transaction running there, and no wait can stop a login that
+// starts just before the VACUUM (CI, PG14: 3000 dead tuples 30 s after it).
 func TestOutcome_VacuumVerifiedByDeadTuples(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := exclusiveDB(t, "a VACUUM removes deleted rows only past the cluster's "+
+		"horizon, which a PostgreSQL 14 login to any database holds back")
 	table := fmt.Sprintf("vo_vac_%d", time.Now().UnixNano())
 	if _, err := pool.Exec(ctx, "CREATE TABLE public."+table+
 		" AS SELECT g AS a FROM generate_series(1, 4000) g"); err != nil {
@@ -31,9 +37,8 @@ func TestOutcome_VacuumVerifiedByDeadTuples(t *testing.T) {
 	deleteAndFlush(t, ctx, pool, "DELETE FROM public."+table+" WHERE a > 1000")
 	waitForDeadTuples(t, ctx, pool, table)
 	// VACUUM removes the deleted rows only once no snapshot predates the
-	// DELETE; on the shared CI server another package's open transaction,
-	// prepared transaction or slot can hold the horizon back (CI, PG14:
-	// 3000 -> 3000, neutral).
+	// DELETE; even on the exclusive server, autovacuum or one of this
+	// test's own sessions can still hold one.
 	waitHorizonPastNow(t, ctx, pool)
 	exec := New(pool, config.DefaultConfig(), time.Time{}, nopLog)
 	sql := "VACUUM public." + table
@@ -97,10 +102,28 @@ func waitForDeadTuples(t *testing.T, ctx context.Context, pool *pgxpool.Pool, ta
 	t.Fatalf("dead tuples on %s never reached the statistics", table)
 }
 
-// waitHorizonPastNow waits until no snapshot or running transaction VACUUM
-// must respect (this database's backends, replication slots, prepared
-// transactions) is older than a transaction started now, so rows deleted
-// before it are removable.
+// horizonPastNowSQL is true when nothing VACUUM must respect reaches back
+// to the transaction id $1: this database's snapshots, replication slots,
+// prepared transactions, every session's XID (a writer idle in its
+// transaction holds no snapshot, only its XID), and any backend still
+// starting, which holds its virtualxid lock before pg_stat_activity lists
+// it (PostgreSQL 14 counts it in every database's horizon).
+const horizonPastNowSQL = `WITH n AS (SELECT age(($1::bigint % 4294967296)::text::xid) AS a)
+	SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity x, n
+		WHERE x.pid <> pg_backend_pid()
+		  AND (age(x.backend_xid) >= n.a
+		    OR (age(x.backend_xmin) >= n.a
+		      AND (x.datname = current_database() OR x.datname IS NULL))))
+	AND NOT EXISTS (SELECT 1 FROM pg_locks l
+		WHERE l.locktype = 'virtualxid' AND l.pid <> pg_backend_pid()
+		  AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.pid = l.pid))
+	AND NOT EXISTS (SELECT 1 FROM pg_replication_slots s, n
+		WHERE s.xmin IS NOT NULL AND age(s.xmin) >= n.a)
+	AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts p, n
+		WHERE age(p.transaction) >= n.a)`
+
+// waitHorizonPastNow waits until horizonPastNowSQL holds for a transaction
+// started now, so rows deleted before it are removable.
 func waitHorizonPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	var now string
@@ -109,16 +132,7 @@ func waitHorizonPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 	for i := 0; i < 240; i++ {
 		var clear bool
-		if err := pool.QueryRow(ctx, `WITH n AS (SELECT age(($1::bigint % 4294967296)
-			::text::xid) AS a)
-		SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity x, n
-			WHERE x.pid <> pg_backend_pid()
-			  AND (x.datname = current_database() OR x.datname IS NULL)
-			  AND (age(x.backend_xmin) >= n.a OR age(x.backend_xid) >= n.a))
-		AND NOT EXISTS (SELECT 1 FROM pg_replication_slots s, n
-			WHERE s.xmin IS NOT NULL AND age(s.xmin) >= n.a)
-		AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts p, n
-			WHERE age(p.transaction) >= n.a)`, now).Scan(&clear); err != nil {
+		if err := pool.QueryRow(ctx, horizonPastNowSQL, now).Scan(&clear); err != nil {
 			t.Fatalf("read the xmin horizon: %v", err)
 		}
 		if clear {
