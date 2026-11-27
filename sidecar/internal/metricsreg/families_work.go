@@ -13,7 +13,7 @@ var workFamilies = []Family{
 		Labels: []string{"database"}, Modes: AllModes, Since: "v1.9.0"},
 	{Name: "pg_sage_optimizer_recommendations", Type: Gauge, Area: AreaOptimizer,
 		Help:   "Open index recommendations by category (standalone)",
-		Labels: []string{"category"}, Modes: StandaloneOnly, Since: "v2.7.0"},
+		Labels: []string{"category"}, Modes: StandaloneOnly, Since: "v2.6.0"},
 	{Name: "pg_sage_optimizer_whatif_skipped_total", Type: Counter, Area: AreaOptimizer,
 		Help: "HypoPG what-if evaluations index admission skipped because the same " +
 			"idea was already measured and rejected",
@@ -52,42 +52,42 @@ var workFamilies = []Family{
 	{Name: "pg_sage_action_last_failure_timestamp_seconds", Type: Gauge, Area: AreaActions,
 		Help: "When the latest failed action was recorded (no sample: none has " +
 			"failed)",
-		Labels: []string{"database"}, Modes: AllModes, Unit: "seconds", Since: "v2.7.0"},
+		Labels: []string{"database"}, Modes: AllModes, Unit: "seconds", Since: "v2.6.0"},
 	{Name: "pg_sage_inbox_items", Type: Gauge, Area: AreaActions,
 		Help: "Decisions waiting on a person by kind at the last complete fleet-wide " +
 			"inbox read (no sample before one; a read that missed a source is not recorded)",
-		Labels: []string{"kind"}, Modes: AllModes, Since: "v2.8.0"},
+		Labels: []string{"kind"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_outcomes_measured_ratio", Type: Gauge, Area: AreaActions,
 		Help: "Share of the last 24 hours' changes with a measured effect, per database, " +
 			"at the last complete outcome ledger read of that window (no sample before " +
 			"one, or when the window has no changes)",
-		Labels: []string{"database"}, Modes: AllModes, Since: "v2.8.0"},
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_inbox_decision_seconds", Type: Histogram, Area: AreaActions,
 		Help: "Time from approval needed to decision, by inbox kind and the surface " +
 			"the decision came from (X-Sage-Surface: inbox, page, chat, api, cli)",
 		Labels: []string{"kind", "decided_from"}, Modes: AllModes, Unit: "seconds",
-		Since: "v2.8.0"},
+		Since: "v2.6.0"},
 	{Name: "pg_sage_plan_approvals_total", Type: Counter, Area: AreaActions,
 		Help: "New plan approvals by the mode stored (all, up_to, step) since the " +
 			"process started; all and up_to approve multi-step work once",
-		Labels: []string{"mode"}, Modes: AllModes, Since: "v2.8.0"},
+		Labels: []string{"mode"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_actions_pending_approval", Type: Gauge, Area: AreaActions,
 		Help: "Pending approvals a person can act on now (past cooldown, not " +
 			"expired), by risk",
-		Labels: []string{"database", "risk"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database", "risk"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_actions_total", Type: Counter, Area: AreaActions,
 		Help: "Actions that ended, by change class and outcome (success, failed, " +
 			"rolled_back, cancelled, unverifiable, other)",
-		Labels: []string{"database", "class", "outcome"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database", "class", "outcome"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_owner_brief_present", Type: Gauge, Area: AreaActions,
 		Help: "1 when the database has a confirmed owner brief (owner, peak windows, " +
 			"growth), else 0",
-		Labels: []string{"database"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_owner_brief_steps", Type: Gauge, Area: AreaActions,
 		Help: "Accepted (approved or executed) and rejected queued actions since the " +
 			"owner brief was confirmed (after) and in as long before it (before); " +
 			"without a brief the split is 30 days ago",
-		Labels: []string{"database", "period", "outcome"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database", "period", "outcome"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_policy_parks_total", Type: Counter, Area: AreaActions,
 		Help: "Self-initiated changes the policy gate parked, by reason (one per " +
 			"evaluation)",
@@ -95,7 +95,7 @@ var workFamilies = []Family{
 	{Name: "pg_sage_policy_record_failures_total", Type: Counter, Area: AreaActions,
 		Help: "Policy gate decisions that could not be recorded in the decision " +
 			"ledger, by decision reason",
-		Labels: []string{"database", "reason"}, Modes: AllModes, Since: "v2.5.1"},
+		Labels: []string{"database", "reason"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_shadow_decisions_total", Type: Counter, Area: AreaActions,
 		Help: "Shadow decisions recorded below an action class's earned trust level, " +
 			"by the gate's verdict had it been trusted",
@@ -106,7 +106,7 @@ var workFamilies = []Family{
 	{Name: "pg_sage_verification_verdicts_total", Type: Counter, Area: AreaActions,
 		Help: "Verifications finalized, by change class and verdict (success, revert, " +
 			"unverifiable, failed, other)",
-		Labels: []string{"database", "class", "verdict"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database", "class", "verdict"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_verification_wait_releases_total", Type: Counter, Area: AreaActions,
 		Help: "Verification waits that ended without a verdict, by cause " +
 			"(operator_override, hard_deadline)",
@@ -131,16 +131,16 @@ var workFamilies = []Family{
 		Labels: []string{"database", "slo", "kind", "state"}, Modes: AllModes, Since: "v1.8.0"},
 	{Name: "pg_sage_sre_investigation_oldest_open_age_seconds", Type: Gauge, Area: AreaSRE,
 		Help:   "Age of the oldest live Sage SRE investigation (0 when none is live)",
-		Labels: []string{"database"}, Modes: AllModes, Unit: "seconds", Since: "v2.7.0"},
+		Labels: []string{"database"}, Modes: AllModes, Unit: "seconds", Since: "v2.6.0"},
 	{Name: "pg_sage_sre_investigations", Type: Gauge, Area: AreaSRE,
 		Help: "Sage SRE investigations by state: every live one, and terminal ones " +
 			"updated in the past 24 hours",
-		Labels: []string{"database", "state"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database", "state"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_sre_probe_queue_wait_seconds", Type: Summary, Area: AreaSRE,
 		Help: "Time Sage SRE probes waited for a probe slot, by caller class and " +
 			"limiter",
 		Labels: []string{"database", "caller", "limiter"},
-		Modes:  AllModes, Unit: "seconds", Since: "v2.7.0"},
+		Modes:  AllModes, Unit: "seconds", Since: "v2.6.0"},
 	{Name: "pg_sage_sre_probe_refusals_total", Type: Counter, Area: AreaSRE,
 		Help: "Sage SRE probes refused a probe slot within the queue wait (never " +
 			"run), by caller class and limiter",
@@ -166,7 +166,7 @@ var workFamilies = []Family{
 		Help: "Database time of pg_sage's own statements per hour by the component " +
 			"their tag names (ms)",
 		Labels: []string{"database", "component"}, Modes: AllModes, Unit: "milliseconds",
-		Since: "v2.7.0"},
+		Since: "v2.6.0"},
 	{Name: "pg_sage_self_cpu_ms_per_cycle", Type: Gauge, Area: AreaSelf,
 		Help:  "CPU time of the pg_sage process per collector cycle (ms)",
 		Modes: AllModes, Unit: "milliseconds", Since: "v2.2.0"},
@@ -186,10 +186,10 @@ var workFamilies = []Family{
 		Labels: loopLabels, Modes: AllModes, Unit: "seconds", Since: "v2.2.0"},
 	{Name: "pg_sage_self_loop_errors_total", Type: Counter, Area: AreaSelf,
 		Help:   "Runs of pg_sage's periodic loops that failed or produced nothing",
-		Labels: loopLabels, Modes: AllModes, Since: "v2.7.0"},
+		Labels: loopLabels, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_self_loop_last_success_timestamp_seconds", Type: Gauge, Area: AreaSelf,
 		Help:   "Unix time the loop's last successful run ended",
-		Labels: loopLabels, Modes: AllModes, Unit: "seconds", Since: "v2.7.0"},
+		Labels: loopLabels, Modes: AllModes, Unit: "seconds", Since: "v2.6.0"},
 	{Name: "pg_sage_self_loop_runs_total", Type: Counter, Area: AreaSelf,
 		Help:   "Runs of pg_sage's periodic loops",
 		Labels: loopLabels, Modes: AllModes, Since: "v2.2.0"},
@@ -209,39 +209,39 @@ var workFamilies = []Family{
 	{Name: "pg_sage_audit_chain_ok", Type: Gauge, Area: AreaIntegrations,
 		Help: "1 if the audit chain's last scheduled verification found no problem, 0 " +
 			"if it fails verification",
-		Labels: []string{"database", "chain"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database", "chain"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_audit_chain_problems", Type: Gauge, Area: AreaIntegrations,
 		Help: "Problems the audit chain's last verification reported, by kind (a " +
 			"failing chain only)",
-		Labels: []string{"database", "chain", "kind"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database", "chain", "kind"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_audit_chain_verified_timestamp_seconds", Type: Gauge,
 		Area:   AreaIntegrations,
 		Help:   "Unix time of the audit chain's last finished verification",
 		Labels: []string{"database", "chain"}, Modes: AllModes, Unit: "seconds",
-		Since: "v2.7.0"},
+		Since: "v2.6.0"},
 	{Name: "pg_sage_audit_chain_verify_errors_total", Type: Counter, Area: AreaIntegrations,
 		Help: "Scheduled audit chain verifications that failed before they finished " +
 			"(the chains keep their previous result)",
-		Labels: []string{"database"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_siem_consecutive_failures", Type: Gauge, Area: AreaIntegrations,
 		Help:   "Failed export passes of the SIEM sink in a row (0 after a clean pass)",
-		Labels: []string{"sink"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"sink"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_siem_delivered_total", Type: Counter, Area: AreaIntegrations,
 		Help:   "Audit events the SIEM sink confirmed since the exporter started",
-		Labels: []string{"sink"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"sink"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_siem_lag_links", Type: Gauge, Area: AreaIntegrations,
 		Help: "Audit chain links not yet exported to the SIEM sink: chain head minus " +
 			"the sink's cursor",
-		Labels: []string{"sink", "source", "chain"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"sink", "source", "chain"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_ask_answers_total", Type: Counter, Area: AreaIntegrations,
 		Help:   "Ask Sage answers by status and the reason the run stopped",
 		Labels: []string{"database", "status", "stop"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_ask_runs_active", Type: Gauge, Area: AreaIntegrations,
 		Help:   "Asynchronous Ask Sage runs in progress on this sidecar",
-		Labels: []string{"database"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_ask_runs_total", Type: Counter, Area: AreaIntegrations,
 		Help:   "Asynchronous Ask Sage runs that ended, by terminal state",
-		Labels: []string{"database", "state"}, Modes: AllModes, Since: "v2.7.0"},
+		Labels: []string{"database", "state"}, Modes: AllModes, Since: "v2.6.0"},
 	{Name: "pg_sage_logwatch_dropped_lines_total", Type: Counter, Area: AreaIntegrations,
 		Help: "PostgreSQL log lines the log watcher dropped before classification, by " +
 			"cluster and reason (queue_overflow, classifier_cap, oversized_record)",

@@ -32,6 +32,7 @@ Windows users should currently build from source with Go 1.26+ and Node.js
 ```bash
 docker run --name pg_sage \
   -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
+  -e SAGE_PROMETHEUS_ADDR=0.0.0.0:8187 \
   -p 8080:8080 -p 8187:8187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```

@@ -1193,7 +1193,7 @@ is no longer detected), it sends a resolve on that key as a `finding_critical` e
 rule that paged also closes the page; a re-opened finding pages again. Slack, Telegram and
 webhooks receive the resolves as ordinary messages ("Incident resolved: ...",
 "Resolved: Critical finding: ..."). The channel's `dedup_key_prefix`
-is still prepended to every key. PagerDuty incidents opened before v2.5.1 used other keys and
+is still prepended to every key. PagerDuty incidents opened before v2.6.0 used other keys and
 do not auto-resolve: close them by hand once after the upgrade.
 
 #### Legacy alerting engine (`alerting.engine: legacy`)

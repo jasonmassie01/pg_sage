@@ -69,6 +69,6 @@ Adjust the target host and port to match your sidecar configuration. Keep the jo
 
 Every family the dashboard reads is listed, with its labels and meaning, in the
 [metrics reference](../docs/metrics.md), which also lists the families renamed or removed
-in v2.7.0 and the runbook of each shipped alert. A test
+in v2.6.0 and the runbook of each shipped alert. A test
 (`sidecar/cmd/pg_sage_sidecar/grafana_contract_test.go`) fails when a panel queries a family
 that is not in that reference, or drops the `job`, `instance` or `database` filter.

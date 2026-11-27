@@ -7,7 +7,7 @@ for feature-specific permissions, limitations and test evidence. This page
 covers packaging, installation, updates and recovery; it does not convert the
 application to AppKit or require a custom runtime container.
 
-The current release is **2.5.0**. The App runs in Observation mode with
+The current release is **2.6.0**. The App runs in Observation mode with
 metadata-only telemetry. Acceptance is scoped to each deployment; it does not
 certify every Lakebase extension, cloud, privilege or long-duration scenario.
 Dated acceptance reports are in the

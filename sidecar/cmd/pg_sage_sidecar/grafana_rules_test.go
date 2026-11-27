@@ -251,7 +251,7 @@ func TestGrafanaRulesRejectInvalidQueries(t *testing.T) {
 		"unknown family": {`pg_sage_nope{` + fixtureJobInstance + `}`,
 			"pg_sage_nope is not a registered family"},
 		"retired family": {`pg_sage_cache_hit_ratio{` + fixtureJobInstance + `}`,
-			"pg_sage_cache_hit_ratio was retired in v2.7.0"},
+			"pg_sage_cache_hit_ratio was retired in v2.6.0"},
 		"gauge _count": {`pg_sage_connection_up_count{` + fixtureJobInstance + `}`,
 			"pg_sage_connection_up_count is not a registered family"},
 		"bad label": {`pg_sage_connection_up{breaker="llm",` + fixtureJobInstance + `}`,

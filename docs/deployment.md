@@ -71,9 +71,14 @@ must leave it unset.
 docker run -d --name pg_sage \
   -e SAGE_DATABASE_URL="postgres://sage_agent:YOUR_PASSWORD@host:5432/db" \
   -e SAGE_LLM_API_KEY="YOUR_KEY_HERE" \
+  -e SAGE_PROMETHEUS_ADDR=0.0.0.0:8187 \
   -p 8080:8080 -p 8187:8187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
+
+The metrics listener binds to `127.0.0.1:8187` by default and has no
+authentication; `SAGE_PROMETHEUS_ADDR=0.0.0.0:8187` opens it to the published
+port. Drop both it and `-p 8187:8187` when nothing outside the container scrapes it.
 
 Read the one-time admin password from startup logs:
 
@@ -88,6 +93,7 @@ the image `HEALTHCHECK` reads the same `api.listen_addr`:
 docker run -d --name pg_sage \
   -v /path/to/config.yaml:/etc/pg_sage/config.yaml \
   -e SAGE_CONFIG_PATH=/etc/pg_sage/config.yaml \
+  -e SAGE_PROMETHEUS_ADDR=0.0.0.0:8187 \
   -p 8080:8080 -p 8187:8187 \
   ghcr.io/jasonmassie01/pg_sage:latest
 ```
@@ -331,8 +337,8 @@ scrape_configs:
 ```
 
 The separate listener (`prometheus.listen_addr`, default `127.0.0.1:8187`) has
-no authentication and no TLS. Until v2.7.0 the default port was 9187,
-postgres_exporter's default; v2.7.0 moved it to 8187 so both run on one host.
+no authentication and no TLS. Before v2.6.0 the default port was 9187,
+postgres_exporter's default; v2.6.0 moved it to 8187 so both run on one host.
 Update scrape configs and published ports that relied on the old default, or
 keep it with `SAGE_PROMETHEUS_PORT=9187`. If pg_sage cannot bind the address it
 logs an ERROR, keeps running, and
@@ -396,23 +402,23 @@ discovery, and approvals left waiting for a day), with
 `promtool test rules` tests beside them. Load the file with `rule_files:`; each
 alert's `runbook_url` opens its runbook in the reference.
 
-### Metric renames in v2.7.0
+### Metric renames in v2.6.0
 
-v2.7.0 is the one release that removes and renames metric families. Update
+v2.6.0 is the one release that removes and renames metric families. Update
 dashboards, recording rules and alerts from the old name to its replacement:
 
 <!-- metrics-renames:start -->
 
 | Old name | Use instead | Note | Release |
 |---|---|---|---|
-| `pg_sage_findings_total` | `pg_sage_findings_open` | per database and severity | v2.7.0 |
-| `pg_sage_collector_last_run_timestamp` | `pg_sage_collector_last_success_timestamp_seconds` | per database | v2.7.0 |
-| `pg_sage_fleet_instance_findings` | `pg_sage_findings_open` | sum by database | v2.7.0 |
-| `pg_sage_fleet_instance_health` | `pg_sage_database_health_score` | - | v2.7.0 |
-| `pg_sage_connections_total` | - | use postgres_exporter's pg_stat_activity_count | v2.7.0 |
-| `pg_sage_cache_hit_ratio` | - | use postgres_exporter's pg_stat_database_blks_hit and pg_stat_database_blks_read | v2.7.0 |
-| `pg_sage_optimizer_recommendations_total` | `pg_sage_optimizer_recommendations` | renamed: a gauge, not a counter | v2.7.0 |
-| `pg_sage_fleet_findings_total` | `pg_sage_fleet_findings_open` | renamed: a gauge, not a counter | v2.7.0 |
+| `pg_sage_findings_total` | `pg_sage_findings_open` | per database and severity | v2.6.0 |
+| `pg_sage_collector_last_run_timestamp` | `pg_sage_collector_last_success_timestamp_seconds` | per database | v2.6.0 |
+| `pg_sage_fleet_instance_findings` | `pg_sage_findings_open` | sum by database | v2.6.0 |
+| `pg_sage_fleet_instance_health` | `pg_sage_database_health_score` | - | v2.6.0 |
+| `pg_sage_connections_total` | - | use postgres_exporter's pg_stat_activity_count | v2.6.0 |
+| `pg_sage_cache_hit_ratio` | - | use postgres_exporter's pg_stat_database_blks_hit and pg_stat_database_blks_read | v2.6.0 |
+| `pg_sage_optimizer_recommendations_total` | `pg_sage_optimizer_recommendations` | renamed: a gauge, not a counter | v2.6.0 |
+| `pg_sage_fleet_findings_total` | `pg_sage_fleet_findings_open` | renamed: a gauge, not a counter | v2.6.0 |
 
 <!-- metrics-renames:end -->
 
@@ -517,7 +523,7 @@ every other database keeps its series, and the scrape itself stays fast.
 
 ### Executor outcomes
 
-Since v2.7.0 `/metrics` reports what the executor did, per database (observability-04):
+Since v2.6.0 `/metrics` reports what the executor did, per database (observability-04):
 
 | Metric | Type | Meaning |
 |---|---|---|
@@ -571,7 +577,7 @@ LLM families render in every mode whenever their data exists.
 
 ### LLM health
 
-Since v2.7.0 every LLM client the sidecar runs has its own series, labelled `client`
+Since v2.6.0 every LLM client the sidecar runs has its own series, labelled `client`
 (`general` or `optimizer`) and `database` (the monitored database; empty for the
 process-wide shared client and for standalone mode). A scrape only reads the clients: it
 never closes or probes a circuit breaker.
@@ -600,7 +606,7 @@ only) is listed in [security.md](security.md#monitoring-audit-health):
 `pg_sage_siem_lag_links`, `pg_sage_siem_consecutive_failures` and
 `pg_sage_siem_delivered_total`.
 
-The families removed in v2.7.0 are listed in [Metric renames in v2.7.0](#metric-renames-in-v270).
+The families removed in v2.6.0 are listed in [Metric renames in v2.6.0](#metric-renames-in-v260).
 
 ### Exposition contract
 

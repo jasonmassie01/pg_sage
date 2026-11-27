@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// observability-09 (v2.7.0, the rename release): the default metrics port
+// observability-09 (v2.6.0, the rename release): the default metrics port
 // moved off 9187, postgres_exporter's registered default, so running both
 // exporters on one host no longer fails to bind.
 

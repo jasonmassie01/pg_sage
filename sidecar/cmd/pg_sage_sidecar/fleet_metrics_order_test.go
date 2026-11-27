@@ -26,7 +26,7 @@ func scrapeInstanceHealth(t *testing.T) []string {
 
 // CHECK-12: consecutive scrapes list the per-database health score in one
 // order (by name; pg_sage_fleet_instance_health, listed worst first, left
-// in v2.7.0), and pg_sage_fleet_healthy excludes a connected database
+// in v2.6.0), and pg_sage_fleet_healthy excludes a connected database
 // whose score is below 50.
 func TestFleetMetrics_InstanceHealthOrderIsStable(t *testing.T) {
 	prev := fleetMgr

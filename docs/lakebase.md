@@ -1,6 +1,6 @@
 # Lakebase compatibility and operations
 
-This guide covers operating pg_sage 2.5 against Lakebase: connections, Unity
+This guide covers operating pg_sage 2.6.0 against Lakebase: connections, Unity
 Gateway, history telemetry, SRE and managed-service limits. Dated acceptance
 results, with the build each one tested, are in the
 [evidence appendix](lakebase-evidence.md#lakebase-guide). They are scoped
@@ -824,13 +824,13 @@ transparent HypoPG replacement, proof of latency improvement or permission to
 create candidate indexes on production workload tables. Advanced Telemetry
 does not activate either planner extension.
 
-pg_sage 2.5 explicitly enables eight Lakebase contracts after testing
-their production operator paths on an isolated PG18 test branch:
-`analyze_table`, `vacuum_table`, `create_index_concurrently`,
-`revert_created_index`, `reindex_concurrently`, `create_statistics`,
-`revert_created_statistics`, and `alter_database_guc`. Standing policy, trust,
-maintenance windows, object permissions, and replica checks still apply. The
-deployed development App starts in observation mode.
+pg_sage explicitly enables eight Lakebase contracts. Their production
+operator paths were tested on an isolated PG18 test branch with the
+`2.5.0-dev.1` development build: `analyze_table`, `vacuum_table`,
+`create_index_concurrently`, `revert_created_index`, `reindex_concurrently`,
+`create_statistics`, `revert_created_statistics`, and `alter_database_guc`.
+Standing policy, trust, maintenance windows, object permissions, and replica
+checks still apply. The deployed development App starts in observation mode.
 
 Database-setting actions target only the connected database and user-context
 settings. They capture the exact database-wide prior override, derive their

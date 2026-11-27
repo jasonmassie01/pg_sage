@@ -8,7 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
-// observability-09, the v2.7.0 rename release: the removed and the old
+// observability-09, the v2.6.0 rename release: the removed and the old
 // names leave every scrape, and the new names carry the same values.
 
 // No concurrent access tests: these render one scrape; the scrape's own

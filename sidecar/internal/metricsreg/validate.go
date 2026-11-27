@@ -57,7 +57,7 @@ func validateFamily(f Family) []error {
 		bad("area %q is not one of Areas()", f.Area)
 	}
 	if !release.MatchString(f.Since) {
-		bad("since %q is not a release like v2.7.0", f.Since)
+		bad("since %q is not a release like v2.6.0", f.Since)
 	}
 	for suffix, unit := range unitSuffixes {
 		if strings.HasSuffix(f.Name, suffix) && f.Unit != unit {
@@ -123,7 +123,7 @@ func validateRetired(r Retired, registered map[string]bool) []error {
 			r.Name))
 	}
 	if !release.MatchString(r.Release) {
-		errs = append(errs, fmt.Errorf("%s: release %q is not like v2.7.0", r.Name, r.Release))
+		errs = append(errs, fmt.Errorf("%s: release %q is not like v2.6.0", r.Name, r.Release))
 	}
 	return errs
 }

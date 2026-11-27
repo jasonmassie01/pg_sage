@@ -137,7 +137,7 @@ excluded from the public repository; reviewed reports retain outcomes and hashes
 
 ## Databricks Apps guide
 
-The current release is **2.5.0**. The acceptance report for its last development
+These results are for release **2.5.0**. The acceptance report for its last development
 build, [2.5.0-dev.14](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev14-acceptance.md), covers the
 descriptions beside each tab's meme. The [dev.13 report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-11-02-v2.5-dev13-acceptance.md)
 records the 50-meme shuffle and standalone Settings correction. The

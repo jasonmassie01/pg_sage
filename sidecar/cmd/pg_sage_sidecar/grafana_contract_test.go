@@ -247,7 +247,7 @@ func TestGrafanaDashboardPassesThePanelRules(t *testing.T) {
 	}
 }
 
-// grafanaUnexportedFamilies are the nine families the v2.6 dashboard
+// grafanaUnexportedFamilies are the nine families the v2.5.0 dashboard
 // queried that no release exported.
 var grafanaUnexportedFamilies = []string{"pg_sage_circuit_breaker_state",
 	"pg_sage_max_connections", "pg_sage_xact_commit_total", "pg_sage_xact_rollback_total",

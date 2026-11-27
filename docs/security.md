@@ -1510,7 +1510,7 @@ or from SQL:
 SELECT sage.emergency_stop(false, 'dba-on-call');
 ```
 
-On a schema older than v2.5.1, where `sage.emergency_stop()` does not exist,
+On a schema older than v2.6.0, where `sage.emergency_stop()` does not exist,
 upsert the flag directly (this writes no audit row):
 
 ```sql
@@ -1521,11 +1521,11 @@ DO UPDATE SET value = EXCLUDED.value, updated_at = now(),
               updated_by = EXCLUDED.updated_by;
 ```
 
-From v2.5.1, bootstrap seeds `emergency_stop = 'false'` (`updated_by =
+From v2.6.0, bootstrap seeds `emergency_stop = 'false'` (`updated_by =
 'bootstrap'`), so a plain
 `UPDATE sage.config SET value = 'true' WHERE key = 'emergency_stop'` stops
 the database. Like the upsert above, it writes no `sage.config_audit` row:
-prefer `sage.emergency_stop()`. On a schema older than v2.5.1 that was never
+prefer `sage.emergency_stop()`. On a schema older than v2.6.0 that was never
 stopped through the UI or API, the plain `UPDATE` matches no row and changes
 nothing.
 

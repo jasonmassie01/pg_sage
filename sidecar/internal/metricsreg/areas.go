@@ -59,26 +59,26 @@ type Retired struct {
 	Release     string
 }
 
-// retired is the v2.7.0 rename release (observability-09).
+// retired is the v2.6.0 rename release (observability-09).
 var retired = []Retired{
 	{Name: "pg_sage_findings_total", Replacement: "pg_sage_findings_open",
-		Note: "per database and severity", Release: "v2.7.0"},
+		Note: "per database and severity", Release: "v2.6.0"},
 	{Name: "pg_sage_collector_last_run_timestamp",
 		Replacement: "pg_sage_collector_last_success_timestamp_seconds",
-		Note:        "per database", Release: "v2.7.0"},
+		Note:        "per database", Release: "v2.6.0"},
 	{Name: "pg_sage_fleet_instance_findings", Replacement: "pg_sage_findings_open",
-		Note: "sum by database", Release: "v2.7.0"},
+		Note: "sum by database", Release: "v2.6.0"},
 	{Name: "pg_sage_fleet_instance_health", Replacement: "pg_sage_database_health_score",
-		Release: "v2.7.0"},
+		Release: "v2.6.0"},
 	{Name: "pg_sage_connections_total", Note: "use postgres_exporter's " +
-		"pg_stat_activity_count", Release: "v2.7.0"},
+		"pg_stat_activity_count", Release: "v2.6.0"},
 	{Name: "pg_sage_cache_hit_ratio", Note: "use postgres_exporter's " +
-		"pg_stat_database_blks_hit and pg_stat_database_blks_read", Release: "v2.7.0"},
+		"pg_stat_database_blks_hit and pg_stat_database_blks_read", Release: "v2.6.0"},
 	{Name: "pg_sage_optimizer_recommendations_total",
 		Replacement: "pg_sage_optimizer_recommendations", Note: "renamed: a gauge, " +
-			"not a counter", Release: "v2.7.0"},
+			"not a counter", Release: "v2.6.0"},
 	{Name: "pg_sage_fleet_findings_total", Replacement: "pg_sage_fleet_findings_open",
-		Note: "renamed: a gauge, not a counter", Release: "v2.7.0"},
+		Note: "renamed: a gauge, not a counter", Release: "v2.6.0"},
 }
 
 // RetiredFamilies returns the removed and renamed families.

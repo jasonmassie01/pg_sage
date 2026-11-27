@@ -83,8 +83,8 @@ retryable. Neon Free did not expose the paid log/metrics export integration.
 pg_sage no longer creates, monitors or deletes Neon or Supabase projects and branches: that
 provisioner was removed in G0. If an earlier version created resources for you, follow the
 decommission runbook in `sidecar/internal/decommission/README.md`, which lists every resource
-it may have created, with a delete template per provider. Governed short-lived branches return
-as sandbox substrates in a later release.
+it may have created, with a delete template per provider. v2.6.0 brings governed short-lived
+Neon branches back as rehearsal clones: see [Branch rehearsal on Neon](#branch-rehearsal-on-neon).
 
 ## Provider advisors
 

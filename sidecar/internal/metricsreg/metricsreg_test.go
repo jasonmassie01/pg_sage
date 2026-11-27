@@ -14,7 +14,7 @@ import (
 func validFamily() Family {
 	return Family{Name: "pg_sage_example_up", Type: Gauge, Area: AreaProcess,
 		Help: "1 when the example is up", Labels: []string{"database"},
-		Modes: AllModes, Since: "v2.7.0"}
+		Modes: AllModes, Since: "v2.6.0"}
 }
 
 // Happy path: the shipped registry satisfies every rule.
@@ -100,12 +100,12 @@ func TestValidateRejectsDuplicatesAndBrokenRetirements(t *testing.T) {
 		want string
 	}{
 		"duplicate": {nil, []Family{f, f}, "registered twice"},
-		"retired but registered": {[]Retired{{Name: f.Name, Note: "x", Release: "v2.7.0"}},
-			[]Family{f}, "retired in v2.7.0 but still registered"},
+		"retired but registered": {[]Retired{{Name: f.Name, Note: "x", Release: "v2.6.0"}},
+			[]Family{f}, "retired in v2.6.0 but still registered"},
 		"unregistered replacement": {[]Retired{{Name: "pg_sage_old",
-			Replacement: "pg_sage_new", Release: "v2.7.0"}}, nil,
+			Replacement: "pg_sage_new", Release: "v2.6.0"}}, nil,
 			"replacement pg_sage_new is not registered"},
-		"no replacement or note": {[]Retired{{Name: "pg_sage_old", Release: "v2.7.0"}},
+		"no replacement or note": {[]Retired{{Name: "pg_sage_old", Release: "v2.6.0"}},
 			nil, "neither a replacement nor a note"},
 		"bad release": {[]Retired{{Name: "pg_sage_old", Note: "x", Release: "soon"}}, nil,
 			`release "soon"`},
@@ -136,7 +136,7 @@ func TestValidateEmptyInputs(t *testing.T) {
 	}
 }
 
-// The v2.7.0 rename release: exactly the removal and rename set the plan
+// The v2.6.0 rename release: exactly the removal and rename set the plan
 // names, each with a registered replacement or a note.
 func TestRetiredListsTheRenameRelease(t *testing.T) {
 	want := map[string]string{
@@ -156,8 +156,8 @@ func TestRetiredListsTheRenameRelease(t *testing.T) {
 	}
 	for _, r := range got {
 		repl, ok := want[r.Name]
-		if !ok || repl != r.Replacement || r.Release != "v2.7.0" {
-			t.Errorf("retired %+v, want replacement %q in v2.7.0 (listed %v)", r, repl, ok)
+		if !ok || repl != r.Replacement || r.Release != "v2.6.0" {
+			t.Errorf("retired %+v, want replacement %q in v2.6.0 (listed %v)", r, repl, ok)
 		}
 		if _, still := Lookup(r.Name); still {
 			t.Errorf("retired %s is still registered", r.Name)

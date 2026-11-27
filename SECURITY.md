@@ -7,8 +7,8 @@ are end-of-life and will not receive patches.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.5.x   | Yes                |
-| < 2.5   | No (EOL)           |
+| 2.6.x   | Yes                |
+| < 2.6   | No (EOL)           |
 
 The C extension (version 0.5.0) was removed from the repository and receives no
 security fixes. Its last source is preserved at the `c-extension-final` tag.

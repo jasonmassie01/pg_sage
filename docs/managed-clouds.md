@@ -240,7 +240,7 @@ approval, its note and a rejection all survive a change of target and a failed l
   the change is proposed anyway (it may then be listed twice) and the failure is logged once.
   A database that already held its own copy before this release keeps refreshing it.
 
-Upgrading from v2.5.1 or earlier recomputes the stored identities once; open proposals keep
+Upgrading from v2.5.0 or earlier recomputes the stored identities once; open proposals keep
 their ids, status and decisions. Duplicates left by earlier outages (the same change open
 twice under different targets) collapse to one, keeping the approved one, else the newest.
 

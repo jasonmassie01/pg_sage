@@ -43,7 +43,7 @@ Login limiter, API TLS certificate and SSO discovery.
 |---|---|---|---|---|---|---|
 | `pg_sage_api_tls_cert_not_after_seconds` | gauge | - | seconds | all | v2.6.0 | Expiry of the API TLS certificate being served, as a Unix time |
 | `pg_sage_api_tls_reload_failures_total` | counter | - | - | all | v2.6.0 | API TLS reloads that failed and kept the current certificate |
-| `pg_sage_login_limiter_saturated_total` | counter | - | - | all | v2.5.2 | Login attempts refused because the login limiter was full of locked keys |
+| `pg_sage_login_limiter_saturated_total` | counter | - | - | all | v2.6.0 | Login attempts refused because the login limiter was full of locked keys |
 | `pg_sage_sso_discovery_failures_total` | counter | - | - | all | v2.6.0 | OIDC discovery attempts that failed since start |
 | `pg_sage_sso_discovery_ready` | gauge | - | - | all | v2.6.0 | 1 when OIDC discovery has succeeded and SSO sign-in can start |
 
@@ -53,22 +53,22 @@ One series per monitored database, from the fleet manager's in-memory status: re
 
 | Metric | Type | Labels | Unit | Modes | Since | Meaning |
 |---|---|---|---|---|---|---|
-| `pg_sage_analyzer_last_success_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | Unix time of the database's last successful findings refresh after analysis |
+| `pg_sage_analyzer_last_success_timestamp_seconds` | gauge | `database` | seconds | all | v2.6.0 | Unix time of the database's last successful findings refresh after analysis |
 | `pg_sage_database_health_score` | gauge | `database` | - | all | v2.6.0 | Database health score, 0-100 (0 while disconnected or in error) |
 | `pg_sage_database_size_bytes` | gauge | `database` | bytes | all | v0.1.0 | Database size from the collector's last snapshot |
 | `pg_sage_database_up` | gauge | `database` | - | all | v2.6.0 | 1 if the monitored database is connected and its last status refresh succeeded |
 | `pg_sage_emergency_stopped` | gauge | `database` | - | all | v2.6.0 | 1 while the database's emergency stop holds (its own or the fleet-wide stop) |
 | `pg_sage_findings_open` | gauge | `database`, `severity` | - | all | v2.6.0 | Open findings by database and severity |
 | `pg_sage_first_look_duration_seconds` | gauge | `database` | seconds | all | v2.1.0 | Duration of the first look |
-| `pg_sage_first_look_findings` | gauge | `database` | - | all | v2.7.0 | Findings in the catalog-only first look: warning or critical catalog items, without setup or posture notes |
+| `pg_sage_first_look_findings` | gauge | `database` | - | all | v2.6.0 | Findings in the catalog-only first look: warning or critical catalog items, without setup or posture notes |
 | `pg_sage_first_look_items` | gauge | `database` | - | all | v2.1.0 | Items in the catalog-only first look (findings, setup and posture notes) |
 | `pg_sage_time_to_first_finding_seconds` | gauge | `database` | seconds | all | v2.1.0 | Seconds from start to the first finding (first look or analyzer) |
-| `pg_sage_setup_within_hour_ratio` | gauge | `part` | - | all | v2.8.0 | Share of new installs this process monitors whose model (part=model) or notification channel (part=channel) was set within one hour of install |
-| `pg_sage_review_first_grade_seconds` | gauge | `database` | seconds | all | v2.8.0 | Seconds from the database's registration to its first Sage Review grade |
-| `pg_sage_review_trigger_fire_errors_total` | counter | `kind` | - | all | v2.8.0 | Sage Review trigger inserts that failed, by trigger kind |
-| `pg_sage_review_runs_total` | counter | `cause` | - | all | v2.8.0 | Sage Review runs the trigger queue started, by cause (event or calendar) |
+| `pg_sage_setup_within_hour_ratio` | gauge | `part` | - | all | v2.6.0 | Share of new installs this process monitors whose model (part=model) or notification channel (part=channel) was set within one hour of install |
+| `pg_sage_review_first_grade_seconds` | gauge | `database` | seconds | all | v2.6.0 | Seconds from the database's registration to its first Sage Review grade |
+| `pg_sage_review_trigger_fire_errors_total` | counter | `kind` | - | all | v2.6.0 | Sage Review trigger inserts that failed, by trigger kind |
+| `pg_sage_review_runs_total` | counter | `cause` | - | all | v2.6.0 | Sage Review runs the trigger queue started, by cause (event or calendar) |
 | `pg_sage_trust_level` | gauge | `database`, `level` | - | all | v2.6.0 | Effective trust level of the database (one-hot) |
-| `pg_sage_schema_deferred_indexes` | gauge | `database`, `state` | - | all | v2.7.0 | Large sage indexes the background builder has still to build, by state (missing, building, invalid); 0 once all are built |
+| `pg_sage_schema_deferred_indexes` | gauge | `database`, `state` | - | all | v2.6.0 | Large sage indexes the background builder has still to build, by state (missing, building, invalid); 0 once all are built |
 
 ## Collector
 
@@ -76,17 +76,17 @@ The collector's breaker, freshness and failures per database.
 
 | Metric | Type | Labels | Unit | Modes | Since | Meaning |
 |---|---|---|---|---|---|---|
-| `pg_sage_collector_breaker_skips_total` | counter | `database`, `reason` | - | all | v2.7.0 | Collector cycles skipped by the breaker, by reason (load, load_query_error) |
+| `pg_sage_collector_breaker_skips_total` | counter | `database`, `reason` | - | all | v2.6.0 | Collector cycles skipped by the breaker, by reason (load, load_query_error) |
 | `pg_sage_collector_breaker_state` | gauge | `database` | - | all | v2.6.0 | Collector circuit breaker (0=closed, 1=skipping, 2=dormant) |
-| `pg_sage_query_rollup_hours_total` | counter | `database`, `result` | - | all | v2.8.0 | Hours the hourly per-query rollup rolled, by result (ok, empty: no queries snapshot in the hour, failed) |
-| `pg_sage_query_rollup_lag_hours` | gauge | `database` | hours | all | v2.8.0 | Closed hours the hourly per-query rollup has not rolled yet (0: caught up) |
-| `pg_sage_workload_pack_builds_total` | counter | `database`, `result` | - | all | v2.8.0 | Workload evidence pack builds, by result (built, reused: the window's data was already stored, too_large, failed) |
-| `pg_sage_workload_pack_bytes` | gauge | `database` | bytes | all | v2.8.0 | Stored bytes of the last workload evidence pack built or reused |
-| `pg_sage_collector_category_unavailable` | gauge | `database`, `category` | - | all | v2.7.0 | Category the latest snapshot could not read |
-| `pg_sage_collector_last_success_timestamp` | gauge | `database` | seconds | all | v2.7.0 | Last collected snapshot (unix seconds) |
-| `pg_sage_collector_last_success_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | Unix time of the database's last completed collector snapshot |
-| `pg_sage_collector_persist_failures_total` | counter | `database` | - | all | v2.7.0 | Snapshots that could not be stored in sage.snapshots |
-| `pg_sage_collector_query_store_failures_total` | counter | `database` | - | all | v2.7.0 | Failed sage.query_store writes |
+| `pg_sage_query_rollup_hours_total` | counter | `database`, `result` | - | all | v2.6.0 | Hours the hourly per-query rollup rolled, by result (ok, empty: no queries snapshot in the hour, failed) |
+| `pg_sage_query_rollup_lag_hours` | gauge | `database` | hours | all | v2.6.0 | Closed hours the hourly per-query rollup has not rolled yet (0: caught up) |
+| `pg_sage_workload_pack_builds_total` | counter | `database`, `result` | - | all | v2.6.0 | Workload evidence pack builds, by result (built, reused: the window's data was already stored, too_large, failed) |
+| `pg_sage_workload_pack_bytes` | gauge | `database` | bytes | all | v2.6.0 | Stored bytes of the last workload evidence pack built or reused |
+| `pg_sage_collector_category_unavailable` | gauge | `database`, `category` | - | all | v2.6.0 | Category the latest snapshot could not read |
+| `pg_sage_collector_last_success_timestamp` | gauge | `database` | seconds | all | v2.6.0 | Last collected snapshot (unix seconds) |
+| `pg_sage_collector_last_success_timestamp_seconds` | gauge | `database` | seconds | all | v2.6.0 | Unix time of the database's last completed collector snapshot |
+| `pg_sage_collector_persist_failures_total` | counter | `database` | - | all | v2.6.0 | Snapshots that could not be stored in sage.snapshots |
+| `pg_sage_collector_query_store_failures_total` | counter | `database` | - | all | v2.6.0 | Failed sage.query_store writes |
 
 ## Fleet
 
@@ -94,11 +94,11 @@ Fleet totals and the fleet LLM token budget per database.
 
 | Metric | Type | Labels | Unit | Modes | Since | Meaning |
 |---|---|---|---|---|---|---|
-| `pg_sage_fleet_enroll_seconds` | gauge | `set`, `quantile` | seconds | meta only | v2.8.0 | Seconds from a discovered database's creation (the provider's time, else first seen) to its enrollment, by policy set, at the 0.5 and 0.95 quantiles over the last 30 days |
-| `pg_sage_fleet_baseline_24h_ratio` | gauge | `set` | ratio | meta only | v2.8.0 | Share of a policy set's enrolled members, past their first 24 hours, that reached the set's grade baseline within 24 hours of enrollment |
+| `pg_sage_fleet_enroll_seconds` | gauge | `set`, `quantile` | seconds | meta only | v2.6.0 | Seconds from a discovered database's creation (the provider's time, else first seen) to its enrollment, by policy set, at the 0.5 and 0.95 quantiles over the last 30 days |
+| `pg_sage_fleet_baseline_24h_ratio` | gauge | `set` | ratio | meta only | v2.6.0 | Share of a policy set's enrolled members, past their first 24 hours, that reached the set's grade baseline within 24 hours of enrollment |
 | `pg_sage_fleet_databases` | gauge | - | - | all | v0.8.3 | Total fleet databases |
 | `pg_sage_fleet_findings_critical` | gauge | - | - | all | v0.8.3 | Total critical findings |
-| `pg_sage_fleet_findings_open` | gauge | - | - | all | v2.7.0 | Open findings across every database |
+| `pg_sage_fleet_findings_open` | gauge | - | - | all | v2.6.0 | Open findings across every database |
 | `pg_sage_fleet_healthy` | gauge | - | - | all | v0.8.3 | Healthy databases |
 | `pg_sage_llm_fleet_budget_allocation_tokens` | gauge | `database` | tokens | all | v1.6.0 | Fleet LLM daily token allocation per database |
 | `pg_sage_llm_fleet_budget_used_tokens` | gauge | `database` | tokens | all | v1.6.0 | Fleet LLM tokens used today per database |
@@ -111,10 +111,10 @@ Every LLM client's calls, latency, tokens, state and daily token use, by client 
 |---|---|---|---|---|---|---|
 | `pg_sage_llm_circuit_open` | gauge | `client`, `database` | - | all | v0.7.0 | LLM circuit breaker refusing requests (1) or not (0) |
 | `pg_sage_llm_enabled` | gauge | `client`, `database` | - | all | v0.7.0 | LLM client enabled (1) or not (0) |
-| `pg_sage_llm_request_duration_seconds` | histogram | `client`, `database` | seconds | all | v2.7.0 | LLM call duration for results ok, error, timeout, rate_limited and empty (budget and breaker refusals and cancellations are not timed) |
-| `pg_sage_llm_requests_total` | counter | `client`, `database`, `result` | - | all | v2.7.0 | LLM calls since start by client, database and result (ok, error, timeout, rate_limited, budget_refused, circuit_open, empty, cancelled) |
+| `pg_sage_llm_request_duration_seconds` | histogram | `client`, `database` | seconds | all | v2.6.0 | LLM call duration for results ok, error, timeout, rate_limited and empty (budget and breaker refusals and cancellations are not timed) |
+| `pg_sage_llm_requests_total` | counter | `client`, `database`, `result` | - | all | v2.6.0 | LLM calls since start by client, database and result (ok, error, timeout, rate_limited, budget_refused, circuit_open, empty, cancelled) |
 | `pg_sage_llm_tokens_budget_daily` | gauge | `client`, `database` | tokens | all | v0.7.0 | Configured daily LLM token budget (0 is unlimited) |
-| `pg_sage_llm_tokens_total` | counter | `client`, `database`, `purpose`, `kind` | tokens | all | v2.7.0 | LLM tokens charged since start by purpose and kind (prompt, completion, unattributed: estimated or not split by the provider); the spend signal |
+| `pg_sage_llm_tokens_total` | counter | `client`, `database`, `purpose`, `kind` | tokens | all | v2.6.0 | LLM tokens charged since start by purpose and kind (prompt, completion, unattributed: estimated or not split by the provider); the spend signal |
 | `pg_sage_llm_tokens_used_today` | gauge | `client`, `database` | tokens | all | v0.7.0 | LLM tokens charged today (UTC day) |
 
 ## Optimizer and tuning agent
@@ -125,7 +125,7 @@ Index recommendations, rejection memory and the tuning agent's per-cycle budget.
 |---|---|---|---|---|---|---|
 | `pg_sage_optimizer_enabled` | gauge | - | - | all | v0.7.0 | Optimizer v2 enabled with a configured LLM |
 | `pg_sage_optimizer_llm_calls_skipped_total` | counter | `database` | - | all | v1.9.0 | Tuning agent model calls skipped because the case's recent answers were all wasted and it has not changed |
-| `pg_sage_optimizer_recommendations` | gauge | `category` | - | standalone only | v2.7.0 | Open index recommendations by category (standalone) |
+| `pg_sage_optimizer_recommendations` | gauge | `category` | - | standalone only | v2.6.0 | Open index recommendations by category (standalone) |
 | `pg_sage_optimizer_whatif_skipped_total` | counter | `database` | - | all | v1.9.0 | HypoPG what-if evaluations index admission skipped because the same idea was already measured and rejected |
 | `pg_sage_tuning_budget_day_tokens_limit` | gauge | `database` | tokens | all | v2.1.0 | The tuning agent's daily token cap (0 = none) |
 | `pg_sage_tuning_budget_day_tokens_used` | gauge | `database` | tokens | all | v2.1.0 | Model tokens the tuning agent charged today (UTC), kept across restarts |
@@ -143,20 +143,20 @@ Action outcomes, pending approvals, verification verdicts, policy parks and shad
 
 | Metric | Type | Labels | Unit | Modes | Since | Meaning |
 |---|---|---|---|---|---|---|
-| `pg_sage_action_last_failure_timestamp_seconds` | gauge | `database` | seconds | all | v2.7.0 | When the latest failed action was recorded (no sample: none has failed) |
-| `pg_sage_inbox_items` | gauge | `kind` | - | all | v2.8.0 | Decisions waiting on a person by kind at the last complete fleet-wide inbox read (no sample before one; a read that missed a source is not recorded) |
-| `pg_sage_outcomes_measured_ratio` | gauge | `database` | - | all | v2.8.0 | Share of the last 24 hours' changes with a measured effect, per database, at the last complete outcome ledger read of that window (no sample before one, or when the window has no changes) |
-| `pg_sage_inbox_decision_seconds` | histogram | `kind`, `decided_from` | seconds | all | v2.8.0 | Time from approval needed to decision, by inbox kind and the surface the decision came from (X-Sage-Surface: inbox, page, chat, api, cli) |
-| `pg_sage_plan_approvals_total` | counter | `mode` | - | all | v2.8.0 | New plan approvals by the mode stored (all, up_to, step) since the process started; all and up_to approve multi-step work once |
-| `pg_sage_actions_pending_approval` | gauge | `database`, `risk` | - | all | v2.7.0 | Pending approvals a person can act on now (past cooldown, not expired), by risk |
-| `pg_sage_actions_total` | counter | `database`, `class`, `outcome` | - | all | v2.7.0 | Actions that ended, by change class and outcome (success, failed, rolled_back, cancelled, unverifiable, other) |
-| `pg_sage_owner_brief_present` | gauge | `database` | - | all | v2.7.0 | 1 when the database has a confirmed owner brief (owner, peak windows, growth), else 0 |
-| `pg_sage_owner_brief_steps` | gauge | `database`, `period`, `outcome` | - | all | v2.7.0 | Accepted (approved or executed) and rejected queued actions since the owner brief was confirmed (after) and in as long before it (before); without a brief the split is 30 days ago |
+| `pg_sage_action_last_failure_timestamp_seconds` | gauge | `database` | seconds | all | v2.6.0 | When the latest failed action was recorded (no sample: none has failed) |
+| `pg_sage_inbox_items` | gauge | `kind` | - | all | v2.6.0 | Decisions waiting on a person by kind at the last complete fleet-wide inbox read (no sample before one; a read that missed a source is not recorded) |
+| `pg_sage_outcomes_measured_ratio` | gauge | `database` | - | all | v2.6.0 | Share of the last 24 hours' changes with a measured effect, per database, at the last complete outcome ledger read of that window (no sample before one, or when the window has no changes) |
+| `pg_sage_inbox_decision_seconds` | histogram | `kind`, `decided_from` | seconds | all | v2.6.0 | Time from approval needed to decision, by inbox kind and the surface the decision came from (X-Sage-Surface: inbox, page, chat, api, cli) |
+| `pg_sage_plan_approvals_total` | counter | `mode` | - | all | v2.6.0 | New plan approvals by the mode stored (all, up_to, step) since the process started; all and up_to approve multi-step work once |
+| `pg_sage_actions_pending_approval` | gauge | `database`, `risk` | - | all | v2.6.0 | Pending approvals a person can act on now (past cooldown, not expired), by risk |
+| `pg_sage_actions_total` | counter | `database`, `class`, `outcome` | - | all | v2.6.0 | Actions that ended, by change class and outcome (success, failed, rolled_back, cancelled, unverifiable, other) |
+| `pg_sage_owner_brief_present` | gauge | `database` | - | all | v2.6.0 | 1 when the database has a confirmed owner brief (owner, peak windows, growth), else 0 |
+| `pg_sage_owner_brief_steps` | gauge | `database`, `period`, `outcome` | - | all | v2.6.0 | Accepted (approved or executed) and rejected queued actions since the owner brief was confirmed (after) and in as long before it (before); without a brief the split is 30 days ago |
 | `pg_sage_policy_parks_total` | counter | `database`, `reason` | - | all | v2.2.0 | Self-initiated changes the policy gate parked, by reason (one per evaluation) |
-| `pg_sage_policy_record_failures_total` | counter | `database`, `reason` | - | all | v2.5.1 | Policy gate decisions that could not be recorded in the decision ledger, by decision reason |
+| `pg_sage_policy_record_failures_total` | counter | `database`, `reason` | - | all | v2.6.0 | Policy gate decisions that could not be recorded in the decision ledger, by decision reason |
 | `pg_sage_shadow_decisions_total` | counter | `database`, `class`, `verdict` | - | all | v1.9.0 | Shadow decisions recorded below an action class's earned trust level, by the gate's verdict had it been trusted |
 | `pg_sage_shadow_scores_total` | counter | `database`, `class`, `score`, `source` | - | all | v1.9.0 | Shadow decisions scored, by score and evidence source |
-| `pg_sage_verification_verdicts_total` | counter | `database`, `class`, `verdict` | - | all | v2.7.0 | Verifications finalized, by change class and verdict (success, revert, unverifiable, failed, other) |
+| `pg_sage_verification_verdicts_total` | counter | `database`, `class`, `verdict` | - | all | v2.6.0 | Verifications finalized, by change class and verdict (success, revert, unverifiable, failed, other) |
 | `pg_sage_verification_wait_releases_total` | counter | `database`, `cause` | - | all | v2.2.0 | Verification waits that ended without a verdict, by cause (operator_override, hard_deadline) |
 
 ## Value
@@ -185,9 +185,9 @@ Probe slot queueing and the investigation backlog.
 
 | Metric | Type | Labels | Unit | Modes | Since | Meaning |
 |---|---|---|---|---|---|---|
-| `pg_sage_sre_investigation_oldest_open_age_seconds` | gauge | `database` | seconds | all | v2.7.0 | Age of the oldest live Sage SRE investigation (0 when none is live) |
-| `pg_sage_sre_investigations` | gauge | `database`, `state` | - | all | v2.7.0 | Sage SRE investigations by state: every live one, and terminal ones updated in the past 24 hours |
-| `pg_sage_sre_probe_queue_wait_seconds` | summary | `database`, `caller`, `limiter` | seconds | all | v2.7.0 | Time Sage SRE probes waited for a probe slot, by caller class and limiter |
+| `pg_sage_sre_investigation_oldest_open_age_seconds` | gauge | `database` | seconds | all | v2.6.0 | Age of the oldest live Sage SRE investigation (0 when none is live) |
+| `pg_sage_sre_investigations` | gauge | `database`, `state` | - | all | v2.6.0 | Sage SRE investigations by state: every live one, and terminal ones updated in the past 24 hours |
+| `pg_sage_sre_probe_queue_wait_seconds` | summary | `database`, `caller`, `limiter` | seconds | all | v2.6.0 | Time Sage SRE probes waited for a probe slot, by caller class and limiter |
 | `pg_sage_sre_probe_refusals_total` | counter | `database`, `caller`, `limiter` | - | all | v2.6.0 | Sage SRE probes refused a probe slot within the queue wait (never run), by caller class and limiter |
 
 ## Self cost and budget
@@ -201,14 +201,14 @@ What pg_sage itself costs each database and the process, against its declared bu
 | `pg_sage_self_budget` | gauge | `resource` | - | all | v2.2.0 | pg_sage's declared budget for itself (self_budget) |
 | `pg_sage_self_budget_database` | gauge | `database`, `resource` | - | all | v2.6.0 | Budget a database inherits from analyzer.self_cost_budget_ms at its own collector period |
 | `pg_sage_self_budget_exceeded` | gauge | `database`, `resource` | - | all | v2.2.0 | 1 when pg_sage used more than its budget of the resource |
-| `pg_sage_self_component_db_time_ms_per_hour` | gauge | `database`, `component` | milliseconds | all | v2.7.0 | Database time of pg_sage's own statements per hour by the component their tag names (ms) |
+| `pg_sage_self_component_db_time_ms_per_hour` | gauge | `database`, `component` | milliseconds | all | v2.6.0 | Database time of pg_sage's own statements per hour by the component their tag names (ms) |
 | `pg_sage_self_cpu_ms_per_cycle` | gauge | - | milliseconds | all | v2.2.0 | CPU time of the pg_sage process per collector cycle (ms) |
 | `pg_sage_self_db_time_budget_ms` | gauge | - | milliseconds | all | v1.8.3 | analyzer.self_cost_budget_ms |
 | `pg_sage_self_db_time_ms_per_cycle` | gauge | `database` | milliseconds | all | v1.8.3 | Database time of pg_sage's own statements per collector cycle (ms, from pg_stat_statements) |
 | `pg_sage_self_db_time_ms_per_hour` | gauge | `database` | milliseconds | all | v2.2.0 | Database time of pg_sage's own statements per hour (ms) |
 | `pg_sage_self_loop_busy_seconds_total` | counter | `loop`, `database` | seconds | all | v2.2.0 | Wall time pg_sage's periodic loops spent working, LLM waits excluded (loop="llm_wait" is the wait) |
-| `pg_sage_self_loop_errors_total` | counter | `loop`, `database` | - | all | v2.7.0 | Runs of pg_sage's periodic loops that failed or produced nothing |
-| `pg_sage_self_loop_last_success_timestamp_seconds` | gauge | `loop`, `database` | seconds | all | v2.7.0 | Unix time the loop's last successful run ended |
+| `pg_sage_self_loop_errors_total` | counter | `loop`, `database` | - | all | v2.6.0 | Runs of pg_sage's periodic loops that failed or produced nothing |
+| `pg_sage_self_loop_last_success_timestamp_seconds` | gauge | `loop`, `database` | seconds | all | v2.6.0 | Unix time the loop's last successful run ended |
 | `pg_sage_self_loop_runs_total` | counter | `loop`, `database` | - | all | v2.2.0 | Runs of pg_sage's periodic loops |
 | `pg_sage_self_rows_read_per_cycle` | gauge | `database` | - | all | v1.8.3 | Rows pg_sage read from its sage tables per collector cycle |
 | `pg_sage_self_rows_written_per_cycle` | gauge | `database` | - | all | v1.8.3 | Rows pg_sage inserted, updated or deleted in its sage tables per collector cycle |
@@ -221,16 +221,16 @@ Log watcher, pgaudit, audit chain verification and SIEM export (fleet leader onl
 
 | Metric | Type | Labels | Unit | Modes | Since | Meaning |
 |---|---|---|---|---|---|---|
-| `pg_sage_audit_chain_ok` | gauge | `database`, `chain` | - | all | v2.7.0 | 1 if the audit chain's last scheduled verification found no problem, 0 if it fails verification |
-| `pg_sage_audit_chain_problems` | gauge | `database`, `chain`, `kind` | - | all | v2.7.0 | Problems the audit chain's last verification reported, by kind (a failing chain only) |
-| `pg_sage_audit_chain_verified_timestamp_seconds` | gauge | `database`, `chain` | seconds | all | v2.7.0 | Unix time of the audit chain's last finished verification |
-| `pg_sage_audit_chain_verify_errors_total` | counter | `database` | - | all | v2.7.0 | Scheduled audit chain verifications that failed before they finished (the chains keep their previous result) |
-| `pg_sage_siem_consecutive_failures` | gauge | `sink` | - | all | v2.7.0 | Failed export passes of the SIEM sink in a row (0 after a clean pass) |
-| `pg_sage_siem_delivered_total` | counter | `sink` | - | all | v2.7.0 | Audit events the SIEM sink confirmed since the exporter started |
-| `pg_sage_siem_lag_links` | gauge | `sink`, `source`, `chain` | - | all | v2.7.0 | Audit chain links not yet exported to the SIEM sink: chain head minus the sink's cursor |
+| `pg_sage_audit_chain_ok` | gauge | `database`, `chain` | - | all | v2.6.0 | 1 if the audit chain's last scheduled verification found no problem, 0 if it fails verification |
+| `pg_sage_audit_chain_problems` | gauge | `database`, `chain`, `kind` | - | all | v2.6.0 | Problems the audit chain's last verification reported, by kind (a failing chain only) |
+| `pg_sage_audit_chain_verified_timestamp_seconds` | gauge | `database`, `chain` | seconds | all | v2.6.0 | Unix time of the audit chain's last finished verification |
+| `pg_sage_audit_chain_verify_errors_total` | counter | `database` | - | all | v2.6.0 | Scheduled audit chain verifications that failed before they finished (the chains keep their previous result) |
+| `pg_sage_siem_consecutive_failures` | gauge | `sink` | - | all | v2.6.0 | Failed export passes of the SIEM sink in a row (0 after a clean pass) |
+| `pg_sage_siem_delivered_total` | counter | `sink` | - | all | v2.6.0 | Audit events the SIEM sink confirmed since the exporter started |
+| `pg_sage_siem_lag_links` | gauge | `sink`, `source`, `chain` | - | all | v2.6.0 | Audit chain links not yet exported to the SIEM sink: chain head minus the sink's cursor |
 | `pg_sage_ask_answers_total` | counter | `database`, `status`, `stop` | - | all | v2.6.0 | Ask Sage answers by status and the reason the run stopped |
-| `pg_sage_ask_runs_active` | gauge | `database` | - | all | v2.7.0 | Asynchronous Ask Sage runs in progress on this sidecar |
-| `pg_sage_ask_runs_total` | counter | `database`, `state` | - | all | v2.7.0 | Asynchronous Ask Sage runs that ended, by terminal state |
+| `pg_sage_ask_runs_active` | gauge | `database` | - | all | v2.6.0 | Asynchronous Ask Sage runs in progress on this sidecar |
+| `pg_sage_ask_runs_total` | counter | `database`, `state` | - | all | v2.6.0 | Asynchronous Ask Sage runs that ended, by terminal state |
 | `pg_sage_logwatch_dropped_lines_total` | counter | `cluster`, `reason` | - | all | v2.6.0 | PostgreSQL log lines the log watcher dropped before classification, by cluster and reason (queue_overflow, classifier_cap, oversized_record) |
 | `pg_sage_migration_enrich_dropped_total` | counter | `database` | - | all | v2.6.0 | Migration model requests dropped because the database's enrichment queue was full |
 | `pg_sage_pgaudit_records_total` | counter | `database`, `outcome` | - | all | v2.6.0 | pgaudit records pg_sage read, by outcome (stored, dropped, evicted, requeued, unmatched) |
@@ -243,14 +243,14 @@ These names are no longer exported. Update dashboards and alerts to the replacem
 
 | Old name | Use instead | Note | Release |
 |---|---|---|---|
-| `pg_sage_findings_total` | `pg_sage_findings_open` | per database and severity | v2.7.0 |
-| `pg_sage_collector_last_run_timestamp` | `pg_sage_collector_last_success_timestamp_seconds` | per database | v2.7.0 |
-| `pg_sage_fleet_instance_findings` | `pg_sage_findings_open` | sum by database | v2.7.0 |
-| `pg_sage_fleet_instance_health` | `pg_sage_database_health_score` | - | v2.7.0 |
-| `pg_sage_connections_total` | - | use postgres_exporter's pg_stat_activity_count | v2.7.0 |
-| `pg_sage_cache_hit_ratio` | - | use postgres_exporter's pg_stat_database_blks_hit and pg_stat_database_blks_read | v2.7.0 |
-| `pg_sage_optimizer_recommendations_total` | `pg_sage_optimizer_recommendations` | renamed: a gauge, not a counter | v2.7.0 |
-| `pg_sage_fleet_findings_total` | `pg_sage_fleet_findings_open` | renamed: a gauge, not a counter | v2.7.0 |
+| `pg_sage_findings_total` | `pg_sage_findings_open` | per database and severity | v2.6.0 |
+| `pg_sage_collector_last_run_timestamp` | `pg_sage_collector_last_success_timestamp_seconds` | per database | v2.6.0 |
+| `pg_sage_fleet_instance_findings` | `pg_sage_findings_open` | sum by database | v2.6.0 |
+| `pg_sage_fleet_instance_health` | `pg_sage_database_health_score` | - | v2.6.0 |
+| `pg_sage_connections_total` | - | use postgres_exporter's pg_stat_activity_count | v2.6.0 |
+| `pg_sage_cache_hit_ratio` | - | use postgres_exporter's pg_stat_database_blks_hit and pg_stat_database_blks_read | v2.6.0 |
+| `pg_sage_optimizer_recommendations_total` | `pg_sage_optimizer_recommendations` | renamed: a gauge, not a counter | v2.6.0 |
+| `pg_sage_fleet_findings_total` | `pg_sage_fleet_findings_open` | renamed: a gauge, not a counter | v2.6.0 |
 
 <!-- metrics-renames:end -->
 

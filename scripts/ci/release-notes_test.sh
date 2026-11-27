@@ -61,8 +61,9 @@ expect_stdout() {
   fi
 }
 
-# The shape of the real CHANGELOG: intro, per-release subsections of
-# [Unreleased], each starting with its upgrade notes, then released sections.
+# A CHANGELOG that plans several releases under [Unreleased]: intro,
+# per-release subsections, each starting with its upgrade notes, then
+# released sections. The versions are examples.
 unreleased_shape() {
   cat <<'EOF'
 # Changelog
@@ -233,20 +234,26 @@ expect 1 'has no "## v2\.6\.0" section' "an empty CHANGELOG fails a stable tag" 
 expect 1 'no release notes for v2\.6\.0-rc\.1' "an empty CHANGELOG fails a release candidate" \
   -- bash "$script" v2.6.0-rc.1 "$file"
 
-# The repository's CHANGELOG: v2.5.1 is still a subsection of [Unreleased],
-# so its candidate gets the [Unreleased] notes and its stable tag waits for
-# release-split.
-expect 1 'has no "## v2\.5\.1" section' \
-  "the repository CHANGELOG has no stable v2.5.1 section yet" \
-  -- bash "$script" v2.5.1 "$repo_changelog"
+# The repository's CHANGELOG: v2.6.0 has its stable section, so the tag and
+# its candidates get the same notes, which hold no other "## " section and
+# fit GitHub's release body limit of 125,000 characters.
+stable_out="$scratch/stable-out"
 rc_out="$scratch/rc-out"
-if bash "$script" v2.5.1-rc.1 "$repo_changelog" >"$rc_out" 2>&1 \
-  && head -1 "$rc_out" | grep -q '^These changes are planned as five releases' \
-  && grep -qx '### v2.5.1 (tranche T0a, safety)' "$rc_out" \
-  && ! grep -q '^## ' "$rc_out"; then
-  echo "ok   the repository CHANGELOG gives v2.5.1-rc.1 the [Unreleased] notes"
+if bash "$script" v2.6.0 "$repo_changelog" >"$stable_out" 2>&1 \
+  && bash "$script" v2.6.0-rc.1 "$repo_changelog" >"$rc_out" 2>&1 \
+  && [[ -s $stable_out ]] && cmp -s "$stable_out" "$rc_out" \
+  && ! grep -q '^## ' "$stable_out"; then
+  echo "ok   the repository CHANGELOG gives v2.6.0 and v2.6.0-rc.1 the v2.6.0 notes"
+  chars=$(LC_ALL=C.UTF-8 wc -m <"$stable_out")
+  if [[ $chars -le 125000 ]]; then
+    echo "ok   the repository CHANGELOG v2.6.0 notes fit a release body ($chars characters)"
+  else
+    echo "FAIL the repository CHANGELOG v2.6.0 notes are $chars characters," \
+      "over GitHub's 125,000" >&2
+    failures=$((failures + 1))
+  fi
 else
-  echo "FAIL the repository CHANGELOG v2.5.1-rc.1 notes: $(head -5 "$rc_out")" >&2
+  echo "FAIL the repository CHANGELOG v2.6.0 notes: $(head -5 "$stable_out")" >&2
   failures=$((failures + 1))
 fi
 

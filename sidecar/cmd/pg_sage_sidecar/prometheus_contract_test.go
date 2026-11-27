@@ -21,7 +21,7 @@ import (
 // is covered by their own packages' tests.
 
 // legacyTotalGauges are the gauges that still carry the counter suffix.
-// observability-09 renamed or removed the others in v2.7.0, and no new
+// observability-09 renamed or removed the others in v2.6.0, and no new
 // gauge may join. pg_sage_incidents_avoided_total is no new family: it
 // shipped as a counter and earned-09 made it a gauge (a rollback voids
 // credit, and a falling counter reads as a reset) without renaming it.

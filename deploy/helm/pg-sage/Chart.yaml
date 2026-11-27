@@ -4,8 +4,8 @@ description: pg_sage, the agentic DBA sidecar for PostgreSQL, with an optional C
 type: application
 # The chart version and appVersion follow the pg_sage release: the release
 # job packages the chart with --version and --app-version set to the tag.
-version: 2.5.0
-appVersion: "2.5.0"
+version: 2.6.0
+appVersion: "2.6.0"
 home: https://github.com/jasonmassie01/pg_sage
 sources:
   - https://github.com/jasonmassie01/pg_sage

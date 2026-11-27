@@ -548,7 +548,7 @@ restores a default: `analyzer.inactive_slot_min_minutes`, `analyzer.slow_slot_re
 `safety.vacuum_stall_minutes`, `schema_lint.min_table_rows`, `migration.ddl_row_threshold`,
 `migration.queue_waiters_threshold` and `trust.cascade_cooldown_cycles`.
 
-Ranges that changed in tranche T4 (config-02b), where the file and the API used to disagree:
+Ranges that changed in v2.6.0 (config-02b), where the file and the API used to disagree:
 
 - The config file now refuses what the API already refused: `0` (and negatives) for every
   `int_pos` key without `zero:"default"` (for example `llm.timeout_seconds`,
@@ -608,7 +608,7 @@ would produce an invalid configuration answers `400` with the key.
 | `analyzer.seq_scan_min_rows` | `100000` | Smallest table whose sequential scans are reported. `1`-`1073741824` |
 | `analyzer.disabled_rules` | empty | Analyzer rules or categories to switch off; see [Rule packs and owner checks](#rule-packs-and-owner-checks). Settable through the configuration API (comma-separated): a per-database override applies on the next cycle; a global change is persisted and waits for a restart (the response lists it in `pending_restart`) |
 | `analyzer.slow_query_min_calls` | `5` | Fewest calls a statement must make between two collector snapshots before `slow_query` and `query_regression` judge its interval mean (the time it added in the interval over the calls it added). Below the floor the interval is not evidence either way: an open finding for the statement stays open (an idle or quiet minute is not a recovery), except for a statement that has made fewer calls than the floor in total, whose finding resolves. `0` uses the default; negative values are rejected. Restart to change |
-| `prometheus.listen_addr` | `127.0.0.1:8187` | Address (`host:port`) of the separate, unauthenticated `/metrics` listener. `""` opens none. A value that is not `host:port` with a port up to 65535 is refused at load. The listener binds at startup; if it cannot (the default was 9187, postgres_exporter's, before v2.7.0), pg_sage logs an ERROR naming the remedies, keeps running, and exports `pg_sage_metrics_listener_up 0` (served on the API route when `serve_on_api` is on). `SAGE_PROMETHEUS_ADDR` replaces it; `SAGE_PROMETHEUS_PORT` replaces only the port. No TLS: use `serve_on_api` for TLS. Requires restart |
+| `prometheus.listen_addr` | `127.0.0.1:8187` | Address (`host:port`) of the separate, unauthenticated `/metrics` listener. `""` opens none. A value that is not `host:port` with a port up to 65535 is refused at load. The listener binds at startup; if it cannot (the default was 9187, postgres_exporter's, before v2.6.0), pg_sage logs an ERROR naming the remedies, keeps running, and exports `pg_sage_metrics_listener_up 0` (served on the API route when `serve_on_api` is on). `SAGE_PROMETHEUS_ADDR` replaces it; `SAGE_PROMETHEUS_PORT` replaces only the port. No TLS: use `serve_on_api` for TLS. Requires restart |
 | `prometheus.serve_on_api` | `false` | Also serve `GET /metrics` on the API listener, with the API's TLS and rate limit. A scrape needs `Authorization: Bearer` with a token holding the `metrics` scope ([scrape tokens](deployment.md#scraping-through-the-api-listener)); in a Databricks App, the platform identity of any pg_sage role instead. 401 without a valid token, 403 for a token lacking the scope; refusals carry no metric names. Needs a control database (startup refuses without one). The same snapshot is served, so a scrape adds no database load. Requires restart |
 | `prometheus.refresh_interval_seconds` | `0` (30 s) | Seconds between re-reads of each database's `/metrics` values (value ledger, action counts, SLO state, the Sage SRE backlog and, in standalone, optimizer counts). Scrapes never query a database: they render the last refresh, so values can be up to one interval old. `0` means 30; a value below `collector.interval_seconds` is raised to it. Negative is rejected. Requires restart |
 | `analyzer.self_cost_budget_ms` | `3000` | Raise a `sage_self_cost` finding when pg_sage's own statements (the `pg_stat_statements` entries carrying the `/* pg_sage */` tag after their first keyword) use more than this many milliseconds of database time per collector cycle, measured over each analyzer cycle. `0` disables the finding; the `pg_sage_self_*` Prometheus metrics are exported either way. `0`-`3600000` |
@@ -1295,7 +1295,7 @@ The soft-drop restore runs under its own typed contract:
   in its `CONCURRENTLY` form, as the action's `rollback_sql`; the monitor and the operator's
   rollback button run that statement. A restore that differs from it byte for byte, or
   re-creates another index or table, is refused with the reason `rollback_sql_mismatch`
-  and never reaches the gate. Rows written before v2.5.1 keep the raw definition; it is
+  and never reaches the gate. Rows written before v2.6.0 keep the raw definition; it is
   normalized when their monitor resumes.
 - **Survives trust downgrades.** The restore was a condition of the autonomy the drop ran
   under, and it only re-creates what existed. Lowering trust after the drop
