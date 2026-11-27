@@ -7,12 +7,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/selfconfig"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // footprint-05 on a real server: the meter sees the statements a cycle
@@ -140,11 +142,18 @@ func TestCostMeter_SlowestStatementExceedsTheProbe(t *testing.T) {
 // before-statement sleep is a counted timeout naming its step; the step's
 // retry then succeeds, so the cycle has exactly one. The deadline is wide
 // enough that no other read on a loaded CI server reaches it (at 300 ms,
-// statements_usage did); the injected sleep is well past it.
+// statements_usage did); the injected sleep is well past it. The server
+// times the deadline on its own clock and the meter on the host's, so the
+// timed-out read's floor is lowered by the step a ClockWatch measured
+// (Docker Desktop: 1857 ms metered for a 2000 ms timeout).
 func TestCostMeter_TimeoutIsCountedAndItsStepNamed(t *testing.T) {
 	const deadlineMs = 2000
 	pool := testPool(t)
 	c := meteredCollector(t, pool, deadlineMs)
+	watch, err := testdb.StartClockWatch(context.Background(), pool)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var slept atomic.Bool
 	ctx := catalogread.WithBeforeStatement(context.Background(),
 		func(ctx context.Context, tx pgx.Tx) error {
@@ -155,6 +164,7 @@ func TestCostMeter_TimeoutIsCountedAndItsStepNamed(t *testing.T) {
 			return err
 		})
 	c.cycle(ctx, &fakeTicker{})
+	floorMs := timedOutFloorMs(t, watch, deadlineMs)
 	cost, ok := c.CycleCost()
 	if !ok || !slept.Load() {
 		t.Fatalf("cost %+v (%v), hook ran %v", cost, ok, slept.Load())
@@ -162,9 +172,9 @@ func TestCostMeter_TimeoutIsCountedAndItsStepNamed(t *testing.T) {
 	if cost.Timeouts != 1 || !slices.Equal(cost.TimeoutSteps, []string{"foreign_keys"}) {
 		t.Fatalf("timeouts %d in %v, want 1 in foreign_keys", cost.Timeouts, cost.TimeoutSteps)
 	}
-	if cost.SlowestMs < deadlineMs*0.97 || cost.SlowestStep != "foreign_keys" {
-		t.Fatalf("slowest %.1f ms in %q, want the ~%d ms timed-out read", cost.SlowestMs,
-			cost.SlowestStep, deadlineMs)
+	if cost.SlowestMs < floorMs || cost.SlowestStep != "foreign_keys" {
+		t.Fatalf("slowest %.1f ms in %q, want the ~%d ms timed-out read (at least %.1f ms)",
+			cost.SlowestMs, cost.SlowestStep, deadlineMs, floorMs)
 	}
 	snap := c.LatestSnapshot()
 	if snap == nil || !snap.Available("foreign_keys") {
@@ -177,6 +187,19 @@ func TestCostMeter_TimeoutIsCountedAndItsStepNamed(t *testing.T) {
 		t.Fatalf("after a timeout the deadline derived %+v, want at least 2x %d ms", p,
 			deadlineMs)
 	}
+}
+
+// timedOutFloorMs is the least a read cut off at deadlineMs can meter: 97%
+// of the deadline, less the step the database clock, which times the
+// deadline, moved against the host's since watch started.
+func timedOutFloorMs(t *testing.T, watch *testdb.ClockWatch, deadlineMs float64) float64 {
+	t.Helper()
+	step, err := watch.Step(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("database clock moved %v against the host during the cycle", step)
+	return deadlineMs*0.97 - float64(step.Abs())/float64(time.Millisecond)
 }
 
 // Concurrency on a real server: CycleCost is read while cycles run.
