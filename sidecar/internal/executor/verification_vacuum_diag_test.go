@@ -80,7 +80,8 @@ func waitVacuumReported(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 
 // horizonHolders lists every session, replication slot and prepared
 // transaction on the server holding an xmin or xid, oldest first, with its
-// database and query, so a failure names what kept rows from VACUUM.
+// database and query, and every backend still starting, so a failure
+// names what kept rows from VACUUM.
 func horizonHolders(ctx context.Context, pool *pgxpool.Pool) string {
 	rows, err := pool.Query(ctx, `
 		SELECT 'session pid=' || pid || ' db=' || COALESCE(datname, '-') ||
@@ -105,6 +106,12 @@ func horizonHolders(ctx context.Context, pool *pgxpool.Pool) string {
 		SELECT 'prepared ' || gid || ' db=' || database || ' xid=' || transaction ||
 		       ' prepared=' || prepared, age(transaction)::bigint
 		FROM pg_prepared_xacts
+		UNION ALL
+		SELECT 'starting pid=' || l.pid || ' virtualxid=' || l.virtualxid ||
+		       ' (not in pg_stat_activity yet; PG14 counts it in every horizon)', NULL
+		FROM pg_locks l
+		WHERE l.locktype = 'virtualxid' AND l.pid <> pg_backend_pid()
+		  AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.pid = l.pid)
 		ORDER BY 2 DESC NULLS LAST`)
 	if err != nil {
 		return "(could not read: " + err.Error() + ")"

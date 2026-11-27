@@ -23,7 +23,8 @@ type exclusiveMeasurer struct {
 	shared    []string
 }
 
-// exclusiveMeasurers are the measuring tests ci-13 and ci-23 moved.
+// exclusiveMeasurers are the measuring tests moved to the exclusive server
+// (ci-13, ci-23, and the freeze verdict PG14 left neutral on the shared one).
 var exclusiveMeasurers = []exclusiveMeasurer{
 	{"internal/autonomy", "TestFreezeEmergencyProfileLifecycleOnRealPostgres",
 		[]string{"requireAutonomyDB"}},
@@ -35,6 +36,8 @@ var exclusiveMeasurers = []exclusiveMeasurer{
 		[]string{"textTestDB", "testPool"}},
 	{"internal/collector", "TestPreflightEvidenceResetAfterRegrowth",
 		[]string{"testPool"}},
+	{"internal/executor", "TestOutcome_VacuumFreezeVerifiedByXIDAge",
+		[]string{"requireDB"}},
 }
 
 // measurerProblems reports each measurer that is missing, does not reach
