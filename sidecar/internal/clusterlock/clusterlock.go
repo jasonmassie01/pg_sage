@@ -23,6 +23,10 @@ const MaintenanceDatabase = "postgres"
 // keyPrefix namespaces the lock names (hashtext of prefix + name).
 const keyPrefix = "pg_sage_cluster_fixture:"
 
+// Key is the text whose hashtext is the advisory lock key of the cluster
+// lock name, for finding the lock's holders and waiters in pg_locks.
+func Key(name string) string { return keyPrefix + name }
+
 // closeTimeout bounds closing a lock's connection.
 const closeTimeout = 5 * time.Second
 
@@ -34,7 +38,7 @@ func Lock(ctx context.Context, dsn, name string) (func(), error) {
 		return nil, err
 	}
 	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtext($1))",
-		keyPrefix+name); err != nil {
+		Key(name)); err != nil {
 		closeConn(conn)
 		return nil, fmt.Errorf("cluster lock %q: %w", name, err)
 	}
@@ -60,7 +64,7 @@ func LockConfig(ctx context.Context, cfg *pgx.ConnConfig, name string) (func(), 
 			name, MaintenanceDatabase, c.Host, c.Port, err)
 	}
 	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtext($1))",
-		keyPrefix+name); err != nil {
+		Key(name)); err != nil {
 		closeConn(conn)
 		return nil, fmt.Errorf("cluster lock %q: %w", name, err)
 	}
@@ -76,7 +80,7 @@ func TryLock(ctx context.Context, dsn, name string) (release func(), ok bool, er
 	}
 	var got bool
 	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))",
-		keyPrefix+name).Scan(&got); err != nil {
+		Key(name)).Scan(&got); err != nil {
 		closeConn(conn)
 		return nil, false, fmt.Errorf("cluster lock %q: %w", name, err)
 	}

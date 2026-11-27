@@ -18,9 +18,12 @@ import (
 )
 
 // ci-12 integration: these need SAGE_TEST_DATABASE_URL and
-// SAGE_TEST_EXCLUSIVE_URL naming two different servers.
+// SAGE_TEST_EXCLUSIVE_URL naming two different servers. Other packages
+// hold and queue on the same exclusive lock while these run, and
+// PostgreSQL grants it to the next waiter the moment it is free, so the
+// lock checks follow this package's own sessions by pid in pg_locks.
 
-func exclusiveConn(t *testing.T, dsn string) *pgx.Conn {
+func exclusiveConn(t testing.TB, dsn string) *pgx.Conn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -67,23 +70,77 @@ func exclusiveLockFree(t *testing.T, base string) bool {
 	return ok
 }
 
+// exclusiveLockRows restricts pg_locks to the exclusive lock: clusterlock's
+// advisory lock on hashtext($1), its key, in the maintenance database $2.
+// pg_advisory_lock(bigint) keeps the key's high half in classid and its low
+// half in objid, with objsubid 1.
+const exclusiveLockRows = "locktype = 'advisory' AND objsubid = 1" +
+	" AND database = (SELECT oid FROM pg_database WHERE datname = $2)" +
+	" AND ((classid::bigint << 32) | objid::bigint) = hashtext($1)::bigint"
+
+// exclusiveLockArgs returns $1 and $2 of exclusiveLockRows, then extra.
+func exclusiveLockArgs(extra ...any) []any {
+	return append([]any{clusterlock.Key(exclusiveLockName), clusterlock.MaintenanceDatabase},
+		extra...)
+}
+
+// exclusiveHolder returns the pid of the session holding the exclusive
+// lock. While the caller holds the server through Exclusive, that is the
+// caller's own lock session.
+func exclusiveHolder(t testing.TB, base string) int {
+	t.Helper()
+	var pid int
+	err := exclusiveConn(t, base).QueryRow(context.Background(),
+		"SELECT pid FROM pg_locks WHERE granted AND "+exclusiveLockRows,
+		exclusiveLockArgs()...).Scan(&pid)
+	if err != nil {
+		t.Fatalf("read the exclusive lock's holder: %v", err)
+	}
+	return pid
+}
+
+// releasedBy reports whether session pid let go of the exclusive lock
+// within 5s. The wait covers the backend's exit, which finishes after the
+// client has hung up. It asks about pid alone: by then another package's
+// waiter may hold the lock.
+func releasedBy(t *testing.T, base string, pid int) bool {
+	t.Helper()
+	conn := exclusiveConn(t, base)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var held bool
+		if err := conn.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM pg_locks"+
+			" WHERE granted AND pid = $3 AND "+exclusiveLockRows+")",
+			exclusiveLockArgs(pid)...).Scan(&held); err != nil {
+			t.Fatalf("read the exclusive lock's holder: %v", err)
+		}
+		if !held {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func TestExclusiveGivesAFreshDatabaseOnTheExclusiveServer(t *testing.T) {
 	designated := SkipUnlessLive(t)
 	base := exclusiveURL(t, "happy path")
 	var name string
+	var holder int
 	t.Cleanup(func() {
-		if name == "" {
-			return
-		}
-		if databaseExists(t, base, name) {
+		if name != "" && databaseExists(t, base, name) {
 			t.Errorf("fixture database %s still exists after the test", name)
 		}
-		if !exclusiveLockFree(t, base) {
-			t.Error("the exclusive lock is still held after the test")
+		if holder != 0 && !releasedBy(t, base, holder) {
+			t.Errorf("lock session %d still holds the exclusive lock 5s after the test",
+				holder)
 		}
 	})
 	t.Run("measure", func(t *testing.T) {
 		dsn := Exclusive(t, "happy path")
+		holder = exclusiveHolder(t, base)
 		conn := exclusiveConn(t, dsn)
 		if err := conn.QueryRow(context.Background(),
 			"SELECT current_database()").Scan(&name); err != nil {
@@ -124,26 +181,28 @@ func TestExclusiveRefusesTheDesignatedServer(t *testing.T) {
 	}
 }
 
-// A test body that fails still releases the server: the lock goes with
-// the test's cleanups, so the next caller gets it at once.
+// A test body that fails still releases the server: its lock session lets
+// go with the test's cleanups, after its database is dropped, and the next
+// caller can hold the server. Other packages may take the lock first, so
+// the test checks its own session's pid, not that the lock is free or how
+// long the next caller waits.
 func TestExclusiveReleasesTheServerWhenTheTestFails(t *testing.T) {
 	SkipUnlessLive(t)
 	base := exclusiveURL(t, "lock release probe")
 	var held string
+	var holder int
 	rec := runTB(t, func(tb testing.TB) {
 		held = Exclusive(tb, "lock release probe")
+		holder = exclusiveHolder(tb, base)
 		tb.Fatal("the measured body failed")
 	})
-	if held == "" || len(rec.fatals) != 1 || len(rec.errors) != 0 {
-		t.Fatalf("held=%q fatals=%q errors=%q, want one fatal after Exclusive returned",
-			held, rec.fatals, rec.errors)
+	if held == "" || holder == 0 || len(rec.fatals) != 1 || len(rec.errors) != 0 {
+		t.Fatalf("held=%q holder=%d fatals=%q errors=%q, want one fatal after Exclusive "+
+			"returned", held, holder, rec.fatals, rec.errors)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for !exclusiveLockFree(t, base) {
-		if time.Now().After(deadline) {
-			t.Fatal("the exclusive lock was not released within 5s of the failed test")
-		}
-		time.Sleep(100 * time.Millisecond)
+	if !releasedBy(t, base, holder) {
+		t.Fatalf("lock session %d still holds the exclusive lock 5s after the failed test",
+			holder)
 	}
 	parsed, err := url.Parse(held)
 	if err != nil {
@@ -152,11 +211,7 @@ func TestExclusiveReleasesTheServerWhenTheTestFails(t *testing.T) {
 	if databaseExists(t, base, strings.TrimPrefix(parsed.Path, "/")) {
 		t.Errorf("the failed test's database %s was not dropped", parsed.Path)
 	}
-	start := time.Now()
 	t.Run("next caller", func(t *testing.T) { Exclusive(t, "lock release probe") })
-	if waited := time.Since(start); waited > 5*time.Second {
-		t.Errorf("the next Exclusive caller waited %s, want under 5s", waited)
-	}
 }
 
 const (
@@ -294,58 +349,109 @@ func checkDisjoint(t *testing.T, base, table string, workers int) {
 	}
 }
 
-// waitForLockWaiter returns once a session on conn's server waits for an
-// advisory lock, the waiter the drop-order test starts.
-func waitForLockWaiter(t testing.TB, conn *pgx.Conn) {
+// lockWaiter opens a session in the exclusive server's maintenance
+// database, where clusterlock takes the exclusive lock, and returns it with
+// its pid, so the drop-order test can tell its own wait from other
+// packages' Exclusive callers queued on the same lock.
+func lockWaiter(t testing.TB, base string) (*pgx.Conn, int) {
+	t.Helper()
+	cfg, err := pgx.ParseConfig(base)
+	if err != nil {
+		t.Fatalf("parse %s: not a PostgreSQL connection URL", ExclusiveEnvName)
+	}
+	cfg.Database = clusterlock.MaintenanceDatabase
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connect the lock waiter: %v", err)
+	}
+	return conn, int(conn.PgConn().PID())
+}
+
+// waitForLockWaiter returns once session pid waits for the exclusive lock,
+// with the number of other sessions waiting for it in the same pg_locks
+// snapshot. Any of those may be ahead of pid in the queue; a session that
+// starts waiting later queues behind it.
+func waitForLockWaiter(t testing.TB, conn *pgx.Conn, pid int) int {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		var waiting int
-		if err := conn.QueryRow(context.Background(), "SELECT count(*) FROM pg_locks"+
-			" WHERE locktype = 'advisory' AND NOT granted").Scan(&waiting); err != nil {
+		var mine, others int
+		if err := conn.QueryRow(context.Background(), "SELECT count(*) FILTER (WHERE pid = $3),"+
+			" count(*) FILTER (WHERE pid <> $3) FROM pg_locks WHERE NOT granted AND "+
+			exclusiveLockRows, exclusiveLockArgs(pid)...).Scan(&mine, &others); err != nil {
 			t.Fatalf("read pg_locks: %v", err)
 		}
-		if waiting > 0 {
-			return
+		if mine > 0 {
+			return others
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("no session waited for the exclusive lock within 10s")
+			t.Fatalf("session %d did not wait for the exclusive lock within 10s", pid)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-// existsOnAcquire waits for the exclusive lock, then reports at once, on a
-// connection opened beforehand, whether database name still exists.
-func existsOnAcquire(base string, check *pgx.Conn, name func() string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+// existsOnAcquire queues waiter on the exclusive lock with Exclusive's
+// budget, as an Exclusive caller does, and once it holds the lock reports
+// at once, on the same session, whether database name still exists.
+// Closing waiter releases the lock.
+func existsOnAcquire(waiter *pgx.Conn, name func() string) (bool, error) {
+	defer func() { _ = waiter.Close(context.Background()) }()
+	ctx, cancel := context.WithTimeout(context.Background(), exclusiveLockWait)
 	defer cancel()
-	release, err := clusterlock.Lock(ctx, base, exclusiveLockName)
-	if err != nil {
+	if _, err := waiter.Exec(ctx, "SELECT pg_advisory_lock(hashtext($1))",
+		clusterlock.Key(exclusiveLockName)); err != nil {
 		return false, err
 	}
-	defer release()
 	var exists bool
-	err = check.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)",
+	err := waiter.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)",
 		name()).Scan(&exists)
 	return exists, err
 }
 
+// waiterResult is what the drop-order test's waiting session found when it
+// got the exclusive lock.
+type waiterResult struct {
+	exists bool
+	err    error
+}
+
+// queueWaiter queues the test's own session on the exclusive lock behind
+// the caller, which holds it, and returns the session's pid once it waits.
+// The channel then gets whether database name existed when the session got
+// the lock.
+func queueWaiter(tb testing.TB, base string, name func() string) (int, <-chan waiterResult) {
+	tb.Helper()
+	poll := exclusiveConn(tb, base)
+	waiter, pid := lockWaiter(tb, base)
+	acquired := make(chan waiterResult, 1)
+	go func() {
+		exists, err := existsOnAcquire(waiter, name)
+		acquired <- waiterResult{exists, err}
+	}()
+	if others := waitForLockWaiter(tb, poll, pid); others > 0 {
+		tb.Logf("%d other sessions also waited for the exclusive server; if one is ahead of "+
+			"session %d, it holds the server next and this run does not test the drop order",
+			others, pid)
+	}
+	return pid, acquired
+}
+
 // The next holder must not find the last test's database still there:
 // DROP DATABASE writes WAL and forces a checkpoint, which the next
-// measuring test would otherwise count as its own.
+// measuring test would otherwise count as its own. Other packages queue on
+// the same lock, so the test watches its own waiting session by pid, and
+// that session may wait behind them as long as an Exclusive caller would.
 func TestExclusiveDropsTheDatabaseBeforeReleasingTheServer(t *testing.T) {
 	SkipUnlessLive(t)
 	base := exclusiveURL(t, "release order probe")
-	check, poll := exclusiveConn(t, base), exclusiveConn(t, base)
 	var mu sync.Mutex
 	var name string
 	fixture := func() string { mu.Lock(); defer mu.Unlock(); return name }
-	type result struct {
-		exists bool
-		err    error
-	}
-	acquired := make(chan result, 1)
+	var pid int
+	var acquired <-chan waiterResult
 	rec := runTB(t, func(tb testing.TB) {
 		parsed, err := url.Parse(Exclusive(tb, "release order probe"))
 		if err != nil {
@@ -354,11 +460,7 @@ func TestExclusiveDropsTheDatabaseBeforeReleasingTheServer(t *testing.T) {
 		mu.Lock()
 		name = strings.TrimPrefix(parsed.Path, "/")
 		mu.Unlock()
-		go func() {
-			exists, err := existsOnAcquire(base, check, fixture)
-			acquired <- result{exists, err}
-		}()
-		waitForLockWaiter(tb, poll)
+		pid, acquired = queueWaiter(tb, base, fixture)
 	})
 	if len(rec.fatals) != 0 || len(rec.errors) != 0 || fixture() == "" {
 		t.Fatalf("name=%q fatals=%q errors=%q, want a clean hold", fixture(), rec.fatals,
@@ -367,13 +469,13 @@ func TestExclusiveDropsTheDatabaseBeforeReleasingTheServer(t *testing.T) {
 	select {
 	case got := <-acquired:
 		if got.err != nil {
-			t.Fatalf("the waiting caller: %v", got.err)
+			t.Fatalf("the waiting session %d: %v", pid, got.err)
 		}
 		if got.exists {
 			t.Errorf("the next holder found %s still present: the server was released "+
 				"before the database was dropped", fixture())
 		}
-	case <-time.After(time.Minute):
-		t.Fatal("the waiting caller never got the exclusive lock")
+	case <-time.After(exclusiveLockWait + time.Minute):
+		t.Fatalf("the waiting session %d never got the exclusive lock", pid)
 	}
 }
