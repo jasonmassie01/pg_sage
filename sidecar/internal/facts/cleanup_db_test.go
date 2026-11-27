@@ -107,30 +107,25 @@ func runScript(t *testing.T, ctx context.Context, script string, setup ...string
 	return run
 }
 
-// stableActivity reads the schemas' baselines once two reads two seconds
-// apart agree, so setup traffic flushed late is not mistaken for activity.
+// stableActivity reads the schemas' baselines once every count the pool's
+// sessions hold has been applied or lost for good (flushSetupStats), so
+// setup traffic reported late is not mistaken for activity. Two equal
+// reads prove nothing on PostgreSQL 14: the setup session keeps its last
+// 500 ms of counts until its next statement (the second read's ping
+// reports them), and that read may use a stats file up to 500 ms old,
+// written for another backend before the collector applied the report, so
+// both reads miss the same counts.
 func stableActivity(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	schemas []string) map[string]int64 {
 	t.Helper()
-	reader := NewActivityReader(pool)
-	prev, err := reader.SchemaActivity(ctx, schemas)
-	for deadline := time.Now().Add(40 * time.Second); err == nil; {
-		time.Sleep(2 * time.Second)
-		cur, rerr := reader.SchemaActivity(ctx, schemas)
-		if rerr != nil {
-			err = rerr
-			break
-		}
-		if fmt.Sprint(cur) == fmt.Sprint(prev) {
-			return cur
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("activity never settled: %v", cur)
-		}
-		prev = cur
+	if err := flushSetupStats(ctx, pool); err != nil {
+		t.Fatalf("flush the setup's statistics: %v", err)
 	}
-	t.Fatalf("read activity: %v", err)
-	return nil
+	base, err := NewActivityReader(pool).SchemaActivity(ctx, schemas)
+	if err != nil {
+		t.Fatalf("read activity: %v", err)
+	}
+	return base
 }
 
 func schemaExists(t *testing.T, ctx context.Context, pool *pgxpool.Pool, name string) bool {
@@ -168,6 +163,17 @@ func createSchemas(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tables
 			t.Fatalf("create %s: %v", n, err)
 		}
 	}
+}
+
+// skipNotices are the run's notices that say why a block kept its schema.
+func skipNotices(run scriptRun) []string {
+	var out []string
+	for _, n := range run.notices {
+		if strings.HasPrefix(n, "skip ") {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func hasNotice(run scriptRun, want string) bool {
@@ -209,8 +215,7 @@ func TestCleanupBatchDropsTwoHundredSchemasWithinDefaultLockLimits(t *testing.T)
 	var left int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_namespace
 		WHERE left(nspname, length($1)) = $1`, prefix).Scan(&left); err != nil || left != 0 {
-		t.Fatalf("%d schemas left (%v); notices %v", left, err, run.notices[:min(5,
-			len(run.notices))])
+		t.Fatalf("%d schemas left (%v); skips %v", left, err, skipNotices(run))
 	}
 }
 
