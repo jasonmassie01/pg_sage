@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -38,7 +38,7 @@ type preflightFixture struct {
 
 func preflightPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(t.Context(), os.Getenv("SAGE_TEST_DATABASE_URL"))
+	pool, err := pgxpool.New(t.Context(), testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func preflightNewFixture(t *testing.T) *preflightFixture {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		cleanup, err := pgxpool.New(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+		cleanup, err := pgxpool.New(ctx, f.pool.Config().ConnString())
 		if err != nil {
 			t.Errorf("cleanup connect: %v", err)
 			return

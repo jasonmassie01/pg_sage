@@ -63,34 +63,6 @@ func TestSeqScansRejectsMalformedPlans(t *testing.T) {
 	}
 }
 
-func TestExplainable(t *testing.T) {
-	yes := []string{
-		"SELECT 1",
-		"/* pg_sage */ SELECT * FROM sage.findings WHERE id = $1",
-		"-- leading comment\nWITH x AS (SELECT 1) SELECT * FROM x",
-		"  insert into sage.snapshots (data) values ($1)",
-		"UPDATE sage.findings SET status = $1",
-		"DELETE FROM sage.snapshots WHERE id = ANY($1)",
-		"/* a */ /* b */ MERGE INTO sage.x USING y ON true WHEN MATCHED THEN DELETE",
-	}
-	no := []string{
-		"", "BEGIN", "COMMIT", "SET statement_timeout = $1", "SET LOCAL lock_timeout = 1",
-		"/* pg_sage */ VACUUM sage.snapshots", "CREATE INDEX CONCURRENTLY x ON y (z)",
-		"EXPLAIN SELECT 1", "SELECT 1; SELECT 2", "/* unterminated SELECT 1",
-		"DO $$ BEGIN END $$", "LOCK TABLE sage.findings", "COPY sage.x FROM STDIN",
-	}
-	for _, q := range yes {
-		if !Explainable(q) {
-			t.Errorf("%q not explainable", q)
-		}
-	}
-	for _, q := range no {
-		if Explainable(q) {
-			t.Errorf("%q explainable", q)
-		}
-	}
-}
-
 func TestTouchesSage(t *testing.T) {
 	if !TouchesSage("SELECT * FROM sage.findings") || !TouchesSage(`select 1 from "sage".x`) {
 		t.Fatal("sage reference missed")

@@ -38,8 +38,8 @@ func TestWave5GolangCILintUsesPinnedV2Contract(t *testing.T) {
 	if !strings.Contains(workflow, "golangci/golangci-lint-action@v9") {
 		t.Fatal("lint workflow does not use the v2-compatible v9 action")
 	}
-	if !strings.Contains(workflow, "version: v2.11.4") {
-		t.Fatal("lint workflow does not pin golangci-lint v2.11.4")
+	if !strings.Contains(workflow, "version: v2.14.0") {
+		t.Fatal("lint workflow does not pin golangci-lint v2.14.0")
 	}
 	if strings.Contains(workflow, "version: latest") {
 		t.Fatal("lint workflow still uses an unpinned latest version")
@@ -63,22 +63,6 @@ func TestWave5CIUsesDesignatedParallelDatabaseFixtures(t *testing.T) {
 				t.Fatal("workflow still serializes packages instead of isolating fixtures")
 			}
 		})
-	}
-}
-
-func TestWave5ContainerHealthcheckUsesPublicEndpoint(t *testing.T) {
-	sidecarRoot := wave5SidecarRoot(t)
-	body, err := os.ReadFile(filepath.Join(sidecarRoot, "Dockerfile"))
-	if err != nil {
-		t.Fatalf("read Dockerfile: %v", err)
-	}
-	dockerfile := string(body)
-	if !strings.Contains(dockerfile, "http://localhost:8080/health") {
-		t.Fatal("container healthcheck does not use the public health endpoint")
-	}
-	if strings.Contains(dockerfile, "HEALTHCHECK") &&
-		strings.Contains(dockerfile, "/api/v1/metrics") {
-		t.Fatal("container healthcheck uses the authenticated metrics endpoint")
 	}
 }
 

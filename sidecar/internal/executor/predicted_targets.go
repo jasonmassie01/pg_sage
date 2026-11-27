@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/verify"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -19,31 +20,35 @@ const verifyTargetLimit = 10
 // tableStatementsSQL is the most-called statements naming a table ($1, a
 // word-boundary regex); pg_stat_statements is shared memory, not a sage
 // table, and is read once per action.
-var tableStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_statements s
+func tableStatementsSQL(rel string) string {
+	return `/* pg_sage executor */ SELECT s.queryid FROM ` + rel + ` s
 	WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND s.query ~* $1 AND ` + workload.AdviceSQL("s.query") + `
 	GROUP BY s.queryid ORDER BY sum(s.calls) DESC LIMIT $2`
+}
 
 // workloadStatementsSQL is the statements a server setting is likely to
 // move: those that spilled to temp files for work_mem ($1 true), the
 // costliest otherwise.
-var workloadStatementsSQL = `/* pg_sage */ SELECT s.queryid FROM pg_stat_statements s
+func workloadStatementsSQL(rel string) string {
+	return `/* pg_sage executor */ SELECT s.queryid FROM ` + rel + ` s
 	WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND (NOT $1 OR s.temp_blks_written > 0) AND ` +
-	workload.AdviceSQL("s.query") + `
+		workload.AdviceSQL("s.query") + `
 	GROUP BY s.queryid
 	ORDER BY CASE WHEN $1 THEN sum(s.temp_blks_written)::float8
 	              ELSE sum(s.total_exec_time) END DESC
 	LIMIT $2`
+}
 
 // planReferencedSQL is the targets whose latest captured plans name the
 // index: one index range of idx_explain_queryid per target.
-const planReferencedSQL = `/* pg_sage */ SELECT q.id FROM unnest($1::bigint[]) AS q(id)
+const planReferencedSQL = `/* pg_sage executor */ SELECT q.id FROM unnest($1::bigint[]) AS q(id)
 	WHERE EXISTS (SELECT 1 FROM (SELECT e.plan_json FROM sage.explain_cache e
 	                WHERE e.queryid = q.id AND e.source <> 'lakebase_plan_history' ORDER BY e.captured_at DESC LIMIT 3) p
 	              WHERE strpos(p.plan_json::text, $2) > 0)`
 
-const droppedIndexTableSQL = `/* pg_sage */ SELECT c.relname, ic.relname
+const droppedIndexTableSQL = `/* pg_sage executor */ SELECT c.relname, ic.relname
 	FROM pg_index i JOIN pg_class c ON c.oid = i.indrelid
 	JOIN pg_class ic ON ic.oid = i.indexrelid WHERE i.indexrelid = to_regclass($1)`
 
@@ -58,7 +63,7 @@ func (e *Executor) dropTargets(ctx context.Context, sql string, before map[strin
 		return nil
 	}
 	before["dropped_index"] = bare
-	ids := e.statementIDs(ctx, tableStatementsSQL, wordPattern(table), verifyTargetLimit)
+	ids := e.workloadIDs(ctx, tableStatementsSQL, wordPattern(table), verifyTargetLimit)
 	if len(ids) > 0 {
 		before["plan_referenced_queryids"] = e.statementIDs(ctx, planReferencedSQL, ids, bare)
 	}
@@ -72,18 +77,31 @@ func (e *Executor) configTargets(ctx context.Context, sql string, before map[str
 	change, _ := before["config_change"].(map[string]any)
 	if table, _ := change["table"].(string); table != "" {
 		parts := splitQualifiedIdentifier(table)
-		return e.statementIDs(ctx, tableStatementsSQL, wordPattern(parts[len(parts)-1]),
+		return e.workloadIDs(ctx, tableStatementsSQL, wordPattern(parts[len(parts)-1]),
 			verifyTargetLimit)
 	}
 	name, _ := change["name"].(string)
 	if name == "" {
 		name = configParamFromSQL(sql)
 	}
-	return e.statementIDs(ctx, workloadStatementsSQL, name == "work_mem", verifyTargetLimit)
+	return e.workloadIDs(ctx, workloadStatementsSQL, name == "work_mem", verifyTargetLimit)
 }
 
 func wordPattern(name string) string {
 	return `\m` + regexp.QuoteMeta(unquoteIdentifier(name)) + `\M`
+}
+
+// workloadIDs runs build over the qualified pg_stat_statements view and
+// returns the queryids it lists; an unresolved view (for example no
+// pg_stat_statements) is logged and yields no targets.
+func (e *Executor) workloadIDs(ctx context.Context, build func(rel string) string,
+	args ...any) []int64 {
+	rel, err := extschema.StatementsRel(ctx, e.pool, "pg_stat_statements")
+	if err != nil {
+		e.logFn("executor", "select verification targets: %v", err)
+		return nil
+	}
+	return e.statementIDs(ctx, build(rel), args...)
 }
 
 // statementIDs runs a queryid-returning query; a failure (for example no
@@ -127,6 +145,9 @@ func (e *Executor) maintenanceBaseline(
 	}
 	p.Baseline = &value
 	before["maintenance_table"] = table
+	if p.Class == verify.ClassVacuum {
+		e.vacuumCountBaseline(ctx, table, before)
+	}
 }
 
 // freezeBaseline measures the targets before the action: the window is
@@ -141,11 +162,11 @@ func (e *Executor) freezeBaseline(
 		cfg = config.DefaultConfig()
 	}
 	window, capW, minCalls := baselineWindows(class, cfg)
-	source := verify.NewPostgresObservationSource(e.pool)
-	now := time.Now()
+	observe := historyObserver(e.pool)
+	now := e.databaseNow(ctx, "freeze verification baseline")
 	var got map[int64]verify.Measurement
 	for {
-		measured, err := source.QueryMeasurements(ctx, ids, now.Add(-window), now)
+		measured, err := observe(ctx, ids, now.Add(-window), now)
 		if err != nil {
 			e.logFn("executor", "freeze verification baseline: %v", err)
 			return nil

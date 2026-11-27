@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/leader"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -256,52 +257,99 @@ func TestExpireDue_LeaderFailoverWithTwoElectors(t *testing.T) {
 	store := leader.NewPostgresStore(f.super)
 	a := leader.NewElector(store, scope, "sidecar-a", ttl)
 	b := leader.NewElector(store, scope, "sidecar-b", ttl)
-	require.NoError(t, a.Tick(ctx)) // A dies after this tick
-	// Times are the lease table's (the database clock), so client latency
-	// under load does not blur the bound.
-	leaseTime := func(col string) time.Time {
-		var at time.Time
-		require.NoError(t, f.super.QueryRow(ctx, "SELECT "+col+
-			" FROM sage.fleet_leader_lease WHERE scope = $1", scope).Scan(&at))
-		return at
-	}
-	lastRenewal := leaseTime("renewed_at")
-	require.NoError(t, b.Tick(ctx))
+	tickRetrying(t, a) // A dies after this tick
+	lastRenewal := f.leaseTime(t, scope, "renewed_at")
+	// The bound is on the database clock, which can step against the host
+	// between B's host-timed ticks: widen it by the measured step (ci-14).
+	watch, err := testdb.StartClockWatch(ctx, f.super)
+	require.NoError(t, err)
+	tickRetrying(t, b)
 	require.True(t, a.IsLeader() && !b.IsLeader(), "A leads first")
 	fenceOf := func(e *leader.Elector) (Fence, bool) {
-		holder, epoch, ok := e.Fence()
-		return Fence{Control: f.super, Scope: scope, Holder: holder, Epoch: epoch}, ok
+		tok, ok := e.Fence()
+		return Fence{Control: f.super, Scope: scope, Holder: tok.Holder, Epoch: tok.Epoch}, ok
 	}
 	staleA, ok := fenceOf(a)
 	require.True(t, ok)
 	g := f.grantID(t)
 	f.expireNow(t, g.ID)
-	var led time.Time
-	for deadline := time.Now().Add(ttl + interval + 5*time.Second); time.Now().Before(
-		deadline); time.Sleep(interval) {
-		require.NoError(t, b.Tick(ctx))
-		fb, ok := fenceOf(b)
-		if !ok {
-			continue
-		}
-		led = leaseTime("acquired_at")
-		rep, err := f.manager.ExpireDue(ctx, f.target, fb, 100)
-		require.NoError(t, err)
-		require.Contains(t, rep.Revoked, g.ID, "B's first pass as leader revokes it")
-		break
-	}
-	require.False(t, led.IsZero(), "B never led")
+	fb := awaitLead(t, b, fenceOf, interval, ttl+interval+5*time.Second)
+	led := f.leaseTime(t, scope, "acquired_at")
+	rep, err := f.manager.ExpireDue(ctx, f.target, fb, 100)
+	require.NoError(t, err)
+	require.Contains(t, rep.Revoked, g.ID, "B's first pass as leader revokes it")
 	took := led.Sub(lastRenewal)
-	t.Logf("B led %v after A's last renewal (bound ttl+interval = %v)", took, ttl+interval)
-	require.True(t, took <= ttl+interval+500*time.Millisecond, "B led after %v", took)
+	bound := watch.Widen(t, ttl+interval+500*time.Millisecond)
+	t.Logf("B led %v after A's last renewal (ttl+interval %v, bound %v)", took,
+		ttl+interval, bound)
+	require.True(t, took <= bound, "B led after %v (bound %v)", took, bound)
 	require.Equal(t, StateRevoked, f.row(t, g.ID).State)
 	require.False(t, f.can(t, f.p.BrokerRole(), "id"))
 	g2 := f.grantID(t)
 	f.expireNow(t, g2.ID)
-	_, err := f.manager.ExpireDue(ctx, f.target, staleA, 100)
+	_, err = f.manager.ExpireDue(ctx, f.target, staleA, 100)
 	require.True(t, errors.Is(err, ErrFenced), "stale leader fenced: %v", err)
 	require.Equal(t, StateActive, f.row(t, g2.ID).State)
 	require.True(t, f.can(t, f.p.BrokerRole(), "id"))
+}
+
+// leaseTime reads one timestamp of scope's lease row. Times are the lease
+// table's (the database clock), so client latency under load does not
+// blur a bound on them.
+func (f *fixture) leaseTime(t *testing.T, scope, col string) time.Time {
+	t.Helper()
+	var at time.Time
+	require.NoError(t, f.super.QueryRow(context.Background(), "SELECT "+col+
+		" FROM sage.fleet_leader_lease WHERE scope = $1", scope).Scan(&at))
+	return at
+}
+
+// awaitLead ticks e every interval until it holds a fence, failing after
+// limit of host time; it returns that fence.
+func awaitLead(t *testing.T, e *leader.Elector, fenceOf func(*leader.Elector) (Fence, bool),
+	interval, limit time.Duration) Fence {
+	t.Helper()
+	missed := 0
+	for deadline := time.Now().Add(limit); time.Now().Before(deadline); time.Sleep(interval) {
+		if !ticked(t, e, &missed) {
+			continue
+		}
+		if fence, ok := fenceOf(e); ok {
+			return fence
+		}
+	}
+	t.Fatal("B never led")
+	return Fence{}
+}
+
+// missedTickLimit is how many ticks in a row may run past their bound.
+const missedTickLimit = 3
+
+// ticked ticks e and reports whether the tick finished. A tick past the
+// elector's ttl/3 bound is a missed renewal the product retries on the
+// next tick (a VM stall on a loaded host can exceed the bound), so it is
+// logged and counted in missed; any other error, or too many misses in a
+// row, fails the test.
+func ticked(t *testing.T, e *leader.Elector, missed *int) bool {
+	t.Helper()
+	err := e.Tick(context.Background())
+	if err == nil {
+		*missed = 0
+		return true
+	}
+	*missed++
+	if !errors.Is(err, context.DeadlineExceeded) || *missed >= missedTickLimit {
+		t.Fatalf("tick: %v", err)
+	}
+	t.Logf("missed tick %d (past its bound): %v", *missed, err)
+	return false
+}
+
+// tickRetrying ticks e until a tick finishes (see ticked).
+func tickRetrying(t *testing.T, e *leader.Elector) {
+	t.Helper()
+	for missed := 0; !ticked(t, e, &missed); {
+	}
 }
 
 func TestExpireDue_UnknownFenceScopeIsFenced(t *testing.T) {

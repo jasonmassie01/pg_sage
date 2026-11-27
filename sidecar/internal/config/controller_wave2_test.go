@@ -112,13 +112,13 @@ func TestConfigControllerCASAdvancesOnPendingDesiredGeneration(t *testing.T) {
 
 func TestConfigControllerPrepareFailureRollsBackEveryPreparedOwner(t *testing.T) {
 	events := &eventLog{}
-	collector := &ownerStub{name: "collector", events: events}
-	alerting := &ownerStub{name: "alerting", events: events, prepareErr: errors.New("boom")}
+	llmOwner := &ownerStub{name: "llm", events: events}
+	trust := &ownerStub{name: "trust_policy", events: events, prepareErr: errors.New("boom")}
 	store := &revisionStoreStub{events: events}
-	controller := NewConfigController(DefaultConfig(), store, collector, alerting)
+	controller := NewConfigController(DefaultConfig(), store, llmOwner, trust)
 	candidate := controller.Active().Config
-	candidate.Collector.IntervalSeconds++
-	candidate.Alerting.CheckIntervalSeconds++
+	candidate.LLM.Model = "model-b"
+	candidate.Trust.Level = "advisory"
 
 	if _, err := controller.Apply(context.Background(), 1, candidate); err == nil {
 		t.Fatal("prepare failure unexpectedly succeeded")
@@ -127,17 +127,17 @@ func TestConfigControllerPrepareFailureRollsBackEveryPreparedOwner(t *testing.T)
 	if store.calls != 0 {
 		t.Fatalf("persistence calls = %d, want 0", store.calls)
 	}
-	if got := collector.prepared.counts(); got != [3]int{0, 1, 0} {
-		t.Fatalf("collector commit/rollback/drain = %v, want [0 1 0]", got)
+	if got := llmOwner.prepared.counts(); got != [3]int{0, 1, 0} {
+		t.Fatalf("llm commit/rollback/drain = %v, want [0 1 0]", got)
 	}
 }
 
 func TestConfigControllerPersistenceFailureRollsBackWithoutPublication(t *testing.T) {
-	owner := &ownerStub{name: "collector"}
+	owner := &ownerStub{name: "llm"}
 	store := &revisionStoreStub{err: errors.New("disk full")}
 	controller := NewConfigController(DefaultConfig(), store, owner)
 	candidate := controller.Active().Config
-	candidate.Collector.IntervalSeconds++
+	candidate.LLM.Model = "model-b"
 
 	if _, err := controller.Apply(context.Background(), 1, candidate); err == nil {
 		t.Fatal("persistence failure unexpectedly succeeded")
@@ -222,10 +222,10 @@ func TestConfigControllerPersistsSameValueAsNewRevision(t *testing.T) {
 }
 
 func TestConfigControllerDrainFailureIsCommittedWarning(t *testing.T) {
-	owner := &ownerStub{name: "collector", drainErr: errors.New("drain timed out")}
+	owner := &ownerStub{name: "llm", drainErr: errors.New("drain timed out")}
 	controller := NewConfigController(DefaultConfig(), &revisionStoreStub{}, owner)
 	candidate := controller.Active().Config
-	candidate.Collector.IntervalSeconds++
+	candidate.LLM.Model = "model-b"
 
 	result, err := controller.Apply(context.Background(), 1, candidate)
 	if err != nil {
@@ -236,17 +236,17 @@ func TestConfigControllerDrainFailureIsCommittedWarning(t *testing.T) {
 		t.Fatalf("warnings = %v, want drain warning", result.Warnings)
 	}
 	assertGenerations(t, controller, 2, 2)
-	if got := controller.Active().Config.Collector.IntervalSeconds; got != candidate.Collector.IntervalSeconds {
-		t.Fatalf("committed interval = %d, want %d", got,
-			candidate.Collector.IntervalSeconds)
+	if got := controller.Active().Config.LLM.Model; got != candidate.LLM.Model {
+		t.Fatalf("committed model = %q, want %q", got,
+			candidate.LLM.Model)
 	}
 }
 
 func TestConfigControllerCommitFailureIsPersistedPendingWarning(t *testing.T) {
-	owner := &ownerStub{name: "collector", commitErr: errors.New("swap failed")}
+	owner := &ownerStub{name: "llm", commitErr: errors.New("swap failed")}
 	controller := NewConfigController(DefaultConfig(), &revisionStoreStub{}, owner)
 	candidate := controller.Active().Config
-	candidate.Collector.IntervalSeconds++
+	candidate.LLM.Model = "model-b"
 
 	result, err := controller.Apply(context.Background(), 1, candidate)
 	if err != nil {
@@ -255,11 +255,11 @@ func TestConfigControllerCommitFailureIsPersistedPendingWarning(t *testing.T) {
 	if result.DesiredGeneration != 2 || result.ActiveGeneration != 1 {
 		t.Fatalf("result generations = %+v, want desired=2 active=1", result)
 	}
-	if !containsPath(result.PendingRestart, "collector.interval_seconds") ||
-		containsPath(result.Applied, "collector.interval_seconds") {
+	if !containsPath(result.PendingRestart, "llm.model") ||
+		containsPath(result.Applied, "llm.model") {
 		t.Fatalf("commit failure result = %+v", result)
 	}
-	if result.ComponentStatus["collector"] != "commit_failed" {
+	if result.ComponentStatus["llm"] != "commit_failed" {
 		t.Fatalf("component status = %+v", result.ComponentStatus)
 	}
 	if len(result.Warnings) != 1 ||
@@ -276,7 +276,7 @@ func TestConfigControllerCommitFailureIsPersistedPendingWarning(t *testing.T) {
 		t.Fatalf("retry identical desired revision: %v", err)
 	}
 	if retry.DesiredGeneration != 3 || retry.ActiveGeneration != 3 ||
-		!containsPath(retry.Applied, "collector.interval_seconds") {
+		!containsPath(retry.Applied, "llm.model") {
 		t.Fatalf("retry result = %+v, want applied generation 3", retry)
 	}
 	assertGenerations(t, controller, 3, 3)
@@ -299,10 +299,10 @@ func TestConfigControllerStartsAtPersistedGeneration(t *testing.T) {
 func TestConfigControllerWaitsForOwnerCommitAcknowledgement(t *testing.T) {
 	gate := make(chan struct{})
 	started := make(chan struct{})
-	owner := &ownerStub{name: "collector", commitGate: gate, commitStarted: started}
+	owner := &ownerStub{name: "llm", commitGate: gate, commitStarted: started}
 	controller := NewConfigController(DefaultConfig(), &revisionStoreStub{}, owner)
 	candidate := controller.Active().Config
-	candidate.Collector.IntervalSeconds++
+	candidate.LLM.Model = "model-b"
 	resultCh := make(chan ApplyResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
@@ -323,7 +323,7 @@ func TestConfigControllerWaitsForOwnerCommitAcknowledgement(t *testing.T) {
 	if err := <-errCh; err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	if result.ComponentStatus["collector"] != "applied" {
+	if result.ComponentStatus["llm"] != "applied" {
 		t.Fatalf("component status = %+v", result.ComponentStatus)
 	}
 	assertGenerations(t, controller, 2, 2)
@@ -367,8 +367,9 @@ func TestFieldLifecycleRegistryAndEffectiveFallback(t *testing.T) {
 		owner     string
 	}{
 		{"trust.level", LifecycleLivePolicy, "trust_policy"},
-		{"collector.interval_seconds", LifecycleReconfigure, "collector"},
-		{"alerting.routes", LifecycleReconfigure, "alerting"},
+		{"llm.model", LifecycleReconfigure, "llm"},
+		{"collector.interval_seconds", LifecycleRestart, ""},
+		{"alerting.routes", LifecycleReconfigure, AlertingOwner}, // alerting-06b
 		{"mode", LifecycleRestart, ""},
 		{"postgres.database_url", LifecycleRestart, ""},
 		{"databases", LifecycleReconfigure, FleetDatabasesOwner},
@@ -383,7 +384,7 @@ func TestFieldLifecycleRegistryAndEffectiveFallback(t *testing.T) {
 		t.Fatal("unknown key was classified")
 	}
 	withoutOwner := NewConfigController(DefaultConfig(), nil)
-	if got, _ := withoutOwner.EffectiveLifecycle("collector.interval_seconds"); got != LifecycleRestart {
+	if got, _ := withoutOwner.EffectiveLifecycle("llm.model"); got != LifecycleRestart {
 		t.Fatalf("unowned effective lifecycle = %q, want restart", got)
 	}
 	if got, _ := withoutOwner.EffectiveLifecycle("trust.level"); got != LifecycleRestart {

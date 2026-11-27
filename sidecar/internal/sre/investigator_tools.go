@@ -157,6 +157,7 @@ func (s *investigatorSession) explainTool() agentloop.Tool {
 	return agentloop.Tool{Name: ToolExplain, Cost: 1,
 		Parameters: json.RawMessage(`{"type":"object","properties":{"queryid":` +
 			`{"type":"integer"}},"required":["queryid"]}`),
+		//qualifiedrefs:prose tool description for the model, not SQL
 		Description: "Plan-only EXPLAIN of one statement named by its pg_stat_statements " +
 			"queryid (never ANALYZE); the plan's node shapes are citable evidence.",
 		Run: func(ctx context.Context, raw json.RawMessage) (agentloop.Output, error) {
@@ -192,7 +193,7 @@ func (s *investigatorSession) graphTool() agentloop.Tool {
 		Description: "The causal graph's diagnosis on all evidence collected so far " +
 			"(not citable: cite the evidence it rests on).",
 		Run: func(ctx context.Context, _ json.RawMessage) (agentloop.Output, error) {
-			d, _, err := s.diagnosis(ctx)
+			d, err := s.graphDiagnosis(ctx)
 			if err != nil {
 				return agentloop.Output{}, agentloop.Abort(err)
 			}
@@ -230,7 +231,45 @@ func (s *investigatorSession) factsTool() agentloop.Tool {
 		}}
 }
 
-// diagnosis re-runs the causal graph on everything stored so far.
+// graphDiagnosis is graph_state's diagnosis: the causal graph on the
+// session's evidence cache, which equals everything stored so far. The
+// first call seeds the cache from the store; a failed seed is retried on
+// the next call.
+func (s *investigatorSession) graphDiagnosis(ctx context.Context) (causal.Diagnosis,
+	error) {
+	if !s.seeded {
+		stored, err := s.c.store.Evidence(ctx, s.lease.Scope, s.inv.ID)
+		if err != nil {
+			return causal.Diagnosis{}, err
+		}
+		s.observed, s.seeded = stored, true
+	}
+	obs, err := observations(s.observed)
+	if err != nil {
+		return causal.Diagnosis{}, err
+	}
+	return diagnose(s.inv, obs), nil
+}
+
+// remember appends committed evidence to a seeded cache, once per row (a
+// retried commit reads back the row it stored the first time).
+func (s *investigatorSession) remember(ev []Evidence) {
+	if !s.seeded {
+		return // the seed will read it from the store
+	}
+	held := make(map[UUID]bool, len(s.observed))
+	for _, e := range s.observed {
+		held[e.ID] = true
+	}
+	for _, e := range ev {
+		if !held[e.ID] {
+			s.observed, held[e.ID] = append(s.observed, e), true
+		}
+	}
+}
+
+// diagnosis re-runs the causal graph on everything stored so far, read
+// from the store.
 func (s *investigatorSession) diagnosis(ctx context.Context) (causal.Diagnosis,
 	[]Evidence, error) {
 	stored, err := s.c.store.Evidence(ctx, s.lease.Scope, s.inv.ID)
@@ -245,9 +284,11 @@ func (s *investigatorSession) diagnosis(ctx context.Context) (causal.Diagnosis,
 }
 
 // collect runs one read under the lease, commits its result as evidence
-// and returns it as the model sees it. Running out of active time or of
-// the investigation's probe ceiling is a tool failure the model is told
-// about; a lost lease or an unavailable store aborts the run.
+// and returns it as the model sees it. A read refused its probe slot is
+// read once more when the lease allows (retryQueued). Running out of
+// active time or of the investigation's probe ceiling is a tool failure
+// the model is told about; a lost lease or an unavailable store aborts
+// the run.
 func (s *investigatorSession) collect(ctx context.Context,
 	read func(context.Context) probes.Result) (agentloop.Output, error) {
 	if time.Until(s.lease.SegmentDeadline) < 2*stepMargin {
@@ -258,7 +299,8 @@ func (s *investigatorSession) collect(ctx context.Context,
 		return agentloop.Output{}, agentloop.Abort(err)
 	}
 	s.lease = lease
-	res := read(ctx)
+	res := retryQueued(s.lease.SegmentDeadline, read(ctx),
+		func() probes.Result { return read(ctx) })
 	ev, err := s.commit(ctx, res)
 	if errors.Is(err, ErrBudgetExhausted) {
 		return agentloop.Output{}, fmt.Errorf("the investigation's probe ceiling is "+
@@ -267,10 +309,11 @@ func (s *investigatorSession) collect(ctx context.Context,
 	if err != nil {
 		return agentloop.Output{}, agentloop.Abort(err)
 	}
-	text := resultForModel(res)
+	text, values := resultForModel(res)
 	return agentloop.Output{Status: string(res.Status), Text: text,
 		Evidence: &agentloop.Evidence{ID: string(ev.ID), Digest: hex.EncodeToString(ev.SHA256),
-			Label: string(res.ProbeID) + " " + string(res.Status), Text: text}}, nil
+			Label: string(res.ProbeID) + " " + string(res.Status), Text: text,
+			Values: values}}, nil
 }
 
 // commit stores one result as a step (evaluating -> needs_evidence ->
@@ -288,22 +331,23 @@ func (s *investigatorSession) commit(ctx context.Context, res probes.Result) (Ev
 			return Evidence{}, err
 		}
 	}
-	stored, err := s.c.store.Evidence(ctx, s.lease.Scope, s.inv.ID)
-	if err != nil {
+	stored, err := s.c.store.StepEvidence(ctx, s.lease.Scope, s.inv.ID, key)
+	if err != nil && !errors.Is(err, ErrNotFound) {
 		return Evidence{}, err
 	}
-	for _, e := range stored {
-		if e.StepKey == key {
-			return e, nil
-		}
+	if len(stored) == 0 {
+		return Evidence{}, fmt.Errorf("%w: the committed read %s is not stored",
+			ErrNotFound, key)
 	}
-	return Evidence{}, fmt.Errorf("%w: the committed read %s is not stored", ErrNotFound,
-		key)
+	s.remember(stored)
+	return stored[0], nil
 }
 
 // resultForModel is a result as the model sees it: every text value
 // scrubbed of secrets and PII-like literals, at most maxResultRows rows.
-func resultForModel(res probes.Result) string {
+// It returns the text and the typed values of the same rows, which
+// ground the claims that cite the read (sre-03).
+func resultForModel(res probes.Result) (string, []string) {
 	clean := res
 	clean.Reason, clean.Error = scrub(res.Reason), scrub(res.Error)
 	clean.Rows = make([]probes.Row, 0, len(res.Rows))
@@ -321,5 +365,5 @@ func resultForModel(res probes.Result) string {
 	if res.Error != "" {
 		text += "\nerror: " + clean.Error
 	}
-	return truncateRunes(text, maxResultRunes)
+	return truncateRunes(text, maxResultRunes), clean.GroundingValues(maxResultRows)
 }

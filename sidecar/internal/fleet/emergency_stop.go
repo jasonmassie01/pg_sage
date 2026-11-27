@@ -70,7 +70,10 @@ func (m *DatabaseManager) InstanceStopped(inst *DatabaseInstance) bool {
 
 func (m *DatabaseManager) setEmergencyStopped(
 	name string, stopped bool, actor string,
-) (int, error) {
+) (StopResult, error) {
+	if m.readOnly {
+		return StopResult{}, ErrReadOnlyView
+	}
 	if actor == "" {
 		actor = executor.EmergencyStopActorSystem
 	}
@@ -79,9 +82,10 @@ func (m *DatabaseManager) setEmergencyStopped(
 	}
 	targets, err := m.emergencyTargets(name)
 	if err != nil {
-		return 0, err
+		return StopResult{}, err
 	}
-	return m.resumeTargets(targets, actor)
+	changed, err := m.resumeTargets(name, targets, actor)
+	return StopResult{Changed: changed}, err
 }
 
 // emergencyTargets snapshots the instances addressed by name ("" = all).
@@ -114,57 +118,101 @@ func (m *DatabaseManager) emergencyTargetsLocked(
 
 // stopTargets resolves and latches the targets under one manager lock, so a
 // runtime swap either publishes before the stop (and the stop latches the
-// new copy) or after it (and the new copy inherits the latch). It does not
-// wait for any other transition, then persists the durable flag under the
-// transition lock. A persistence failure never un-stops a database. The
-// pending mark tells an overlapping resume that this stop has not been
-// written yet and must win.
-func (m *DatabaseManager) stopTargets(name, actor string) (int, error) {
-	changed := 0
+// new copy) or after it (and the new copy inherits the latch). A stop of
+// all (name "") also turns the fleet latch on in the same critical section,
+// so a database registered afterwards is stopped too. It does not wait for
+// any other transition, cancels the running actions without the manager
+// lock, then persists the durable flags under the transition lock. A
+// persistence failure never un-stops a database. The pending marks tell an
+// overlapping resume that this stop has not been written yet and must win.
+func (m *DatabaseManager) stopTargets(name, actor string) (StopResult, error) {
+	fleetWide := name == ""
 	now := time.Now()
 	m.mu.Lock()
 	targets, err := m.emergencyTargetsLocked(name)
 	if err != nil {
 		m.mu.Unlock()
-		return 0, err
+		return StopResult{}, err
 	}
+	if fleetWide {
+		m.fleetStop.Stopped, m.fleetStop.By, m.fleetStop.At = true, actor, now
+		m.fleetStop.pending++
+	}
+	result := StopResult{}
 	for _, inst := range targets {
-		if !inst.Stopped {
-			changed++
+		if latchLocked(inst, actor, now) {
+			result.Changed++
 		}
-		inst.Stopped = true
-		inst.StoppedBy = actor
-		inst.StoppedAt = now
 		inst.stopsPending++
-		applyExecutorStopGate(inst, true)
 		log.Printf("fleet: %s: emergency stop by %s", inst.Name, actor)
 	}
 	m.mu.Unlock()
+	m.cancelTargets(targets, &result)
 
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
-	failed := m.persistTargets(targets, true, actor)
+	scope := scopeKeep
+	if fleetWide {
+		scope = scopeFleet
+	}
+	failed := m.persistTargets(targets, true, actor, scope)
+	if fleetWide {
+		m.persistFleetKey(true, actor, failed)
+	}
 	m.mu.Lock()
 	for _, inst := range targets {
 		inst.stopsPending--
+		markStopSaved(inst, failed)
+	}
+	if fleetWide {
+		m.fleetStop.pending--
 	}
 	m.mu.Unlock()
-	return changed, emergencyStopResult(true, failed)
+	return result, emergencyStopResult(true, failed)
+}
+
+// markStopSaved records whether a latched stop reached sage.config. The
+// reconcile retries an unsaved stop and never releases it. Caller holds
+// m.mu.
+func markStopSaved(inst *DatabaseInstance, failed map[string]error) {
+	if inst.Executor != nil {
+		inst.stopUnsaved = failed[inst.Name] != nil
+	}
 }
 
 // resumeTargets clears the durable flag first and releases the in-memory
 // latch only for databases whose flag was written and that no overlapping
 // stop has latched since: such a stop persists after this resume, so
-// releasing would leave memory running over a durable stop.
+// releasing would leave memory running over a durable stop. A per-database
+// resume is refused while the fleet latch holds; a resume of all lifts the
+// latch only when every durable write succeeded and no stop of all is
+// still being written.
 func (m *DatabaseManager) resumeTargets(
-	targets []*DatabaseInstance, actor string,
+	name string, targets []*DatabaseInstance, actor string,
 ) (int, error) {
+	fleetWide := name == ""
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
-	failed := m.persistTargets(targets, false, actor)
-	changed := 0
+	if !fleetWide {
+		if err := m.fleetResumeGate(name); err != nil {
+			return 0, err
+		}
+	}
+	scope := scopeKeep
+	if fleetWide {
+		scope = scopeClear
+	}
+	failed := m.persistTargets(targets, false, actor, scope)
+	if fleetWide {
+		m.persistFleetKey(false, actor, failed)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if fleetWide && len(failed) == 0 && m.fleetStop.pending == 0 {
+		m.fleetStop = fleetStopState{}
+		log.Printf("fleet: fleet-wide emergency stop lifted by %s", actor)
+	}
+	changed := 0
 	for _, inst := range targets {
 		if failed[inst.Name] != nil {
 			continue
@@ -178,12 +226,20 @@ func (m *DatabaseManager) resumeTargets(
 			changed++
 			log.Printf("fleet: %s: resumed by %s", inst.Name, actor)
 		}
-		inst.Stopped = false
-		inst.StoppedBy = ""
-		inst.StoppedAt = time.Time{}
-		applyExecutorStopGate(inst, false)
+		releaseLocked(inst)
 	}
 	return changed, emergencyStopResult(false, failed)
+}
+
+// releaseLocked clears the in-memory stop and restores the configured
+// executor gate. Caller holds m.mu.
+func releaseLocked(inst *DatabaseInstance) {
+	inst.Stopped = false
+	inst.StoppedBy = ""
+	inst.StoppedAt = time.Time{}
+	inst.stopUnsaved = false
+	inst.restoredFleet = false
+	applyExecutorStopGate(inst, false)
 }
 
 // persistTargets reconciles the persisted flag even when the in-memory state
@@ -192,27 +248,58 @@ func (m *DatabaseManager) resumeTargets(
 // registrations) have nothing that reads the flag and are skipped. The
 // caller holds m.transitionMu.
 func (m *DatabaseManager) persistTargets(
-	targets []*DatabaseInstance, stopped bool, actor string,
+	targets []*DatabaseInstance, stopped bool, actor string, scope stopScope,
 ) map[string]error {
-	persist := m.persistStop
-	if persist == nil {
-		persist = persistEmergencyStop
-	}
 	failed := map[string]error{}
 	for _, inst := range targets {
 		if inst.Executor == nil {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(
-			context.Background(), emergencyStopPersistTimeout,
-		)
-		err := persist(ctx, inst, stopped, actor)
-		cancel()
-		if err != nil {
-			failed[inst.Name] = fmt.Errorf("persisting emergency stop: %w", err)
+		if err := m.persistMember(inst, stopped, actor, scope); err != nil {
+			failed[inst.Name] = err
 		}
 	}
 	return failed
+}
+
+// persistMember writes one database's flag and, for a fleet-wide
+// transition, its scope. A resume of all clears the scope before the flag
+// and a stop of all writes it after, so a partial failure always leaves
+// the flag set wherever the scope still says 'fleet'.
+func (m *DatabaseManager) persistMember(
+	inst *DatabaseInstance, stopped bool, actor string, scope stopScope,
+) error {
+	if scope == scopeClear {
+		if err := m.writeScope(inst, false, actor); err != nil {
+			return fmt.Errorf("clearing %s: %w", FleetScopeKey, err)
+		}
+	}
+	persist := m.persistStop
+	if persist == nil {
+		persist = persistEmergencyStop
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), emergencyStopPersistTimeout)
+	err := persist(ctx, inst, stopped, actor)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("persisting emergency stop: %w", err)
+	}
+	if scope == scopeFleet {
+		if err := m.writeScope(inst, true, actor); err != nil {
+			return fmt.Errorf("persisting %s: %w", FleetScopeKey, err)
+		}
+	}
+	return nil
+}
+
+func (m *DatabaseManager) writeScope(inst *DatabaseInstance, fleet bool, actor string) error {
+	write := m.persistScope
+	if write == nil {
+		write = persistMemberScope
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), emergencyStopPersistTimeout)
+	defer cancel()
+	return write(ctx, inst, fleet, actor)
 }
 
 func emergencyStopResult(stopped bool, failed map[string]error) error {
@@ -255,21 +342,36 @@ func inheritEmergencyStop(old, candidate *DatabaseInstance) bool {
 	return true
 }
 
+// persistInheritedStops writes the durable flag of each runtime that
+// inherited a stop or was latched by the fleet latch.
+func (m *DatabaseManager) persistInheritedStops(insts []*DatabaseInstance) {
+	for _, inst := range insts {
+		m.persistInheritedStop(inst)
+	}
+}
+
 // persistInheritedStop writes the durable flag for a runtime that inherited
-// the in-memory stop, attributed to whoever stopped it. A failure keeps the
-// runtime stopped in memory (fail closed). Caller must not hold m.mu.
+// the in-memory stop, attributed to whoever stopped it, with scope 'fleet'
+// while the fleet latch holds. A failure keeps the runtime stopped in
+// memory (fail closed) and the reconcile retries it. Caller must not hold
+// m.mu.
 func (m *DatabaseManager) persistInheritedStop(inst *DatabaseInstance) {
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 	m.mu.RLock()
 	actor := inst.StoppedBy
+	scope := scopeKeep
+	if m.fleetStop.Stopped {
+		scope = scopeFleet
+	}
 	m.mu.RUnlock()
 	if actor == "" {
 		actor = executor.EmergencyStopActorSystem
 	}
-	failed := m.persistTargets([]*DatabaseInstance{inst}, true, actor)
+	failed := m.persistTargets([]*DatabaseInstance{inst}, true, actor, scope)
 	m.mu.Lock()
 	inst.stopsPending--
+	markStopSaved(inst, failed)
 	m.mu.Unlock()
 	if err := failed[inst.Name]; err != nil {
 		log.Printf("fleet: %s: inherited emergency stop not saved, "+

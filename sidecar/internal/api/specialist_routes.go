@@ -32,11 +32,11 @@ func isSpecialistRequest(r *http.Request) bool {
 
 func registerSpecialistRoutes(mux *http.ServeMux, rt RuntimeDeps) {
 	if rt.Specialist != nil {
-		mux.Handle(specialistPrefix, rt.Specialist)
+		route(mux, specialistPrefix, gateSelfAuth, rt.Specialist)
 	}
 	if rt.SpecialistAudit != nil {
-		mux.Handle("GET /api/v1/specialist-requests", RequireRole("admin", "operator")(
-			specialistAuditHandler(rt.SpecialistAudit)))
+		route(mux, "GET /api/v1/specialist-requests", gateOperator,
+			specialistAuditHandler(rt.SpecialistAudit))
 	}
 }
 
@@ -55,6 +55,7 @@ type specialistAuditView struct {
 	ExternalRef     *specialist.ExternalRef `json:"external_ref,omitempty"`
 	RemediationID   string                  `json:"remediation_id,omitempty"`
 	Verdict         string                  `json:"verdict,omitempty"`
+	QueueID         int64                   `json:"queue_id,omitempty"`
 	Outbound        string                  `json:"outbound"`
 	OutboundError   string                  `json:"outbound_error,omitempty"`
 	CreatedAt       time.Time               `json:"created_at"`
@@ -84,6 +85,7 @@ func specialistAuditHandler(audit SpecialistAuditReader) http.HandlerFunc {
 				Database: rec.Database, InvestigationID: rec.InvestigationID,
 				Created: rec.Created, Match: rec.Match, ExternalRef: rec.ExternalRef,
 				RemediationID: rec.RemediationID, Verdict: rec.Verdict,
+				QueueID:  rec.ApprovalQueueID,
 				Outbound: rec.Outbound, OutboundError: rec.OutboundError,
 				CreatedAt: rec.CreatedAt})
 		}

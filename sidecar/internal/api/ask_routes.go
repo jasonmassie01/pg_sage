@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/ask"
 )
@@ -30,12 +32,15 @@ func registerAskRoutes(mux *http.ServeMux, reg *ask.Registry) {
 	if reg == nil {
 		return
 	}
-	viewer := RequireRole("admin", "operator", "viewer")
 	h := askHandlers{reg: reg}
-	mux.Handle("POST "+askBasePath, viewer(http.HandlerFunc(h.ask)))
-	mux.Handle("GET "+askBasePath+"/conversations", viewer(http.HandlerFunc(h.list)))
-	mux.Handle("GET "+askBasePath+"/conversations/{id}", viewer(http.HandlerFunc(h.thread)))
-	mux.Handle("GET "+askBasePath+"/budget", viewer(http.HandlerFunc(h.budget)))
+	// A question reads its database: with grants on, a database the
+	// caller may not read is answered like an unknown one (apiauth-08c).
+	route(mux, "POST "+askBasePath, gateViewerWrite,
+		requireReadScope(readDatabase(pathDB))(http.HandlerFunc(h.ask)))
+	route(mux, "GET "+askBasePath+"/conversations", gateViewer, http.HandlerFunc(h.list))
+	route(mux, "GET "+askBasePath+"/conversations/{id}", gateViewer, http.HandlerFunc(h.thread))
+	route(mux, "GET "+askBasePath+"/budget", gateViewer, http.HandlerFunc(h.budget))
+	registerAskRunRoutes(mux, h)
 }
 
 // askCaller is the session user as an Ask Sage caller.
@@ -70,10 +75,11 @@ func (h askHandlers) ask(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAskBody))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		sreErrorCode(w, "body must be {\"question\": string, \"conversation_id\"?: string}",
-			"invalid_request", http.StatusBadRequest)
+		sreErrorCode(w, "body must be {\"question\": string, \"conversation_id\"?: string, "+
+			"\"read_only\"?: boolean}", "invalid_request", http.StatusBadRequest)
 		return
 	}
+	extendConnDeadlines(w, r)
 	answer, err := svc.Ask(r.Context(), askCaller(r), req)
 	if err != nil {
 		askError(w, err)
@@ -129,7 +135,12 @@ func askError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ask.ErrInvalid):
 		sreErrorCode(w, err.Error(), "invalid_request", http.StatusBadRequest)
 	case errors.Is(err, ask.ErrNotFound):
-		sreErrorCode(w, "conversation not found", "not_found", http.StatusNotFound)
+		sreErrorCode(w, notFoundMessage(err), "not_found", http.StatusNotFound)
+	case errors.Is(err, ask.ErrConflict):
+		sreErrorCode(w, err.Error(), "ask_conflict", http.StatusConflict)
+	case errors.Is(err, ask.ErrBusy):
+		w.Header().Set("Retry-After", askRunRetryAfter)
+		sreErrorCode(w, err.Error(), "ask_busy", http.StatusTooManyRequests)
 	case errors.Is(err, ask.ErrDisabled):
 		sreErrorCode(w, "Ask Sage is disabled (ask.enabled: false)", "ask_disabled",
 			http.StatusServiceUnavailable)
@@ -137,5 +148,37 @@ func askError(w http.ResponseWriter, err error) {
 		slog.Error("ask sage request failed", "error", err)
 		sreErrorCode(w, "Ask Sage is unavailable; try again", "ask_unavailable",
 			http.StatusServiceUnavailable)
+	}
+}
+
+// notFoundMessage names what was not found: a run or a conversation.
+func notFoundMessage(err error) string {
+	if strings.Contains(err.Error(), "run ") {
+		return "run not found"
+	}
+	return "conversation not found"
+}
+
+// askConnSlack is how long past the request deadline the connection
+// stays open for the answer to be written.
+const askConnSlack = 5 * time.Second
+
+// extendConnDeadlines lets a question outlive the server's read and write
+// timeouts (30 s and 60 s; ask.max_seconds_per_question may be 300): the
+// connection stays open until the request deadline plus askConnSlack. An
+// expired read deadline cancels the request through net/http's
+// background read, and an expired write deadline drops the answer.
+func extendConnDeadlines(w http.ResponseWriter, r *http.Request) {
+	deadline, ok := r.Context().Deadline()
+	if !ok {
+		return
+	}
+	rc := http.NewResponseController(w)
+	until := deadline.Add(askConnSlack)
+	if err := rc.SetReadDeadline(until); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		slog.Warn("ask sage: extend the read deadline", "error", err)
+	}
+	if err := rc.SetWriteDeadline(until); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		slog.Warn("ask sage: extend the write deadline", "error", err)
 	}
 }

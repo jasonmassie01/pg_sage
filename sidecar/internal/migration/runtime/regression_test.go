@@ -7,11 +7,13 @@ import (
 	"time"
 
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 )
 
 // TestApplyReportsPendingContract is the G7-B23 regression: "expanded"
 // was reported while nothing would ever run the contract phase.
 func TestApplyReportsPendingContract(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result.Measurement = passingRuntimeMeasurement()
 	result, err := fixture.orchestrator().Apply(context.Background(), request())
@@ -39,12 +41,13 @@ func passingRuntimeMeasurement() rehearsalpkg.Measurement {
 // TestApplyRecordsCleanupFailureAndMeasurement covers R08's durable
 // cleanup-failure record and G7-B22's discarded measurement.
 func TestApplyRecordsCleanupFailureAndMeasurement(t *testing.T) {
+	parsetree.Require(t)
 	fixture := newFixture()
 	fixture.rehearser.result = rehearsalpkg.Result{
 		Verdict: rehearsalpkg.VerdictRecommendOnly,
 		Reason:  rehearsalpkg.ReasonInconclusiveWorkload,
 		Measurement: rehearsalpkg.Measurement{
-			MaxLockDuration: 30 * time.Millisecond, DiskDeltaBytes: 99,
+			MaxStepDuration: 30 * time.Millisecond, DiskDeltaBytes: 99,
 		},
 		CleanupError: "destroy clone clone-1: busy",
 	}
@@ -74,7 +77,7 @@ func TestPostgresRecorderPersistsMeasurement(t *testing.T) {
 		Request: request(), Verdict: VerdictRecommendOnly,
 		EvidenceID: "ev_runtime_measurement", Reason: "inconclusive_no_workload",
 		Measurement: &rehearsalpkg.Measurement{
-			MaxLockDuration: 250 * time.Millisecond, DiskDeltaBytes: 8192,
+			MaxStepDuration: 250 * time.Millisecond, DiskDeltaBytes: 8192,
 		},
 	}
 	if err := NewPostgresRecorder(pool).Record(context.Background(), record); err != nil {
@@ -85,7 +88,7 @@ func TestPostgresRecorderPersistsMeasurement(t *testing.T) {
 	var reason string
 	err := pool.QueryRow(context.Background(), `SELECT
 		(measurement->>'disk_delta_bytes')::bigint,
-		(measurement->>'max_lock_duration_ms')::float8,
+		(measurement->>'max_step_duration_ms')::float8,
 		measurement->>'reason'
 		FROM sage.migration_run WHERE evidence_id=$1`,
 		record.EvidenceID).Scan(&disk, &lockMS, &reason)

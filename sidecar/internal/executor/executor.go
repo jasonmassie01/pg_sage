@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // EventDispatcher sends notification events. Nil means no
@@ -65,13 +66,20 @@ const maxConcurrentDDL = 3
 // Executor runs the autonomous remediation loop after each
 // analyzer cycle.
 type Executor struct {
-	pool               *pgxpool.Pool
-	cfg                *config.Config
-	recs               *recommendation.Store // durable recommendations (C07)
-	rampStart          time.Time
-	recentMu           sync.Mutex
-	recentActions      map[string]time.Time
-	logFn              func(string, string, ...any)
+	pool *pgxpool.Pool
+	// actionPool is the separate action identity (action_dsn); nil runs
+	// everything on pool (actionDB, security-09).
+	actionPool    *pgxpool.Pool
+	cfg           *config.Config
+	recs          *recommendation.Store // durable recommendations (C07)
+	rampStart     time.Time
+	recentMu      sync.Mutex
+	recentActions map[string]time.Time
+	logFn         func(string, string, ...any)
+	// roleLock serializes role budget changes cluster-wide (role_budget_exec.go);
+	// isLeader gates the cluster-wide connection limit (nil: single process).
+	roleLock           func(ctx context.Context, role string) (func(), error)
+	isLeader           func() bool
 	actionStore        ActionProposer
 	execMode           string // auto, approval, manual
 	dispatcher         EventDispatcher
@@ -79,6 +87,7 @@ type Executor struct {
 	databaseID         *int
 	settingWait        time.Duration // bounds reloaded-setting post-checks (0 = default)
 	trustLevelOverride string
+	trustCeiling       *TrustCeiling   // live operator ceiling (config-01)
 	ddlSem             chan struct{}   // limits concurrent DDL ops
 	quiesced           atomic.Int32    // DDL slots a drain holds (Quiesce)
 	analyzeSem         chan struct{}   // shared fleet-wide for ANALYZE
@@ -93,19 +102,40 @@ type Executor struct {
 	principalHold      PrincipalHold          // §6.2.7 cross-database re-check
 	managedConfig      ManagedConfigAdapter
 	indexVerification  *verifiedIndexLifecycle
-	hostCPU            HostCPUReader
-	ioEvidence         IOEvidenceReader
-	retainedCleanupMu  sync.Mutex
-	resumeOnce         sync.Once
-	leaseQueueCfg      policy.LeaseQueueConfig // serialize_mode queue bounds
-	postDDLMu          sync.RWMutex
-	postDDLHook        func(context.Context) error
-	// approvedRunner runs approved queue items it owns (Sage SRE M5).
+	// methodResolver resolves verify.method for this database (lab-01c).
+	methodResolver    *verify.MethodResolver
+	hostCPU           HostCPUReader
+	ioEvidence        IOEvidenceReader
+	retainedCleanupMu sync.Mutex
+	recordFailures    recordFailureLog // rate-limits record-failure logs (policy-01)
+	resumeOnce        sync.Once
+	inflight          inflightRegistry        // running work the emergency stop cancels
+	leaseQueueCfg     policy.LeaseQueueConfig // serialize_mode queue bounds
+	postDDLMu         sync.RWMutex
+	postDDLHook       func(context.Context) error
+	// retriesReopened is set once the startup sweep of transient unverifiable
+	// watches from before observation retries has succeeded (executor-02).
+	retriesReopened atomic.Bool
+	// approvedRunner runs approved queue items its runners own (Sage SRE
+	// M5, plan steps plan-02a).
 	approvedRunner approvedRunnerSlot
 	// replaceWatch and replaceHooks: the replace action's verification
 	// watches and its test seams (roadmap 2.3).
 	replaceWatch replaceWatchSet
 	replaceHooks replaceHooks
+	// remnantHooks: the CONCURRENTLY remnant handler's test seams.
+	remnantHooks remnantHooks
+	// vacuumHooks: the watched VACUUM's test seams (vacuum-05).
+	vacuumHooks vacuumHooks
+	// clock reads the monitored database's clock for windows over the
+	// samples it stamps; nil reads pool (executor-31).
+	clock dbClock
+	// exposureMode reads the standing document's exposure mode (nil:
+	// shadow); exposureHistory and revokeWindow are the reader
+	// verification's statement history and window (fleetpol-02b).
+	exposureMode    func(context.Context) (string, error)
+	exposureHistory queryObserver
+	revokeWindow    time.Duration
 
 	// monitors tracks background MonitorAndRollback goroutines so
 	// Shutdown can wait for them. shutdownCh is closed to signal
@@ -180,7 +210,9 @@ func New(
 			return CheckEmergencyStop(ctx, pool)
 		},
 	}
+	executor.roleLock = executor.clusterRoleLock
 	executor.configureIndexVerification()
+	executor.checkRollbackContracts()
 	return executor
 }
 
@@ -247,25 +279,18 @@ func (e *Executor) WithDispatcher(d EventDispatcher) {
 	e.dispatcher = d
 }
 
-// WithDatabaseName sets the database name included in events.
+// WithDatabaseName sets the database name included in events and in
+// /metrics, where it also names the executor's pool (observability-04).
 func (e *Executor) WithDatabaseName(name string) {
 	e.databaseName = name
-}
-
-// validTrustLevels enumerates the accepted trust level strings.
-// Empty string is allowed to clear an override.
-var validTrustLevels = map[string]bool{
-	"observation": true,
-	"advisory":    true,
-	"autonomous":  true,
-	"":            true,
+	bindMetricsPool(e.pool, name)
 }
 
 // SetTrustLevel overrides the global trust level for this
 // executor instance. Empty string clears the override.
-// Returns an error if the level is not recognized.
+// Returns an error if the level is not one of config.TrustLevels.
 func (e *Executor) SetTrustLevel(level string) error {
-	if !validTrustLevels[level] {
+	if level != "" && !config.IsTrustLevel(level) {
 		return fmt.Errorf("invalid trust level: %q", level)
 	}
 	e.policyMu.Lock()
@@ -301,11 +326,15 @@ func (e *Executor) ExecutionMode() string {
 	return e.execMode
 }
 
-// SetExecutorEnabled applies the per-database executor hard gate.
+// SetExecutorEnabled applies the per-database executor hard gate. Enabling
+// also releases the latch CancelInFlight set, so work may start again.
 func (e *Executor) SetExecutorEnabled(enabled bool) {
 	e.policyMu.Lock()
 	e.executorDisabled = !enabled
 	e.policyMu.Unlock()
+	if enabled {
+		e.inflight.release()
+	}
 }
 
 // ExecutorEnabled reports whether mutation and queueing are enabled.

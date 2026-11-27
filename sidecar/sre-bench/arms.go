@@ -49,8 +49,11 @@ type DerivedArm interface {
 // RunConfig is the arms a run scores side by side and its repeat count.
 type RunConfig struct {
 	Repeats int
-	Live    []LiveArm
-	Derived []DerivedArm
+	// FirstRepeat numbers the first pass (0 or 1: the first); a top-up
+	// pass continues the numbering of the passes before it.
+	FirstRepeat int
+	Live        []LiveArm
+	Derived     []DerivedArm
 }
 
 // DefaultConfig is every arm of PGIncidentBench v1: the causal graph

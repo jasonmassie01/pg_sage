@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/gameday"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
@@ -28,9 +29,14 @@ type GameDayOptions struct {
 	// PgSageVersion and PgSageCommit stamp the report with the running
 	// pg_sage build.
 	PgSageVersion, PgSageCommit string
+	// Bindings are the customer programs to run after the fixtures of
+	// their family, each with its table or skip reason (benches-12; nil:
+	// the fixtures only).
+	Bindings []gameday.Binding
 }
 
-// OpenEnv bootstraps the sage schema on dsn's database and returns the
+// OpenEnv bootstraps the sage schema on dsn's database, sweeps what a
+// crashed bench run left on its cluster (sweep.go), and returns the
 // environment and its close function (for callers without a testing.T).
 func OpenEnv(ctx context.Context, dsn string) (*Env, func(), error) {
 	pool, err := pgxpool.New(ctx, dsn)
@@ -48,13 +54,22 @@ func OpenEnv(ctx context.Context, dsn string) (*Env, func(), error) {
 	}
 	e := &Env{DSN: dsn, Pool: pool, Store: st,
 		Runner: probes.NewRunner(pool, probes.Catalog(), probes.NewLimiter(1))}
+	if err := sweepLeftovers(ctx, e, leftoverAge); err != nil {
+		pool.Close()
+		return nil, nil, err
+	}
 	return e, func() { e.closeSessions(); pool.Close() }, nil
 }
 
-// selectGameDayScenarios picks the scenarios of opts; an unknown family
-// or scenario id, or an empty selection, is an error.
+// selectGameDayScenarios picks the scenarios of opts (the fixtures, then
+// the customer programs of opts.Bindings); an unknown family or scenario
+// id, an invalid binding, or an empty selection, is an error.
 func selectGameDayScenarios(opts GameDayOptions) ([]Scenario, error) {
-	all := Scenarios()
+	customer, err := customerScenarios(opts.Bindings)
+	if err != nil {
+		return nil, err
+	}
+	all := append(Scenarios(), customer...)
 	families := map[string]bool{}
 	ids := map[string]bool{}
 	for _, sc := range all {
@@ -86,8 +101,10 @@ func selectGameDayScenarios(opts GameDayOptions) ([]Scenario, error) {
 // RunGameDay runs the selected fault programs once against the
 // disposable database dsn with the deterministic investigator (no model
 // tokens are spent on clones) and returns the PGIncidentBench JSON
-// report. Never point it at a monitored database: the fault programs
-// create blocking sessions, WAL and replication slots.
+// report. Never point it at a monitored database's cluster: the fault
+// programs act on the whole cluster (ALTER SYSTEM, CHECKPOINT, WAL,
+// replication slots, XID burn). The sidecar's local game-day provider
+// (internal/gameday) refuses such targets.
 func RunGameDay(ctx context.Context, dsn string, opts GameDayOptions,
 	now time.Time) ([]byte, error) {
 	if strings.TrimSpace(dsn) == "" {
@@ -107,7 +124,21 @@ func RunGameDay(ctx context.Context, dsn string, opts GameDayOptions,
 		return nil, fmt.Errorf("game day: server version: %w", err)
 	}
 	cfg, meta := gameDayRun(scenarios, opts, version, now)
-	return json.Marshal(BuildReport(Run(ctx, env, scenarios, cfg), meta))
+	return gameDayReport(ctx, env, scenarios, cfg, meta)
+}
+
+// gameDayReport runs the fault programs and returns their report. Once
+// ctx ends (shutdown, the run budget) Run starts no further scenario, so
+// its results cover only part of the selection: that report is refused,
+// never ingested as evidence (benches-03).
+func gameDayReport(ctx context.Context, env *Env, scenarios []Scenario, cfg RunConfig,
+	meta ReportMeta) ([]byte, error) {
+	results := Run(ctx, env, scenarios, cfg)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("game day: the run ended before every fault program ran "+
+			"(%d result(s) discarded): %w", len(results), err)
+	}
+	return json.Marshal(BuildReport(results, meta))
 }
 
 // gameDayRun is the run configuration and report metadata of a game day
@@ -134,14 +165,15 @@ type GameDayFaults struct {
 	PgSageVersion, PgSageCommit string
 }
 
-// Run runs the fault programs of families against dsn.
-func (f GameDayFaults) Run(ctx context.Context, dsn string, families []string) ([]byte,
-	error) {
+// Run runs the fault programs of families, and the customer programs of
+// bindings, against dsn.
+func (f GameDayFaults) Run(ctx context.Context, dsn string, families []string,
+	bindings []gameday.Binding) ([]byte, error) {
 	now := time.Now
 	if f.Now != nil {
 		now = f.Now
 	}
 	return RunGameDay(ctx, dsn, GameDayOptions{Families: families, Scenarios: f.Scenarios,
 		MinRunsPerFamily: f.MinRunsPerFamily, PgSageVersion: f.PgSageVersion,
-		PgSageCommit: f.PgSageCommit}, now())
+		PgSageCommit: f.PgSageCommit, Bindings: bindings}, now())
 }

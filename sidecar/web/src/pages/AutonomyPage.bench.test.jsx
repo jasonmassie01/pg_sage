@@ -163,6 +163,21 @@ describe('Path to next level: bench evidence', () => {
       .toHaveTextContent('report is for another pg_sage build')
   })
 
+  // benches-08: a local run that scored nothing says so and why.
+  it('says a local run that scored nothing counts for no family', () => {
+    benchState = { data: { enabled: true, provider: 'snapshot', running: false,
+      last: { id: 'b1', status: 'completed_unscored', families: ['lock_blocking'],
+        finished_at: '2026-10-03T13:00:00Z',
+        summary: { scored: 0, skipped: 4, errored: 0,
+          top_skips: [{ reason: 'needs superuser (CHECKPOINT)', count: 4 }] } } } }
+    render(<AutonomyPage database="orders" user={admin} />)
+    const status = within(panel()).getByTestId('local-bench-status')
+    expect(status).toHaveTextContent(/scored no run/i)
+    expect(status).toHaveTextContent('skipped 4')
+    expect(status).toHaveTextContent('needs superuser (CHECKPOINT) (4)')
+    expect(status).not.toHaveTextContent(/it counts for the families it covered/)
+  })
+
   it('shows a refused start', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 409,
       json: () => Promise.resolve({ error: 'a local bench run is already running' }) })))

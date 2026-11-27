@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // writeParkMetrics emits the standing gate's parks by reason (each
@@ -13,19 +13,28 @@ import (
 // verdict, by cause: an operator override or the hard deadline.
 func writeParkMetrics(b *strings.Builder, parks []executor.ParkCount,
 	releases []executor.WaitReleaseCount) {
-	b.WriteString("# HELP pg_sage_policy_parks_total Self-initiated changes the policy " +
-		"gate parked, by reason (one per evaluation)\n" +
-		"# TYPE pg_sage_policy_parks_total counter\n")
+	metricsreg.Header(b, "pg_sage_policy_parks_total")
 	for _, p := range parks {
-		fmt.Fprintf(b, "pg_sage_policy_parks_total{database=%q,reason=%q} %d\n",
-			p.Database, p.Reason, p.Count)
+		writeSample(b, "pg_sage_policy_parks_total",
+			[]labelPair{{"database", p.Database}, {"reason", p.Reason}}, p.Count)
 	}
-	b.WriteString("# HELP pg_sage_verification_wait_releases_total Verification waits " +
-		"that ended without a verdict, by cause (operator_override, hard_deadline)\n" +
-		"# TYPE pg_sage_verification_wait_releases_total counter\n")
+	metricsreg.Header(b, "pg_sage_verification_wait_releases_total")
 	for _, r := range releases {
-		fmt.Fprintf(b, "pg_sage_verification_wait_releases_total{database=%q,cause=%q} %d\n",
-			r.Database, r.Cause, r.Count)
+		writeSample(b, "pg_sage_verification_wait_releases_total",
+			[]labelPair{{"database", r.Database}, {"cause", r.Cause}}, r.Count)
+	}
+	b.WriteString("\n")
+}
+
+// writeRecordFailureMetrics emits the standing-gate decisions that could
+// not be recorded in sage.decision, by the decision's reason. Each one was
+// answered policy_unavailable (fail closed); any series above zero means
+// the ledger is missing decisions (policy-01).
+func writeRecordFailureMetrics(b *strings.Builder, failures []executor.RecordFailureCount) {
+	metricsreg.Header(b, "pg_sage_policy_record_failures_total")
+	for _, f := range failures {
+		writeSample(b, "pg_sage_policy_record_failures_total",
+			[]labelPair{{"database", f.Database}, {"reason", f.Reason}}, f.Count)
 	}
 	b.WriteString("\n")
 }

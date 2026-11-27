@@ -77,25 +77,21 @@ func realTier2Inputs() (
 	curr, prev *collector.Snapshot, lcf []analyzer.Finding,
 ) {
 	now := time.Now()
+	// rca-03: the WAL rate is the insert LSN's advance over each collector
+	// interval (50 MiB/min, 5x the interval before), and idle in
+	// transaction is the system stats' longest idle session.
 	sys := collector.SystemStats{
 		TotalBackends: 10, MaxConnections: 100, CacheHitRatio: 0.999,
 	}
-	prev = &collector.Snapshot{
-		CollectedAt: now.Add(-time.Minute),
-		System:      sys,
-		Queries:     []collector.QueryStats{{QueryID: 1, WALBytes: 1000}},
-	}
-	curr = &collector.Snapshot{
-		CollectedAt: now,
-		System:      sys,
-		Queries:     []collector.QueryStats{{QueryID: 1, WALBytes: 5000}},
-		ConfigData: &collector.ConfigSnapshot{
-			ConnectionStates: []collector.ConnectionState{{
-				State: "idle in transaction", Count: 4,
-				AvgDurationSeconds: 900,
-			}},
-		},
-	}
+	prevSys, currSys := sys, sys
+	prevWAL, currWAL := int64(10<<20), int64(50<<20)
+	prevSys.Interval = &collector.SystemInterval{Seconds: 60, WALBytes: &prevWAL,
+		WALSeconds: 60}
+	currSys.Interval = &collector.SystemInterval{Seconds: 60, WALBytes: &currWAL,
+		WALSeconds: 60}
+	currSys.IdleInTransaction, currSys.IdleInTxMaxSeconds = 4, 900
+	prev = &collector.Snapshot{CollectedAt: now.Add(-time.Minute), System: prevSys}
+	curr = &collector.Snapshot{CollectedAt: now, System: currSys}
 	lcf = []analyzer.Finding{{
 		Category: "lock_chain", Severity: "warning",
 		Detail: map[string]any{"total_blocked": 3},
@@ -153,7 +149,7 @@ func TestTier2_NoCallWhenEverySignalExplained(t *testing.T) {
 	eng.WithLLM(tier2LLMClient(srv.srv.URL))
 
 	curr, prev, lcf := realTier2Inputs()
-	curr.ConfigData = nil // idle_in_tx_elevated no longer fires
+	curr.System.IdleInTransaction = 0 // idle_in_tx_elevated no longer fires
 	incs := eng.Analyze(curr, prev, testConfig(), lcf)
 
 	if n := srv.calls.Load(); n != 0 {
@@ -269,6 +265,9 @@ func TestTier2_DedupBeforeCallingLLMAgain(t *testing.T) {
 func TestTier2_ChainStepsNotAttributedByIndex(t *testing.T) {
 	resp := validTier2Response()
 	resp.CausalChain = "A -> B -> C"
+	// No SQL: withheld model SQL adds its own chain note (security-05),
+	// which is not what this test counts.
+	resp.RecommendedSQL = nil
 	srv := newCapturingLLMServer(tier2JSON(t, resp))
 	defer srv.srv.Close()
 

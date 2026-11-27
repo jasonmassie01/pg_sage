@@ -1,13 +1,9 @@
 package fleetlearn
 
 import (
-	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // FindingRow is one database's open finding, the drill-down of a fleet
@@ -115,89 +111,6 @@ func fleetFinding(key string, occ []FindingRow, min int) (FleetFinding, bool) {
 		}
 	}
 	return f, true
-}
-
-// Source is one fleet database to read findings from.
-type Source struct {
-	Name string
-	Pool *pgxpool.Pool
-}
-
-// SourceError is a database whose findings could not be read. Error is
-// safe to show; Cause is for the log.
-type SourceError struct {
-	Database string `json:"database"`
-	Error    string `json:"error"`
-	Cause    error  `json:"-"`
-}
-
-// FleetFindingsResult is a fleet-wide read of recurring findings.
-type FleetFindingsResult struct {
-	Findings         []FleetFinding `json:"findings"`
-	MinDatabases     int            `json:"min_databases"`
-	DatabasesScanned int            `json:"databases_scanned"`
-	Errors           []SourceError  `json:"errors"`
-}
-
-const (
-	openFindingsSQL = `/* pg_sage */ SELECT id, category, severity,
-	object_identifier, title, COALESCE(recommendation, ''), last_seen
-	FROM sage.findings WHERE status = 'open'
-	ORDER BY last_seen DESC LIMIT $1`
-	findingsReadTimeout = 10 * time.Second
-)
-
-// CollectFleetFindings reads the open findings of every source (at most
-// perDatabaseLimit each) and groups the recurring ones. A database that
-// cannot be read is reported in Errors and never hides the others.
-func CollectFleetFindings(ctx context.Context, sources []Source, minDatabases,
-	perDatabaseLimit int) FleetFindingsResult {
-	if minDatabases < MinFleetDatabases {
-		minDatabases = MinFleetDatabases
-	}
-	res := FleetFindingsResult{MinDatabases: minDatabases, Errors: []SourceError{}}
-	var rows []FindingRow
-	for _, s := range sources {
-		got, err := readOpenFindings(ctx, s, perDatabaseLimit)
-		if err != nil {
-			res.Errors = append(res.Errors, SourceError{Database: s.Name,
-				Error: "read open findings failed", Cause: err})
-			continue
-		}
-		res.DatabasesScanned++
-		rows = append(rows, got...)
-	}
-	res.Findings = GroupFleetFindings(rows, minDatabases)
-	return res
-}
-
-func readOpenFindings(ctx context.Context, s Source, limit int) ([]FindingRow, error) {
-	if s.Pool == nil {
-		return nil, fmt.Errorf("fleet findings: database %q has no connection", s.Name)
-	}
-	if limit <= 0 {
-		limit = 500
-	}
-	ctx, cancel := context.WithTimeout(ctx, findingsReadTimeout)
-	defer cancel()
-	rows, err := s.Pool.Query(ctx, openFindingsSQL, limit)
-	if err != nil {
-		return nil, fmt.Errorf("fleet findings: read %q: %w", s.Name, err)
-	}
-	defer rows.Close()
-	var out []FindingRow
-	for rows.Next() {
-		r := FindingRow{Database: s.Name}
-		if err := rows.Scan(&r.ID, &r.Category, &r.Severity, &r.ObjectIdentifier,
-			&r.Title, &r.Recommendation, &r.LastSeen); err != nil {
-			return nil, fmt.Errorf("fleet findings: scan %q: %w", s.Name, err)
-		}
-		out = append(out, r)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("fleet findings: read %q: %w", s.Name, err)
-	}
-	return out, nil
 }
 
 // Need is a database's measured demand for model attention.

@@ -1,6 +1,7 @@
 package decide
 
 import (
+	"context"
 	"regexp"
 	"strings"
 
@@ -35,19 +36,22 @@ var toolClasses = map[string]toolClass{
 	// pg_sage's own maintenance candidates, attributed to the agent.
 	"sre_propose_action":             propose(CapMaint),
 	"sre_request_execution":          propose(CapMaint),
+	"sre_refresh_table_evidence":     propose(CapMaint),
+	"sre_propose_statistics":         propose(CapMaint),
+	"sre_request_statistics":         propose(CapMaint),
 	"specialist_request_remediation": propose(CapMaint),
 	// Policy proposals: always a person, two when widening.
 	"set_maintenance_policy": propose(CapPolicyProposal),
 	"propose_policy_change":  propose(CapPolicyProposal),
 	"sre_draft_runbook":      propose(CapPolicyProposal),
 	"sre_compile_runbook":    propose(CapPolicyProposal),
-	// Unchanged: facts stay proposed until a person confirms.
-	"propose_fact": propose(""), "mark_object": propose(""),
+	// Unchanged: facts (and plans, plan-03b) stay proposed until a person decides.
+	"propose_fact": propose(""), "mark_object": propose(""), "propose_plan": propose(""),
 	"report_source_fix": propose(""), "sre_evaluate_autonomy": propose(""),
 	// Approve scope: out of an agent's reach.
 	"decide_fact": approve(), "declare_table_contract": approve(),
 	"register_consumer": approve(), "sre_downgrade_autonomy": approve(),
-	"sre_review_investigation": approve(),
+	"sre_review_investigation": approve(), "sre_rollback_statistics": approve(),
 	// Read tools.
 	"ask_sage": read(), "explain_query": read(), "fleet_findings": read(),
 	"get_guarantee_status": read(), "get_ledger": read(), "get_policy": read(),
@@ -61,7 +65,20 @@ var toolClasses = map[string]toolClass{
 	"sre_list_changes":   read(),
 	"sre_list_incidents": read(), "sre_list_runbooks": read(), "sre_list_slos": read(),
 	"sre_runbook_runs": read(), "sre_similar_incidents": read(), "top_queries": read(),
-	"whatif_index": read(),
+	"whatif_index": read(), "list_plans": read(), "get_plan": read(),
+	// mcp-01b: the requester's own held item; read-only, bounded waits.
+	"get_request_status": read(), "wait_for_decision": read(),
+	// market-05: one bounded read-only transaction; it writes nothing.
+	"upgrade_readiness": read(),
+	// ux-01a, ux-02a, evid-02c: read scope, read-only; they decide nothing
+	// and get_workload_pack returns only the model tier.
+	"get_inbox": read(), "get_outcomes": read(), "get_workload_pack": read(),
+	// drill-01d, review-01a, review-05a, guard-01a: read scope, read-only;
+	// none starts a drill, a grade or a check that writes.
+	"restore_drills": read(), "review_grade": read(), "review_scorecard": read(),
+	"check_pressure": read(),
+	// ux-08b: the why-not chain, read scope; it reads and records nothing.
+	"why_not": read(),
 	// agent_* tools (G1+): every D-step applies.
 	"agent_query": agentTool(CapRead), "agent_whoami": agentTool(CapRead),
 	// The capability class of a grant request is the class it asks for;
@@ -99,19 +116,51 @@ var (
 	destructiveDDL = regexp.MustCompile(`(?i)\b(DROP|TRUNCATE)\b`)
 	sqlComment     = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/`)
 	sqlString      = regexp.MustCompile(`'(?:[^']|'')*'`)
-	ddlClassifier  = migration.NewRegexClassifier()
 )
 
 // ClassifyDDL classes a schema change (§5.2): any DROP or TRUNCATE is
 // destructive (pg_sage cannot tell a unique index from another here);
-// anything the migration classifier flags for its lock or rewrite is
-// locking; the rest is additive. No SQL is the worst case, destructive.
+// anything the migration classifier flags for its lock or rewrite, or
+// does not recognize (a statement that does not parse included), is
+// locking (migration-04). Additive is earned, not the default
+// (migration-04a): only SQL whose every statement the classifier knows
+// and that is on the migration package's additive allowlist is additive;
+// text the scanner cannot tokenize is locking. No SQL is the worst case,
+// destructive.
 func ClassifyDDL(sql string) Capability {
 	text := sqlString.ReplaceAllString(sqlComment.ReplaceAllString(sql, " "), "''")
-	if strings.TrimSpace(text) == "" || destructiveDDL.MatchString(text) {
+	if strings.Trim(text, " \t\r\n\f;") == "" || destructiveDDL.MatchString(text) {
 		return CapDDLDestructive
 	}
-	for _, c := range ddlClassifier.Classify(text, oldestSupportedPG) {
+	unproven, err := migration.UnprovenStatements(sql)
+	if err != nil {
+		return CapDDLLocking
+	}
+	// The regexes above strip comments before literals, so a literal that
+	// holds "--" or "/*" can hide a DROP from them; the scanner's
+	// statements cannot (migration-04a review).
+	for _, stmt := range unproven {
+		if destructiveDDL.MatchString(stmt) {
+			return CapDDLDestructive
+		}
+	}
+	if len(unproven) > 0 {
+		return CapDDLLocking
+	}
+	return classifiedCapability(sql)
+}
+
+// classifiedCapability is locking when the migration classifier flags a
+// lock or rewrite in sql or does not recognize one of its statements, and
+// additive otherwise. It reads no catalog, so ClassifyStatements cannot
+// fail here.
+func classifiedCapability(sql string) Capability {
+	classified, err := migration.ClassifyStatements(context.Background(), nil, sql,
+		oldestSupportedPG)
+	if err != nil || classified.Untokenizable || classified.Unrecognized() > 0 {
+		return CapDDLLocking
+	}
+	for _, c := range classified.All() {
 		if c.RuleID != "ddl_missing_lock_timeout" {
 			return CapDDLLocking
 		}

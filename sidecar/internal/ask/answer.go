@@ -14,19 +14,20 @@ import (
 )
 
 // compose turns a finished loop into the answer a person sees. Only a run
-// that concluded keeps claims; a claim survives only when every evidence
-// id it cites is evidence this run read (the loop's citation filter
-// already dropped uncited, unknown and ungrounded claims). The model's
-// "not observed" notes are kept when short and free of numbers (a number
-// is a claim and needs a citation).
-func compose(database string, res agentloop.Result, cited map[string]agentloop.Evidence,
-	actions []ActionTaken) Answer {
+// that concluded keeps claims; a claim survives only when every alias it
+// cites names evidence this run issued (the loop's citation filter
+// already dropped uncited, unknown and ungrounded claims). Each citation
+// is the read its alias names, so two reads of one durable id (a list
+// read with another limit) stay two citations with their own digests.
+// The model's "not observed" notes are kept when short and free of
+// numbers (a number is a claim and needs a citation).
+func compose(database string, res agentloop.Result, actions []ActionTaken) Answer {
 	a := Answer{Database: database, Stop: res.Transcript.Stop, Tokens: res.Transcript.Tokens,
 		Statements: []Statement{}, NotVerified: []string{},
 		Dropped: append([]agentloop.DroppedClaim{}, res.Dropped...), Citations: []Citation{},
 		Actions: append([]ActionTaken{}, actions...)}
 	if a.Stop == agentloop.StopFinal {
-		keepClaims(&a, res.Claims, cited)
+		keepClaims(&a, res.Claims, res.Evidence)
 		keepNotes(&a, res.Final)
 	}
 	a.Status = statusOf(a)
@@ -34,31 +35,44 @@ func compose(database string, res agentloop.Result, cited map[string]agentloop.E
 	return a
 }
 
-func keepClaims(a *Answer, claims []agentloop.Claim, cited map[string]agentloop.Evidence) {
+// keepClaims resolves each claim through the run's aliases; a claim
+// without aliases, or citing one the run did not issue, is dropped.
+func keepClaims(a *Answer, claims []agentloop.Claim, issued map[string]agentloop.Evidence) {
 	seen := map[string]bool{}
 	for _, c := range claims {
-		if !allKnown(c.EvidenceIDs, cited) {
+		if !allKnown(c.Aliases, issued) {
 			a.Dropped = append(a.Dropped, agentloop.DroppedClaim{Text: clip(c.Text, 200),
 				Reason: agentloop.DropUnknownEvidence})
 			continue
 		}
-		a.Statements = append(a.Statements, Statement{Text: c.Text,
-			Citations: append([]string{}, c.EvidenceIDs...)})
-		for _, id := range c.EvidenceIDs {
-			if !seen[id] {
-				seen[id] = true
-				a.Citations = append(a.Citations, citationFor(a.Database, cited[id]))
+		st := Statement{Text: c.Text, Citations: []string{},
+			Aliases: append([]string{}, c.Aliases...)}
+		ids := map[string]bool{}
+		for _, alias := range c.Aliases {
+			ev := issued[alias]
+			if !ids[ev.ID] {
+				ids[ev.ID] = true
+				st.Citations = append(st.Citations, ev.ID)
+			}
+			if !seen[alias] {
+				seen[alias] = true
+				c := citationFor(a.Database, ev)
+				c.Alias = alias
+				c.Excerpt, c.ExcerptTruncated = excerptOf(ev.Text)
+				a.Citations = append(a.Citations, c)
 			}
 		}
+		a.Statements = append(a.Statements, st)
 	}
+	capExcerpts(a.Citations)
 }
 
-func allKnown(ids []string, cited map[string]agentloop.Evidence) bool {
-	if len(ids) == 0 {
+func allKnown(aliases []string, issued map[string]agentloop.Evidence) bool {
+	if len(aliases) == 0 {
 		return false
 	}
-	for _, id := range ids {
-		if _, ok := cited[id]; !ok {
+	for _, alias := range aliases {
+		if _, ok := issued[alias]; !ok {
 			return false
 		}
 	}
@@ -159,12 +173,12 @@ func render(a Answer) string {
 	b.WriteString(lead(a))
 	number := map[string]int{}
 	for i, c := range a.Citations {
-		number[c.ID] = i + 1
+		number[c.Alias] = i + 1
 	}
 	for _, s := range a.Statements {
 		b.WriteString("\n" + s.Text)
-		for _, id := range s.Citations {
-			fmt.Fprintf(&b, " [%d]", number[id])
+		for _, alias := range s.Aliases {
+			fmt.Fprintf(&b, " [%d]", number[alias])
 		}
 	}
 	if len(a.NotVerified) > 0 {

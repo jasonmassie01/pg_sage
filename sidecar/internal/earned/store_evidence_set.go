@@ -56,7 +56,7 @@ func (s *PostgresStore) queryEach(ctx context.Context, what, sql string, args []
 	return storeErr(what, rows.Err())
 }
 
-const shadowSetSQL = `/* pg_sage */ SELECT f.family, s.reviewed, s.accepted, s.first
+const shadowSetSQL = `SELECT /* pg_sage */ f.family, s.reviewed, s.accepted, s.first
 	FROM unnest($3::text[]) AS f(family)
 	CROSS JOIN LATERAL (
 		SELECT count(*) FILTER (WHERE r.reviewed_at >= $4) AS reviewed,
@@ -94,6 +94,35 @@ func (s *PostgresStore) readShadow(ctx context.Context, r reads, families []stri
 		})
 }
 
+const reviewMarksSQL = `SELECT /* pg_sage */ f.family, m.reviewed_at, m.accepted
+	FROM unnest($3::text[]) AS f(family)
+	CROSS JOIN LATERAL (
+		SELECT r.reviewed_at, r.verdict = 'accepted' AS accepted
+		  FROM sage.sre_packet_reviews r
+		 WHERE r.deployment_id = $1 AND r.database_name = $2 AND r.family = f.family
+		   AND r.counts_as_evidence AND r.reviewed_at >= $4
+		 ORDER BY r.reviewed_at
+		 LIMIT $5) m`
+
+// readReviewMarks reads each family's shadow reviews since since, oldest
+// first and at most maxReviewMarks of them: the reviews whose leaving
+// the window expires it (earned-06).
+func (s *PostgresStore) readReviewMarks(ctx context.Context, r reads, families []string,
+	since time.Time, out map[Family][]reviewMark) error {
+	return r.each(ctx, "read shadow reviews", reviewMarksSQL,
+		[]any{s.deployment, s.database, families, since, maxReviewMarks},
+		func(rows pgx.Rows) error {
+			var f string
+			var m reviewMark
+			if err := rows.Scan(&f, &m.at, &m.accepted); err != nil {
+				return err
+			}
+			m.at = m.at.UTC()
+			out[Family(f)] = append(out[Family(f)], m)
+			return nil
+		})
+}
+
 // ShadowStats is one family's shadow record on the database.
 func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Time) (Shadow,
 	error) {
@@ -101,21 +130,34 @@ func (s *PostgresStore) ShadowStats(ctx context.Context, f Family, since time.Ti
 	return set[f], err
 }
 
-const liveSetSQL = `/* pg_sage */ SELECT p.family, p.action_class, l.verified, l.harmful,
+// liveSetSQL counts each pair's live record. A verified recovery an
+// operator later rolled back (a rollback row for its action) is no
+// credit: it counts as unverified, as it does when the rollback landed
+// before the reconciler first read the action (earned-01).
+const liveSetSQL = `SELECT /* pg_sage */ p.family, p.action_class, l.verified, l.harmful,
 	l.unverified
 	FROM unnest($3::text[], $4::text[]) AS p(family, action_class)
 	CROSS JOIN LATERAL (
-		SELECT count(*) FILTER (WHERE o.result = 'verified_recovery' AND o.level = 2)
-		           AS verified,
+		SELECT count(*) FILTER (WHERE o.result = 'verified_recovery' AND o.level = 2
+		                          AND NOT x.rolled_back) AS verified,
 		       count(*) FILTER (WHERE o.result IN ('harmful', 'safety_violation'))
 		           AS harmful,
-		       count(*) FILTER (WHERE o.result = 'unverified') AS unverified
+		       count(*) FILTER (WHERE o.result = 'unverified'
+		                           OR x.rolled_back)
+		           AS unverified
 		  FROM sage.sre_autonomy_outcomes o
+		  CROSS JOIN LATERAL (SELECT o.result = 'verified_recovery'
+		        AND o.action_log_id IS NOT NULL AND EXISTS (
+		        SELECT 1 FROM sage.sre_autonomy_outcomes b
+		         WHERE b.deployment_id = o.deployment_id
+		           AND b.database_name = o.database_name
+		           AND b.action_log_id = o.action_log_id AND b.source = 'rollback')
+		        AS rolled_back) x
 		 WHERE o.deployment_id = $1 AND o.database_name = $2 AND o.family = p.family
 		   AND o.action_class = p.action_class) l`
 
-// liveSet counts each pair's verified L2 recoveries, harmful and
-// unverified outcomes.
+// liveSet counts each pair's verified L2 recoveries (none an operator
+// rolled back), harmful and unverified outcomes.
 func (s *PostgresStore) liveSet(ctx context.Context, pairs []pairKey) (map[pairKey]Live,
 	error) {
 	out := map[pairKey]Live{}
@@ -152,7 +194,7 @@ type familySafetyRow struct {
 	last time.Time
 }
 
-const safetySetSQL = `/* pg_sage */ SELECT f.family, s.n, s.last
+const safetySetSQL = `SELECT /* pg_sage */ f.family, s.n, s.last
 	FROM unnest($4::text[]) AS f(family)
 	CROSS JOIN LATERAL (
 		SELECT count(*) AS n, max(o.recorded_at) AS last

@@ -64,7 +64,7 @@ func TestApplyFindingsRedirectsAppOwnedDDLToASourceFix(t *testing.T) {
 			RecommendedSQL: "DROP INDEX CONCURRENTLY public.idx_x", ActionRisk: "safe",
 			Detail: map[string]any{"table": "public.orders"}},
 	}
-	out, evaluated := ApplyFindings(facts, in, nil, bindNow)
+	out, evaluated := ApplyFindings(facts, in, nil, nil, bindNow)
 	if len(out) != 2 || !reflect.DeepEqual(evaluated, []string{CategoryTestFixtureCleanup}) {
 		t.Fatalf("out %d, evaluated %v", len(out), evaluated)
 	}
@@ -99,7 +99,8 @@ func TestApplyFindingsDropsFixtureFindingsAndOffersOneCleanupBatch(t *testing.T)
 		{Category: "seq_scan_heavy", ObjectIdentifier: "public.orders"},
 	}
 	excluded := []string{"test_memory_aa11bb", "test_memory_cc22dd"}
-	out, evaluated := ApplyFindings(facts, in, excluded, bindNow)
+	activity := map[string]int64{"test_memory_aa11bb": 5, "test_memory_cc22dd": 0}
+	out, evaluated := ApplyFindings(facts, in, excluded, activity, bindNow)
 	if len(out) != 2 || out[0].ObjectIdentifier != "public.orders" ||
 		!reflect.DeepEqual(evaluated, []string{CategoryTestFixtureCleanup}) {
 		t.Fatalf("out %+v", out)
@@ -110,8 +111,9 @@ func TestApplyFindingsDropsFixtureFindingsAndOffersOneCleanupBatch(t *testing.T)
 		t.Fatalf("cleanup finding %+v", c)
 	}
 	sql, _ := c.Detail["cleanup_sql"].(string)
-	for _, want := range []string{`DROP SCHEMA IF EXISTS "test_memory_aa11bb" CASCADE;`,
-		`DROP SCHEMA IF EXISTS "test_memory_cc22dd" CASCADE;`, "BEGIN;", "COMMIT;"} {
+	for _, want := range []string{"v_schema text := 'test_memory_aa11bb';",
+		"v_schema text := 'test_memory_cc22dd';", "v_baseline bigint := 5;",
+		"SET lock_timeout = '5s';"} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("cleanup batch lacks %q:\n%s", want, sql)
 		}
@@ -122,7 +124,7 @@ func TestApplyFindingsDropsFixtureFindingsAndOffersOneCleanupBatch(t *testing.T)
 	}
 	// No matching schema left: no cleanup finding, and the category is
 	// still evaluated so the old one resolves.
-	out, evaluated = ApplyFindings(facts, nil, nil, bindNow)
+	out, evaluated = ApplyFindings(facts, nil, nil, nil, bindNow)
 	if len(out) != 0 || len(evaluated) != 1 {
 		t.Fatalf("after cleanup: %+v %v", out, evaluated)
 	}
@@ -140,7 +142,7 @@ func TestApplyFindingsKeepsArchivesAndSlots(t *testing.T) {
 		{Category: "inactive_slot", ObjectIdentifier: "slot:cdc_orders",
 			RecommendedSQL: "SELECT pg_drop_replication_slot('cdc_orders');"},
 	}
-	out, _ := ApplyFindings(facts, in, nil, bindNow)
+	out, _ := ApplyFindings(facts, in, nil, nil, bindNow)
 	for i, f := range out {
 		if f.RecommendedSQL != "" {
 			t.Fatalf("finding %d still executable: %+v", i, f)
@@ -153,7 +155,7 @@ func TestApplyFindingsKeepsArchivesAndSlots(t *testing.T) {
 
 func TestFindingFilterPassesThroughWhenFactsAreUnavailable(t *testing.T) {
 	var logged []string
-	f := NewFindingFilter(&fakeConfirmed{err: errors.New("relation sage.facts missing")},
+	f := NewFindingFilter(&fakeConfirmed{err: errors.New("relation sage.facts missing")}, nil,
 		func(_ string, format string, args ...any) { logged = append(logged, format) })
 	snap := fixtureSnapshot()
 	if got := f.ExcludeSnapshot(context.Background(), snap); got != nil ||
@@ -171,7 +173,8 @@ func TestFindingFilterPassesThroughWhenFactsAreUnavailable(t *testing.T) {
 func TestFindingFilterAppliesConfirmedFacts(t *testing.T) {
 	src := &fakeConfirmed{facts: []Fact{
 		confirmed(7, TypeTestFixture, KindSchema, "test_memory_*", nil)}}
-	f := NewFindingFilter(src, nil)
+	f := NewFindingFilter(src, nil, nil).WithActivity(&fakeActivity{counts: map[string]int64{
+		"test_memory_aa11bb": 0, "test_memory_cc22dd": 0}})
 	current, previous := fixtureSnapshot(), fixtureSnapshot()
 	excluded := f.ExcludeSnapshot(context.Background(), current, previous)
 	if len(excluded) != 2 || len(current.Tables) != 2 || len(previous.Tables) != 2 {

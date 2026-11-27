@@ -1,6 +1,13 @@
 package optimizer
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+// maxReasonQueryIDs bounds the queryids a partial verdict's reason lists.
+const maxReasonQueryIDs = 10
 
 // What-if verdicts for a recommendation's HypoPG evaluation (Phase 0
 // item 7). Only "verified" may pass an autonomous gate; "unverified" is
@@ -23,21 +30,48 @@ type WhatIfResult struct {
 	// Failed counts workload queries whose EXPLAIN failed (each is
 	// isolated in a savepoint and does not abort the evaluation).
 	Failed int
+	// UnplannedQueryIDs are the failed queries' queryids, in workload
+	// order.
+	UnplannedQueryIDs []int64
+	// HiddenIndex is the existing index the second plan ran without (a
+	// replacement's old index or a measured drop), "" when none was hidden.
+	HiddenIndex string
+	// Guarded counts the statements whose baseline plan used HiddenIndex.
+	Guarded int
+	// Regressions are the guarded statements whose planned cost rose more
+	// than maxGuardedRegressionPct once HiddenIndex was hidden.
+	Regressions []QueryRegression
+	// OldIndexPresent marks an index that should have been hidden but was
+	// not: HypoPG lacks hypopg_hide_index (before 1.4).
+	OldIndexPresent bool
 }
 
 // whatIfVerdict turns an evaluation into a verdict and, unless verified,
-// the reason. Only a complete measurement can reject: when some queries
-// could not be planned, the unmeasured ones may be the beneficiaries.
+// the reason. A guarded statement that regresses once the replaced index
+// is hidden rejects: nothing an unplanned statement could show undoes it.
+// Otherwise only a complete measurement can reject or verify: when some
+// queries could not be planned, the unmeasured ones may be the
+// beneficiaries or the regressions, so the verdict is unverified and the
+// reason says what the planned ones showed and which were not planned. A
+// replacement measured with its old index present says so in the reason.
 func whatIfVerdict(res WhatIfResult, err error, minPct float64) (string, string) {
+	verdict, reason := createVerdict(res, err, minPct)
+	if err == nil && res.OldIndexPresent {
+		reason = strings.TrimPrefix(reason+"; "+hideUnsupportedReason, "; ")
+	}
+	return verdict, reason
+}
+
+func createVerdict(res WhatIfResult, err error, minPct float64) (string, string) {
 	switch {
 	case err != nil:
 		return WhatIfUnverified, "what-if evaluation failed: " + err.Error()
+	case len(res.Regressions) > 0:
+		return WhatIfRejected, regressionReason("replacing", res)
 	case res.Measured == 0:
 		return WhatIfUnverified, "no workload query could be measured"
 	case res.Failed > 0:
-		return WhatIfUnverified, fmt.Sprintf(
-			"%d of %d workload queries could not be planned",
-			res.Failed, res.Failed+res.Measured)
+		return WhatIfUnverified, partialReason(res)
 	case res.SizeBytes <= 0:
 		return WhatIfUnverified, "hypothetical index size unknown"
 	case res.Improvement < minPct:
@@ -46,6 +80,36 @@ func whatIfVerdict(res WhatIfResult, err error, minPct float64) (string, string)
 			res.Improvement, minPct)
 	}
 	return WhatIfVerified, ""
+}
+
+// partialReason describes a measurement some statements were missing
+// from: "planned statements improved 62.0% (call-weighted, 4 of 5); not
+// planned: queryid 123".
+func partialReason(res WhatIfResult) string {
+	change, pct := "improved", res.Improvement
+	if pct < 0 {
+		change, pct = "regressed", -pct
+	}
+	return fmt.Sprintf("planned statements %s %.1f%% (call-weighted, %d of %d); "+
+		"not planned: %s", change, pct, res.Measured, res.Measured+res.Failed,
+		unplannedList(res))
+}
+
+func unplannedList(res WhatIfResult) string {
+	ids := res.UnplannedQueryIDs
+	if len(ids) == 0 {
+		return fmt.Sprintf("%d of %d statements", res.Failed, res.Measured+res.Failed)
+	}
+	shown := ids[:min(len(ids), maxReasonQueryIDs)]
+	parts := make([]string, len(shown))
+	for i, id := range shown {
+		parts[i] = strconv.FormatInt(id, 10)
+	}
+	list := "queryid " + strings.Join(parts, ", ")
+	if rest := len(ids) - len(shown); rest > 0 {
+		list += fmt.Sprintf(" and %d more", rest)
+	}
+	return list
 }
 
 // weightedImprovement is the cost reduction across the queries planned

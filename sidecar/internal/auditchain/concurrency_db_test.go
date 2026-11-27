@@ -16,7 +16,13 @@ import (
 // insert another (the order that deadlocks an eagerly-locked chain), lose
 // no link and fork nothing.
 func TestConcurrentWritersLoseNoLinks(t *testing.T) {
-	pool := freshDB(t, "chain_concurrent")
+	assertConcurrentWritesChain(t, freshDB(t, "chain_concurrent"))
+}
+
+// assertConcurrentWritesChain runs 8 concurrent mixed writers on pool and
+// requires every write to succeed and the chain to stay gap-free.
+func assertConcurrentWritesChain(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
 	ctx := context.Background()
 	seed := make([]int64, 8)
 	for i := range seed {

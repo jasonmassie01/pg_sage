@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
@@ -34,7 +33,7 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	before := mgr.General.TokensUsedToday()
 
 	if walFindings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil, cfg, logFn,
+		context.Background(), mgr, snap, cfg, logFn,
 	); err != nil {
 		t.Errorf("WAL error: %v", err)
 	} else {
@@ -56,7 +55,7 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	before = mgr.General.TokensUsedToday()
 
 	if rwFindings, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap, cfg, logFn,
+		context.Background(), mgr, snap, cfg, logFn,
 	); err != nil {
 		t.Errorf("rewrite error: %v", err)
 	} else {
@@ -67,7 +66,7 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	before = mgr.General.TokensUsedToday()
 
 	if bloatFindings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil, cfg, logFn,
+		context.Background(), mgr, snap, cfg, logFn,
 	); err != nil {
 		t.Errorf("bloat error: %v", err)
 	} else {
@@ -77,37 +76,4 @@ func TestFullPipeline_AllAdvisorsRun(t *testing.T) {
 	requireAdvisorModelCall(t, mgr, before)
 
 	t.Logf("TOTAL FINDINGS: %d across all advisors", totalFindings)
-}
-
-func TestFullPipeline_LLMFailure_GracefulDegradation(t *testing.T) {
-	pool := e2ePool(t)
-	snap := e2eSnapshot(t, pool)
-
-	brokenCfg := &config.LLMConfig{
-		Enabled:          true,
-		Model:            "gemini-2.5-flash",
-		Endpoint:         "https://invalid.example.com/v1beta/openai",
-		APIKey:           "fake-key",
-		TimeoutSeconds:   5,
-		TokenBudgetDaily: 100000,
-		CooldownSeconds:  1,
-	}
-	brokenClient := llm.New(brokenCfg, func(string, string, ...any) {})
-	brokenMgr := llm.NewManager(brokenClient, nil, false)
-
-	cfg := &config.Config{}
-	logFn := func(level, msg string, args ...any) {
-		t.Logf("[%s] "+msg, append([]any{level}, args...)...)
-	}
-
-	_, err := analyzeWAL(
-		context.Background(), brokenMgr, snap, nil, cfg, logFn,
-	)
-	if err == nil {
-		t.Log("WAL: no error (may have no config data)")
-	} else {
-		t.Logf("WAL: error as expected: %v", err)
-	}
-
-	t.Log("graceful degradation confirmed -- no panics")
 }

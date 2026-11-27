@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap15{}) }
@@ -47,11 +49,11 @@ ORDER BY 1, 2, 3
 LIMIT $1`)
 
 func (ap15) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	out, err := publicTableGrants(ctx, in.Q)
+	out, err := publicTableGrants(ctx, in)
 	if err != nil {
 		return nil, err
 	}
-	defs, err := publicDefaultPrivileges(ctx, in.Q)
+	defs, err := publicDefaultPrivileges(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -66,14 +68,15 @@ type schemaGrants struct {
 	ev     []Evidence
 }
 
-func publicTableGrants(ctx context.Context, q Querier) ([]Finding, error) {
-	rows, err := q.Query(ctx, ap15TablesSQL, apbMaxRows)
+func publicTableGrants(ctx context.Context, in Input) ([]Finding, error) {
+	lim := in.capRows("PUBLIC grants", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap15TablesSQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read PUBLIC table grants: %w", err)
 	}
 	defer rows.Close()
 	var all []*schemaGrants
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var schema, rel string
 		var privs []string
 		if err := rows.Scan(&schema, &rel, &privs); err != nil {
@@ -83,7 +86,7 @@ func publicTableGrants(ctx context.Context, q Querier) ([]Finding, error) {
 			all = append(all, &schemaGrants{schema: schema})
 		}
 		g := all[len(all)-1]
-		name := QualifiedName(schema, rel)
+		name := sqlident.Qualified(schema, rel)
 		g.fix = append(g.fix, "REVOKE ALL ON TABLE "+name+" FROM PUBLIC;")
 		g.shown = append(g.shown, rel+" ("+strings.Join(privs, ", ")+")")
 		g.ev = append(g.ev, Evidence{Source: "pg_class.relacl", Ref: name,
@@ -108,14 +111,15 @@ func publicTableGrants(ctx context.Context, q Querier) ([]Finding, error) {
 
 var defaultObjects = map[string]string{"r": "tables", "S": "sequences"}
 
-func publicDefaultPrivileges(ctx context.Context, q Querier) ([]Finding, error) {
-	rows, err := q.Query(ctx, ap15DefaultsSQL, apbMaxRows)
+func publicDefaultPrivileges(ctx context.Context, in Input) ([]Finding, error) {
+	lim := in.capRows("default privileges", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap15DefaultsSQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read PUBLIC default privileges: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var owner, schema, kind string
 		var privs []string
 		if err := rows.Scan(&owner, &schema, &kind, &privs); err != nil {
@@ -134,7 +138,7 @@ func defaultPrivilegeFinding(owner, schema, objects string, privs []string) Find
 	if schema != "" {
 		object = owner + " in " + schema + ": " + objects
 		scope = "in schema " + schema
-		in = " IN SCHEMA " + QuoteIdent(schema)
+		in = " IN SCHEMA " + sqlident.Ident(schema)
 	}
 	return Finding{Severity: Warning, ObjectType: "default_privileges", Object: object,
 		Title: "Default privileges grant PUBLIC",
@@ -142,7 +146,7 @@ func defaultPrivilegeFinding(owner, schema, objects string, privs []string) Find
 			"agent role gets them.", objects, owner, scope, strings.Join(privs, ", ")),
 		Recommendation: "Remove PUBLIC from the default privileges; grant new objects " +
 			"to the roles that need them.",
-		FixScript: "ALTER DEFAULT PRIVILEGES FOR ROLE " + QuoteIdent(owner) + in +
+		FixScript: "ALTER DEFAULT PRIVILEGES FOR ROLE " + sqlident.Ident(owner) + in +
 			" REVOKE ALL ON " + strings.ToUpper(objects) + " FROM PUBLIC;",
 		Evidence: []Evidence{{Source: "pg_default_acl", Ref: object,
 			Detail: "PUBLIC: " + strings.Join(privs, ", ")}}}

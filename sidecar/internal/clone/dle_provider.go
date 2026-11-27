@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 type DLEConfig struct {
@@ -36,7 +38,7 @@ func NewDLEProvider(cfg DLEConfig) (*DLEProvider, error) {
 	}
 	client := cfg.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		client = egress.HTTPClient(30 * time.Second)
 	}
 	now := cfg.Now
 	if now == nil {
@@ -60,7 +62,7 @@ func (p *DLEProvider) Create(ctx context.Context, spec CloneSpec) (Clone, error)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusCreated {
-		return Clone{}, fmt.Errorf("DLE create failed with status %d", response.StatusCode)
+		return Clone{}, &ProviderStatusError{Op: "DLE create", StatusCode: response.StatusCode}
 	}
 	var result Clone
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {

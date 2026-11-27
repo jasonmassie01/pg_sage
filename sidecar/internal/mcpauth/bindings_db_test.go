@@ -52,7 +52,8 @@ func TestDBResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create principal: %v", err)
 	}
-	if _, err := store.SetStatus(ctx, old.ID, agentguard.StatusRetired, "gone"); err != nil {
+	if _, err := store.SetStatus(ctx, old.ID, agentguard.StatusRetired,
+		agentguard.Audit{Reason: "gone"}); err != nil {
 		t.Fatalf("retire: %v", err)
 	}
 	mustExec(t, pool, `INSERT INTO sage.guard_identity_bindings (issuer, subject,

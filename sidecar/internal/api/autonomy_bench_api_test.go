@@ -37,14 +37,17 @@ type benchFaults struct {
 	release  chan struct{}
 }
 
-func (f *benchFaults) Run(ctx context.Context, _ string, families []string) ([]byte, error) {
+func (f *benchFaults) Run(ctx context.Context, _ string, families []string,
+	_ []gameday.Binding) ([]byte, error) {
 	f.mu.Lock()
 	f.families = append(f.families, families)
 	f.mu.Unlock()
 	if f.release != nil {
 		<-f.release
 	}
-	return []byte(`{}`), nil
+	// One scored run: a report without one finishes completed_unscored
+	// (benches-08).
+	return []byte(`{"runs": [{"scenario": "lock_blocking_1", "arm": "causal-graph"}]}`), nil
 }
 
 type benchLedger struct{}
@@ -63,7 +66,7 @@ func (f *autonomyAPIFixture) benchRouter(user *auth.User,
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(f.mgr, config.DefaultConfig(), nil, nil, nil, nil,
+	return newTestRouter(f.mgr, config.DefaultConfig(), nil, nil, nil, nil,
 		&RuntimeDeps{Autonomy: &AutonomyDeps{Ledgers: f.reg, LocalBench: benches}}, inject)
 }
 

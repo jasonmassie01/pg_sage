@@ -1,6 +1,9 @@
 package fleet
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestAzureProviderAdapter(t *testing.T) {
 	for _, name := range []string{"azure", "Azure", "azure-flexible"} {
@@ -29,8 +32,8 @@ func TestAzureProviderAdapter(t *testing.T) {
 
 func TestAzureAnalyzeFamilyReadyThroughGate(t *testing.T) {
 	exec := gateExecutor(t, "autonomous")
-	got := buildActionFamilyReadiness(ProviderCapabilities{Provider: "azure"},
-		ExecutorFamilyExplainer(exec))
+	got := buildActionFamilyReadiness(context.Background(),
+		ProviderCapabilities{Provider: "azure"}, ExecutorFamilyExplainer(exec))
 	analyze := actionReadiness(t, got, "analyze_table")
 	if !analyze.Supported {
 		t.Fatalf("azure analyze readiness = %#v", analyze)

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -11,97 +12,94 @@ import (
 // notificationRouteDeps carries the channel secret key and target policy
 // the runtime dispatchers use, so API writes and runtime reads agree.
 type notificationRouteDeps struct {
-	secretKey []byte
-	policy    notify.TargetPolicy
+	secretKey   []byte
+	previousKey []byte // the previous key of a rotation (security-08)
+	policy      notify.TargetPolicy
+	// fleet resolves ?database= on the notification log (alerting-06c);
+	// nil accepts any well-formed name.
+	fleet *fleet.DatabaseManager
 }
 
+func newNotificationRouteDeps(rt RuntimeDeps) notificationRouteDeps {
+	return notificationRouteDeps{
+		secretKey:   rt.NotificationSecretKey,
+		previousKey: rt.NotificationPreviousSecretKey,
+		policy:      rt.NotificationTargetPolicy,
+	}
+}
+
+// registerNotificationRoutes returns the channel store the routes use, so
+// the case ticket routes read the Jira integration through it.
 func registerNotificationRoutes(
 	mux *http.ServeMux, pool *pgxpool.Pool, deps notificationRouteDeps,
-) {
-	adminOnly := RequireRole("admin")
+) *store.NotificationStore {
 	d := newDefaultDispatcher(pool, deps)
 	ns := store.NewNotificationStore(pool, d).
-		WithSecretKey(deps.secretKey).WithTargetPolicy(deps.policy)
+		WithSecretKey(deps.secretKey).WithPreviousSecretKey(deps.previousKey).
+		WithTargetPolicy(deps.policy)
 
-	registerNotificationChannelRoutes(mux, ns, adminOnly)
-	registerNotificationRuleRoutes(mux, ns, adminOnly)
+	registerNotificationChannelRoutes(mux, ns)
+	registerNotificationRuleRoutes(mux, ns)
+	registerNotificationQuietMuteRoutes(mux, pool, ns)
 
-	logList := adminOnly(http.HandlerFunc(
-		listNotificationLogHandler(ns)))
-	mux.Handle(
-		"GET /api/v1/notifications/log", logList)
+	// The log read is open to the roles the Alert log had (admins and
+	// operators), since /alerts now redirects to it (alerting-06c);
+	// channels and rules stay admin-only.
+	logList := http.HandlerFunc(
+		listNotificationLogHandler(ns, deps.fleet))
+	route(mux, "GET /api/v1/notifications/log", gateOperator, logList)
+	return ns
 }
 
 func registerNotificationChannelRoutes(
 	mux *http.ServeMux, ns *store.NotificationStore,
-	adminOnly func(http.Handler) http.Handler,
 ) {
-	chList := adminOnly(http.HandlerFunc(
-		listChannelsHandler(ns)))
-	mux.Handle(
-		"GET /api/v1/notifications/channels", chList)
+	chList := http.HandlerFunc(
+		listChannelsHandler(ns))
+	route(mux, "GET /api/v1/notifications/channels", gateAdmin, chList)
 
-	chCreate := adminOnly(http.HandlerFunc(
-		createChannelHandler(ns)))
-	mux.Handle(
-		"POST /api/v1/notifications/channels", chCreate)
+	chCreate := http.HandlerFunc(
+		createChannelHandler(ns))
+	route(mux, "POST /api/v1/notifications/channels", gateAdmin, chCreate)
 
-	chUpdate := adminOnly(http.HandlerFunc(
-		updateChannelHandler(ns)))
-	mux.Handle(
-		"PUT /api/v1/notifications/channels/{id}",
-		chUpdate)
+	chUpdate := http.HandlerFunc(
+		updateChannelHandler(ns))
+	route(mux, "PUT /api/v1/notifications/channels/{id}", gateAdmin, chUpdate)
 
-	chDelete := adminOnly(http.HandlerFunc(
-		deleteChannelHandler(ns)))
-	mux.Handle(
-		"DELETE /api/v1/notifications/channels/{id}",
-		chDelete)
+	chDelete := http.HandlerFunc(
+		deleteChannelHandler(ns))
+	route(mux, "DELETE /api/v1/notifications/channels/{id}", gateAdmin, chDelete)
 
-	chTest := adminOnly(http.HandlerFunc(
-		testChannelHandler(ns)))
-	mux.Handle(
-		"POST /api/v1/notifications/channels/{id}/test",
-		chTest)
+	chTest := http.HandlerFunc(
+		testChannelHandler(ns))
+	route(mux, "POST /api/v1/notifications/channels/{id}/test", gateAdmin, chTest)
 }
 
 func registerNotificationRuleRoutes(
 	mux *http.ServeMux, ns *store.NotificationStore,
-	adminOnly func(http.Handler) http.Handler,
 ) {
-	ruleList := adminOnly(http.HandlerFunc(
-		listRulesHandler(ns)))
-	mux.Handle(
-		"GET /api/v1/notifications/rules", ruleList)
+	ruleList := http.HandlerFunc(
+		listRulesHandler(ns))
+	route(mux, "GET /api/v1/notifications/rules", gateAdmin, ruleList)
 
-	ruleCreate := adminOnly(http.HandlerFunc(
-		createRuleHandler(ns)))
-	mux.Handle(
-		"POST /api/v1/notifications/rules", ruleCreate)
+	ruleCreate := http.HandlerFunc(
+		createRuleHandler(ns))
+	route(mux, "POST /api/v1/notifications/rules", gateAdmin, ruleCreate)
 
-	ruleDelete := adminOnly(http.HandlerFunc(
-		deleteRuleHandler(ns)))
-	mux.Handle(
-		"DELETE /api/v1/notifications/rules/{id}",
-		ruleDelete)
+	ruleDelete := http.HandlerFunc(
+		deleteRuleHandler(ns))
+	route(mux, "DELETE /api/v1/notifications/rules/{id}", gateAdmin, ruleDelete)
 
-	ruleUpdate := adminOnly(http.HandlerFunc(
-		updateRuleHandler(ns)))
-	mux.Handle(
-		"PUT /api/v1/notifications/rules/{id}",
-		ruleUpdate)
+	ruleUpdate := http.HandlerFunc(
+		updateRuleHandler(ns))
+	route(mux, "PUT /api/v1/notifications/rules/{id}", gateAdmin, ruleUpdate)
 }
 
 func newDefaultDispatcher(
 	pool *pgxpool.Pool, deps notificationRouteDeps,
 ) *notify.Dispatcher {
-	logFn := func(_, _ string, _ ...any) {}
-	d := notify.NewDispatcherWithStore(
-		notify.NewPoolStore(pool, deps.secretKey), logFn,
+	return notify.NewDefaultDispatcher(
+		notify.NewPoolStore(pool, deps.secretKey).WithPreviousKey(deps.previousKey),
+		deps.policy, nil,
 	)
-	d.RegisterSender(notify.NewSlackSenderWithPolicy(deps.policy))
-	d.RegisterSender(notify.NewEmailSenderWithPolicy(deps.policy))
-	d.RegisterSender(notify.NewPagerDutySender())
-	d.RegisterSender(notify.NewTelegramSenderWithPolicy(deps.policy))
-	return d
 }

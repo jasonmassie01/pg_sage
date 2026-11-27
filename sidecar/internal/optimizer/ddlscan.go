@@ -12,12 +12,27 @@ import (
 type ddlScanner struct {
 	src string
 	pos int
+	// opclassAt is the span in src of the last operator class name read
+	// (qualifier included); empty until one is read.
+	opclassAt [2]int
+	// keysAt and keysEnd span the key list's text and whereAt is where the
+	// WHERE predicate starts, once parseBody has read them.
+	keysAt, keysEnd, whereAt int
 }
 
 func (s *ddlScanner) skipSpace() {
 	for s.pos < len(s.src) && unicode.IsSpace(rune(s.src[s.pos])) {
 		s.pos++
 	}
+}
+
+// spaceTrimmedEnd moves end back over the whitespace the scanner skipped
+// after the last token of src[start:end].
+func spaceTrimmedEnd(src string, start, end int) int {
+	for end > start && unicode.IsSpace(rune(src[end-1])) {
+		end--
+	}
+	return end
 }
 
 func (s *ddlScanner) rest() string {

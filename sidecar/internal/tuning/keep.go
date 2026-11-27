@@ -2,8 +2,11 @@ package tuning
 
 import (
 	"context"
+	"maps"
 
+	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
@@ -12,25 +15,68 @@ import (
 // (budget, case cap, model error, no case) stays exactly as it was. Only
 // deterministic catalog evidence drops one here: its table is gone, the
 // index it would create exists or is covered, the index it would drop is
-// gone. It also returns the live cases an open finding already answers;
-// they are not asked again while it is open.
-func (a *Agent) keepOpen(ctx context.Context, open []analyzer.Finding,
-	cases []Case) ([]analyzer.Finding, map[string]bool) {
+// gone. An open index drop also keeps what binds every tuning drop
+// (keepDrop); an open query_tuning finding resolves on its statement's
+// state over the interval prev..cur (keepQueryHint). It also returns the
+// live cases an open finding already answers; they are not asked again
+// while it is open.
+func (a *Agent) keepOpen(ctx context.Context, cur, prev *collector.Snapshot,
+	open []analyzer.Finding, cases []Case) ([]analyzer.Finding, map[string]bool) {
 	stale := a.staleFindings(ctx, open)
+	states, quiet := a.queryStates(ctx, open), intervalQuiet(cur, prev)
 	kept := make([]analyzer.Finding, 0, len(open))
 	for i, f := range open {
-		if why, ok := stale[i]; ok {
+		why, ok := stale[i]
+		if !ok {
+			f, why = keepDrop(f, cur)
+		}
+		if why == "" {
+			f, why = a.keepQueryHint(f, states, quiet)
+		}
+		if why != "" {
 			a.logFn("INFO", "tuning: open finding %s %s resolves: %s", f.Category,
 				f.ObjectIdentifier, why)
 			continue
 		}
 		kept = append(kept, f)
 	}
-	return kept, busyCases(kept, cases)
+	return a.gateInstance(kept), busyCases(kept, cases)
+}
+
+// gateInstance makes the instance settings of a database that does not
+// own its instance advisory (advisors-08), so an ALTER SYSTEM stored
+// before it lost ownership stays open but is never executed here.
+func (a *Agent) gateInstance(findings []analyzer.Finding) []analyzer.Finding {
+	if a.settings.InstanceOwner == nil {
+		return findings
+	}
+	owner, isOwner := a.settings.InstanceOwner()
+	return advisor.GateInstanceSettings(findings, owner, isOwner)
+}
+
+// keepDrop applies indexes-03 to an open tuning index drop: one no other
+// index covers (a never-scanned drop stored before it) resolves, with why,
+// and a covered_by drop carries this cycle's standby gate, once.
+func keepDrop(f analyzer.Finding, cur *collector.Snapshot) (analyzer.Finding, string) {
+	if f.Category != CategoryIndexDrop {
+		return f, ""
+	}
+	if by, _ := f.Detail["covered_by"].(string); by == "" {
+		return f, "no other index covers it; the unused_index rule owns unused drops " +
+			"(first-seen clock, FK and standby guards)"
+	}
+	if f.Detail["replica_index_usage"] == "unknown" {
+		return f, ""
+	}
+	f.Detail = maps.Clone(f.Detail)
+	return analyzer.WithStandbyGate(f, analyzer.StandbyUsageUnknown(cur)), ""
 }
 
 // busyCases are the live cases an open finding answers: the agent's own
-// by case, earlier index advice by its table.
+// by case, earlier index advice by its table. An open hint answers only the
+// hint question of its case: the tuner's one-hint-per-statement check
+// refuses a second hint, while the case's index and statistics answers are
+// still asked for (tuning-06).
 func busyCases(open []analyzer.Finding, cases []Case) map[string]bool {
 	live := map[string]bool{}
 	byTable := map[string][]string{}
@@ -42,6 +88,9 @@ func busyCases(open []analyzer.Finding, cases []Case) map[string]bool {
 	}
 	busy := map[string]bool{}
 	for _, f := range open {
+		if f.Category == categoryQueryTuning {
+			continue
+		}
 		if producer, _ := f.Detail["producer"].(string); producer == Producer {
 			if id, _ := f.Detail["case_id"].(string); live[id] {
 				busy[id] = true

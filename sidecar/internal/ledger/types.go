@@ -13,15 +13,22 @@ const (
 )
 
 type DecisionInput struct {
-	DatabaseID     *int
-	Feature        string
-	Intent         string
-	Evidence       map[string]any
-	ProposedSQL    string
-	Verdict        Verdict
-	Reason         string
-	RiskTier       string
-	PolicyVersion  int
+	DatabaseID    *int
+	Feature       string
+	Intent        string
+	Evidence      map[string]any
+	ProposedSQL   string
+	Verdict       Verdict
+	Reason        string
+	RiskTier      string
+	PolicyVersion int
+	// PolicySHA256 is the SHA-256 (64 lower-case hex) of the policy
+	// document the decision was made under; "" when none was read
+	// (PolicyVersion 0). Guardrails are the contract's, and OffWindowOK
+	// marks a deadline override of the maintenance windows (policy-03).
+	PolicySHA256   string
+	Guardrails     []string
+	OffWindowOK    bool
 	TargetObjects  []string
 	EvidenceID     string
 	DeadlineKind   string

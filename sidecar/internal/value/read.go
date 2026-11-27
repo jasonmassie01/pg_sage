@@ -33,9 +33,9 @@ func readSnapshot(
 // idx_action_log_value_credit (credited actions only; perf v1.8.3,
 // perf-selfexcl): rows read are the credited actions in the window, never
 // the rest of the ledger. The window bounds are an index range in the
-// generic plan too ($1 IS NULL OR ... was not). $3 and $4 start this
-// month and this week.
-const realizedSQL = `SELECT al.action_type,
+// generic plan too ($1 IS NULL OR ... was not). Since is inclusive and
+// Until exclusive in every read. $3 and $4 start this month and this week.
+const realizedSQL = `/* pg_sage */ SELECT al.action_type,
 	date_trunc('day', al.executed_at)::date::text,
 	sum(al.toil_minutes_saved)::float8,
 	COALESCE(sum(al.toil_minutes_saved) FILTER (WHERE al.executed_at >= $3), 0)::float8,
@@ -43,7 +43,7 @@ const realizedSQL = `SELECT al.action_type,
 	FROM sage.action_log al
 	WHERE al.outcome = 'success' AND al.toil_minutes_saved IS NOT NULL
 	  AND al.executed_at >= COALESCE($1::timestamptz, '-infinity')
-	  AND al.executed_at <= COALESCE($2::timestamptz, 'infinity')
+	  AND al.executed_at < COALESCE($2::timestamptz, 'infinity')
 	GROUP BY 1, 2`
 
 // querier is a pool or a transaction.
@@ -93,17 +93,20 @@ func readPotential(
 		JOIN sage.toil_model tm ON tm.action_type=aq.action_type AND tm.effective_to IS NULL
 		WHERE aq.status='pending'
 		AND ($1::timestamptz IS NULL OR aq.proposed_at >= $1)
-		AND ($2::timestamptz IS NULL OR aq.proposed_at <= $2)`,
+		AND ($2::timestamptz IS NULL OR aq.proposed_at < $2)`,
 		nullableTime(filter.Since), nullableTime(filter.Until)).Scan(&result.PotentialMinutes)
 }
 
 func readIncidents(
 	ctx context.Context, pool *pgxpool.Pool, filter Filter, result *Snapshot,
 ) error {
+	// A rolled-back action's incident keeps its row as evidence but no
+	// longer counts (reverted_at, earned-09).
 	rows, err := pool.Query(ctx, `SELECT ia.kind, ia.severity, ia.evidence_id,
 		ia.occurred_at, ia.credited_minutes::float8 FROM sage.incident_avoided ia
-		WHERE ($1::timestamptz IS NULL OR ia.occurred_at >= $1)
-		AND ($2::timestamptz IS NULL OR ia.occurred_at <= $2)
+		WHERE ia.reverted_at IS NULL
+		AND ($1::timestamptz IS NULL OR ia.occurred_at >= $1)
+		AND ($2::timestamptz IS NULL OR ia.occurred_at < $2)
 		ORDER BY ia.occurred_at`, nullableTime(filter.Since),
 		nullableTime(filter.Until))
 	if err != nil {

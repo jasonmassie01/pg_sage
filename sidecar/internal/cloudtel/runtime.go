@@ -23,6 +23,9 @@ type RuntimeOptions struct {
 	Interval time.Duration
 	Limits   Limits
 	Now      func() time.Time
+	// After arms Run's wait before the next poll (default time.After);
+	// tests pass a fake clock.
+	After func(time.Duration) <-chan time.Time
 }
 
 // Runtime polls one database's provider telemetry and serves it to the
@@ -32,11 +35,13 @@ type RuntimeOptions struct {
 type Runtime struct {
 	src      Source
 	database string
-	provider string
+	provider string // an Unavailable runtime's; a source reports its own
 	reason   string // permanently unavailable: why
 	interval time.Duration
 	limits   Limits
 	now      func() time.Time
+	after    func(time.Duration) <-chan time.Time
+	wake     chan struct{} // PollNow: end Run's wait (nil: nothing to poll)
 	pollMu   sync.Mutex
 
 	mu          sync.RWMutex
@@ -47,6 +52,13 @@ type Runtime struct {
 	history     []Point
 	capacity    float64
 	drift       []managedparam.Drift
+	failures    int       // consecutive failed polls
+	nextPoll    time.Time // when Run polls next (zero: not scheduled)
+
+	usage usageState // hourly host usage (market-04), under pollMu
+	// lastResource is the resource the last good sample named; it outlives
+	// a failed poll, so cost reports keep pricing the instance.
+	lastResource string
 }
 
 // NewRuntime builds a polling runtime over src.
@@ -63,16 +75,35 @@ func NewRuntime(src Source, opts RuntimeOptions) (*Runtime, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &Runtime{src: src, database: opts.Database, provider: src.Provider(),
-		interval: opts.Interval, limits: opts.Limits, now: opts.Now}, nil
+	if opts.After == nil {
+		opts.After = time.After
+	}
+	return &Runtime{src: src, database: opts.Database, interval: opts.Interval,
+		limits: opts.Limits, now: opts.Now, after: opts.After,
+		wake: make(chan struct{}, 1)}, nil
 }
 
 // Unavailable is a runtime that only reports why telemetry cannot be
 // collected for the database.
 func Unavailable(database, provider, reason string) *Runtime {
 	return &Runtime{database: database, provider: provider, reason: reason,
-		interval: DefaultInterval, now: time.Now}
+		interval: DefaultInterval, now: time.Now, after: time.After}
 }
+
+// PollNow ends Run's current wait, so the next poll runs at once (a reload
+// of a database that shares the runtime). Wakes coalesce; it never blocks.
+func (r *Runtime) PollNow() {
+	if r.wake == nil {
+		return
+	}
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
+// HasSource reports a polling runtime (false for an Unavailable one).
+func (r *Runtime) HasSource() bool { return r != nil && r.src != nil }
 
 // Database is the runtime's database name.
 func (r *Runtime) Database() string { return r.database }
@@ -90,14 +121,18 @@ func (r *Runtime) Poll(ctx context.Context) error {
 	now := r.now()
 	s, err := r.src.Collect(ctx, now)
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.lastPoll = now
 	if err != nil {
 		r.sample, r.lastErr = nil, err.Error()
+		r.failures++
+		r.mu.Unlock()
 		return err
 	}
-	r.sample, r.lastErr, r.lastSuccess = &s, "", now
+	r.sample, r.lastErr, r.lastSuccess, r.failures = &s, "", now, 0
+	r.lastResource = s.Resource
 	r.record(s, now)
+	r.mu.Unlock()
+	r.rollUsage(ctx, s, now) // a failed usage write never fails the poll
 	return nil
 }
 
@@ -118,27 +153,10 @@ func (r *Runtime) record(s Sample, now time.Time) {
 	}
 }
 
-// Run polls every interval until ctx ends, then invalidates the evidence.
-func (r *Runtime) Run(ctx context.Context, report func(error)) {
-	ticker := time.NewTicker(r.interval)
-	defer ticker.Stop()
-	defer r.invalidate()
-	for {
-		if err := r.Poll(ctx); err != nil && ctx.Err() == nil && report != nil {
-			report(err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
 func (r *Runtime) invalidate() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.sample, r.history, r.capacity = nil, nil, 0
+	r.sample, r.history, r.capacity, r.nextPoll = nil, nil, 0, time.Time{}
 }
 
 func (r *Runtime) current() (*Sample, []Point) {
@@ -189,7 +207,7 @@ func (r *Runtime) HostMemory() (total, available int64) {
 }
 
 // CapacityBytes is the bounded storage capacity
-// (autonomy.DiskCapacityProvider).
+// (autonomy.DiskCapacityProvider); ErrUnbounded when storage auto-grows.
 func (r *Runtime) CapacityBytes(ctx context.Context) (int64, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -198,6 +216,9 @@ func (r *Runtime) CapacityBytes(ctx context.Context) (int64, error) {
 	if s == nil {
 		return 0, fmt.Errorf("%w: no fresh storage sample", ErrUnavailable)
 	}
+	if s.StorageAutoGrows {
+		return 0, ErrUnbounded
+	}
 	_, capacity, ok := s.EffectiveFreeStorage(r.now())
 	if !ok {
 		return 0, fmt.Errorf("%w: storage capacity unknown or unbounded", ErrUnavailable)
@@ -205,9 +226,40 @@ func (r *Runtime) CapacityBytes(ctx context.Context) (int64, error) {
 	return int64(capacity), nil
 }
 
+// FreeStorage is fresh effective free and total storage and when free
+// storage was sampled (check_pressure's input, guard-01a);
+// ErrUnbounded when storage auto-grows.
+func (r *Runtime) FreeStorage(ctx context.Context) (float64, float64, time.Time, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, time.Time{}, err
+	}
+	s, _ := r.current()
+	switch {
+	case s == nil:
+		return 0, 0, time.Time{}, fmt.Errorf("%w: no fresh storage sample", ErrUnavailable)
+	case s.StorageAutoGrows:
+		return 0, 0, time.Time{}, fmt.Errorf("%w: storage grows automatically",
+			ErrUnbounded)
+	}
+	free, capacity, ok := s.EffectiveFreeStorage(r.now())
+	if !ok {
+		return 0, 0, time.Time{}, fmt.Errorf("%w: free storage or capacity unknown or stale",
+			ErrUnavailable)
+	}
+	return free, capacity, s.FreeStorageBytes.At, nil
+}
+
 // SetDrift publishes the parameter drift the managed-change worker found.
 func (r *Runtime) SetDrift(d []managedparam.Drift) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.drift = append([]managedparam.Drift(nil), d...)
+}
+
+// Resource is the provider resource the last good sample named ("" before
+// one), kept across failed polls.
+func (r *Runtime) Resource() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.lastResource
 }

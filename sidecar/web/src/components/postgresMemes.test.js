@@ -31,7 +31,7 @@ describe('Postgres meme catalog', () => {
   })
 
   it.each(Object.values(templates))('has a real local $name JPEG matching its declared dimensions', template => {
-    const bytes = readFileSync(resolve('public/memes', template.file))
+    const bytes = readFileSync(resolve('src/assets/memes', template.file))
     expect([...bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff])
     expect(jpegDimensions(bytes)).toEqual({ width: template.width, height: template.height })
     expect(template.alt).toContain(template.name === 'Drake Hotline Bling' ? 'Drake Hotline Bling' : template.name)

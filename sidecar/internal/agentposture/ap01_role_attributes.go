@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap01{}) }
@@ -16,7 +18,7 @@ type ap01 struct{}
 
 func (ap01) Spec() Spec {
 	return Spec{ID: "AP-01", Title: "Agent roles with dangerous attributes",
-		Severity: Critical}
+		Severity: Critical, ReadsSessions: true}
 }
 
 // dangerousGroups are the predefined roles an agent role must not reach.
@@ -117,7 +119,7 @@ func (a roleAttrs) flagged() (attrs, clear []string) {
 
 func ap01Script(a roleAttrs, clear, groups []string) string {
 	var b strings.Builder
-	role := QuoteIdent(a.name)
+	role := sqlident.Ident(a.name)
 	if len(clear) > 0 {
 		fmt.Fprintf(&b, "ALTER ROLE %s %s;\n", role, strings.Join(clear, " "))
 	}

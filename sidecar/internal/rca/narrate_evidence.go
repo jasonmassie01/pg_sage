@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/signalid"
 	"github.com/pg-sage/sidecar/internal/sre/causal"
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
@@ -45,6 +46,15 @@ type incidentEvidence struct {
 	hypotheses   []causal.Hypothesis // in H1..Hn order
 }
 
+// evidenceCaller is the probe caller class of an incident's evidence:
+// log_rca for an incident the log decision trees raised, else narration.
+func evidenceCaller(inc Incident) probes.Caller {
+	if inc.Source == "log_deterministic" {
+		return probes.CallerLogRCA
+	}
+	return probes.CallerNarration
+}
+
 // gatherEvidence runs the incident's catalog probes and the causal
 // graph. It never holds e.mu during I/O.
 func (e *Engine) gatherEvidence(ctx context.Context, inc Incident) incidentEvidence {
@@ -55,13 +65,14 @@ func (e *Engine) gatherEvidence(ctx context.Context, inc Incident) incidentEvide
 	if runner == nil {
 		return ev
 	}
-	ctx, cancel := context.WithTimeout(ctx, probeGatherTimeout)
+	ctx, cancel := context.WithTimeout(probes.WithCaller(ctx, evidenceCaller(inc)),
+		probeGatherTimeout)
 	defer cancel()
 	for i, id := range incidentProbes(inc.SignalIDs) {
 		ev.observations = append(ev.observations, causal.Observation{
 			EvidenceID: fmt.Sprintf("P%d", i+1), Result: runner.Run(ctx, id, probes.Args{})})
 	}
-	if hasSignal(inc, "lock_contention") {
+	if hasSignal(inc, signalid.LockContention) {
 		d := causal.DiagnoseLock(ev.observations, causalBlockers(inc))
 		ev.diagnosis = &d
 		ev.hypotheses = orderedHypotheses(d)

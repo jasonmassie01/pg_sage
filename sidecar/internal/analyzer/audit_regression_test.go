@@ -2,20 +2,22 @@ package analyzer
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
-// Audit probes use TestMain's per-process disposable database. No live runtime DSN.
+// Audit probes use TestMain's per-process disposable database. No live runtime DSN;
+// without a test server they skip through testdb's live check.
 func auditPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
+	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
-	pool, err := pgxpool.New(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}

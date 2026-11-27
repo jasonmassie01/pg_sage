@@ -227,38 +227,24 @@ func TestLogSignals_IgnoreReplayOlderThanStart(t *testing.T) {
 	}
 }
 
-func TestDetectCacheHitDrop_AcceptsPercentAndFraction(t *testing.T) {
-	tests := []struct {
-		name      string
-		ratio     float64
-		wantFire  bool
-		wantRatio float64
-	}{
-		{"percent below threshold", 90.0, true, 0.90},
-		{"percent above threshold", 99.5, false, 0},
-		{"fraction below threshold", 0.90, true, 0.90},
-		{"fraction above threshold", 0.995, false, 0},
-		{"zero means no data", 0, false, 0},
-		{"exactly 100 percent", 100.0, false, 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			eng := testEngine()
-			snap := quietSnapshot()
-			snap.System.CacheHitRatio = tt.ratio
-			sig := eng.detectCacheHitDrop(snap, nil, testConfig())
-			if (sig != nil) != tt.wantFire {
-				t.Fatalf("fired = %v, want %v", sig != nil, tt.wantFire)
-			}
-			if sig == nil {
-				return
-			}
-			got := floatMetric(sig, "cache_hit_ratio")
-			if got < tt.wantRatio-1e-9 || got > tt.wantRatio+1e-9 {
-				t.Errorf("cache_hit_ratio metric = %v, want %v",
-					got, tt.wantRatio)
-			}
-		})
+// rca-03: the signal reads the interval ratio, a fraction collection-06
+// computes; the lifetime ratio, in either representation the collector
+// has used (percent or fraction), no longer fires it. This test replaced
+// TestDetectCacheHitDrop_AcceptsPercentAndFraction, which pinned the
+// lifetime ratio's normalisation (normalizeCacheHitRatio, now removed).
+func TestDetectCacheHitDrop_LifetimeRatioNeverFires(t *testing.T) {
+	for _, lifetime := range []float64{90.0, 99.5, 0.90, 0.995, 0, 100.0} {
+		snap := quietSnapshot()
+		snap.System.CacheHitRatio = lifetime
+		if sig := testEngine().detectCacheHitDrop(snap, nil, testConfig()); sig != nil {
+			t.Errorf("lifetime %v without an interval fired: %+v", lifetime, sig.Metrics)
+		}
+		snap.System = intervalRatio(0.90)
+		snap.System.CacheHitRatio = lifetime
+		sig := testEngine().detectCacheHitDrop(snap, nil, testConfig())
+		if sig == nil || floatMetric(sig, "cache_hit_ratio") != 0.90 {
+			t.Errorf("lifetime %v, interval 0.90: %+v, want the interval's 0.90", lifetime, sig)
+		}
 	}
 }
 
@@ -283,4 +269,3 @@ func hotSnapshotForRegress() *collector.Snapshot {
 		},
 	}
 }
-

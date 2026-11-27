@@ -116,7 +116,7 @@ func invalidIndexFinding(
 		detail["unlogged"] = true
 		rec += " (unlogged table — indexes lost on crash)"
 	}
-	return Finding{
+	f := Finding{
 		Category:         "invalid_index",
 		Severity:         severity,
 		ObjectType:       "index",
@@ -128,6 +128,24 @@ func invalidIndexFinding(
 		RollbackSQL:      idx.IndexDef + ";",
 		ActionRisk:       "safe",
 	}
+	if idx.ParentIndexOID != 0 {
+		adviseAttachedInvalid(&f, idx)
+	}
+	return f
+}
+
+// adviseAttachedInvalid makes an invalid index attached to a partitioned
+// index advisory: PostgreSQL refuses to drop it on its own, and a rebuild
+// in place keeps it attached (rules-03).
+func adviseAttachedInvalid(f *Finding, idx collector.IndexStats) {
+	f.RecommendedSQL, f.RollbackSQL = "", ""
+	f.ActionRisk = "high_risk" // advisory only: no SQL is run for it
+	f.Detail["attached_to_partitioned_index"] = true
+	f.Recommendation = "The invalid index is attached to a partitioned index, so " +
+		"PostgreSQL will not drop it on its own. Rebuild it in place with REINDEX " +
+		"INDEX CONCURRENTLY " +
+		sanitize.QuoteQualifiedName(idx.SchemaName, idx.IndexRelName) +
+		", or drop the partitioned index it belongs to."
 }
 
 // ruleDuplicateIndexes detects exact-duplicate and subset btree indexes.
@@ -202,7 +220,7 @@ func appendPairFinding(
 // appendSubset adds the finding for sub, an index whose columns lead sup's.
 func appendSubset(out []Finding, seen map[string]bool, sub, sup duplicateIndexCandidate,
 	subIdent, supIdent string) []Finding {
-	if isConstraintBacked(sub.info) ||
+	if isUndroppable(sub.info) ||
 		!subsetWorthDropping(sub.parsed, sup.parsed, sub.info, sup.info) || seen[subIdent] {
 		return out
 	}
@@ -233,8 +251,8 @@ func duplicateFinding(drop, keep duplicateIndexCandidate, dropIdent, keepIdent s
 func chooseDuplicateDrop(
 	a, b duplicateIndexCandidate, aIdent, bIdent string,
 ) (duplicateIndexCandidate, duplicateIndexCandidate, string, string, bool) {
-	aProtected := isConstraintBacked(a.info)
-	bProtected := isConstraintBacked(b.info)
+	aProtected := isUndroppable(a.info)
+	bProtected := isUndroppable(b.info)
 	switch {
 	case aProtected && bProtected:
 		return duplicateIndexCandidate{}, duplicateIndexCandidate{},
@@ -252,6 +270,13 @@ func chooseDuplicateDrop(
 
 func isConstraintBacked(idx collector.IndexStats) bool {
 	return idx.IsPrimary || idx.IsUnique
+}
+
+// isUndroppable reports whether the duplicate rule must keep idx: it backs
+// a constraint, or it is attached to a partitioned index, which PostgreSQL
+// refuses to drop on its own (rules-03). It can still be the index kept.
+func isUndroppable(idx collector.IndexStats) bool {
+	return isConstraintBacked(idx) || idx.ParentIndexOID != 0
 }
 
 const (
@@ -329,4 +354,10 @@ func subsetFinding(
 func dropIndexSQL(idx collector.IndexStats) string {
 	return "DROP INDEX CONCURRENTLY " +
 		sanitize.QuoteQualifiedName(idx.SchemaName, idx.IndexRelName) + ";"
+}
+
+// DropIndexSQL is the analyzer's DROP statement for the index schema.name,
+// for the review generators (review-02a), so no candidate SQL is free text.
+func DropIndexSQL(schema, name string) string {
+	return dropIndexSQL(collector.IndexStats{SchemaName: schema, IndexRelName: name})
 }

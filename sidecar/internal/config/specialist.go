@@ -14,14 +14,17 @@ import (
 // token-only, and agents can open and read investigations and request a
 // remediation that pg_sage's gate decides, never approve one.
 type SpecialistConfig struct {
-	Enabled            bool                      `yaml:"enabled" doc:"Serve the Postgres-specialist contract under /api/v1/specialist (MCP tokens only). Default: true."`
-	WritesPerMinute    int                       `yaml:"writes_per_minute" doc:"Opens and remediation requests one token may make per minute, 1-10000. Default: 30."`
-	ReadsPerMinute     int                       `yaml:"reads_per_minute" doc:"Status, result and stream calls one token may make per minute, 1-10000. Default: 240."`
-	MaxOpenPerIdentity int                       `yaml:"max_open_per_identity" doc:"Live investigations one token may have opened at once, 1-100. Attaching to an existing investigation never counts. Default: 3."`
-	MaxOpenTotal       int                       `yaml:"max_open_total" doc:"Live investigations all tokens together may have opened at once, 1-100. Default: 10."`
-	KeepIdentifiers    bool                      `yaml:"keep_identifiers" doc:"Keep schema, table and other identifiers in results. Secrets and PII are always removed; false replaces identifiers by keyed hashes like a replay export. Default: true."`
-	PagerDuty          SpecialistPagerDutyConfig `yaml:"pagerduty"`
-	Webhook            SpecialistWebhookConfig   `yaml:"webhook"`
+	Enabled            bool                         `yaml:"enabled" doc:"Serve the Postgres-specialist contract under /api/v1/specialist (MCP tokens only). Default: true."`
+	WritesPerMinute    int                          `yaml:"writes_per_minute" doc:"Opens and remediation requests one token may make per minute, 1-10000. Default: 30."`
+	ReadsPerMinute     int                          `yaml:"reads_per_minute" doc:"Status, result and stream calls one token may make per minute, 1-10000. Default: 240."`
+	MaxOpenPerIdentity int                          `yaml:"max_open_per_identity" doc:"Live investigations one token may have opened at once, 1-100. Attaching to an existing investigation never counts. Default: 3."`
+	MaxOpenTotal       int                          `yaml:"max_open_total" doc:"Live investigations all tokens together may have opened at once, 1-100. Default: 10."`
+	MaxLiveAgeHours    int                          `yaml:"max_live_age_hours" doc:"Hours after which an opened investigation pg_sage cannot read (database gone from the fleet) stops counting against the live bounds, 1-168. A readable live one always counts. Default: 24."`
+	KeepIdentifiers    bool                         `yaml:"keep_identifiers" doc:"Keep schema, table and other identifiers in results. Secrets and PII are always removed; false replaces identifiers by keyed hashes like a replay export. Default: true."`
+	PagerDuty          SpecialistPagerDutyConfig    `yaml:"pagerduty"`
+	Webhook            SpecialistWebhookConfig      `yaml:"webhook"`
+	IncidentIO         SpecialistIncidentIOConfig   `yaml:"incidentio"`
+	AzureMonitor       SpecialistAzureMonitorConfig `yaml:"azure_monitor"`
 }
 
 // SpecialistPagerDutyConfig maps PagerDuty v3 incident webhooks onto the
@@ -41,13 +44,30 @@ type SpecialistWebhookConfig struct {
 	TimestampToleranceSeconds int    `yaml:"timestamp_tolerance_seconds" doc:"Maximum age (and clock skew) of a signed webhook request, 30-900 seconds. Default: 300."`
 }
 
+// SpecialistIncidentIOConfig maps incident.io incident webhooks onto the
+// contract (mcp-02). Off until signing_secret is set.
+type SpecialistIncidentIOConfig struct {
+	SigningSecret string   `yaml:"signing_secret" doc:"Signing secret (whsec_...) of the incident.io webhook endpoint; webhook-signature must match. Empty disables the adapter." secret:"true"`
+	DatabaseField string   `yaml:"database_field" doc:"incident.io custom field whose value names the database through routes. Default: Database."`
+	Routes        []string `yaml:"routes" doc:"Field value to database mappings, VALUE=database or VALUE=database:family, matched without case. Unmapped incidents are answered unknown_database."`
+}
+
+// SpecialistAzureMonitorConfig maps Azure Monitor alerts (common alert
+// schema) onto the contract (mcp-02). Off until shared_secret is set.
+type SpecialistAzureMonitorConfig struct {
+	SharedSecret string   `yaml:"shared_secret" doc:"Shared key Azure alert deliveries carry in the X-Sage-Azure-Key header or the key query parameter. Empty disables the adapter." secret:"true"`
+	Resources    []string `yaml:"resources" doc:"Alert target resource id to database mappings, RESOURCE_ID=database or RESOURCE_ID=database:family, matched without case. Unmapped alerts are answered unknown_database."`
+}
+
 // Specialist defaults.
 const (
 	DefaultSpecialistWritesPerMinute    = 30
 	DefaultSpecialistReadsPerMinute     = 240
 	DefaultSpecialistMaxOpenPerIdentity = 3
 	DefaultSpecialistMaxOpenTotal       = 10
+	DefaultSpecialistMaxLiveAgeHours    = 24
 	DefaultSpecialistWebhookTolerance   = 300
+	DefaultSpecialistIncidentIOField    = "Database"
 )
 
 func defaultSpecialistConfig() SpecialistConfig {
@@ -55,9 +75,18 @@ func defaultSpecialistConfig() SpecialistConfig {
 		WritesPerMinute:    DefaultSpecialistWritesPerMinute,
 		ReadsPerMinute:     DefaultSpecialistReadsPerMinute,
 		MaxOpenPerIdentity: DefaultSpecialistMaxOpenPerIdentity,
-		MaxOpenTotal:       DefaultSpecialistMaxOpenTotal, KeepIdentifiers: true,
+		MaxOpenTotal:       DefaultSpecialistMaxOpenTotal,
+		MaxLiveAgeHours:    DefaultSpecialistMaxLiveAgeHours, KeepIdentifiers: true,
 		Webhook: SpecialistWebhookConfig{
-			TimestampToleranceSeconds: DefaultSpecialistWebhookTolerance}}
+			TimestampToleranceSeconds: DefaultSpecialistWebhookTolerance},
+		IncidentIO: SpecialistIncidentIOConfig{
+			DatabaseField: DefaultSpecialistIncidentIOField}}
+}
+
+// MaxLiveAge is the age after which an unreadable opened investigation
+// stops counting against the live-investigation bounds.
+func (s SpecialistConfig) MaxLiveAge() time.Duration {
+	return time.Duration(s.MaxLiveAgeHours) * time.Hour
 }
 
 // Tolerance is the accepted age of a signed webhook request.
@@ -74,6 +103,7 @@ func (s SpecialistConfig) validate() error {
 		{"reads_per_minute", s.ReadsPerMinute, 1, 10000},
 		{"max_open_per_identity", s.MaxOpenPerIdentity, 1, 100},
 		{"max_open_total", s.MaxOpenTotal, 1, 100},
+		{"max_live_age_hours", s.MaxLiveAgeHours, 1, 168},
 		{"webhook.timestamp_tolerance_seconds", s.Webhook.TimestampToleranceSeconds, 30, 900},
 	} {
 		if r.value < r.lo || r.value > r.hi {
@@ -88,7 +118,39 @@ func (s SpecialistConfig) validate() error {
 	if err := s.PagerDuty.validate(); err != nil {
 		return err
 	}
+	if err := s.IncidentIO.validate(); err != nil {
+		return err
+	}
+	if err := validateAlertRoutes("specialist.azure_monitor", "resources",
+		"shared_secret", s.AzureMonitor.SharedSecret, s.AzureMonitor.Resources); err != nil {
+		return err
+	}
 	return s.Webhook.validate()
+}
+
+func (c SpecialistIncidentIOConfig) validate() error {
+	if strings.TrimSpace(c.DatabaseField) == "" {
+		return fmt.Errorf("specialist.incidentio.database_field must name a custom field")
+	}
+	return validateAlertRoutes("specialist.incidentio", "routes", "signing_secret",
+		c.SigningSecret, c.Routes)
+}
+
+// validateAlertRoutes checks an alert adapter's KEY=database[:family]
+// routes and that they come with the adapter's secret; the database and
+// family are checked when the adapter is built.
+func validateAlertRoutes(section, key, secretKey, secret string, routes []string) error {
+	if len(routes) > 0 && secret == "" {
+		return fmt.Errorf("%s.%s need %s.%s", section, key, section, secretKey)
+	}
+	for i, entry := range routes {
+		k, database, ok := strings.Cut(entry, "=")
+		if !ok || strings.TrimSpace(k) == "" || strings.TrimSpace(database) == "" {
+			return fmt.Errorf("%s.%s[%d] must be KEY=database[:family], got %q", section,
+				key, i, entry)
+		}
+	}
+	return nil
 }
 
 func (p SpecialistPagerDutyConfig) validate() error {

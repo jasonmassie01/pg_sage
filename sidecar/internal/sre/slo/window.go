@@ -38,7 +38,7 @@ func classify(w Window, o Objective) Window {
 		return w
 	}
 	switch {
-	case math.IsNaN(w.Bad) || math.IsNaN(w.Eligible) || w.Bad < 0 || w.Bad > w.Eligible:
+	case invalidValues(w):
 		w.Unknown = ReasonInvalidValue
 	case w.Eligible == 0:
 		w.Unknown = ReasonZeroEligible
@@ -46,6 +46,12 @@ func classify(w Window, o Objective) Window {
 		w.Unknown = ReasonLowTraffic
 	}
 	return w
+}
+
+// invalidValues reports counts no SLI can produce: NaN, negative bad
+// events or more bad than eligible events.
+func invalidValues(w Window) bool {
+	return math.IsNaN(w.Bad) || math.IsNaN(w.Eligible) || w.Bad < 0 || w.Bad > w.Eligible
 }
 
 // SeriesAgg is one counter series over a window: the samples it had,
@@ -88,14 +94,28 @@ func Combine(aggs []SeriesAgg, o Objective, from, to, now time.Time) Window {
 		w.Unknown = ReasonNoData
 		return w
 	}
+	return classify(judgeCoverage(w, earliest, o, now), o)
+}
+
+// judgeCoverage sets the share of the window covered from its earliest
+// to its newest data point and names the window stale (newest point
+// older than the objective's stale limit), invalid, or partial (under
+// 90% covered). Invalid counts outrank partial coverage: a partial
+// window may be decided by its rule's other window, invalid data never
+// is. Stored series (Combine) and Prometheus windows with a
+// coverage query share it.
+func judgeCoverage(w Window, earliest time.Time, o Objective, now time.Time) Window {
 	if w.Duration > 0 {
-		w.Coverage = math.Min(1, float64(w.LatestAt.Sub(earliest))/float64(w.Duration))
+		w.Coverage = math.Max(0, math.Min(1,
+			float64(w.LatestAt.Sub(earliest))/float64(w.Duration)))
 	}
 	switch {
 	case now.Sub(w.LatestAt) > o.staleAfter():
 		w.Unknown = ReasonStale
+	case invalidValues(w):
+		w.Unknown = ReasonInvalidValue
 	case w.Coverage < MinCoverage:
 		w.Unknown = ReasonPartialWindow
 	}
-	return classify(w, o)
+	return w
 }

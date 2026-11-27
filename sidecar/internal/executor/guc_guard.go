@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/pgconf"
 )
 
@@ -46,7 +47,7 @@ func parseWALKeepSizeBytes(sql string) (int64, bool, error) {
 // any replication slot currently retains: such a value invalidates the
 // slot at the next checkpoint (replica rebuild / CDC re-snapshot).
 func (e *Executor) checkGUCValueSafety(ctx context.Context, sql string) error {
-	if err := e.checkLakebaseDatabaseSetting(ctx, sql); err != nil {
+	if err := e.checkManagedDatabaseSetting(ctx, sql); err != nil {
 		return err
 	}
 	requested, isKeepSize, err := parseWALKeepSizeBytes(sql)
@@ -54,7 +55,7 @@ func (e *Executor) checkGUCValueSafety(ctx context.Context, sql string) error {
 		return err
 	}
 	var retained int64
-	if err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(max(
+	if err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT COALESCE(max(
 		pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), 0)::bigint
 		FROM pg_replication_slots`).Scan(&retained); err != nil {
 		return fmt.Errorf("%w: cannot read retained WAL: %v", ErrUnsafeGUCValue, err)
@@ -66,29 +67,70 @@ func (e *Executor) checkGUCValueSafety(ctx context.Context, sql string) error {
 	return nil
 }
 
-// Lakebase exposes user-context settings at database scope. Its instance
-// settings remain provider controlled even when the SQL GUC allowlist includes
-// them for self-managed PostgreSQL. Unknown catalog state fails closed.
-func (e *Executor) checkLakebaseDatabaseSetting(ctx context.Context, sql string) error {
+// checkManagedDatabaseSetting refuses, on every managed provider, an ALTER
+// DATABASE ... SET/RESET that PostgreSQL would refuse: only user-context
+// settings, and superuser-context ones the connected role may SET, can be
+// set per database (advisors-01). It runs before the statement, so a stale
+// finding written before the managed rewrite routed on context never
+// reaches PostgreSQL. Unknown catalog state fails closed.
+func (e *Executor) checkManagedDatabaseSetting(ctx context.Context, sql string) error {
 	cfg, _, _ := e.policySnapshot()
-	if cfg == nil || !strings.EqualFold(strings.TrimSpace(cfg.CloudEnvironment), "lakebase") {
+	if cfg == nil || !isManagedProvider(cfg.CloudEnvironment) {
 		return nil
 	}
 	upper := strings.ToUpper(normalizeSQLText(sql))
-	if !strings.HasPrefix(upper, "ALTER DATABASE ") {
+	if !strings.HasPrefix(upper, "ALTER DATABASE") {
 		return nil
 	}
+	provider := strings.TrimSpace(cfg.CloudEnvironment)
 	clause, ok := alterDatabaseClause(upper)
 	stmt, parsed := pgconf.ParseAlterSystem("ALTER SYSTEM " + clause)
 	if !ok || !parsed || e.pool == nil {
-		return fmt.Errorf("%w: cannot establish Lakebase database setting context", ErrManagedConfigUnsupported)
+		return fmt.Errorf("%w: cannot establish the %s database setting context for %q",
+			ErrManagedConfigUnsupported, provider, sql)
 	}
-	var settingContext string
-	if err := e.pool.QueryRow(ctx, "/* pg_sage */ SELECT context FROM pg_settings WHERE name=$1", stmt.Name).Scan(&settingContext); err != nil {
-		return fmt.Errorf("%w: cannot establish Lakebase setting %s context: %v", ErrManagedConfigUnsupported, stmt.Name, err)
+	settable, settingContext, err := databaseSettable(ctx, e.pool, stmt.Name)
+	if err != nil {
+		return fmt.Errorf("%w: cannot establish %s setting %s context: %v",
+			ErrManagedConfigUnsupported, provider, stmt.Name, err)
 	}
-	if settingContext != "user" {
-		return fmt.Errorf("%w: Lakebase setting %s has %s context; only user-context database settings are supported", ErrManagedConfigUnsupported, stmt.Name, settingContext)
+	if !settable {
+		return fmt.Errorf("%w: %s setting %s has %s context; only user-context settings "+
+			"(and superuser-context ones the role may SET) can be set per database",
+			ErrManagedConfigUnsupported, provider, stmt.Name, settingContext)
 	}
 	return nil
+}
+
+// databaseSettable reads a setting's pg_settings context and whether the
+// connected role may set it per database: user context always; superuser
+// context for a superuser or, on PostgreSQL 15+, a role holding SET on the
+// parameter. A setting pg_settings does not list is an error.
+func databaseSettable(ctx context.Context, pool *pgxpool.Pool, name string) (bool, string, error) {
+	var settingContext string
+	var super bool
+	var version int
+	if err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT s.context, r.rolsuper,
+		current_setting('server_version_num')::int
+		FROM pg_catalog.pg_settings s, pg_catalog.pg_roles r
+		WHERE s.name = $1 AND r.rolname = current_user`, name).
+		Scan(&settingContext, &super, &version); err != nil {
+		return false, "", err
+	}
+	switch {
+	case settingContext == "user":
+		return true, settingContext, nil
+	case settingContext != "superuser":
+		return false, settingContext, nil
+	case super:
+		return true, settingContext, nil
+	case version < 150000:
+		return false, settingContext, nil // no parameter privileges before PostgreSQL 15
+	}
+	var granted bool
+	if err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT
+		pg_catalog.has_parameter_privilege($1, 'SET')`, name).Scan(&granted); err != nil {
+		return false, settingContext, fmt.Errorf("SET privilege on %s: %w", name, err)
+	}
+	return granted, settingContext, nil
 }

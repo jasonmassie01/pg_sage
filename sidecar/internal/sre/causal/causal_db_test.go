@@ -322,9 +322,9 @@ func (pf *planFixture) sample(t *testing.T, ctx context.Context) {
 		return
 	}
 	pf.lastCalls = *calls
-	if err := querystore.Record(ctx, pf.pool, []querystore.Sample{{
+	if _, err := querystore.NewRecorder().Record(ctx, pf.pool, []querystore.Sample{{
 		QueryID: pf.queryID, Calls: *calls, TotalExecMs: *total,
-		MeanExecMs: *total / float64(*calls)}}); err != nil {
+		MeanExecMs: *total / float64(*calls)}}, time.Now()); err != nil {
 		t.Fatalf("record sample: %v", err)
 	}
 	time.Sleep(20 * time.Millisecond) // distinct captured_at per sample

@@ -78,14 +78,17 @@ func TestCatalog_OnlyRunwaySamplingProbesHaveABackgroundBudget(t *testing.T) {
 // a hash of the sequence's OID.
 func TestCatalog_SequenceRunwayV3IsBounded(t *testing.T) {
 	spec, ok := Catalog().Spec(SequenceRunwayProbe)
-	if !ok || spec.Version != "v3" || spec.MaxRows != 50 || spec.Args != ArgsSlice {
+	// v4 (forecast-05/10) keeps the v3 bounds and lists the keep-list
+	// beside its top SequenceTopN.
+	if !ok || spec.Version != "v4" || spec.MaxRows != SequenceTopN+MaxSequenceKeep ||
+		spec.Args != ArgsSlice {
 		t.Fatalf("sequence_runway spec = %+v", spec)
 	}
 	sql := spec.Variants[0].SQL
 	for _, want := range []string{"pg_sequence_last_value", "LIMIT LEAST(" +
 		strconv.Itoa(SequenceScanCap), "max_locks_per_transaction", "sequences_total", "sequences_scanned",
 		"sequences_used", "sequences_unreadable", "pg_is_other_temp_schema",
-		"coverage_only", "hashint8", "sre:sequence_runway v3"} {
+		"coverage_only", "hashint8", "sre:sequence_runway v4"} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("sequence_runway SQL lacks %q", want)
 		}

@@ -69,12 +69,18 @@ func reconcileMetaDatabases(
 	return report
 }
 
+// reconcileIDs are the members a pass looks at: every row that gets a
+// runtime and every running runtime. A disabled or observe-only row with
+// no runtime has nothing to converge, so a fleet of 2,000 observe-only
+// members costs a pass no per-member read (fleetpol-01d).
 func reconcileIDs(
 	records []store.DatabaseRecord, instances map[string]*fleet.DatabaseInstance,
 ) []int {
 	seen := map[int]bool{}
 	for _, rec := range records {
-		seen[rec.ID] = true
+		if rec.RunsRuntime() {
+			seen[rec.ID] = true
+		}
 	}
 	for _, inst := range instances {
 		if inst.DatabaseID > 0 {
@@ -152,7 +158,7 @@ func finishMetaOutcome(
 			outcome.retired.Name, err)
 	}
 	if mgr.GetInstance(outcome.retired.Name) == nil {
-		unregisterFleetBudget(outcome.retired.Name)
+		forgetRemovedDatabase(outcome.retired.Name)
 	}
 }
 

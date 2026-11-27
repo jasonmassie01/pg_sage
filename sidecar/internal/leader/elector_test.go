@@ -87,9 +87,9 @@ func TestElector_FirstTickAcquires(t *testing.T) {
 	if !e.IsLeader() {
 		t.Fatal("not leader after acquiring a free lease")
 	}
-	holder, epoch, ok := e.Fence()
-	if !ok || holder != "A" || epoch != 1 {
-		t.Fatalf("fence = %q,%d,%v want A,1,true", holder, epoch, ok)
+	tok, ok := e.Fence()
+	if !ok || tok.Holder != "A" || tok.Epoch != 1 {
+		t.Fatalf("fence = %q,%d,%v want A,1,true", tok.Holder, tok.Epoch, ok)
 	}
 }
 
@@ -134,8 +134,8 @@ func TestElector_FailoverAfterExpiryWithNewEpoch(t *testing.T) {
 	if !b.IsLeader() {
 		t.Fatal("B did not take over an expired lease")
 	}
-	if _, epoch, _ := b.Fence(); epoch != 2 {
-		t.Fatalf("takeover epoch = %d, want 2", epoch)
+	if tok, _ := b.Fence(); tok.Epoch != 2 {
+		t.Fatalf("takeover epoch = %d, want 2", tok.Epoch)
 	}
 	if a.IsLeader() {
 		t.Fatal("split brain: A still believes it leads after its lease expired")
@@ -314,10 +314,20 @@ func TestNilElectorIsAlwaysLeader(t *testing.T) {
 	if !e.IsLeader() {
 		t.Fatal("a nil elector (election disabled) must allow every job")
 	}
-	if _, _, ok := e.Fence(); ok {
+	if _, ok := e.Fence(); ok {
 		t.Fatal("a nil elector has no fence")
 	}
 	if s := e.Status(); s.Enabled {
 		t.Fatalf("nil status = %+v", s)
+	}
+}
+
+// plan-02e: the plan engine claims steps under the elector's holder id.
+func TestElector_HolderIsTheHolderItLeadsAs(t *testing.T) {
+	if got := NewElector(nil, "s", "host-1-abcd", 0).Holder(); got != "host-1-abcd" {
+		t.Fatalf("Holder() = %q, want host-1-abcd", got)
+	}
+	if got := NewElector(nil, "s", "", 0).Holder(); got != "" {
+		t.Fatalf("Holder() = %q, want empty", got)
 	}
 }

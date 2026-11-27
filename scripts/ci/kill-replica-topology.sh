@@ -53,7 +53,7 @@ url() {
 
 wait_ready() {
   for _ in $(seq 1 90); do
-    if docker exec "$1" pg_isready -U postgres >/dev/null 2>&1; then
+    if docker exec "$1" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
       return 0
     fi
     sleep 1

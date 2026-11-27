@@ -1,7 +1,17 @@
-# Skips CI accepts. Format: <package-regex> <test-regex> # reason
+# Skips CI accepts. Format: <package-regex> <test-regex> [qualifier...] # reason
 # Patterns are anchored; the test pattern matches the top-level test name.
 # Anything skipped that is not listed here fails the skipbudget gate
 # (cmd/skipbudget). Add an entry only with a reason a reviewer can verify.
+#
+# Optional qualifiers narrow a rule (ci-02); a rule without them matches on
+# every PostgreSQL major and with any skip text:
+#   pg<N pg<=N pg>N pg>=N  the server majors the rule applies to; combine two
+#                          for a range (pg>=16 pg<17). cmd/skipbudget then
+#                          needs -pg <major>, and the same skip on any other
+#                          major is UNLISTED.
+#   reason=/regex/         the t.Skip text must match (unanchored). No spaces
+#                          or '#' inside: write \s and \x23.
+# A rule that matched no skip in a full run is reported STALE: fix or delete it.
 
 # Live cloud provisioning: opt-in via PG_SAGE_LIVE_* and real credentials.
 internal/azure TestAzureLiveServerParameter # live cloud, PG_SAGE_LIVE_AZURE opt-in
@@ -21,13 +31,25 @@ tests/lakebaselive TestLakebaseProviderProbeCompatibility # native strict provid
 tests/lakebaselive TestLakebaseTelemetry # controlled selected-resource system-table reads/delivery, PG_SAGE_LIVE_LAKEBASE_TELEMETRY=1, exact isolated native fixture and explicit SQL warehouse; absent delivery remains skipped/unverified
 tests/lakebaselive TestLakebaseTelemetryAttribution # bounded read-only counts for exact owned telemetry fixture identities, PG_SAGE_LIVE_LAKEBASE_TELEMETRY_ATTRIBUTION=1 plus prior owned report
 internal/databricksauth TestGatewayModelDiscoveryLive # real Unity Gateway catalog, PG_SAGE_LIVE_LLM=1 and selected workspace credentials
+internal/clone TestLakebaseLive_BranchRehearsalRoundTrip reason=/live\sLakebase\sbranch\srehearsal:\sset\sSAGE_LAKEBASE_LIVE=1/ # live Lakebase branch rehearsal, SAGE_LAKEBASE_LIVE=1 and a real endpoint
+internal/clone TestAlloyDBLive_ContractOnARealCluster|TestAuroraLive_ContractOnARealCluster|TestAzureRestoreLive_ContractOnARealServer|TestCloudSQLLive_ContractOnARealInstance|TestNeonLive_ContractOnARealProject|TestRDSRestoreLive_ContractOnARealInstance reason=/live\sclone\sprovider\scontract\sskipped/ # live clone provider contracts (lab-05), opt-in per provider via SAGE_<PROVIDER>_LIVE=1 and real cloud credentials
 
 # Live LLM calls: need a provider key and spend quota.
 internal/rca TestTier2Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
 internal/llm TestChat(WithTools)?Live_.* # live LLM, PG_SAGE_LIVE_LLM=1 opt-in
-internal/advisor TestBloatE2E_FullPipeline|TestConnE2E_FullPipeline|TestFullPipeline_AllAdvisorsRun|TestRewriteE2E_FullPipeline|TestWALE2E_FullPipeline # billed advisor E2Es, SAGE_GEMINI_API_KEY or PG_SAGE_LIVE_LLM=1 plus native auth/endpoint/model; native acceptance reported separately
-e2e TestLLM.* # live LLM, SAGE_LLM_API_KEY opt-in
-e2e TestTuningAgentLive # live LLM, PG_SAGE_LIVE_LLM=1 and SAGE_LLM_API_KEY opt-in
+e2e TestLLM.* pg>=17 pg<18 # live LLM, SAGE_LLM_API_KEY opt-in; only the PG17 test job runs ./e2e
+e2e TestTuningAgentLive pg>=17 pg<18 # live LLM, PG_SAGE_LIVE_LLM=1 and SAGE_LLM_API_KEY opt-in; only the PG17 test job runs ./e2e
+
+# Servers no CI job provides; each test runs where its URL is set.
+cmd/pg_sage_sidecar TestLocalBenchRunCountsForTheFamilyItCovered|TestFleetInstanceOwner_TwoClustersTwoOwners|TestGameDayRefusesAFleetPoolAddedAfterStart reason=/SAGE_TEST_SECOND_CLUSTER_URL\snot\sset/ # needs a second PostgreSQL server
+internal/gameday TestLocalTargetOnASecondCluster reason=/SAGE_TEST_SECOND_CLUSTER_URL\snot\sset/ # needs a second PostgreSQL server
+internal/gameday TestLocalTargetReplicaOfTheMonitoredPrimaryIsRefused reason=/SAGE_TEST_REPLICA_URL\snot\sset/ # needs a streaming replica of the test server
+internal/logwatch TestIntegration_(KilledBackendOpensCrashIncident|ServerCSVLogDeadlockNamesBothPIDs|ServerCSVLogDeadlockParticipants) reason=/SAGE_TEST_CSVLOG_URL,\sSAGE_TEST_CSVLOG_CONTAINER\sand\sSAGE_TEST_CSVLOG_DIR\snot\sset/ # needs a csvlog server with its log directory mounted locally
+internal/executor TestRoleBudgetRevert_ServerCSVLog reason=/SAGE_TEST_SERVER_CSVLOG_DIR\snot\sset/ # needs the test server's csvlog directory mounted locally
+internal/analyzer TestArchiverRules_FailingArchiveCommandFires reason=/archive_mode=off/ # archive_mode needs a restart; the CI image runs with it off
+internal/pgaudit TestRealPGAuditTaggedLongAction reason=/pgaudit\sis\snot\sin\sshared_preload_libraries/ # needs pgaudit preloaded and jsonlog: ci.yml agent-servers
+internal/auditchain TestFullVerificationMemoryIsBounded reason=/skipped\sunder\s-race/ # the heap bound is meaningless under -race: ci.yml agent-servers runs it without
+sre-bench TestReplayCompare reason=/compare\smode\soff/ # opt-in comparison mode, -args --compare
 
 # Helper subprocesses that only run when a parent test re-executes the binary.
 internal/rca TestRCAChildProcessFixture # subprocess helper for TestPreflightRCAProcessRestart*
@@ -35,45 +57,63 @@ internal/rca TestRCAChildProcessFixture # subprocess helper for TestPreflightRCA
 # OS-specific paths.
 internal/logwatch TestResolveLogDir_Absolute(Unix|Windows) # OS path semantics, each skipped on the other OS
 
-# Version-gated features. The PG 14-18 matrix runs each on the versions
-# that have it, so a skip here on a supporting version shows up as a pass
-# missing from that matrix leg, not as a silent gap.
-internal/collector TestCollectIO|TestPhase2_CollectIO_FieldsPopulated # pg_stat_io is PG16+
-internal/collector TestCollectQueries_BlockReadTimeFromStatements # PG16 does not time local-buffer reads in pg_stat_statements
-internal/autoexplain TestCaptureOnDemand_(ParameterizedUsesGenericPlan|NormalizedParameterizedQuery) # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/optimizer TestGenericPlanCapturesUnboundParameters # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/api TestActionLogCappedCountWalksTheTimeIndex # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/recommendation TestVerifyingEffectsReachActionsByIndex # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/retention TestPurgeGenericPlansProbeLargeTablesByIndex # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/retention TestAuthAuditPurge_GenericPlanUsesAnIndex # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/sre TestInvestigationRetentionReadIsAnIndexRange # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/sre TestRetention_MaintenanceCandidateGenericPlanUsesScopeIndex # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/value TestRealizedValueGenericPlanIsAnIndexRange # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/earned TestReconcilerFactReadsNeverScanOutcomes # EXPLAIN (GENERIC_PLAN) is PG16+
-internal/analyzer TestFindingRefreshIsAHeapOnlyUpdate # pg_stat_force_next_flush() is PG15+
-internal/partition TestConvert_ExclusiveWindowReadsNoHeap # pg_stat_force_next_flush() is PG15+
-internal/rca TestPersist_UnchangedCausalChainWritesNoToast # pg_stat_force_next_flush() is PG15+
-internal/agentposture TestAP03_SecurityInvokerViewIsNotExposure # security_invoker views are PG15+ (PG14 views run as their owner)
-internal/agentposture TestAP14_NoInheritGrantIsFine # per-grant INHERIT (GRANT ... WITH INHERIT FALSE) is PG16+; PG14/15 run the role-level arm tests
-internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintRemovalFindings_RetiredAndBrokenOnly|TestBuildFinding_EmptyHintIsNeverInserted|TestBuildFinding_ProposalIsNotActive|TestLoadActiveHints_IncludesProposed|TestReconcileHintStatuses_.* # query_id hint table is pg_hint_plan 1.7+ (PG17+)
-internal/tuner TestGeneratePlanFixtures # regenerates committed plan fixtures; opt-in PG_SAGE_REGEN_PLAN_FIXTURES=1
-test/hint_verify TestHint_HintTableIntegration # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+# Version-gated features. Each rule names the majors that lack the feature,
+# so the same skip on a major that has it is UNLISTED and fails the gate.
+internal/firstlook TestInvalidIndexNullsNotDistinctKeepsNulls pg<15 # NULLS NOT DISTINCT is PG15+
+internal/optimizer TestSkipScanDB_GenericPlansOnABoundedConnection pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/optimizer TestSkipScanDB_PG18DropsTheServedCandidate pg<18 # btree skip scan is PG18+
+internal/optimizer TestSkipScanDB_BeforePG18TheFloorAdmitsWithoutEvidence pg>=18 reason=/TestSkipScanDB_PG18DropsTheServedCandidate\scovers\sthis\sserver/ # before PG18 only; PG18's skip scan has its own test
+internal/upgradecheck (TestAWSUpgraderDB|TestBriefDB|TestLiveRehearsalReceiptDB|TestPostUpgradeDB|TestRehearsalDB|TestRehearsalStoreDB|TestRun)_.*|TestMonitor_FindingOpensAndResolves pg>=18 reason=/no\sknown\smajor\sabove\sit\sto\splan/ # upgrade planning targets PG18: a PG18 server has no newer known major
+internal/api TestUpgradeBriefMCP_.* pg>=18 reason=/no\sknown\smajor\sabove\sit\sto\splan/ # upgrade planning targets PG18: a PG18 server has no newer known major
+internal/executor TestHint(Apply|Rollback)_.* pg<17 reason=/pg_hint_plan\s<\s1\.7/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestHint.*|TestCheckHint_.*|TestCompareHint_.*|TestRecordHint_.*|TestUpsertQueryHint_.*|TestRevalidate_FastHintSurvivesPasses pg<17 reason=/pg_hint_plan\s<\s1\.7/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestDetectHintPlan_DB_.*|TestTune_DB_PicksUpEnableHintTableWithoutRestart pg<17 reason=/pg_hint_plan\s1\.7\shint\stable\snot\sinstalled/ # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestDetectHintPlan_DB_PreQueryIDLayoutIsNotReady pg>=17 reason=/needs\sthe\spre-1\.7\shint\stable/ # the pre-1.7 hint table ships with pg_hint_plan 1.4-1.6 (PG14-16)
+internal/collector TestCollectIO|TestPhase2_CollectIO_FieldsPopulated pg<16 # pg_stat_io is PG16+
+internal/collector TestCollectQueries_BlockReadTimeFromStatements pg>=16 pg<17 # PG16 does not time local-buffer reads in pg_stat_statements
+internal/autoexplain TestCaptureOnDemand_(ParameterizedUsesGenericPlan|NormalizedParameterizedQuery) pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/api TestActionLogCappedCountWalksTheTimeIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/recommendation TestVerifyingEffectsReachActionsByIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/retention TestPurgeGenericPlansProbeLargeTablesByIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/retention TestAuthAuditPurge_GenericPlanUsesAnIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/sre TestInvestigationRetentionReadIsAnIndexRange pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/sre TestRetention_MaintenanceCandidateGenericPlanUsesScopeIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/value TestRealizedValueGenericPlanIsAnIndexRange pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/earned TestReconcilerFactReadsNeverScanOutcomes pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/analyzer TestFindingRefreshIsAHeapOnlyUpdate pg<15 # pg_stat_force_next_flush() is PG15+
+internal/partition TestConvert_ExclusiveWindowReadsNoHeap pg<15 # pg_stat_force_next_flush() is PG15+
+internal/rca TestPersist_UnchangedCausalChainWritesNoToast pg<15 # pg_stat_force_next_flush() is PG15+
+internal/agentposture TestAP03_SecurityInvokerViewIsNotExposure pg<15 # security_invoker views are PG15+ (PG14 views run as their owner)
+internal/agentposture TestAP14_NoInheritGrantIsFine pg<16 # per-grant INHERIT (GRANT ... WITH INHERIT FALSE) is PG16+; PG14/15 run the role-level arm tests
+internal/tuner TestFunctional_Coverage_DB_HintPlanSQLUsesQueryIDSchema|TestHintRemovalFindings_RetiredAndBrokenOnly|TestBuildFinding_EmptyHintIsNeverInserted|TestBuildFinding_ProposalIsNotActive|TestLoadActiveHints_IncludesProposed|TestReconcileHintStatuses_.* pg<17 # query_id hint table is pg_hint_plan 1.7+ (PG17+)
+internal/tuner TestGeneratePlanFixtures reason=/PG_SAGE_REGEN_PLAN_FIXTURES=1/ # regenerates committed plan fixtures; opt-in PG_SAGE_REGEN_PLAN_FIXTURES=1
+test/hint_verify TestHint_HintTableIntegration pg<17 # query_id hint table is pg_hint_plan 1.7+ (PG17+)
 
 # Agent role management (spec section 6.6) needs PostgreSQL 16+ (CREATEROLE
 # no longer implies membership; GRANT ... WITH INHERIT/SET). On PG14/15 Guard is
 # posture-only and TestEnsure_RefusedBeforePG16 pins the refusal; it skips on 16+.
-internal/agentguard TestEnsure_RefusedBeforePG16 # covers PG14/15 only; the PG16+ legs run the role tests it stands in for
-internal/agentguard Test(Ensure|Retire|Unfreeze)_.* # agent role management is PG16+; PG14/15 legs run TestEnsure_RefusedBeforePG16
-internal/agentguard TestKill_.* # agent roles (kill, freeze) are PG16+ on PG14/15; the fleet and replica kills run in ci.yml agent-servers
-internal/agentguard TestFreeze_Operator|TestFrozen_NoFlags|TestInflight_RegisterAndKillCancels|TestFallback_Reconcile # agent roles are PG16+ (posture-only on PG14/15)
-internal/agentguard TestCheckBackends_RegisteredRolePassesThenDrifts # registering an agent role is PG16+ (posture-only on PG14/15)
-internal/agentguard/grants Test(Approve|CheckObjects|EffectivePrivileges|ExpireDue|Grant|LeaseActive|List|RegistryPrivileges|RequestCapability|Revoke)_.*|TestGrantNowAndRevokeNow # agent grants need agent roles, PG16+ (posture-only on PG14/15)
-internal/agentguard/upkeep TestDrift_.*|TestEndToEnd_(RotationSetsANewPasswordAndSaysItIsScheduled|RetireDropsTheRolesAfterGrace|ObservationWithholdsRotation) # drift, rotation and retire act on agent roles, PG16+ (posture-only on PG14/15)
-internal/retention TestGuardQueryAuditPurge_GenericPlanUsesAnIndex # EXPLAIN (GENERIC_PLAN) is PG16+
+internal/agentguard TestEnsure_RefusedBeforePG16 pg>=16 # covers PG14/15 only; the PG16+ legs run the role tests it stands in for
+internal/agentguard Test(Ensure|Retire|Unfreeze)_.* pg<16 # agent role management is PG16+; PG14/15 legs run TestEnsure_RefusedBeforePG16
+internal/agentguard TestKill_.* pg<16 # agent roles (kill, freeze) are PG16+; PG14/15 legs run TestEnsure_RefusedBeforePG16
+internal/agentguard TestKill_.* reason=/dedicated\skill\stopology|streaming\sreplica\spair/ # fleet and replica kills need servers of their own: ci.yml agent-servers (kill topology)
+internal/agentguard TestFreeze_Operator|TestFrozen_NoFlags|TestInflight_RegisterAndKillCancels|TestFallback_Reconcile pg<16 # agent roles are PG16+ (posture-only on PG14/15)
+internal/agentguard TestCheckBackends_RegisteredRolePassesThenDrifts pg<16 # registering an agent role is PG16+ (posture-only on PG14/15)
+internal/agentguard/grants Test(Approve|CheckObjects|EffectivePrivileges|ExpireDue|Grant|LeaseActive|List|RegistryPrivileges|RequestCapability|Revoke)_.*|TestGrantNowAndRevokeNow pg<16 # agent grants need agent roles, PG16+ (posture-only on PG14/15)
+internal/agentguard/upkeep TestDrift_.*|TestEndToEnd_(RotationSetsANewPasswordAndSaysItIsScheduled|RetireDropsTheRolesAfterGrace|ObservationWithholdsRotation) pg<16 # drift, rotation and retire act on agent roles, PG16+ (posture-only on PG14/15)
+internal/retention TestGuardQueryAuditPurge_GenericPlanUsesAnIndex pg<16 # EXPLAIN (GENERIC_PLAN) is PG16+
+# Found UNLISTED by the first PostgreSQL 15 run (env-pg-a); each reason= is the test's own skip text.
+internal/collector TestCapabilities_IOGateFollowsLiveVersion pg<16 reason=/needs\sa\sPG16\+\sserver\s\(pg_stat_io\)/ # pg_stat_io is PG16+
+internal/collector TestCollect_FailedExtraIsUnavailableNotEmpty pg<16 reason=/pg_stat_io\sis\snot\sread\sbelow\sPG16/ # the io subtest only: pg_stat_io is PG16+; the other extras run on every major
+internal/collector TestCapabilities_StalePG16VersionOnPG17 pg<17 reason=/needs\sa\sPG17\+\sserver/ # the stale-PG16 fallback is checked against a PG17+ server (pg_stat_checkpointer)
+internal/collector TestCapabilities_StalePG17VersionOnPG14 pg>=17 reason=/needs\sa\spre-17\sserver/ # the pre-17 system SQL fallback is checked against a PG14-16 server
+internal/collector TestCollectSystem_MissingNumDoneFallsBack pg<17 reason=/needs\sPG\s17\s\(pg_stat_checkpointer\swithout\snum_done\)/ # pg_stat_checkpointer is PG17+
+internal/collector TestCollectSystem_MissingNumDoneFallsBack pg>=18 reason=/needs\sPG\s17\s\(pg_stat_checkpointer\swithout\snum_done\)/ # PG18 has num_done: the fallback exists on PG17 only
+internal/executor TestActionPool_MaintainRoleVacuumsOn17 pg<17 reason=/pg_maintain\sexists\sfrom\sPostgreSQL\s17/ # pg_maintain is PG17+
+internal/shadow TestDetectOwnTableActionsWalkTheTimeIndex|TestScorerReadsWalkTheirIndexes pg<16 reason=/EXPLAIN\s\(GENERIC_PLAN\)\srequires\sPostgreSQL\s16\+/ # EXPLAIN (GENERIC_PLAN) is PG16+
 
 # Agent governance tests that need servers of their own; ci.yml agent-servers runs
 # them, and there none may skip.
-internal/agentguard TestRelease_FleetFlagTwoPeople # a fleet kill disables every agent role on its server: ci.yml agent-servers (kill topology)
+internal/agentguard TestRelease_FleetFlagTwoPeople reason=/dedicated\skill\stopology/ # a fleet kill disables every agent role on its server: ci.yml agent-servers (kill topology)
 internal/agentguard/broker TestActivityReportsDeallocAndFallsBack # needs pg_stat_statements.max=100 (SAGE_TEST_PSS_SMALL_URL): ci.yml agent-servers
 internal/pgaudit TestRealPGAuditCorrelation # needs pgaudit preloaded and jsonlog: ci.yml agent-servers
 
@@ -84,6 +124,7 @@ sre-bench TestLiveModelArm # nightly live-model arm (ci.yml bench-live) only: SA
 safety-bench TestAgentSafetyBench # dedicated "AgentSafetyBench" CI steps set SAGE_SAFETY_BENCH_RUN=1
 internal/ha TestContainer_FailoverWhileDownOpensTheCooldown # needs a disposable standby to promote (SAGE_TEST_HA_STANDBY_URL)
 internal/sre/causal TestContainer_(Restart|Promotion)BetweenSamplesInvalidatesComparisons # restarts/promotes a disposable server (SAGE_TEST_RESTARTABLE_SUPERUSER_URL, SAGE_TEST_CAUSAL_STANDBY_URL)
+internal/pressure TestReplayPausedBackfill_StopsBeforeTheAlertAndResumes reason=/SAGE_TEST_PRESSURE_STANDBY_DSN\snot\sset/ # pauses replay on a local streaming standby of the test server (SAGE_TEST_PRESSURE_STANDBY_DSN, CHECK-40); no CI job runs one
 internal/sre/pooler TestPgBouncer_.* # needs a PgBouncer (SAGE_TEST_PGBOUNCER_ADMIN_URL, SAGE_TEST_PGBOUNCER_CLIENT_URL)
 
 tests/lakebaselive TestLakebaseSREStatisticsMaintenance # owned native Lakebase fixture with OAuth and explicit PG_SAGE_LIVE_LAKEBASE_MUTATE=1

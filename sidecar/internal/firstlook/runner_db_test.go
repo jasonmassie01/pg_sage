@@ -304,3 +304,53 @@ func TestRunWithLeastPrivilegeDegradesWithReason(t *testing.T) {
 		t.Fatalf("sequence check = %+v, want degraded with the grant that fixes it", c)
 	}
 }
+
+// Suggested SQL names key-word objects quoted, so it runs when pasted: an
+// unindexed FK column named "to" on a table named "window", and duplicate
+// indexes named "both" and "desc".
+func TestSuggestedSQLRunsForKeywordNames(t *testing.T) {
+	pool, ctx := livePool(t)
+	s := uniqueSchema("fl_kw_")
+	q := pgx.Identifier{s}.Sanitize()
+	execAll(t, ctx, pool,
+		"CREATE SCHEMA "+q,
+		"CREATE TABLE "+q+".parent (id int PRIMARY KEY)",
+		"CREATE TABLE "+q+`."window" (id int PRIMARY KEY, "to" int REFERENCES `+q+
+			`.parent (id), "left" int)`,
+		"CREATE INDEX \"both\" ON "+q+`."window" ("left")`,
+		"CREATE INDEX \"desc\" ON "+q+`."window" ("left")`,
+		"ANALYZE "+q+`."window"`)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+q+" CASCADE")
+	})
+	r, err := Run(ctx, pool, testOptions("app"))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	fk := findItem(r, RuleUnindexedFK, s+".window.")
+	dup := findItem(r, RuleDuplicateIndex, s+".")
+	if fk == nil || dup == nil {
+		t.Fatalf("want an unindexed-FK and a duplicate-index item in %+v", r.Items)
+	}
+	want := "CREATE INDEX CONCURRENTLY ON " + s + `."window" ("to");`
+	if fk.SuggestedSQL != want {
+		t.Fatalf("FK SQL = %q, want %q", fk.SuggestedSQL, want)
+	}
+	for _, it := range []*Item{fk, dup} {
+		if _, err := pool.Exec(ctx, it.SuggestedSQL); err != nil {
+			t.Fatalf("pasting %q failed: %v", it.SuggestedSQL, err)
+		}
+	}
+	var fkIndexes, leftIndexes int
+	if err := pool.QueryRow(ctx, `SELECT
+  count(*) FILTER (WHERE a.attname = 'to'), count(*) FILTER (WHERE a.attname = 'left')
+FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+WHERE i.indrelid = ($1 || '."window"')::regclass AND i.indisvalid`, q).
+		Scan(&fkIndexes, &leftIndexes); err != nil {
+		t.Fatalf("read indexes: %v", err)
+	}
+	if fkIndexes != 1 || leftIndexes != 1 {
+		t.Fatalf("after pasting: %d index(es) on \"to\" (want 1), %d on \"left\" (want 1)",
+			fkIndexes, leftIndexes)
+	}
+}

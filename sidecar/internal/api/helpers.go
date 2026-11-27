@@ -1,13 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
@@ -37,9 +40,23 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 // The op argument identifies the failed operation in the log
 // (e.g. "list findings", "rotate api key") so the operator can
 // correlate the log entry with the 500 the client saw.
+//
+// A database that cannot be reached (connect failure, or no pool
+// connection before the deadline) is a 503 db_unavailable with
+// Retry-After instead: the request may succeed when retried.
 func internalError(
 	w http.ResponseWriter, r *http.Request, op string, err error,
 ) {
+	if dbUnavailable(err) {
+		slog.Error("api database unavailable",
+			"op", op, "method", r.Method, "path", r.URL.Path, "err", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", dbUnavailableRetryAfter)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "database unavailable", "code": "db_unavailable"})
+		return
+	}
 	slog.Error("api internal error",
 		"op", op,
 		"method", r.Method,
@@ -47,6 +64,27 @@ func internalError(
 		"err", err,
 	)
 	jsonError(w, "internal error", http.StatusInternalServerError)
+}
+
+// dbUnavailableRetryAfter is the Retry-After, in seconds, of a 503
+// db_unavailable.
+const dbUnavailableRetryAfter = "5"
+
+// dbUnavailable reports an error that means no database connection could
+// be had: a pgconn connect failure, or a deadline reached while waiting for
+// a pool connection. pgxpool returns that deadline bare; a query that times
+// out on a connection is a pgconn timeout and an HTTP call's deadline is a
+// *url.Error, and both stay 500s.
+func dbUnavailable(err error) bool {
+	var connectErr *pgconn.ConnectError
+	if errors.As(err, &connectErr) {
+		return true
+	}
+	if !errors.Is(err, context.DeadlineExceeded) || pgconn.Timeout(err) {
+		return false
+	}
+	var urlErr *url.Error
+	return !errors.As(err, &urlErr)
 }
 
 // validateDatabaseParam performs a boundary shape check on an

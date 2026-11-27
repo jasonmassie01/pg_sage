@@ -25,6 +25,7 @@ func (gate *authorizationGate) Authorize(
 	req ActionRequest,
 ) Decision {
 	req.ExplainFamily = false // only Explain may skip SQL validation
+	req.assumeWindowOpen = false
 	req = withContextPrincipal(ctx, req)
 	if !spendsBudget(req) || req.Principal != nil { // agent requests read no usage
 		return gate.finish(ctx, req, gate.evaluate(ctx, req))
@@ -40,10 +41,14 @@ func (gate *authorizationGate) Authorize(
 // Explain runs the same evaluation as Authorize and records nothing.
 func (gate *authorizationGate) Explain(ctx context.Context, req ActionRequest) Decision {
 	req = withContextPrincipal(ctx, req)
-	return decisionForRequest(req, gate.evaluate(ctx, req))
+	req.assumeWindowOpen = false
+	decision := decisionForRequest(req, gate.evaluate(ctx, req))
+	decision.WindowOnly = gate.windowOnly(ctx, req, decision)
+	return decision
 }
 
-func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) Decision {
+// evaluateRequest is evaluate without the policy provenance stamp.
+func (gate *authorizationGate) evaluateRequest(ctx context.Context, req ActionRequest) Decision {
 	runtime, err := gate.runtime(ctx, req)
 	if err != nil {
 		return blocked(ReasonPolicyUnavailable, err.Error())
@@ -67,8 +72,17 @@ func (gate *authorizationGate) evaluate(ctx context.Context, req ActionRequest) 
 	if req.Principal != nil {
 		return gate.agentDecision(ctx, runtime, req)
 	}
+	if rollbackMitigation(req) {
+		return gate.rollbackDecision(ctx, runtime, req)
+	}
+	if decision, stop := gate.exposureDecision(ctx, req); stop {
+		return decision
+	}
 	if req.OperatorApproved {
 		return gate.awaitVerification(ctx, req, gate.operatorDecision(ctx, runtime, req))
+	}
+	if IsDropRestore(req) {
+		return gate.dropRestoreDecision(ctx, runtime, req)
 	}
 	if observeOnly(runtime) {
 		return blockedAs(VerdictObserveOnly, ReasonObserveOnly)
@@ -210,6 +224,11 @@ func (gate *authorizationGate) validateRequest(req ActionRequest) (Decision, boo
 		decision.Detail = string(guardrail)
 		return decision, true
 	}
+	if req.TargetMismatch != "" {
+		decision := gate.decision(req, VerdictBlocked, ReasonTargetMismatch)
+		decision.Detail = req.TargetMismatch
+		return decision, true
+	}
 	if trustedInternalControl(req) || (req.ExplainFamily && req.SQL == "") {
 		return Decision{}, false
 	}
@@ -252,7 +271,11 @@ func (gate *authorizationGate) policy(
 	if gate.config.Policy == nil {
 		return Document{}, ErrPolicyNotFound
 	}
-	return gate.config.Policy(ctx, req)
+	doc, err := gate.config.Policy(ctx, req)
+	if err == nil {
+		noteDocumentRead(ctx, doc)
+	}
+	return doc, err
 }
 
 func (gate *authorizationGate) usage(
@@ -277,17 +300,11 @@ func (gate *authorizationGate) windowDecision(
 		gate.config.WindowObserved()
 	}
 	now := gate.now()
-	configured := req.Contract.RiskTier != RiskModerate || runtime.InConfiguredWindow
-	if configured && inAnyWindow(doc.MaintenanceWindows, now) {
-		return Decision{}, false
-	}
-	if validDeadlineOverride(doc, req.Deadline, now) {
-		decision := gate.decision(req, VerdictExecute, ReasonDeadlineOverride)
-		decision.OffWindowOK = true
-		return decision, true
-	}
-	return gate.decision(
-		req, VerdictBlocked, ReasonOutsideMaintenanceWindow), true
+	trustBinds := req.Contract.RiskTier == RiskModerate
+	configured := !trustBinds || runtime.InConfiguredWindow
+	inWindow := configured && inAnyWindow(doc.MaintenanceWindows, now)
+	return gate.windowVerdict(doc, req, inWindow,
+		inWindow && gate.windowClosing(doc, runtime, trustBinds, now))
 }
 
 func inAnyWindow(expressions []string, now time.Time) bool {
@@ -409,11 +426,20 @@ func (gate *authorizationGate) decision(
 	return decisionForRequest(req, blockedAs(verdict, reason))
 }
 
+// decisionForRequest stamps the request's risk tier and guardrails. A
+// request without a typed contract, or with a tier outside the four known
+// ones, is stamped high: unknown is treated as the highest tier (fail
+// closed, as unknown_classification is), and sage.decision accepts only
+// the known tiers (policy-01). The verdict is unchanged.
 func decisionForRequest(req ActionRequest, decision Decision) Decision {
 	if req.Contract == nil {
+		decision.RiskTier = RiskHigh
 		return decision
 	}
 	decision.RiskTier = req.Contract.RiskTier
+	if !knownRisk(decision.RiskTier) {
+		decision.RiskTier = RiskHigh
+	}
 	decision.Guardrails = append([]Guardrail(nil), req.Contract.Guardrails...)
 	return decision
 }
@@ -450,40 +476,6 @@ func (gate *authorizationGate) now() time.Time {
 		return gate.config.Now()
 	}
 	return time.Now()
-}
-
-func (gate *authorizationGate) finish(
-	ctx context.Context,
-	req ActionRequest,
-	decision Decision,
-) Decision {
-	recorded, _ := gate.record(ctx, req, decision) // a failed record is a blocked verdict
-	return recorded
-}
-
-// record stamps and records the decision. A failed record returns a
-// blocked policy_unavailable decision and the error.
-func (gate *authorizationGate) record(
-	ctx context.Context, req ActionRequest, decision Decision,
-) (Decision, error) {
-	decision = decisionForRequest(req, decision)
-	if gate.config.RecordDecisionDetailed != nil {
-		evidenceID, decisionID, err := gate.config.RecordDecisionDetailed(ctx, req, decision)
-		if err != nil {
-			return blocked(ReasonPolicyUnavailable, err.Error()), err
-		}
-		decision.EvidenceID, decision.DecisionID = evidenceID, decisionID
-		return decision, nil
-	}
-	if gate.config.RecordDecision == nil {
-		return decision, nil
-	}
-	evidenceID, err := gate.config.RecordDecision(ctx, req, decision)
-	if err != nil {
-		return blocked(ReasonPolicyUnavailable, err.Error()), err
-	}
-	decision.EvidenceID = evidenceID
-	return decision, nil
 }
 
 func errorDetail(err error) string {

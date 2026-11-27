@@ -40,9 +40,12 @@ const (
 	EventResumed     EventKind = "resumed"      // the operator unset it; derivation resumes
 	EventPinned      EventKind = "pinned"
 	EventUnpinned    EventKind = "unpinned"
+	// EventClamped: the rule's bounds changed and the promoted value was
+	// moved inside them.
+	EventClamped EventKind = "clamped"
 )
 
-// MaxSoakSamples caps the soak samples kept per key.
+// MaxSoakSamples caps the soak samples (and derivations) kept per key.
 const MaxSoakSamples = 200
 
 // State is one database's derivation state of one key.
@@ -60,10 +63,13 @@ type State struct {
 	ShadowReason  string
 	ShadowOutcome Outcome
 	Samples       []float64
-	Pinned        *float64
-	PinnedBy      string
-	PinnedAt      time.Time
-	Operator      *float64
+	// Derivations are the rule's raw values of each pass of the soak
+	// (before rounding and clamping); a cost-like rule promotes their p90.
+	Derivations []float64
+	Pinned      *float64
+	PinnedBy    string
+	PinnedAt    time.Time
+	Operator    *float64
 	// Note says why nothing is derived (missing evidence, empty bounds).
 	Note        string
 	Rule        string
@@ -82,8 +88,8 @@ type Event struct {
 }
 
 func (s *State) clearShadow() {
-	s.Shadow, s.ShadowSince, s.ShadowReason, s.ShadowOutcome, s.Samples =
-		nil, time.Time{}, "", "", nil
+	s.Shadow, s.ShadowSince, s.ShadowReason, s.ShadowOutcome, s.Samples, s.Derivations =
+		nil, time.Time{}, "", "", nil, nil
 }
 
 func (s *State) status() Status {

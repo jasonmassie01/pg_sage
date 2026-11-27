@@ -1,0 +1,75 @@
+{
+  "comment": "Canonical output of one fixed row per audit chain (golden_db_test.go), the same on PostgreSQL 14-18 and under every session setting the test applies. Never regenerate these to make the test pass: a change means historical rows would verify as edited. Bump Spec.Version, add a SealedColumnTypes registry entry and pin the new version beside the old.",
+  "chains": {
+    "action_log": {
+      "row_id": 1001,
+      "sealed_text": "[1001, 1772600767123456, \"create_index\", 42, \"CREATE INDEX CONCURRENTLY \\\"idx_ünï\\\" ON public.t (c) -- 東京 ✓\", \"DROP INDEX CONCURRENTLY \\\"idx_ünï\\\"\", {\"a\": \"é\\\"q\", \"z\": {\"a\": null, \"b\": [1, 2.50, \"x\"]}}, 7, 1772600400000000, null, 3]",
+      "sealed_hash": "96c28e02127268e0d802fc8a7baaca2d16b1a880852e187d5e3569a46149288e",
+      "state": "[\"success\", null, 1772604000500000, {\"rows\": 1000, \"nested\": {\"f\": 0.1, \"k\": [true, false]}}, null, \"Ünicode ✓ \\\"quoted\\\" \\\\ backslash\\ttab\", 12.50, 2]",
+      "link_hash": "db569ba37fd7b7e02814b171badb49b9c5fe4e2baf30d3ed780fb695a47a2695"
+    },
+    "auth_audit": {
+      "row_id": 2002,
+      "sealed_text": "[2002, \"login_failed\", 0, 7, {\"client\": {\"v\": [1, 2], \"ua\": \"Mozilla/5.0 ü\"}, \"reason\": \"bad password\"}, 1772608089000001, \"2001:db8::1\"]",
+      "sealed_hash": "6d5a3f697f6e85c9333a2751e211e0be1c1c463f47d9269eae08bd456ca61298",
+      "state": "",
+      "link_hash": "dca5759dc2626977c2c6af33367ca841c61b256fdb5d8268e02b64cec317f846"
+    },
+    "config_audit": {
+      "row_id": 3003,
+      "sealed_text": "[3003, \"trust.level\", \"observation\", \"advisory ✓\", 3, 7, 1772611750999999, \"admin:ünï\"]",
+      "sealed_hash": "0117bedfe19ca480b11b2b23a595219132c25b0ebc0760969523a66eb5d32d3a",
+      "state": "",
+      "link_hash": "a62fd0ce6b2941ec4ffcd0c2f111c7f797133e8fc9f481eec90ac53da12591d6"
+    },
+    "guard_query_audit": {
+      "row_id": 4004,
+      "sealed_text": "[4004, \"0b1e2c3d-4e5f-6071-8293-a4b5c6d7e8f9\", \"agent:ünï\", \"task-東京\", \"sha256:0f1e\", \"blocked\", \"write_detected\", 0, [\"ddl\", \"pii ü\"], 1772615411500000]",
+      "sealed_hash": "3aacaaf14de353df3d6a6e8c85b0358461c67d6d6923528893b7e5a6b6db307f",
+      "state": "",
+      "link_hash": "f50a58ded2dba2cf8ac31dd72d658c82f8c14a42e485a71a9dda51720394ba65"
+    },
+    "pgaudit_events": {
+      "row_id": 5005,
+      "sealed_text": "[5005, \"app_db\", 1772619072250000, \"65f1.2a\", 4242, \"sage_agent\", \"pg_sage ✓\", \"agent:ünï\", null, \"SESSION\", 3, 1, \"DDL\", \"CREATE INDEX\", \"INDEX\", \"public.idx_ünï\", \"CREATE INDEX \\\"idx_ünï\\\" ON t (c)\", \"application_name\"]",
+      "sealed_hash": "c4fd50b9a77166bc23ac64176fbe6c7de81392818cff81d771e98d0ceb9f58ed",
+      "state": "",
+      "link_hash": "dff13687ede15dafaeafaa1e63f4a1c9a2121b6ccb991b592512e7f890fc4d2a"
+    },
+    "fact_events": {
+      "row_id": 6006,
+      "sealed_text": "[6006, 42, 1772622733654321, \"admin:ünï\", \"confirmed\", \"proposed\", \"confirmed\", \"0123456789abcdef0123456789abcdef\", \"Ünicode ✓ \\\"quoted\\\" \\\\ backslash\\ttab 東京\"]",
+      "sealed_hash": "8508d22db4565ecf97f70b3a0476212bb102213ceb67ea00f6bb0e18ab9258d3",
+      "state": "",
+      "link_hash": "32fc1d329ad572a83227ea6ee732bca7533754a2bbbad7094646c5aa04f2f9b6"
+    },
+    "decision": {
+      "row_id": 7007,
+      "sealed_text": "[7007, 41, \"index\", \"create_index\", [\"public.ünï\", \"public.orders\"], 3, \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\", \"high\", \"ev-golden-東京\", \"fp_0123456789abcdef\", \"agp_ünï\", \"task-7\", \"sha256:0f1e\", 1772625600000001]",
+      "sealed_hash": "3b4d829afa5f6378760976e4956021884e28a3bfd99beb52a1cbe52bc1849a02",
+      "state": "[\"queue_approval\", \"blast radius ✓ \\\"quoted\\\" \\\\ tab\\t\", {\"a\": \"é\", \"z\": {\"a\": null, \"b\": [1, 2.50]}}, [\"budget\", \"window\"], true, \"soft\", 1772626394500000, null, null, null, \"ck_0123456789abcdef\"]",
+      "link_hash": "fd97bfd9d37cfdca992da102bb10d9fc80fae9bee64e56b36835da057d2a1b05"
+    },
+    "policy_approvals": {
+      "row_id": 8008,
+      "sealed_text": "[8008, 8000, \"ünï@example.com\", 7, \"Ünicode ✓ \\\"quoted\\\" \\\\ backslash\\ttab\", true, 1772630055123456]",
+      "sealed_hash": "0fc12ea83f1408dc7f1e33562c310c32c694cd0ae7a94666757cd018f3f02c1a",
+      "state": "[\"pending\"]",
+      "link_hash": "aec913404a4ddd73d9832c05f836db64e779a07e015e15ba0d7b97bc7bf54b22"
+    },
+    "plan_events": {
+      "row_id": 9009,
+      "sealed_text": "[9009, 41, null, \"approved\", \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\", \"user:ünï\", {\"q\": \"é\\\"q\", \"z\": {\"a\": null, \"b\": [1, 2.50]}, \"approval_id\": 7}, 1772633716000001]",
+      "sealed_hash": "c90ad7a0b7cf62b85a7c00bb40bf91682d8a409883a11b887e938b165649b6aa",
+      "state": "",
+      "link_hash": "5163b6163d9716b45beec649778d299b84f397eaacc97815d7a85a34419efeb1"
+    },
+    "plan_model_records": {
+      "row_id": 10010,
+      "sealed_text": "[10010, 41, \"abababababababababababababababababababababababababababababababab\", \"model-ünï\", \"plan-v1\", \"```json\\n{\\\"goal\\\": \\\"東京 ✓\\\", \\\"steps\\\": [1, 2.50]}\\n```\", \"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\", 1772637377500000]",
+      "sealed_hash": "fbbfbf8d058359348855fe9471103e0800764d43d47e6e0a6f8f7530ced1b046",
+      "state": "",
+      "link_hash": "09bfa740675fe4fdea11cdf04c1eebe08e6061632ce7c8e97e5eabfc10991032"
+    }
+  }
+}

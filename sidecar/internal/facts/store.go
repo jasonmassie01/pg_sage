@@ -18,39 +18,77 @@ import (
 // process invalidate it at once.
 const confirmedTTL = 10 * time.Second
 
-// Store keeps the facts of one monitored database (sage.facts).
-type Store struct {
-	pool   *pgxpool.Pool
-	shared *sharedState
-	grace  time.Duration
-	now    func() time.Time
-	logFn  func(string, string, ...any)
+// defaultConfirmedAbsence is how long a confirmed operator or model fact
+// keeps binding while its subject is absent, and how long after such an
+// expiry the same confirmation may come back (facts.confirmed_absence_days).
+const defaultConfirmedAbsence = 7 * 24 * time.Hour
+
+// rowQuerier reads one row; re-verification's catalog reads go through it.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// sharedState is the per-pool cache of confirmed facts and the absences
-// re-verification has seen, shared by every Store on the pool.
+// Store keeps the facts of one monitored database (sage.facts).
+type Store struct {
+	pool *pgxpool.Pool
+	// catalog answers re-verification's exists-queries (the pool; a fake in
+	// tests).
+	catalog rowQuerier
+	shared  *sharedState
+	// grace is the absence grace of proposals and detector facts;
+	// confirmedAbsence that of confirmed operator and model facts.
+	grace            time.Duration
+	confirmedAbsence time.Duration
+	now              func() time.Time
+	logFn            func(string, string, ...any)
+
+	// afterConfirmedRead, when set (tests only), runs after Confirmed has
+	// read the rows and before it caches them.
+	afterConfirmedRead func()
+}
+
+// sharedState is the per-pool cache of confirmed facts, shared by every
+// Store on the pool. gen counts invalidations: a read that started before
+// one is never cached. notifier is the pool's proposal notifier
+// (SetProposalNotifier); notifierGen tells its registrations apart.
 type sharedState struct {
-	mu       sync.Mutex
-	cached   []Fact
-	cachedAt time.Time
-	valid    bool
-	missing  map[int64]time.Time
+	mu          sync.Mutex
+	cached      []Fact
+	cachedAt    time.Time
+	valid       bool
+	gen         uint64
+	notifier    ProposalNotifier
+	notifierGen uint64
 }
 
 var sharedByPool sync.Map // *pgxpool.Pool -> *sharedState
 
-// NewStore returns the fact store of the database behind pool.
-func NewStore(pool *pgxpool.Pool) *Store {
-	state, _ := sharedByPool.LoadOrStore(pool, &sharedState{missing: map[int64]time.Time{}})
-	return &Store{pool: pool, shared: state.(*sharedState), grace: time.Hour,
-		now: time.Now, logFn: func(string, string, ...any) {}}
+func sharedOf(pool *pgxpool.Pool) *sharedState {
+	state, _ := sharedByPool.LoadOrStore(pool, &sharedState{})
+	return state.(*sharedState)
 }
 
-// WithMissingGrace sets how long a fact's objects may be absent before
-// re-verification expires it.
+// NewStore returns the fact store of the database behind pool.
+func NewStore(pool *pgxpool.Pool) *Store {
+	return &Store{pool: pool, catalog: pool, shared: sharedOf(pool), grace: time.Hour,
+		confirmedAbsence: defaultConfirmedAbsence, now: time.Now,
+		logFn: func(string, string, ...any) {}}
+}
+
+// WithMissingGrace sets how long the subject of a proposal or of a
+// detector's fact may be absent before re-verification expires it.
 func (s *Store) WithMissingGrace(d time.Duration) *Store {
 	c := *s
 	c.grace = d
+	return &c
+}
+
+// WithConfirmedAbsence sets how long the subject of a confirmed operator or
+// model fact may be absent before it expires, and how long after such an
+// expiry a re-proposal of the same value restores the confirmation.
+func (s *Store) WithConfirmedAbsence(d time.Duration) *Store {
+	c := *s
+	c.confirmedAbsence = d
 	return &c
 }
 
@@ -70,7 +108,8 @@ const ownTypes = `fact_type <> 'column_class'`
 
 const factColumns = `id, fact_type, subject_kind, subject, value, source, proposed_by,
 	evidence, rationale, status, COALESCE(decided_by, ''), decided_at, decision_note,
-	expires_at, expired_reason, proposals, created_at, updated_at, last_verified_at`
+	expires_at, expired_reason, proposals, created_at, updated_at, last_verified_at,
+	missing_since, COALESCE(expired_by, '')`
 
 func scanFact(row pgx.Row, extra ...any) (Fact, error) {
 	var f Fact
@@ -78,7 +117,7 @@ func scanFact(row pgx.Row, extra ...any) (Fact, error) {
 	dest := []any{&f.ID, &f.Type, &f.Kind, &f.Subject, &value, &f.Source, &f.ProposedBy,
 		&evidence, &f.Rationale, &f.Status, &f.DecidedBy, &f.DecidedAt, &f.DecisionNote,
 		&f.ExpiresAt, &f.ExpiredReason, &f.Proposals, &f.CreatedAt, &f.UpdatedAt,
-		&f.LastVerifiedAt}
+		&f.LastVerifiedAt, &f.MissingSince, &f.ExpiredBy}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return Fact{}, err
 	}
@@ -92,57 +131,6 @@ func scanFact(row pgx.Row, extra ...any) (Fact, error) {
 		f.Value = map[string]string{}
 	}
 	return f, nil
-}
-
-const proposeSQL = `/* pg_sage */
-WITH prior AS (SELECT status FROM sage.facts
-               WHERE fact_type = $1 AND subject_kind = $2 AND subject = $3)
-INSERT INTO sage.facts AS f (fact_type, subject_kind, subject, value, source, proposed_by,
-                             evidence, rationale, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (fact_type, subject_kind, subject) DO UPDATE SET
-    proposals = f.proposals + 1,
-    evidence = (SELECT COALESCE(jsonb_agg(x.e ORDER BY x.o), '[]'::jsonb)
-                FROM jsonb_array_elements(EXCLUDED.evidence || f.evidence)
-                     WITH ORDINALITY AS x(e, o) WHERE x.o <= 10),
-    value = CASE WHEN f.status IN ('proposed', 'expired') THEN EXCLUDED.value
-                 ELSE f.value END,
-    rationale = CASE WHEN f.status IN ('proposed', 'expired') AND EXCLUDED.rationale <> ''
-                     THEN EXCLUDED.rationale ELSE f.rationale END,
-    source = CASE WHEN f.status = 'expired' THEN EXCLUDED.source ELSE f.source END,
-    proposed_by = CASE WHEN f.status = 'expired' THEN EXCLUDED.proposed_by
-                       ELSE f.proposed_by END,
-    expires_at = CASE WHEN f.status = 'expired' THEN EXCLUDED.expires_at
-                      ELSE f.expires_at END,
-    decided_by = CASE WHEN f.status = 'expired' THEN NULL ELSE f.decided_by END,
-    decided_at = CASE WHEN f.status = 'expired' THEN NULL ELSE f.decided_at END,
-    decision_note = CASE WHEN f.status = 'expired' THEN '' ELSE f.decision_note END,
-    expired_reason = CASE WHEN f.status = 'expired' THEN '' ELSE f.expired_reason END,
-    status = CASE WHEN f.status = 'expired' THEN 'proposed' ELSE f.status END,
-    updated_at = now()
-RETURNING ` + factColumns + `, (xmax = 0), COALESCE((SELECT status FROM prior), '')`
-
-// Propose records a proposal. A proposal of an existing fact counts once
-// more and adds its evidence; it never changes a confirmed or rejected
-// fact's decision, and it reopens an expired fact (new evidence). created
-// reports a new or reopened fact, the one an operator must now decide.
-func (s *Store) Propose(ctx context.Context, p Proposal) (Fact, bool, error) {
-	p, err := Validate(p)
-	if err != nil {
-		return Fact{}, false, err
-	}
-	value, evidence, err := encodeProposal(p)
-	if err != nil {
-		return Fact{}, false, err
-	}
-	var inserted bool
-	var prior string
-	f, err := scanFact(s.pool.QueryRow(ctx, proposeSQL, p.Type, p.Kind, p.Subject, value,
-		p.Source, p.ProposedBy, evidence, p.Rationale, p.ExpiresAt), &inserted, &prior)
-	if err != nil {
-		return Fact{}, false, fmt.Errorf("record fact proposal: %w", err)
-	}
-	return f, inserted || prior == string(StatusExpired), nil
 }
 
 func encodeProposal(p Proposal) ([]byte, []byte, error) {
@@ -160,7 +148,7 @@ func encodeProposal(p Proposal) ([]byte, []byte, error) {
 	return value, evidence, nil
 }
 
-const declareSQL = `/* pg_sage */
+const declareSQL = `/* pg_sage facts */
 INSERT INTO sage.facts AS f (fact_type, subject_kind, subject, value, source, proposed_by,
                              evidence, rationale, expires_at, status, decided_by,
                              decided_at, decision_note)
@@ -169,12 +157,14 @@ ON CONFLICT (fact_type, subject_kind, subject) DO UPDATE SET
     value = EXCLUDED.value, source = 'operator', proposed_by = EXCLUDED.proposed_by,
     rationale = EXCLUDED.rationale, expires_at = EXCLUDED.expires_at,
     status = 'confirmed', decided_by = EXCLUDED.decided_by, decided_at = now(),
-    decision_note = EXCLUDED.decision_note, expired_reason = '',
+    decision_note = EXCLUDED.decision_note, expired_reason = '', expired_by = NULL,
+    missing_since = NULL,
     proposals = f.proposals + 1, updated_at = now()
 RETURNING ` + factColumns
 
 // Declare records an operator's own fact, confirmed by the declaration
-// (over any earlier proposal or rejection of the same fact).
+// (over any earlier proposal or rejection of the same fact). The
+// declaration starts any absence of its subject afresh (missing_since).
 func (s *Store) Declare(ctx context.Context, p Proposal, actor, note string) (Fact, error) {
 	actor, err := validActor(actor)
 	if err != nil {
@@ -198,7 +188,7 @@ func (s *Store) Declare(ctx context.Context, p Proposal, actor, note string) (Fa
 	if err != nil {
 		return Fact{}, fmt.Errorf("declare fact: %w", err)
 	}
-	if err := registerSlot(ctx, tx, f); err != nil {
+	if err := syncSlotRegistry(ctx, tx, f); err != nil {
 		return Fact{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -225,7 +215,7 @@ func rollbackQuietly(ctx context.Context, tx pgx.Tx) {
 
 // Get returns one fact.
 func (s *Store) Get(ctx context.Context, id int64) (Fact, error) {
-	f, err := scanFact(s.pool.QueryRow(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	f, err := scanFact(s.pool.QueryRow(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE id = $1 AND `+ownTypes, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, ErrNotFound
@@ -254,7 +244,7 @@ func (s *Store) List(ctx context.Context, filter Filter) ([]Fact, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 1000
 	}
-	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	rows, err := s.pool.Query(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE `+ownTypes+`
 		  AND (cardinality($1::text[]) = 0 OR status = ANY($1))
 		  AND ($2 = '' OR fact_type = $2) ORDER BY id DESC LIMIT $3`,
@@ -282,7 +272,8 @@ func collectFacts(rows pgx.Rows) ([]Fact, error) {
 }
 
 // Confirmed returns the confirmed, unexpired facts in id order, cached for
-// at most confirmedTTL.
+// at most confirmedTTL. A read that a decision or expiry in this process
+// overtook is returned but not cached, so the next call sees the change.
 func (s *Store) Confirmed(ctx context.Context) ([]Fact, error) {
 	st := s.shared
 	st.mu.Lock()
@@ -291,8 +282,9 @@ func (s *Store) Confirmed(ctx context.Context) ([]Fact, error) {
 		st.mu.Unlock()
 		return out, nil
 	}
+	gen := st.gen
 	st.mu.Unlock()
-	rows, err := s.pool.Query(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	rows, err := s.pool.Query(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE `+ownTypes+` AND status = 'confirmed'
 		  AND (expires_at IS NULL OR expires_at > now()) ORDER BY id`)
 	if err != nil {
@@ -302,15 +294,21 @@ func (s *Store) Confirmed(ctx context.Context) ([]Fact, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.afterConfirmedRead != nil {
+		s.afterConfirmedRead()
+	}
 	st.mu.Lock()
-	st.cached, st.cachedAt, st.valid = facts, s.now(), true
+	if st.gen == gen {
+		st.cached, st.cachedAt, st.valid = facts, s.now(), true
+	}
 	st.mu.Unlock()
 	return append([]Fact(nil), facts...), nil
 }
 
-// invalidate drops the cached confirmed facts.
+// invalidate drops the cached confirmed facts and any read in flight.
 func (s *Store) invalidate() {
 	s.shared.mu.Lock()
 	s.shared.valid = false
+	s.shared.gen++
 	s.shared.mu.Unlock()
 }

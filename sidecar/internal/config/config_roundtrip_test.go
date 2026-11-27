@@ -82,11 +82,9 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 				MaxIndexesPerTable:   8,
 				MaxNewPerTable:       2,
 				MaxIncludeColumns:    4,
-				OverIndexedRatioPct:  200,
 				WriteHeavyRatioPct:   80,
 				MinSnapshots:         3,
 				HypoPGMinImprovePct:  15.0,
-				PlanSource:           "hypopg",
 				ConfidenceThreshold:  0.7,
 				WriteImpactThreshPct: 20.0,
 			},
@@ -143,16 +141,13 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 			LogMinDurationMs:       500,
 			CollectIntervalSeconds: 120,
 			MaxPlansPerCycle:       50,
-			PreferSessionLoad:      false,
 		},
 		Forecaster: ForecasterConfig{
-			Enabled:              true,
-			LookbackDays:         60,
-			DiskWarnGrowthGBDay:  10.0,
-			ConnectionWarnPct:    70.0,
-			CacheWarnThreshold:   0.90,
-			SequenceWarnDays:     60,
-			SequenceCriticalDays: 15,
+			Enabled:             true,
+			LookbackDays:        60,
+			DiskWarnGrowthGBDay: 10.0,
+			ConnectionWarnPct:   70.0,
+			CacheWarnThreshold:  0.90,
 		},
 		Tuner: TunerConfig{
 			Enabled:                true,
@@ -260,11 +255,9 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 	assertEqualInt(t, "LLM.Optimizer.MaxIndexesPerTable", roundtripped.LLM.Optimizer.MaxIndexesPerTable, original.LLM.Optimizer.MaxIndexesPerTable)
 	assertEqualInt(t, "LLM.Optimizer.MaxNewPerTable", roundtripped.LLM.Optimizer.MaxNewPerTable, original.LLM.Optimizer.MaxNewPerTable)
 	assertEqualInt(t, "LLM.Optimizer.MaxIncludeColumns", roundtripped.LLM.Optimizer.MaxIncludeColumns, original.LLM.Optimizer.MaxIncludeColumns)
-	assertEqualInt(t, "LLM.Optimizer.OverIndexedRatioPct", roundtripped.LLM.Optimizer.OverIndexedRatioPct, original.LLM.Optimizer.OverIndexedRatioPct)
 	assertEqualInt(t, "LLM.Optimizer.WriteHeavyRatioPct", roundtripped.LLM.Optimizer.WriteHeavyRatioPct, original.LLM.Optimizer.WriteHeavyRatioPct)
 	assertEqualInt(t, "LLM.Optimizer.MinSnapshots", roundtripped.LLM.Optimizer.MinSnapshots, original.LLM.Optimizer.MinSnapshots)
 	assertEqualFloat(t, "LLM.Optimizer.HypoPGMinImprovePct", roundtripped.LLM.Optimizer.HypoPGMinImprovePct, original.LLM.Optimizer.HypoPGMinImprovePct)
-	assertEqual(t, "LLM.Optimizer.PlanSource", roundtripped.LLM.Optimizer.PlanSource, original.LLM.Optimizer.PlanSource)
 	assertEqualFloat(t, "LLM.Optimizer.ConfidenceThreshold", roundtripped.LLM.Optimizer.ConfidenceThreshold, original.LLM.Optimizer.ConfidenceThreshold)
 	assertEqualFloat(t, "LLM.Optimizer.WriteImpactThreshPct", roundtripped.LLM.Optimizer.WriteImpactThreshPct, original.LLM.Optimizer.WriteImpactThreshPct)
 
@@ -318,7 +311,6 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 	assertEqualInt(t, "AutoExplain.LogMinDurationMs", roundtripped.AutoExplain.LogMinDurationMs, original.AutoExplain.LogMinDurationMs)
 	assertEqualInt(t, "AutoExplain.CollectIntervalSeconds", roundtripped.AutoExplain.CollectIntervalSeconds, original.AutoExplain.CollectIntervalSeconds)
 	assertEqualInt(t, "AutoExplain.MaxPlansPerCycle", roundtripped.AutoExplain.MaxPlansPerCycle, original.AutoExplain.MaxPlansPerCycle)
-	assertEqualBool(t, "AutoExplain.PreferSessionLoad", roundtripped.AutoExplain.PreferSessionLoad, original.AutoExplain.PreferSessionLoad)
 
 	// --- Forecaster ---
 	assertEqualBool(t, "Forecaster.Enabled", roundtripped.Forecaster.Enabled, original.Forecaster.Enabled)
@@ -326,8 +318,6 @@ func TestYAMLRoundTrip_AllFieldsSurvive(t *testing.T) {
 	assertEqualFloat(t, "Forecaster.DiskWarnGrowthGBDay", roundtripped.Forecaster.DiskWarnGrowthGBDay, original.Forecaster.DiskWarnGrowthGBDay)
 	assertEqualFloat(t, "Forecaster.ConnectionWarnPct", roundtripped.Forecaster.ConnectionWarnPct, original.Forecaster.ConnectionWarnPct)
 	assertEqualFloat(t, "Forecaster.CacheWarnThreshold", roundtripped.Forecaster.CacheWarnThreshold, original.Forecaster.CacheWarnThreshold)
-	assertEqualInt(t, "Forecaster.SequenceWarnDays", roundtripped.Forecaster.SequenceWarnDays, original.Forecaster.SequenceWarnDays)
-	assertEqualInt(t, "Forecaster.SequenceCriticalDays", roundtripped.Forecaster.SequenceCriticalDays, original.Forecaster.SequenceCriticalDays)
 
 	// --- Tuner ---
 	assertEqualBool(t, "Tuner.Enabled", roundtripped.Tuner.Enabled, original.Tuner.Enabled)
@@ -691,8 +681,6 @@ func TestDefaultConfig_NonZeroFields(t *testing.T) {
 		t.Error("LLM.Optimizer.ConfidenceThreshold is 0 " +
 			"(should be 0.5)")
 	}
-	assertEqual(t, "LLM.Optimizer.PlanSource",
-		cfg.LLM.Optimizer.PlanSource, DefaultOptPlanSource)
 
 	// Advisor defaults: enabled and every sub-feature on
 	assertEqualBool(t, "Advisor.Enabled", cfg.Advisor.Enabled, true)
@@ -798,11 +786,9 @@ llm:
     max_indexes_per_table: 10
     max_new_per_table: 3
     max_include_columns: 3
-    over_indexed_ratio_pct: 150
     write_heavy_ratio_pct: 70
     min_snapshots: 3
     hypopg_min_improvement_pct: 15.0
-    plan_source: hypopg
     confidence_threshold: 0.5
     write_impact_threshold_pct: 20.0
   optimizer_llm:
@@ -842,15 +828,12 @@ auto_explain:
   log_min_duration_ms: 1000
   collect_interval_seconds: 300
   max_plans_per_cycle: 100
-  prefer_session_load: true
 forecaster:
   enabled: true
   lookback_days: 30
   disk_warn_growth_gb_day: 5.0
   connection_warn_pct: 80.0
   cache_warn_threshold: 0.95
-  sequence_warn_days: 90
-  sequence_critical_days: 30
 tuner:
   enabled: true
   llm_enabled: false
@@ -862,9 +845,6 @@ tuner:
   verify_after_apply: true
   hint_retirement_days: 14
   revalidation_interval_hours: 24
-  revalidation_keep_ratio: 1.2
-  revalidation_rollback_ratio: 0.8
-  revalidation_explain_timeout_ms: 10000
   stale_stats_estimate_skew: 10.0
   stale_stats_mod_ratio: 0.1
   stale_stats_age_minutes: 60
@@ -1054,20 +1034,17 @@ func TestYAMLRoundTrip_FleetFields(t *testing.T) {
 func TestYAMLRoundTrip_TunerV085Fields(t *testing.T) {
 	original := Config{
 		Tuner: TunerConfig{
-			Enabled:                      true,
-			VerifyAfterApply:             true,
-			HintRetirementDays:           14,
-			RevalidationIntervalHours:    24,
-			RevalidationKeepRatio:        1.2,
-			RevalidationRollbackRatio:    0.8,
-			RevalidationExplainTimeoutMs: 10000,
-			StaleStatsEstimateSkew:       10.0,
-			StaleStatsModRatio:           0.1,
-			StaleStatsAgeMinutes:         60,
-			AnalyzeMaxTableMB:            10240,
-			AnalyzeCooldownMinutes:       60,
-			AnalyzeTimeoutMs:             600000,
-			MaxConcurrentAnalyze:         1,
+			Enabled:                   true,
+			VerifyAfterApply:          true,
+			HintRetirementDays:        14,
+			RevalidationIntervalHours: 24,
+			StaleStatsEstimateSkew:    10.0,
+			StaleStatsModRatio:        0.1,
+			StaleStatsAgeMinutes:      60,
+			AnalyzeMaxTableMB:         10240,
+			AnalyzeCooldownMinutes:    60,
+			AnalyzeTimeoutMs:          600000,
+			MaxConcurrentAnalyze:      1,
 		},
 	}
 
@@ -1085,12 +1062,6 @@ func TestYAMLRoundTrip_TunerV085Fields(t *testing.T) {
 		rt.Tuner.HintRetirementDays, 14)
 	assertEqualInt(t, "Tuner.RevalidationIntervalHours",
 		rt.Tuner.RevalidationIntervalHours, 24)
-	assertEqualFloat(t, "Tuner.RevalidationKeepRatio",
-		rt.Tuner.RevalidationKeepRatio, 1.2)
-	assertEqualFloat(t, "Tuner.RevalidationRollbackRatio",
-		rt.Tuner.RevalidationRollbackRatio, 0.8)
-	assertEqualInt(t, "Tuner.RevalidationExplainTimeoutMs",
-		rt.Tuner.RevalidationExplainTimeoutMs, 10000)
 	assertEqualFloat(t, "Tuner.StaleStatsEstimateSkew",
 		rt.Tuner.StaleStatsEstimateSkew, 10.0)
 	assertEqualFloat(t, "Tuner.StaleStatsModRatio",

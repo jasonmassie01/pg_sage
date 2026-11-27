@@ -3,7 +3,7 @@
 // configKey has no metadata entry, the children are returned as-is
 // with no wrapper (CHECK-T05).
 //
-// Plan reference: docs/plan_v0.8.5.md §7.3.3.
+// Plan reference: reviews/archive/docs-internal/plan_v0.8.5.md §7.3.3.
 
 import * as Tooltip from '@radix-ui/react-tooltip'
 import configMeta from '../generated/config_meta.json'

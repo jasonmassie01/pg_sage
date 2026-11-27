@@ -3,6 +3,9 @@ package store
 import (
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/pg-sage/sidecar/internal/config"
 )
 
 // ErrValidation marks an error caused by user-supplied input that
@@ -24,10 +27,15 @@ var validSSLModes = map[string]bool{
 	"verify-full": true,
 }
 
-var validTrustLevels = map[string]bool{
-	"observation": true,
-	"advisory":    true,
-	"autonomous":  true,
+// validTrustLevels is config.TrustLevels as a set for validateInput.
+var validTrustLevels = enumSet(config.TrustLevels())
+
+func enumSet(values []string) map[string]bool {
+	set := make(map[string]bool, len(values))
+	for _, value := range values {
+		set[value] = true
+	}
+	return set
 }
 
 var validExecutionModes = map[string]bool{
@@ -71,12 +79,9 @@ func validateInput(input DatabaseInput, requirePassword bool) error {
 			ErrValidation,
 		)
 	}
-	if !validTrustLevels[input.TrustLevel] {
-		return fmt.Errorf(
-			"%w: trust_level must be one of "+
-				"observation, advisory, autonomous",
-			ErrValidation,
-		)
+	if !config.IsTrustLevel(input.TrustLevel) {
+		return fmt.Errorf("%w: trust_level must be one of %s",
+			ErrValidation, strings.Join(config.TrustLevels(), ", "))
 	}
 	if !validExecutionModes[input.ExecutionMode] {
 		return fmt.Errorf(

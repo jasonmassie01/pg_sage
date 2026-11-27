@@ -295,8 +295,8 @@ func TestParseCatalog_IdentityIsRawJSON(t *testing.T) {
 // Every delta category pairs its elements by one to three fields, and the
 // set of delta categories is the catalog lists.
 func TestKeyFields_EveryCatalogCategory(t *testing.T) {
-	want := []string{"foreign_keys", "indexes", "io", "partitions", "queries", "sequences",
-		"tables"}
+	want := []string{"foreign_keys", "index_bloat", "indexes", "io", "partitioned_indexes",
+		"partitions", "prepared_xacts", "queries", "sequences", "tables"}
 	var got []string
 	for cat, fields := range keyFields {
 		got = append(got, cat)
@@ -371,5 +371,99 @@ func TestParseDocument_Categories(t *testing.T) {
 	obj, _, _ := parseDocument("config_data", []byte(`{}`), nil)
 	if _, err := encodeDelta(obj, list); !errors.Is(err, errNotEncodable) {
 		t.Fatalf("mixed shapes: err = %v, want errNotEncodable", err)
+	}
+}
+
+// prepared is one pg_prepared_xacts element as the collector writes it.
+func prepared(gid string, age int) string {
+	return fmt.Sprintf(`{"gid":%q,"prepared":"2026-11-08T10:00:00Z","owner":"app",`+
+		`"database":"shop","xid_age":%d}`, gid, age)
+}
+
+// collection-05: prepared_xacts is persisted and change-only, paired by
+// gid: a committed transaction is a removal by base index, the one still
+// prepared is not repeated, and an empty list is a real "none".
+func TestKeyFields_PreparedXactsPairByGID(t *testing.T) {
+	if got := keyFields["prepared_xacts"]; !reflect.DeepEqual(got, []string{"gid"}) {
+		t.Fatalf("prepared_xacts key fields = %v, want [gid]", got)
+	}
+	if delta, reason := Coverage("prepared_xacts"); !delta || reason != "" {
+		t.Fatalf("prepared_xacts coverage delta=%v reason=%q, want change-only", delta, reason)
+	}
+	parse := func(doc []byte) *catalog {
+		c, ok, err := parseDocument("prepared_xacts", doc, nil)
+		if err != nil || !ok {
+			t.Fatalf("parse %s: ok=%v err=%v", doc, ok, err)
+		}
+		return c
+	}
+	raw, err := encodeDelta(parse(list(prepared("g1", 100), prepared("g2", 40))),
+		parse(list(prepared("g2", 40))))
+	if err != nil {
+		t.Fatalf("encodeDelta: %v", err)
+	}
+	var d deltaDoc
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatalf("delta %s: %v", raw, err)
+	}
+	if d.N != 1 || !reflect.DeepEqual(d.D, []int{0}) || len(d.A) != 0 || len(d.I) != 0 {
+		t.Fatalf("delta = %s, want g1 removed and g2 kept unrepeated", raw)
+	}
+	empty, err := encodeDelta(parse(list(prepared("g1", 100))), parse(list()))
+	var e deltaDoc
+	if err != nil || json.Unmarshal(empty, &e) != nil || e.N != 0 ||
+		!reflect.DeepEqual(e.D, []int{0}) {
+		t.Fatalf("delta to no prepared xacts = %s (%v), want g1 removed, none left", empty, err)
+	}
+}
+
+// foreignKey is one foreign_keys element as the collector writes it.
+func foreignKey(schema, constraint string, oid int) string {
+	return fmt.Sprintf(`{"schemaname":%q,"table_name":"orders","ref_schemaname":%q,`+
+		`"referenced_table":"customers","constraint_name":%q,"columns":["customer_id"],`+
+		`"oid":%d}`, schema, schema, constraint, oid)
+}
+
+// collection-04: foreign_keys pairs by (schema, table, constraint). Two
+// tenants' same-named constraints are distinct identities, so the
+// document is delta encodable; an unchanged document is an empty delta
+// and a recreated constraint (new oid) carries only its oid.
+func TestKeyFields_ForeignKeysPairBySchemaTableConstraint(t *testing.T) {
+	want := []string{"schemaname", "table_name", "constraint_name"}
+	if got := keyFields["foreign_keys"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("foreign_keys key fields = %v, want %v", got, want)
+	}
+	parse := func(doc []byte) *catalog {
+		t.Helper()
+		c, ok, err := parseDocument("foreign_keys", doc, nil)
+		if err != nil || !ok {
+			t.Fatalf("parse %s: ok=%v err=%v", doc, ok, err)
+		}
+		return c
+	}
+	base := parse(list(foreignKey("tenant_a", "orders_customer_fk", 100),
+		foreignKey("tenant_b", "orders_customer_fk", 200)))
+	same, err := encodeDelta(base, parse(list(foreignKey("tenant_a", "orders_customer_fk",
+		100), foreignKey("tenant_b", "orders_customer_fk", 200))))
+	if err != nil || string(same) != `{"n":2}` {
+		t.Fatalf("unchanged delta = %s, %v; want {\"n\":2}", same, err)
+	}
+	raw, err := encodeDelta(base, parse(list(foreignKey("tenant_a", "orders_customer_fk",
+		100), foreignKey("tenant_b", "orders_customer_fk", 300))))
+	if err != nil {
+		t.Fatalf("encodeDelta: %v", err)
+	}
+	var d deltaDoc
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatalf("delta %s: %v", raw, err)
+	}
+	if d.N != 2 || len(d.A) != 0 || len(d.D) != 0 || len(d.U)+len(d.I) != 1 {
+		t.Fatalf("delta = %s, want only tenant_b's oid carried", raw)
+	}
+	legacy := `{"table_name":"orders","referenced_table":"customers",` +
+		`"fk_column":"customer_id","constraint_name":"orders_customer_fk"}`
+	if _, _, err := parseDocument("foreign_keys", list(legacy), nil); !errors.Is(err,
+		errNotEncodable) {
+		t.Fatalf("legacy element: err = %v, want errNotEncodable (stored in full)", err)
 	}
 }

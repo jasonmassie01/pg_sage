@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 )
 
 // writeOptimizerMemoryFromFleet exports each database's tuning-agent
@@ -30,45 +30,38 @@ func writeOptimizerMemoryFromFleet(b *strings.Builder, mgr *fleet.DatabaseManage
 
 // tuningSeries is one per-database series of the tuning agent's stats.
 type tuningSeries struct {
-	name, help string
-	value      func(analyzer.TuningStats) int64
+	name  string
+	value func(analyzer.TuningStats) int64
 }
 
 // optimizerMemoryCounters are the per-database rejection-memory series.
 var optimizerMemoryCounters = []tuningSeries{
-	{"pg_sage_optimizer_whatif_skipped_total", "HypoPG what-if evaluations index " +
-		"admission skipped because the same idea was already measured and rejected",
+	{"pg_sage_optimizer_whatif_skipped_total",
 		func(s analyzer.TuningStats) int64 { return s.WhatIfSkipped }},
-	{"pg_sage_optimizer_llm_calls_skipped_total", "Tuning agent model calls skipped " +
-		"because the case's recent answers were all wasted and it has not changed",
+	{"pg_sage_optimizer_llm_calls_skipped_total",
 		func(s analyzer.TuningStats) int64 { return s.ModelCallsSkipped }},
-	{"pg_sage_tuning_proposals_capped_total", "Admitted tuning agent proposals the " +
-		"per-cycle caps cut before anything was recorded; they wait for a later cycle",
+	{"pg_sage_tuning_proposals_capped_total",
 		func(s analyzer.TuningStats) int64 { return s.ProposalsCapped }},
 }
 
 // tuningBudgetGauges are the last cycle's budget use and case counts.
 var tuningBudgetGauges = []tuningSeries{
-	{"pg_sage_tuning_budget_tokens_used", "Model tokens the tuning agent used in its " +
-		"last cycle", func(s analyzer.TuningStats) int64 { return s.TokensUsed }},
-	{"pg_sage_tuning_budget_tokens_limit", "Model tokens allowed per tuning cycle " +
-		"(tuning.max_tokens_per_cycle)",
+	{"pg_sage_tuning_budget_tokens_used",
+		func(s analyzer.TuningStats) int64 { return s.TokensUsed }},
+	{"pg_sage_tuning_budget_tokens_limit",
 		func(s analyzer.TuningStats) int64 { return s.TokenLimit }},
-	{"pg_sage_tuning_budget_requests_used", "Model requests the tuning agent made in its " +
-		"last cycle", func(s analyzer.TuningStats) int64 { return s.RequestsUsed }},
-	{"pg_sage_tuning_budget_requests_limit", "Model requests allowed per tuning cycle " +
-		"(tuning.max_requests_per_cycle)",
+	{"pg_sage_tuning_budget_requests_used",
+		func(s analyzer.TuningStats) int64 { return s.RequestsUsed }},
+	{"pg_sage_tuning_budget_requests_limit",
 		func(s analyzer.TuningStats) int64 { return s.RequestLimit }},
-	{"pg_sage_tuning_cases_asked", "Workload cases the model examined in the last cycle",
+	{"pg_sage_tuning_cases_asked",
 		func(s analyzer.TuningStats) int64 { return s.CasesAsked }},
-	{"pg_sage_tuning_cases_deferred", "Workload cases the last cycle left for a later " +
-		"cycle (case cap, budget, model error); their open findings stay open",
+	{"pg_sage_tuning_cases_deferred",
 		func(s analyzer.TuningStats) int64 { return s.CasesDeferred }},
-	{"pg_sage_tuning_budget_day_tokens_used", "Model tokens the tuning agent charged " +
-		"today (UTC), kept across restarts",
+	{"pg_sage_tuning_budget_day_tokens_used",
 		func(s analyzer.TuningStats) int64 { return s.DayTokensUsed }},
-	{"pg_sage_tuning_budget_day_tokens_limit", "The tuning agent's daily token cap " +
-		"(0 = none)", func(s analyzer.TuningStats) int64 { return s.DayTokenLimit }},
+	{"pg_sage_tuning_budget_day_tokens_limit",
+		func(s analyzer.TuningStats) int64 { return s.DayTokenLimit }},
 }
 
 // writeOptimizerMemoryMetrics writes the counters per database, sorted.
@@ -81,17 +74,17 @@ func writeOptimizerMemoryMetrics(b *strings.Builder, stats map[string]analyzer.T
 		dbs = append(dbs, db)
 	}
 	sort.Strings(dbs)
-	writeTuningSeries(b, "counter", optimizerMemoryCounters, dbs, stats)
-	writeTuningSeries(b, "gauge", tuningBudgetGauges, dbs, stats)
+	writeTuningSeries(b, optimizerMemoryCounters, dbs, stats)
+	writeTuningSeries(b, tuningBudgetGauges, dbs, stats)
 	b.WriteString("\n")
 }
 
-func writeTuningSeries(b *strings.Builder, typ string, series []tuningSeries, dbs []string,
+func writeTuningSeries(b *strings.Builder, series []tuningSeries, dbs []string,
 	stats map[string]analyzer.TuningStats) {
 	for _, c := range series {
-		fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s %s\n", c.name, c.help, c.name, typ)
+		metricsreg.Header(b, c.name)
 		for _, db := range dbs {
-			fmt.Fprintf(b, "%s{database=%q} %d\n", c.name, db, c.value(stats[db]))
+			writeSample(b, c.name, dbLabel(db), c.value(stats[db]))
 		}
 	}
 }

@@ -45,22 +45,16 @@ func factTools() []Tool {
 	}
 	db := `"database":{"type":"string","description":"fleet database name"}`
 	types := `"type":{"type":"string","enum":["owned_by_app_migrations","test_fixture",` +
-		`"slot_consumer","append_only","table_window"]}`
+		`"slot_consumer","append_only","table_window","owner_brief","do_not_touch"]}`
 	return []Tool{
-		{Name: "list_facts", Description: "List pg_sage's typed facts about a database " +
-			"(who owns an object, test fixtures, CDC slots, archives, table windows): " +
-			"proposed ones awaiting a person and confirmed ones, which bind pg_sage",
+		{Name: "list_facts",
 			InputSchema: schema(`{`+db+`,"status":{"type":"string"},`+types+`}`, `[]`)},
-		{Name: "propose_fact", Description: "Propose a fact about the database with the " +
-			"evidence for it. It binds nothing until a person confirms it. A confirmed " +
-			"fact only narrows what pg_sage does (e.g. an index owned by the app's " +
-			"migrations is changed through a PR, never by pg_sage's DDL)",
+		{Name: "propose_fact",
 			InputSchema: schema(`{`+db+`,`+types+`,"subject_kind":{"type":"string",`+
-				`"enum":["index","table","schema","slot"]},"subject":{"type":"string",`+
+				`"enum":["index","table","schema","slot","database"]},"subject":{"type":"string",`+
 				`"maxLength":300},"value":{"type":"object"},"evidence":{"type":"string",`+
 				`"maxLength":500}}`, `["type","subject_kind","subject","evidence"]`)},
-		{Name: "decide_fact", Description: "Confirm or reject a proposed fact (or reject " +
-			"a confirmed one). Confirmed facts only narrow or redirect what pg_sage does",
+		{Name: "decide_fact",
 			InputSchema: schema(`{`+db+`,"fact_id":{"type":"integer","minimum":1},`+
 				`"decision":{"type":"string","enum":["confirm","reject"]},`+
 				`"note":{"type":"string","maxLength":1000}}`, `["fact_id","decision"]`)},

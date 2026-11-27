@@ -145,7 +145,9 @@ func startComposedChain(
 	t *testing.T, ctx context.Context, dsn string, pool *pgxpool.Pool,
 ) *composedChain {
 	t.Helper()
-	ident := pgx.Identifier{"sre_m0_chain"}.Sanitize()
+	// Qualified: pool is pg_sage's own, whose sessions are pinned to
+	// pg_catalog, pg_temp (security-01c), where a bare name has no schema.
+	ident := pgx.Identifier{"public", "sre_m0_chain"}.Sanitize()
 	if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS "+ident+
 		"; CREATE TABLE "+ident+" (id int)"); err != nil {
 		t.Fatalf("chain table: %v", err)

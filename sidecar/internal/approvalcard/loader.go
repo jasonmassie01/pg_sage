@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // Loader reads cards of one monitored database.
@@ -25,7 +28,10 @@ type Loader struct {
 	// Waits reads the changes in flight on each card's objects; nil shows
 	// none.
 	Waits WaitSource
-	Now   func() time.Time
+	// Ceiling is the database's gate inputs, read once per request; nil
+	// never offers allow-always (ux-07a).
+	Ceiling *earned.Ceiling
+	Now     func() time.Time
 }
 
 func (l Loader) now() time.Time {
@@ -47,6 +53,9 @@ func (l Loader) Card(ctx context.Context, queueID int) (Card, error) {
 	if err != nil {
 		return Card{}, fmt.Errorf("approvalcard: read queue item %d: %w", queueID, err)
 	}
+	if isPlanStep(*a) {
+		return Card{}, fmt.Errorf("queue item %d: %w", queueID, ErrPlanStepItem)
+	}
 	return l.forAction(ctx, *a, l.readTrust(ctx))
 }
 
@@ -62,6 +71,9 @@ func (l Loader) Pending(ctx context.Context) ([]Card, error) {
 	out := make([]Card, 0, len(actions))
 	trust := l.readTrust(ctx)
 	for _, a := range actions {
+		if isPlanStep(a) {
+			continue
+		}
 		c, err := l.forAction(ctx, a, trust)
 		if err != nil {
 			return nil, err
@@ -71,6 +83,11 @@ func (l Loader) Pending(ctx context.Context) ([]Card, error) {
 	return out, nil
 }
 
+// isPlanStep reports a plan step's queue item (plan-02a).
+func isPlanStep(a store.QueuedAction) bool {
+	return strings.HasPrefix(a.IdentityKey, executor.PlanStepIdentityPrefix)
+}
+
 // ForAction reads a queue row's card inputs and assembles its card.
 func (l Loader) ForAction(ctx context.Context, a store.QueuedAction) (Card, error) {
 	return l.forAction(ctx, a, l.readTrust(ctx))
@@ -78,7 +95,8 @@ func (l Loader) ForAction(ctx context.Context, a store.QueuedAction) (Card, erro
 
 func (l Loader) forAction(ctx context.Context, a store.QueuedAction, trust trustRead) (Card,
 	error) {
-	in := Inputs{Database: l.Database, Action: a, TrustLevel: l.TrustLevel, Now: l.now()}
+	in := Inputs{Database: l.Database, Action: a, TrustLevel: l.TrustLevel, Now: l.now(),
+		Ceiling: l.Ceiling}
 	trust.apply(&in, a)
 	if c, ok := executor.ContractForQueuedAction(a); ok {
 		in.Contract = &c
@@ -97,6 +115,12 @@ func (l Loader) forAction(ctx context.Context, a store.QueuedAction, trust trust
 		return Card{}, err
 	}
 	if in.Snooze, err = l.snooze(ctx, a.ID); err != nil {
+		return Card{}, err
+	}
+	if in.Revert, err = l.revert(ctx, a); err != nil {
+		return Card{}, err
+	}
+	if in.Ladder, err = l.ladder(ctx, a.ID); err != nil {
 		return Card{}, err
 	}
 	l.readWaits(ctx, &in)
@@ -199,4 +223,17 @@ func (l Loader) snooze(ctx context.Context, queueID int) (*SnoozeRow, error) {
 	}
 	s.Until = *until
 	return &s, nil
+}
+
+// ladder is the queue row's stored verification ladder; a row that is
+// gone (a card of an item deleted meanwhile) has none.
+func (l Loader) ladder(ctx context.Context, queueID int) ([]byte, error) {
+	raw, err := verify.ReadLadder(ctx, l.Pool, queueID)
+	if errors.Is(err, verify.ErrLadderQueueNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("approvalcard: %w", err)
+	}
+	return raw, nil
 }

@@ -74,9 +74,11 @@ func problemsOf(v RunbookVersion) runbook.Problems {
 	return runbook.Validate(v.Definition, runbookVocab())
 }
 
-// settle derives the status: retired, draft (latest unsigned), invalid
-// (signature or content broken, or no longer valid) or signed (runnable).
-func (rb *Runbook) settle() {
+// settle derives the latest version's status (retired, draft when
+// unsigned, invalid when its signature or content is broken or it no
+// longer validates, else signed) and the running version from signed,
+// the runbook's versions newest first.
+func (rb *Runbook) settle(signed []RunbookVersion) {
 	v := rb.Latest
 	rb.Problems = problemsOf(v)
 	switch {
@@ -89,7 +91,32 @@ func (rb *Runbook) settle() {
 	default:
 		rb.Status = RunbookSigned
 	}
-	rb.Runnable = rb.Status == RunbookSigned
+	rb.Running, rb.RunningVersion = nil, 0
+	if rb.RetiredAt == nil {
+		rb.Running = runningVersion(signed)
+	}
+	if rb.Running != nil {
+		rb.RunningVersion = rb.Running.Version
+	}
+	rb.Runnable = rb.Running != nil
+}
+
+// runningVersion is the newest version whose signature is valid, when it
+// still validates against today's catalogs. Unsigned drafts and versions
+// whose content no longer matches the signed hash are skipped; an older
+// version never stands in for a validly signed one that no longer
+// validates.
+func runningVersion(newestFirst []RunbookVersion) *RunbookVersion {
+	for _, v := range newestFirst {
+		if !v.SignatureValid {
+			continue
+		}
+		if problemsOf(v) != nil {
+			return nil
+		}
+		return &v
+	}
+	return nil
 }
 
 // scanRunbook reads runbookColumns followed by versionCols("v.").
@@ -107,13 +134,19 @@ func scanRunbook(row pgx.Row, scope Scope) (Runbook, error) {
 }
 
 // GetRunbook returns one runbook of this database with every version,
-// newest first.
+// newest first, read from one snapshot.
 func (s *PostgresStore) GetRunbook(ctx context.Context, scope Scope, id UUID) (Runbook,
 	error) {
 	if err := validateIDs(scope, id); err != nil {
 		return Runbook{}, err
 	}
-	rb, err := scanRunbook(s.pool.QueryRow(ctx, `SELECT `+runbookColumns+`, `+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return Runbook{}, storeErr(ctx, "get runbook", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	rb, err := scanRunbook(tx.QueryRow(ctx, `SELECT `+runbookColumns+`, `+
 		versionCols("v.")+`
 		FROM sage.sre_runbooks r
 		JOIN sage.sre_runbook_versions v ON v.deployment_id = r.deployment_id
@@ -127,7 +160,7 @@ func (s *PostgresStore) GetRunbook(ctx context.Context, scope Scope, id UUID) (R
 	if err != nil {
 		return Runbook{}, storeErr(ctx, "get runbook", err)
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+versionColumns+`
+	rows, err := tx.Query(ctx, `SELECT `+versionColumns+`
 		FROM sage.sre_runbook_versions
 		WHERE deployment_id = $1 AND database_id = $2 AND runbook_id = $3
 		ORDER BY version DESC`,
@@ -142,7 +175,7 @@ func (s *PostgresStore) GetRunbook(ctx context.Context, scope Scope, id UUID) (R
 	if err != nil {
 		return Runbook{}, storeErr(ctx, "runbook versions", err)
 	}
-	rb.settle()
+	rb.settle(rb.Versions)
 	return rb, nil
 }
 
@@ -152,13 +185,13 @@ func (s *PostgresStore) ListRunbooks(ctx context.Context, scope Scope) ([]Runboo
 	return s.listRunbooks(ctx, scope, "")
 }
 
-// RunnableRunbooks lists the runbooks that may run now: not retired, the
-// latest version signed over its own, still matching content, and still
-// valid against today's catalogs.
+// RunnableRunbooks lists the runbooks that may run now: not retired, with
+// a running version (Running): the newest version signed over its own,
+// still matching content, and still valid against today's catalogs. A
+// newer unsigned draft does not stop it.
 func (s *PostgresStore) RunnableRunbooks(ctx context.Context, scope Scope) ([]Runbook,
 	error) {
-	all, err := s.listRunbooks(ctx, scope,
-		`AND r.retired_at IS NULL AND v.signed_at IS NOT NULL`)
+	all, err := s.listRunbooks(ctx, scope, `AND r.retired_at IS NULL`)
 	if err != nil {
 		return nil, err
 	}
@@ -171,14 +204,42 @@ func (s *PostgresStore) RunnableRunbooks(ctx context.Context, scope Scope) ([]Ru
 	return out, nil
 }
 
-// listRunbooks reads runbooks with their latest version; extra is a
-// constant SQL predicate.
+// listRunbooks reads runbooks with their latest and running versions;
+// extra is a constant SQL predicate. Both reads share one snapshot, so a
+// sign or retire committing between them never leaves a retired runbook
+// running or a running version newer than the latest.
 func (s *PostgresStore) listRunbooks(ctx context.Context, scope Scope,
 	extra string) ([]Runbook, error) {
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+runbookColumns+`, `+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, storeErr(ctx, "list runbooks", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	out, err := latestRunbooks(ctx, tx, scope, extra)
+	if err != nil {
+		return nil, err
+	}
+	signed, err := signedVersions(ctx, tx, scope, out)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].settle(signed[out[i].ID])
+	}
+	if out == nil {
+		out = []Runbook{}
+	}
+	return out, nil
+}
+
+// latestRunbooks reads runbooks with their latest version.
+func latestRunbooks(ctx context.Context, tx pgx.Tx, scope Scope,
+	extra string) ([]Runbook, error) {
+	rows, err := tx.Query(ctx, `SELECT `+runbookColumns+`, `+
 		versionCols("v.")+`
 		FROM sage.sre_runbooks r
 		JOIN sage.sre_runbook_versions v ON v.deployment_id = r.deployment_id
@@ -191,15 +252,48 @@ func (s *PostgresStore) listRunbooks(ctx context.Context, scope Scope,
 		return nil, storeErr(ctx, "list runbooks", err)
 	}
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Runbook, error) {
-		rb, err := scanRunbook(r, scope)
-		rb.settle()
-		return rb, err
+		return scanRunbook(r, scope)
 	})
 	if err != nil {
 		return nil, storeErr(ctx, "list runbooks", err)
 	}
-	if out == nil {
-		out = []Runbook{}
+	return out, nil
+}
+
+// signedVersions reads the signed versions of the listed, unretired
+// runbooks, newest first per runbook, to find each one's running version.
+func signedVersions(ctx context.Context, tx pgx.Tx, scope Scope,
+	rbs []Runbook) (map[UUID][]RunbookVersion, error) {
+	ids := []string{}
+	for _, rb := range rbs {
+		if rb.RetiredAt == nil {
+			ids = append(ids, string(rb.ID))
+		}
+	}
+	out := map[UUID][]RunbookVersion{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := tx.Query(ctx, `SELECT runbook_id::text, `+versionColumns+`
+		FROM sage.sre_runbook_versions
+		WHERE deployment_id = $1 AND database_id = $2 AND runbook_id = ANY($3::uuid[])
+		  AND signed_at IS NOT NULL
+		ORDER BY runbook_id, version DESC`,
+		string(scope.DeploymentID), string(scope.DatabaseID), ids)
+	if err != nil {
+		return nil, storeErr(ctx, "signed runbook versions", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var f versionFields
+		if err := rows.Scan(append([]any{&id}, f.targets()...)...); err != nil {
+			return nil, storeErr(ctx, "signed runbook versions", err)
+		}
+		out[UUID(id)] = append(out[UUID(id)], f.version())
+	}
+	if err := rows.Err(); err != nil {
+		return nil, storeErr(ctx, "signed runbook versions", err)
 	}
 	return out, nil
 }

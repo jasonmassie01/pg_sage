@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // The read-only tools the model may call while it examines a case. Each
@@ -21,15 +24,56 @@ const (
 	maxToolResultBytes = 8000
 	maxPlanChars       = 6000
 	maxWhatIfPerCase   = 3
+	// maxHintExplainPerCase bounds hinted_explain calls per case (each plans
+	// the statement twice).
+	maxHintExplainPerCase = 3
 )
 
-// cycleTools is tool state shared by the cases of one cycle.
+// cycleTools is tool state shared by the cases of one cycle: whether the
+// cycle's rehearsal was used, and its tier-2 ladder record by index shape.
 type cycleTools struct {
-	mu        sync.Mutex
-	rehearsed bool
+	mu         sync.Mutex
+	rehearsed  bool
+	rehearsals map[string]verify.LadderRecord
 }
 
 func (a *Agent) cycleTools() *cycleTools { return &cycleTools{} }
+
+// rehearsalKey is an index's shape (table and fingerprint), so the record
+// of a rehearsed DDL finds the proposal of the same index.
+func rehearsalKey(ddl string) string {
+	spec, err := optimizer.ParseIndexDDL(ddl)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(spec.TableSchema+"."+spec.TableName) + "|" + spec.Fingerprint()
+}
+
+func (c *cycleTools) recordRehearsal(ddl string, rec verify.LadderRecord) {
+	key := rehearsalKey(ddl)
+	if c == nil || key == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rehearsals == nil {
+		c.rehearsals = map[string]verify.LadderRecord{}
+	}
+	c.rehearsals[key] = rec
+}
+
+// rehearsalOf is the tier-2 record of the index ddl creates, if the cycle
+// rehearsed it.
+func (c *cycleTools) rehearsalOf(ddl string) (verify.LadderRecord, bool) {
+	key := rehearsalKey(ddl)
+	if c == nil || key == "" {
+		return verify.LadderRecord{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	rec, ok := c.rehearsals[key]
+	return rec, ok
+}
 
 // toolbox runs the tools for one case.
 type toolbox struct {
@@ -41,6 +85,7 @@ type toolbox struct {
 	evidence  evidenceSet
 	next      int
 	whatIfs   int
+	hinted    int
 	seen      map[string]string
 }
 
@@ -125,6 +170,8 @@ func (tb *toolbox) run(ctx context.Context, name string, args toolArgs) toolResu
 		return tb.extendedStats(ctx, args)
 	case "rehearse":
 		return tb.rehearse(ctx, args)
+	case "hinted_explain":
+		return tb.hintedExplain(ctx, args)
 	}
 	return refused("unknown tool %q", name)
 }
@@ -135,6 +182,7 @@ type toolArgs struct {
 	Table   string   `json:"table"`
 	DDL     string   `json:"ddl"`
 	Columns []string `json:"columns"`
+	Hint    string   `json:"hint"`
 }
 
 func spec(name, description, params string) llm.ToolSpec {
@@ -152,7 +200,21 @@ const (
 	columnsParam = `{"type":"object","properties":{"table":{"type":"string"},` +
 		`"columns":{"type":"array","items":{"type":"string"}}},` +
 		`"required":["table","columns"]}`
+	hintParam = `{"type":"object","properties":{"queryid":{"type":"string",` +
+		`"description":"pg_stat_statements queryid of a case statement"},` +
+		`"hint":{"type":"string","description":"pg_hint_plan directives, no comment ` +
+		`markers"}},"required":["queryid","hint"]}`
 )
+
+// ToolNames are the names of the tools the agent offers the model.
+func (a *Agent) ToolNames() []string {
+	specs := a.toolSpecs()
+	out := make([]string, len(specs))
+	for i, s := range specs {
+		out[i] = s.Name
+	}
+	return out
+}
 
 // toolSpecs are the tools offered to the model; rehearse only with a
 // clone provider.
@@ -170,6 +232,11 @@ func (a *Agent) toolSpecs() []llm.ToolSpec {
 			columnsParam),
 		spec("extended_stats", "Existing extended statistics and the planner statistics "+
 			"of these columns.", columnsParam),
+	}
+	if _, ok := a.hintExplainer(); ok {
+		specs = append(specs, spec("hinted_explain", "Plan a case statement plain and "+
+			"with a pg_hint_plan hint (EXPLAIN, never ANALYZE) and compare the plans "+
+			"and estimated costs.", hintParam))
 	}
 	if a.deps.Rehearse != nil {
 		specs = append(specs, spec("rehearse", "Build the index on a disposable clone "+

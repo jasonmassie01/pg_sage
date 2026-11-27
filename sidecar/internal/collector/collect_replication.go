@@ -43,7 +43,7 @@ func scanReplicaRows(rows pgx.Rows) ([]ReplicaInfo, error) {
 	for rows.Next() {
 		var r ReplicaInfo
 		if err := rows.Scan(
-			&r.ClientAddr, &r.State,
+			&r.ApplicationName, &r.ClientAddr, &r.State,
 			&r.SentLSN, &r.WriteLSN, &r.FlushLSN, &r.ReplayLSN,
 			&r.WriteLag, &r.FlushLag, &r.ReplayLag,
 			&r.SyncState,
@@ -62,6 +62,9 @@ func scanSlotRows(rows pgx.Rows) ([]SlotInfo, error) {
 		var s SlotInfo
 		if err := rows.Scan(
 			&s.SlotName, &s.SlotType, &s.Active, &s.RetainedBytes,
+			&s.WALStatus, &s.SafeWALSize, &s.Temporary,
+			&s.InactiveSince, &s.Synced, &s.InvalidationReason,
+			&s.ConfirmedFlushLSN, &s.ConfirmedFlushLagBytes, &s.InCurrentDatabase,
 		); err != nil {
 			return nil, err
 		}
@@ -129,7 +132,9 @@ func (c *Collector) collectPreparedXacts(
 	}
 	defer rows.Close()
 
-	var result []PreparedTransaction
+	// Non-nil: no prepared transaction persists as [], which differs from
+	// the missing row an unknown leaves.
+	result := []PreparedTransaction{}
 	for rows.Next() {
 		var pt PreparedTransaction
 		if err := rows.Scan(

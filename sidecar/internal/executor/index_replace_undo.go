@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/value"
 )
 
@@ -13,12 +14,14 @@ import (
 // is the operator's rollback of the action (RollbackAction routes here).
 func (e *Executor) RollbackIndexReplace(ctx context.Context, actionID int64,
 	reason string) error {
-	if err := e.manualMutationBlock(ctx); err != nil {
-		return err
-	}
 	rec, err := e.loadReplaceByAction(ctx, actionID)
 	if err != nil {
 		return fmt.Errorf("load the replacement of action %d: %w", actionID, err)
+	}
+	// Refuse before the claim what the gate would refuse now; the recorded
+	// decision is the undo's own (authorizeReplaceUndo).
+	if preview := e.explainReplaceUndo(ctx, rec); preview.Decision != PolicyDecisionExecute {
+		return operatorRollbackRefusal(preview)
 	}
 	if !e.claimRollback(ctx, actionID) {
 		return fmt.Errorf("action already rolled back or rollback in progress")
@@ -66,13 +69,31 @@ func (e *Executor) authorizeReplaceUndo(ctx context.Context, rec indexReplaceRec
 	if gate == nil {
 		return ActionPolicyDecision{}, fmt.Errorf("%s", reasonNoStandingPolicy)
 	}
-	req, _ := operatorRequest(rec.pairSQL(), int(rec.FindingID), rec.ApprovedBy)
-	req.SQL, req.Rollback = rec.Plan.RecreateSQL, true
-	decision := standingPolicyDecision(gate.Authorize(ctx, req))
+	decision := standingPolicyDecision(gate.Authorize(ctx, replaceUndoRequest(rec)))
 	if decision.Decision != PolicyDecisionExecute {
 		return decision, &WithheldError{Decision: decision}
 	}
 	return decision, nil
+}
+
+// explainReplaceUndo is authorizeReplaceUndo without a recorded decision.
+func (e *Executor) explainReplaceUndo(
+	ctx context.Context, rec indexReplaceRecord,
+) ActionPolicyDecision {
+	explainer, ok := e.StandingPolicyGate().(policy.Explainer)
+	if !ok {
+		return ActionPolicyDecision{Decision: PolicyDecisionBlocked,
+			BlockedReason: reasonNoStandingPolicy}
+	}
+	return standingPolicyDecision(explainer.Explain(ctx, replaceUndoRequest(rec)))
+}
+
+// replaceUndoRequest is the operator-approved rollback request of an undo.
+func replaceUndoRequest(rec indexReplaceRecord) policy.ActionRequest {
+	req, _ := operatorRequest(rec.pairSQL(), int(rec.FindingID), rec.ApprovedBy)
+	req.SQL, req.Rollback = rec.Plan.RecreateSQL, true
+	req.Evidence["rolled_back_action_id"] = rec.ActionLogID
+	return req
 }
 
 // undoSteps: re-create the old index when it is not valid (dropping an
@@ -84,12 +105,12 @@ func (e *Executor) undoSteps(ctx context.Context, rec *indexReplaceRecord, keepN
 		return err
 	}
 	if !c.OldValid {
-		if err := e.dropInvalidIndex(ctx, rec.Plan.OldIndex); err != nil {
+		if _, err := e.dropBoundRemnant(ctx, rec.Plan.OldIndex, rec.OldOID,
+			rec.Plan.Table); err != nil {
 			return fmt.Errorf("drop the invalid remnant of %s: %w", rec.Plan.OldIndex, err)
 		}
 		sql := rec.Plan.RecreateSQL
-		if err := ExecConcurrently(ctx, e.pool, sql, e.ddlTimeout(),
-			e.lockOption(sql, decision)); err != nil {
+		if err := e.execConcurrentDDL(ctx, sql, nil, e.lockOption(sql, decision)); err != nil {
 			return fmt.Errorf("re-create %s: %w", rec.Plan.OldIndex, err)
 		}
 	}
@@ -118,7 +139,7 @@ func (e *Executor) dropNewIndex(ctx context.Context, rec indexReplaceRecord) err
 			ErrReplaceIdentityChanged, rec.Plan.NewIndex, oid, rec.NewOID)
 	}
 	sql := rec.Plan.DropNewSQL
-	return ExecConcurrently(ctx, e.pool, sql, e.ddlTimeout(),
+	return ExecConcurrently(ctx, e.actionDB(), sql, e.ddlTimeout(),
 		WithLockTimeout(e.lockTimeoutMS(sql, ActionPolicyDecision{})))
 }
 
@@ -126,7 +147,7 @@ func (e *Executor) failUndo(ctx context.Context, rec *indexReplaceRecord, cause 
 	err := e.moveReplace(ctx, rec, replaceRollbackFailed, cause.Error(),
 		replaceRollbackRecreating, replaceRollbackDropping, replaceOldRestoring)
 	if rec.ActionLogID > 0 {
-		updateActionOutcome(ctx, e.pool, rec.ActionLogID, "rollback_failed",
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, rec.ActionLogID, "rollback_failed",
 			"index replace rollback failed: "+cause.Error())
 	}
 	return errors.Join(fmt.Errorf("undo the replacement: %w", cause), err)
@@ -145,7 +166,7 @@ func (e *Executor) finishUndo(ctx context.Context, rec *indexReplaceRecord, keep
 		e.notifyPostDDL(ctx, rec.Plan.RecreateSQL)
 		return err
 	}
-	updateActionOutcome(ctx, e.pool, rec.ActionLogID, "rolled_back", reason)
+	_ = recordActionOutcome(ctx, e.pool, e.logFn, rec.ActionLogID, "rolled_back", reason)
 	if _, ferr := finalizeActionVerification(ctx, e.pool, rec.ActionLogID, "revert",
 		reason); ferr != nil {
 		err = errors.Join(err, ferr)
@@ -156,4 +177,18 @@ func (e *Executor) finishUndo(ctx context.Context, rec *indexReplaceRecord, keep
 	}
 	e.notifyPostDDL(ctx, rec.Plan.RecreateSQL)
 	return err
+}
+
+// replaceUndoAuthorizer is the replace watch's yes/no check before an
+// automatic undo: the gate's answer for the undo now. The undo's run
+// records its own decision (authorizeReplaceUndo).
+func (e *Executor) replaceUndoAuthorizer(actionID int64) func(context.Context, string) bool {
+	return func(ctx context.Context, _ string) bool {
+		rec, err := e.loadReplaceByAction(ctx, actionID)
+		if err != nil {
+			e.logFn("executor", "replacement of action %d: %v", actionID, err)
+			return false
+		}
+		return e.explainReplaceUndo(ctx, rec).Decision == PolicyDecisionExecute
+	}
 }

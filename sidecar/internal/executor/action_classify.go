@@ -4,11 +4,16 @@ import (
 	"strings"
 )
 
-func actionTypeForProposalSQL(sql string) string {
+// ActionTypeForSQL names the action type whose contract the executor runs
+// sql under, or "" when no contract runs it. It is the one classifier: the
+// executor, its approval queue and the Cases view all use it (cases-04).
+func ActionTypeForSQL(sql string) string {
 	upper := strings.ToUpper(normalizeSQLText(sql))
 	switch {
 	case IsIndexReplaceSQL(sql):
 		return ActionTypeReplaceIndex
+	case exposureActionType(sql) != "":
+		return exposureActionType(sql)
 	case strings.HasPrefix(upper, "ANALYZE "):
 		return "analyze_table"
 	case strings.HasPrefix(upper, "CREATE INDEX CONCURRENTLY ") ||
@@ -18,8 +23,8 @@ func actionTypeForProposalSQL(sql string) string {
 		return "drop_unused_index"
 	case isConcurrentReindexSQL(upper):
 		return "reindex_concurrently"
-	case (strings.HasPrefix(upper, "VACUUM ") || upper == "VACUUM") &&
-		!isVacuumFullSQL(upper):
+	case strings.HasPrefix(upper, "VACUUM ") && !isVacuumFullSQL(upper) &&
+		isSingleRelationVacuum(upper):
 		return "vacuum_table"
 	case strings.Contains(upper, "PG_CANCEL_BACKEND"):
 		return "cancel_backend"
@@ -33,6 +38,8 @@ func actionTypeForProposalSQL(sql string) string {
 		return "alter_database_guc"
 	case isSetTableAutovacuumSQL(upper):
 		return "set_table_autovacuum"
+	case isSetColumnStatisticsSQL(sql):
+		return ActionTypeSetColumnStatistics
 	case strings.HasPrefix(upper, "ALTER TABLE "):
 		return "alter_table"
 	case strings.HasPrefix(upper, "INSERT INTO HINT_PLAN.HINTS"):
@@ -43,16 +50,30 @@ func actionTypeForProposalSQL(sql string) string {
 		return "create_statistics"
 	case isPgSageDropStatistics(sql):
 		return "revert_created_statistics"
+	case roleBudgetActionType(sql) != "":
+		return roleBudgetActionType(sql)
 	default:
 		return ""
 	}
 }
 
+// ClassifySQL is ActionTypeForSQL with its contract's base risk tier, the
+// classification the case projector shows (cases.SQLClassifier). A
+// statement no contract runs is ("", "").
+func ClassifySQL(sql string) (actionType, riskTier string) {
+	contract, ok := ContractForActionType(ActionTypeForSQL(sql))
+	if !ok {
+		return "", ""
+	}
+	return contract.ActionType, contract.BaseRiskTier
+}
+
+// isConcurrentReindexSQL is a REINDEX CONCURRENTLY of one index or one
+// table. A schema- or database-wide REINDEX has no contract (executor-08):
+// it rebuilds every index it reaches, under no lease.
 func isConcurrentReindexSQL(upper string) bool {
 	rest := strings.TrimSpace(strings.TrimPrefix(upper, "REINDEX "))
-	for _, objectType := range []string{
-		"INDEX ", "TABLE ", "SCHEMA ", "DATABASE ", "SYSTEM ",
-	} {
+	for _, objectType := range []string{"INDEX ", "TABLE "} {
 		if strings.HasPrefix(rest, objectType) {
 			rest = strings.TrimSpace(strings.TrimPrefix(rest, objectType))
 			return strings.HasPrefix(rest, "CONCURRENTLY ")
@@ -90,4 +111,12 @@ func isVacuumFullSQL(upper string) bool {
 		}
 	}
 	return false
+}
+
+// isSetColumnStatisticsSQL is one ALTER COLUMN ... SET STATISTICS <int>
+// clause and nothing else (review-02c); any other ALTER TABLE, a list of
+// subcommands included, stays alter_table.
+func isSetColumnStatisticsSQL(sql string) bool {
+	_, ok := ParseSetColumnStatistics(sql)
+	return ok
 }

@@ -1,8 +1,11 @@
 package retention
 
 import (
+	"fmt"
+
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/partition"
+	"github.com/pg-sage/sidecar/internal/sre"
 )
 
 // purgeRule deletes rows of sage.<table> whose timeCol is older than
@@ -21,6 +24,10 @@ type purgeRule struct {
 	// sweepCol, when set, makes the rule swept (sweep.go): an incremental
 	// pass reads only rows with sweepCol at or after its floor.
 	sweepCol string
+	// inHistory marks a table that lives where the database's history
+	// lives (histstore): in meta mode the history store's cleaner runs it
+	// too, on every database's rows at once.
+	inHistory bool
 }
 
 // Keep predicates for parents referenced by NOT NULL foreign keys. The
@@ -47,23 +54,6 @@ func keepSnapshotBases(from string) string {
 // retention in days.
 var keepSnapshotKeyframe = keepSnapshotBases("now() - make_interval(days => $1)")
 
-// maintenanceActionLink identifies the exact durable executor record. An
-// execution can commit before the bridge saves its action ID; preserve that
-// crash window only for an unresolved proposal and the exact bound finding,
-// forward SQL and inverse. Once an ID is recorded, no replacement action can
-// claim its lifetime. The finding expression index bounds the JSON lookup.
-const maintenanceActionLink = `p.proposal->>'finding_id' = al.finding_id::text
-    AND (p.proposal->>'action_log_id' = al.id::text
-         OR (p.state IN ('executing', 'uncertain')
-             AND COALESCE(p.proposal->>'action_log_id', '0') = '0'
-             AND p.proposal->>'sql' = al.sql_executed
-             AND p.proposal->>'rollback_sql' = al.rollback_sql
-             AND EXISTS (SELECT 1 FROM sage.findings f
-                 WHERE f.id = al.finding_id AND f.category = 'sre_maintenance'
-                   AND f.object_identifier = 'sre_maintenance:' || p.id::text
-                   AND f.recommended_sql = al.sql_executed
-                   AND f.rollback_sql = al.rollback_sql)))`
-
 const (
 	// Maintenance retains its exact action and audit dependencies while its
 	// SRE ledger exists. The bridge requires a colocated coordination/target
@@ -79,7 +69,7 @@ const (
 	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
 	                   WHERE al.id = action_log.id
 	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
-	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                         WHERE ` + sre.MaintenanceActionLink + ` OFFSET 0)
 	                   OFFSET 0)`
 	// Only terminal recommendations age out; their revisions and history
 	// go with them (ON DELETE CASCADE). Live ones are kept however old.
@@ -100,7 +90,7 @@ const (
 	                   WHERE (al.id = verification.action_log_id
 	                          OR al.verification_id = verification.id)
 	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
-	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                         WHERE ` + sre.MaintenanceActionLink + ` OFFSET 0)
 	                   OFFSET 0)`
 	keepDecision = `AND (deadline_hard_at IS NULL OR deadline_hard_at < now()
 	                   OR resolved_at IS NOT NULL)
@@ -112,7 +102,7 @@ const (
 	    AND NOT EXISTS (SELECT 1 FROM sage.action_log al
 	                   WHERE al.decision_id = decision.id
 	                     AND EXISTS (SELECT 1 FROM sage.sre_maintenance_proposals p
-	                         WHERE ` + maintenanceActionLink + ` OFFSET 0)
+	                         WHERE ` + sre.MaintenanceActionLink + ` OFFSET 0)
 	                   OFFSET 0)`
 	// Non-execute decisions (withheld gate verdicts, schema guard
 	// observations) are facts about candidates, not the record of a change:
@@ -173,6 +163,38 @@ const (
 // decision), and for references kept by a keep predicate (decision before
 // action_queue). Nullable references are ON DELETE SET NULL (schema
 // migration), so the other purges cannot block each other.
+// verifierBacktestRule keeps a year of verifier back-tests (lab-02):
+// verify.method auto reads only the newest, and only within 35 days.
+var verifierBacktestRule = purgeRule{table: "verifier_backtest", timeCol: "ran_at",
+	days: 365}
+
+// restoreDrillsRule keeps 400 days of restore drills (drill-01a): a year
+// of monthly drills with their measured RTO and RPO, for review and audit.
+var restoreDrillsRule = purgeRule{table: "restore_drills", timeCol: "finished_at",
+	days: 400}
+
+// reviewRunRule keeps 400 days of grade runs (review-01a): a year of
+// daily grades for the trend; the dimension rows go with their run by
+// ON DELETE CASCADE. A running row is never purged (the reaper ends it).
+var reviewRunRule = purgeRule{table: "review_run", timeCol: "started_at", days: 400,
+	extra: "AND status <> 'running'"}
+
+// reviewTriggerRule keeps 400 days of done review triggers (review-04a),
+// as long as their runs; a waiting or claimed trigger is never purged.
+var reviewTriggerRule = purgeRule{table: "review_trigger", timeCol: "fired_at", days: 400,
+	extra: "AND state IN ('consumed', 'coalesced')"}
+
+// reviewFleetPassRule keeps 400 days of finished fleet passes (review-04b),
+// as long as the review runs; their member rows go with them by ON DELETE
+// CASCADE. A running pass is never purged.
+var reviewFleetPassRule = purgeRule{table: "review_fleet_pass", timeCol: "started_at",
+	days: 400, extra: "AND status <> 'running'"}
+
+// pressureJobsRule ages a backfill job out 90 days after it expired
+// (guard-01b): an active job is never purged, and a quarter of history
+// keeps the weekly count of registered jobs.
+var pressureJobsRule = purgeRule{table: "pressure_jobs", timeCol: "expires_at", days: 90}
+
 func purgeRules(cfg *config.Config) []purgeRule {
 	r := cfg.Retention
 	rules := []purgeRule{
@@ -182,7 +204,6 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		{table: "query_store", timeCol: "captured_at", days: r.QueryStoreDays,
 			partitioned: &partition.QueryStore},
 		{table: "health_history", timeCol: "recorded_at", days: r.SnapshotsDays},
-		{table: "size_history", timeCol: "collected_at", days: r.SnapshotsDays},
 		// Resolved findings age from their resolution (perf storage phase:
 		// last_seen is refreshed every cycle and may not be indexed).
 		{table: "findings", timeCol: "resolved_at", days: r.FindingsDays,
@@ -195,6 +216,11 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// Remembered what-if rejections age from their last measurement.
 		{table: "optimizer_rejection", timeCol: "measured_at", days: r.FindingsDays},
 		{table: "tuning_budget_day", timeCol: "updated_at", days: r.FindingsDays},
+		// workload budgets (market-08): the warn-mode ledger and proposal
+		// evidence age by their UTC day, which is indexed: updated_at moves on
+		// every upsert and may not be (HOT updates).
+		{table: "budget_shadow", timeCol: "day", days: r.FindingsDays},
+		{table: "workload_role_daily", timeCol: "day", days: r.FindingsDays},
 		{table: "alert_log", timeCol: "sent_at", days: r.ActionsDays},
 		{table: "notification_log", timeCol: "sent_at", days: r.ActionsDays},
 		// Approval cards age from their follow-up (open cards are closed by the
@@ -228,11 +254,13 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// is kept so it can still be scored.
 		{table: "shadow_decision", timeCol: "recorded_at", days: r.ActionsDays,
 			extra: "AND status <> 'pending'"},
-		// Binding facts (roadmap 2.3): proposed and confirmed facts are kept;
-		// rejected and expired ones age from their last change.
+		// Binding facts (roadmap 2.3): only expired ones age out; rejected
+		// ones are tombstones an import cannot re-confirm (facts-04).
 		{table: "facts", timeCol: "updated_at", days: r.ActionsDays,
-			extra: "AND status IN ('rejected', 'expired')"},
+			extra: "AND status = 'expired'"},
 		{table: "fact_card_deliveries", timeCol: "created_at", days: r.ActionsDays},
+		// Plan cards (plan-03b) age from creation like fact cards.
+		{table: "plan_card_deliveries", timeCol: "created_at", days: r.ActionsDays},
 		// Source-fix reports (MCP v2): a pending one is kept until its
 		// verdict is decided; decided ones age out like actions.
 		{table: "source_fix", timeCol: "updated_at", days: r.ActionsDays,
@@ -249,6 +277,8 @@ func purgeRules(cfg *config.Config) []purgeRule {
 		// kept; decided, applied and superseded ones age from their last change.
 		{table: "managed_change_proposals", timeCol: "updated_at", days: r.ActionsDays,
 			extra: "AND status NOT IN ('pending', 'approved')"},
+		// market-09: provider advice ages from its resolution; open advice is kept.
+		{table: "provider_recommendations", timeCol: "resolved_at", days: r.FindingsDays},
 		{table: "explain_cache", timeCol: "captured_at", days: r.ExplainsDays},
 		// A cached explanation is useless once it expires; a day of grace
 		// covers a reader racing the expiry. (created_at, the old key, is
@@ -267,11 +297,75 @@ func purgeRules(cfg *config.Config) []purgeRule {
 			sweepCol: "at"},
 		// Used or expired SSO link grants are dead weight once old (D7).
 		{table: "user_oidc_link_grants", timeCol: "expires_at", days: r.ActionsDays},
+		// Hour-of-week baselines (market-02): baseline.weeks + 1 weeks + slack.
+		{table: "baseline_samples", timeCol: "week_start", days: baselineDays(cfg)},
 		{table: "sre_eval_runs", timeCol: "ingested_at",
 			days: cfg.SRE.Autonomy.ReportRetentionDays, extra: keepEvalRun},
 	}
-	return rules
+	rules = append(append(rules, rollupPurgeRules(r)...), verifierBacktestRule,
+		restoreDrillsRule, reviewRunRule, reviewTriggerRule, reviewFleetPassRule,
+		pressureJobsRule, reviewForecastRule, reviewGateRule)
+	return append(rules, planPurgeRule(r))
 }
+
+// rollupPurgeRules age out the per-query rollup by tier (evid-01b): an
+// hourly row after retention.query_rollup_hourly_days (never past the
+// snapshots it is rebuilt from), and only once its UTC day is in the daily
+// tier; daily rows and the hourly coverage after
+// retention.query_rollup_daily_days, so a long window can still state its
+// coverage once the hours are gone.
+func rollupPurgeRules(r config.RetentionConfig) []purgeRule {
+	return []purgeRule{
+		{table: "query_rollup_hourly", timeCol: "hour",
+			days:  r.EffectiveQueryRollupHourlyDays(),
+			extra: keepUnrolledHours(r.QueryRollupDailyDays)},
+		{table: "query_rollup_daily", timeCol: "day", days: r.QueryRollupDailyDays},
+		{table: "query_rollup_coverage", timeCol: "hour", days: r.QueryRollupDailyDays},
+		// Stored workload evidence packs (evid-02a) age from their build;
+		// a pack is never updated, only deleted. A pack a plan cites is
+		// kept (plan-01a).
+		{table: "workload_packs", timeCol: "built_at", days: r.WorkloadPacksDays,
+			extra: keepCitedPacks(r.ActionsDays), inHistory: true},
+	}
+}
+
+// keepUnrolledHours keeps an hourly row until its day's daily row exists
+// (found on the daily table's unique key): a purge racing the daily roll
+// never removes hours the daily tier does not hold yet. A row past the
+// daily retention (dailyDays, 0: kept forever) goes without its daily row,
+// which that purge removes (dailyDays is a validated integer, never
+// text): an unrolled hour is never kept forever, also
+// when both windows are equal and the daily row went first.
+func keepUnrolledHours(dailyDays int) string {
+	past := ""
+	if dailyDays > 0 {
+		past = fmt.Sprintf(`
+	                   OR query_rollup_hourly.hour < now() - make_interval(days => %d)`,
+			dailyDays)
+	}
+	return `AND (EXISTS (SELECT 1 FROM sage.query_rollup_daily d
+	                   WHERE COALESCE(d.database_id, 0) =
+	                         COALESCE(query_rollup_hourly.database_id, 0)
+	                     AND d.queryid = query_rollup_hourly.queryid
+	                     AND d.day = (query_rollup_hourly.hour AT TIME ZONE 'UTC')::date)` +
+		past + `)`
+}
+
+// baselineDays is baseline.weeks + 1 weeks and baselineSlackDays; a zero
+// (literal) config keeps the default window.
+func baselineDays(cfg *config.Config) int {
+	weeks := cfg.Baseline.Weeks
+	if weeks <= 0 {
+		weeks = config.DefaultBaselineWeeks
+	}
+	return (weeks+1)*7 + baselineSlackDays
+}
+
+// baselineSlackDays keeps the oldest scored week through the last hours of
+// the week: week_start is a local Monday date, up to 12 hours behind UTC
+// in a western zone, and the purge reads it as midnight of the session
+// TimeZone, up to 14 hours ahead of UTC.
+const baselineSlackDays = 2
 
 // explainResultsGrace is one day, or 0 (off) with explain retention off.
 func explainResultsGrace(r config.RetentionConfig) int {

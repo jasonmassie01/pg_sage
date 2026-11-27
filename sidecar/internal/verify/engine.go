@@ -8,13 +8,18 @@ import (
 )
 
 func (e *Engine) Watch(ctx context.Context, request WatchRequest) (Verdict, error) {
+	// Before Create no durable watch exists, so nothing would ever verify the
+	// action: revert (ErrStateNotPersisted). After Create, every failure
+	// leaves the stored watch for the next resume to observe again.
 	if err := ctx.Err(); err != nil {
-		return contextFailure(), err
+		return contextFailure(), fmt.Errorf("%w: %w", ErrStateNotPersisted, err)
 	}
 	state := WatchStateFromRequest(request)
 	e.applyDefaults(&state)
+	e.freezeWeights(ctx, &state)
 	if err := e.store.Create(ctx, state); err != nil {
-		return persistenceFailure(), fmt.Errorf("create verification state: %w", err)
+		return persistenceFailure(), fmt.Errorf("create verification state: %w: %w",
+			ErrStateNotPersisted, err)
 	}
 	return e.evaluateAndPersist(ctx, state)
 }
@@ -32,6 +37,7 @@ func (e *Engine) ResumeDue(ctx context.Context) ([]Verdict, error) {
 }
 
 // ResumeDueResults evaluates due watches while preserving their durable IDs.
+// One watch's error does not end the pass: the errors are joined at the end.
 func (e *Engine) ResumeDueResults(ctx context.Context) ([]ResumeResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -42,53 +48,72 @@ func (e *Engine) ResumeDueResults(ctx context.Context) ([]ResumeResult, error) {
 		return nil, fmt.Errorf("list due verification states: %w", err)
 	}
 	results := make([]ResumeResult, 0, len(listed))
+	var errs []error
 	for _, candidate := range listed {
-		// A listed row is only a candidate: claim it durably before acting so
-		// concurrent workers (in this or another process) act on it once.
-		state, claimed, err := e.store.Claim(ctx, candidate, now, now.Add(RevertRetryInterval))
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
+		result, claimed, err := e.resumeOne(ctx, candidate, now)
+		if claimed {
+			results = append(results, result)
+		}
 		if err != nil {
-			return results, fmt.Errorf("claim verification for action %d: %w",
-				candidate.ActionID, err)
-		}
-		if !claimed {
-			continue
-		}
-		if revertPending(state) {
-			results = append(results, ResumeResult{
-				WatchID: state.ID, ActionID: state.ActionID,
-				Verdict: pendingRevertVerdict(state),
-			})
-			continue
-		}
-		verdict, evaluateErr := e.evaluateAndPersist(ctx, state)
-		results = append(results, ResumeResult{
-			WatchID: state.ID, ActionID: state.ActionID, Verdict: verdict,
-		})
-		if evaluateErr != nil {
-			return results, evaluateErr
+			errs = append(errs, err)
 		}
 	}
-	return results, nil
+	return results, errors.Join(errs...)
+}
+
+func (e *Engine) resumeOne(
+	ctx context.Context, candidate WatchState, now time.Time,
+) (ResumeResult, bool, error) {
+	// A listed row is only a candidate: claim it durably before acting so
+	// concurrent workers (in this or another process) act on it once.
+	state, claimed, err := e.store.Claim(ctx, candidate, now, now.Add(RevertRetryInterval))
+	if err != nil {
+		return ResumeResult{}, false, fmt.Errorf("claim verification for action %d: %w",
+			candidate.ActionID, err)
+	}
+	if !claimed {
+		return ResumeResult{}, false, nil
+	}
+	result := ResumeResult{WatchID: state.ID, ActionID: state.ActionID}
+	if revertPending(state) {
+		result.Verdict = pendingRevertVerdict(state)
+		return result, true, nil
+	}
+	result.Verdict, err = e.evaluateAndPersist(ctx, state)
+	return result, true, err
 }
 
 func (e *Engine) evaluateAndPersist(
 	ctx context.Context, state WatchState,
 ) (Verdict, error) {
 	verdict, evaluateErr := e.evaluate(ctx, state)
-	state.Status = verdict.Status
-	state.Reason = verdict.Reason
+	next := state
+	next.Status = verdict.Status
+	next.Reason = verdict.Reason
 	// A revert verdict is a decision, not a completed effect: the watch stays
 	// open (and is retried) until the executor confirms the revert ran.
-	state.Completed = verdict.Status != "extended" && !verdict.Revert
-	state.Window = verdict.Window
-	state.NextEvaluationAt = verdict.NextEvaluationAt
-	if verdict.Revert {
-		state.NextEvaluationAt = e.options.Now().Add(RevertRetryInterval)
+	next.Completed = verdict.Status != "extended" && !verdict.Revert
+	next.Window = verdict.Window
+	next.NextEvaluationAt = verdict.NextEvaluationAt
+	next.ObservationFailures = verdict.ObservationFailures
+	if verdict.AlphaSpend != nil {
+		next.AlphaSpend = *verdict.AlphaSpend
 	}
-	if err := e.store.Update(ctx, state); err != nil {
-		return persistenceFailure(), errors.Join(
-			evaluateErr, fmt.Errorf("update verification state: %w", err),
-		)
+	if verdict.Other != nil {
+		next.Other = verdict.Other
+	}
+	if verdict.Revert {
+		next.NextEvaluationAt = e.options.Now().Add(RevertRetryInterval)
+	}
+	if err := e.store.Update(ctx, next); err != nil {
+		// The watch row exists and is unchanged, so the next resume observes
+		// it again: neither revert nor retain on a verdict that is not stored.
+		return updateFailure(state, verdict), errors.Join(evaluateErr,
+			fmt.Errorf("update verification state for action %d: %w", state.ActionID, err))
 	}
 	return verdict, evaluateErr
 }
@@ -122,6 +147,14 @@ func contextFailure() Verdict {
 
 func persistenceFailure() Verdict {
 	return Verdict{Revert: true, Status: "unverifiable", Reason: "state_persist_failed"}
+}
+
+func updateFailure(stored WatchState, computed Verdict) Verdict {
+	return Verdict{
+		Status: "extended", Reason: "state_update_failed", Samples: computed.Samples,
+		Window: stored.Window, NextEvaluationAt: stored.NextEvaluationAt,
+		ObservationFailures: stored.ObservationFailures,
+	}
 }
 
 // RevertRetryInterval is how long a revert verdict waits before it is

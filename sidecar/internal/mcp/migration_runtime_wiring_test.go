@@ -8,10 +8,12 @@ import (
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	migrationruntime "github.com/pg-sage/sidecar/internal/migration/runtime"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 func TestApplyMigrationUsesConfiguredRehearsalRuntime(t *testing.T) {
+	parsetree.Require(t)
 	store := &recordingIntentStore{}
 	runtime := &recordingSafeMigrationRuntime{result: migrationruntime.Result{
 		Verdict:    migrationruntime.VerdictExpanded,

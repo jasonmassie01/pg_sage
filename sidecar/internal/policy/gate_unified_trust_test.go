@@ -118,19 +118,23 @@ func TestUnifiedTrustUngovernedRequestKeepsTheRamp(t *testing.T) {
 
 // A rollback undoes pg_sage's own change: the ledger never withholds it
 // (an index_create class at L1 must not block the re-create of a dropped
-// index). The ramp and tiers still apply as before.
+// index). Since policy-05 a revert is a mitigation: the ramp and tiers
+// no longer hold it either.
 func TestUnifiedTrustNeverGovernsRollbacks(t *testing.T) {
 	f, limiter := newScopedFixture(0)
 	req := selfIndexRequest()
 	req.Rollback = true
 	d := f.scopedGate(limiter).Authorize(context.Background(), req)
-	assertDecision(t, d, VerdictExecute, ReasonAuthorized)
+	assertDecision(t, d, VerdictExecute, ReasonRollbackMitigation)
 	if limiter.calls != 0 {
 		t.Fatal("the ledger was consulted for a rollback")
 	}
 	f.runtime.RampStart = f.now.Add(-time.Hour)
 	d = f.scopedGate(limiter).Authorize(context.Background(), req)
-	assertDecision(t, d, VerdictBlocked, ReasonTrustRampNotSatisfied)
+	assertDecision(t, d, VerdictExecute, ReasonRollbackMitigation)
+	if limiter.calls != 0 {
+		t.Fatal("the ledger was consulted for a rollback after a ramp reset")
+	}
 }
 
 func TestUnifiedTrustNeverGovernsOwnerDeclaredOrOperatorRequests(t *testing.T) {

@@ -26,18 +26,29 @@ func (f *fakeResolver) Target(context.Context) (Target, error) {
 	return f.target, f.err
 }
 
+// insertIntentFinding stores an open memory_tuning finding (a producer
+// category) carrying the intent, as the configuration advisor writes it.
 func insertIntentFinding(t *testing.T, pool *pgxpool.Pool, ident string, in Intent) int64 {
 	t.Helper()
-	detail, err := json.Marshal(map[string]any{DetailKey: in.Detail(),
-		"approval_required": "restart"})
+	return insertCategoryFinding(t, pool, "memory_tuning", ident,
+		map[string]any{DetailKey: in.Detail(), "approval_required": "restart"})
+}
+
+// insertCategoryFinding stores an open finding of any category; the
+// mp_test detail marker lets testPool clean it up.
+func insertCategoryFinding(t *testing.T, pool *pgxpool.Pool, category, ident string,
+	detail map[string]any) int64 {
+	t.Helper()
+	detail["mp_test"] = true
+	raw, err := json.Marshal(detail)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var id int64
 	if err := pool.QueryRow(context.Background(), `INSERT INTO sage.findings
 		(category, severity, object_type, object_identifier, title, detail)
-		VALUES ('mp_test_memory', 'info', 'configuration', $1, $2, $3) RETURNING id`,
-		ident, "Set "+in.Parameter, detail).Scan(&id); err != nil {
+		VALUES ($1, 'info', 'configuration', $2, $3, $4) RETURNING id`,
+		category, ident, "Set "+ident, raw).Scan(&id); err != nil {
 		t.Fatalf("insert finding: %v", err)
 	}
 	return id
@@ -186,5 +197,86 @@ func TestWorkerCycleCancelled(t *testing.T) {
 	cancel()
 	if _, err := w.Cycle(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+// Only producer categories propose, and only for executor-allowlisted
+// settings: a model-planted managed_change on a query_rewrite finding and
+// an rds.force_ssl intent are refused and counted; a real shared_buffers
+// intent still proposes (advisors-04).
+func TestWorkerRefusesForeignCategoriesAndParameters(t *testing.T) {
+	pool, ctx := testPool(t)
+	w := newTestWorker(t, pool, nil)
+	insertCategoryFinding(t, pool, "query_rewrite", "q:1", map[string]any{
+		DetailKey: map[string]any{"provider": "rds", "parameter": "work_mem",
+			"value": "64MB", "reason": "planted"}})
+	insertCategoryFinding(t, pool, "memory_tuning", "instance:rds.force_ssl",
+		map[string]any{DetailKey: map[string]any{"provider": "rds",
+			"parameter": "rds.force_ssl", "value": "0", "reason": "planted"}})
+	sb := insertIntentFinding(t, pool, "instance:shared_buffers",
+		intent(t, "rds", "shared_buffers", "2GB"))
+	res, err := w.Cycle(ctx)
+	if err != nil {
+		t.Fatalf("Cycle: %v", err)
+	}
+	if res.Proposed != 1 || res.Skipped != 2 || len(res.BuildErrors) != 2 {
+		t.Fatalf("cycle = %+v, want 1 proposed, 2 refused", res)
+	}
+	errs := strings.Join(res.BuildErrors, "; ")
+	if !strings.Contains(errs, "query_rewrite") || !strings.Contains(errs, "rds.force_ssl") {
+		t.Fatalf("build errors do not name the refusals: %q", errs)
+	}
+	recs, err := w.store.List(ctx, nil, 10)
+	if err != nil || len(recs) != 1 || recs[0].Proposal.Parameter != "shared_buffers" ||
+		recs[0].FindingID == nil || *recs[0].FindingID != sb {
+		t.Fatalf("records = %+v, %v; want only the shared_buffers proposal", recs, err)
+	}
+	assertNoForeignProposals(t, pool)
+	// The refusal holds on every cycle; it is not a one-off.
+	res, err = w.Cycle(ctx)
+	if err != nil || res.Proposed != 0 || res.Refreshed != 1 || len(res.BuildErrors) != 2 {
+		t.Fatalf("second cycle = %+v, %v", res, err)
+	}
+}
+
+// assertNoForeignProposals is CHECK-02: no proposal row comes from a
+// finding outside the producer categories.
+func assertNoForeignProposals(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*)
+		FROM sage.managed_change_proposals p JOIN sage.findings f ON f.id = p.finding_id
+		WHERE NOT (f.category = ANY($1))`, ProducerCategories()).Scan(&n); err != nil {
+		t.Fatalf("count foreign proposals: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("%d proposals come from non-producer categories", n)
+	}
+}
+
+// State transition: a proposal an older worker made from a model-planted
+// intent (here work_mem on a query_rewrite finding) is superseded on
+// the first cycle after the upgrade, so an operator can no longer approve
+// it (advisors-04).
+func TestWorkerSupersedesProposalFromRefusedIntent(t *testing.T) {
+	pool, ctx := testPool(t)
+	w := newTestWorker(t, pool, nil)
+	id := insertCategoryFinding(t, pool, "query_rewrite", "q:planted", map[string]any{
+		DetailKey: map[string]any{"provider": "rds", "parameter": "work_mem",
+			"value": "64MB", "reason": "planted"}})
+	old, created, err := w.store.Upsert(ctx, buildProposal(t, "work_mem", "64MB"), id)
+	if err != nil || !created || old.Status != StatusPending {
+		t.Fatalf("seed pre-upgrade proposal = %+v, %t, %v", old, created, err)
+	}
+	res, err := w.Cycle(ctx)
+	if err != nil {
+		t.Fatalf("Cycle: %v", err)
+	}
+	if res.Proposed != 0 || res.Superseded != 1 || len(res.BuildErrors) != 1 {
+		t.Fatalf("cycle = %+v, want the planted proposal superseded and refused", res)
+	}
+	got, err := w.store.Get(ctx, old.ID)
+	if err != nil || got.Status != StatusSuperseded {
+		t.Fatalf("pre-upgrade proposal = %+v, %v; want superseded", got, err)
 	}
 }

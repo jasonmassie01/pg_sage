@@ -27,6 +27,21 @@ func newFixture(t *testing.T) *fixture {
 	// Agent roles are cluster-wide: AP-13 and AP-16 assume none exists, so
 	// posture fixtures serialize with every test that creates agent roles.
 	testdb.LockAgentRoles(t)
+	return fixtureOn(t, pool, ctx)
+}
+
+// exclusiveFixture is newFixture on a fresh database of the exclusive
+// server, for a test that needs the cluster's catalog (the posture
+// fingerprint hashes cluster-wide roles) to change only by its own hand.
+func exclusiveFixture(t *testing.T, reason string) *fixture {
+	t.Helper()
+	pool, ctx := livePoolOn(t, testdb.Exclusive(t, reason))
+	return fixtureOn(t, pool, ctx)
+}
+
+// fixtureOn creates the fixture's role and schema through pool.
+func fixtureOn(t *testing.T, pool *pgxpool.Pool, ctx context.Context) *fixture {
+	t.Helper()
 	s := suffix(t)
 	f := &fixture{t: t, ctx: ctx, pool: pool, schema: "pst_" + s, exposed: "pexp_" + s}
 	createRole(t, ctx, pool, f.exposed, "NOLOGIN")

@@ -22,21 +22,6 @@ import (
 // cancellations, WAL position and directory, sequences against their
 // binding limit, and the regression over sampled runway series.
 
-func burnXIDs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n int) {
-	t.Helper()
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	defer conn.Release()
-	sql := fmt.Sprintf(`DO $$ BEGIN
-		PERFORM set_config('synchronous_commit', 'off', false);
-		FOR i IN 1..%d LOOP PERFORM pg_current_xact_id(); COMMIT; END LOOP; END $$`, n)
-	if _, err := conn.Conn().PgConn().Exec(ctx, sql).ReadAll(); err != nil {
-		t.Fatalf("burn %d xids: %v", n, err)
-	}
-}
-
 // catalogRun runs one catalog probe. A probe has at most 500 ms; on a
 // loaded runner (-race, a busy shared server) a run can exhaust that
 // budget, which these tests do not measure, so such a run is repeated
@@ -63,7 +48,7 @@ func TestCatalog_XIDRunwayCountsConsumption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first sample: %v", err)
 	}
-	burnXIDs(t, ctx, pool, 2000)
+	testdb.BurnXIDs(t, ctx, pool, 2000)
 	after, err := XIDRunwayOf(catalogRun(t, ctx, pool, XIDRunwayProbe, Args{}))
 	if err != nil {
 		t.Fatalf("second sample: %v", err)
@@ -102,7 +87,7 @@ func TestCatalog_WraparoundTablesUseTheTableMaximum(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE "+ident) })
-	burnXIDs(t, ctx, pool, 30000)
+	testdb.BurnXIDs(t, ctx, pool, 30000)
 	ts, err := WraparoundTables(catalogRun(t, ctx, pool, WraparoundTablesProbe, Args{}))
 	if err != nil || len(ts) == 0 {
 		t.Fatalf("tables = %+v (%v)", ts, err)
@@ -128,13 +113,17 @@ func TestCatalog_WraparoundTablesUseTheTableMaximum(t *testing.T) {
 
 // Every kind of horizon holder is listed with its age; the probe's own
 // session never is.
+// It runs on the exclusive server: the horizon, burned XIDs and slots are
+// cluster-wide, and creating a logical slot waits for every running
+// transaction of the cluster, so other packages' open and prepared
+// transactions on the shared server timed the slot out (PG15, 2026-11-25).
 func TestCatalog_XminHorizonListsHolders(t *testing.T) {
-	pool, ctx := livePool(t)
-	dsn := os.Getenv(testdb.EnvName)
+	dsn := testdb.Exclusive(t, "the xmin horizon and its holders are cluster-wide")
+	pool, ctx := livePoolOn(t, dsn)
 	slot := catalogSlotHolder(t, ctx, pool)
 	pid := sessionHolder(t, ctx, dsn)
 	gid := preparedHolder(t, ctx, pool, dsn)
-	burnXIDs(t, ctx, pool, 500)
+	testdb.BurnXIDs(t, ctx, pool, 500)
 	hs, err := XminHolders(catalogRun(t, ctx, pool, XminHorizon, Args{}))
 	if err != nil {
 		t.Fatalf("holders: %v", err)
@@ -279,8 +268,13 @@ func TestCatalog_AutovacuumCancellationsReadLoggedIncidents(t *testing.T) {
 	}
 }
 
+// The WAL runway probe reads the WAL position and the settings that bound
+// it. It runs on the exclusive server: max_wal_size and
+// max_slot_wal_keep_size are cluster-wide, and on the shared server other
+// packages ALTER SYSTEM and reload them between the probe and the re-read
+// it is compared with.
 func TestCatalog_WALRunwayReadsPositionAndSettings(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := exclusivePool(t, "max_wal_size and max_slot_wal_keep_size are cluster-wide")
 	before, err := WALRunwayOf(catalogRun(t, ctx, pool, WALRunwayProbe, Args{}))
 	if err != nil {
 		t.Fatalf("first: %v", err)
@@ -345,7 +339,7 @@ func runwayRestrictedPool(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP ROLE IF EXISTS "+ident)
 	})
-	u, _ := url.Parse(os.Getenv(testdb.EnvName))
+	u, _ := url.Parse(testdb.SkipUnlessLive(t))
 	u.User = url.UserPassword(role, "sre-probe-test")
 	r, err := pgxpool.New(ctx, u.String())
 	if err != nil {
@@ -375,8 +369,10 @@ func TestCatalog_SequenceRunwayFindsTheBindingLimit(t *testing.T) {
 	if c := got["cycle_seq"]; !c.Cycle || c.DataType != "smallint" {
 		t.Fatalf("cycle_seq = %+v", c)
 	}
-	if _, ok := got["down_seq"]; ok {
-		t.Fatal("a descending sequence is listed; the runway covers ascending ones")
+	// v4 (forecast-05): a descending sequence is covered, toward its minimum.
+	if d, ok := got["down_seq"]; !ok || !d.Descending() || d.Limit != d.MinValue ||
+		d.Fraction != 0 {
+		t.Fatalf("down_seq = %+v (%v), want it listed toward its minimum", d, ok)
 	}
 	// v2 (dogfood lifeos-1): a never-called sequence has no runway to
 	// measure and is no longer listed (lifeos: 10,892 of 12,038).

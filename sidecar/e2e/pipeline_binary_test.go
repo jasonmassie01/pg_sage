@@ -23,6 +23,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 const (
@@ -30,23 +32,35 @@ const (
 	pipelinePollEvery      = 3 * time.Second
 )
 
+// On a host without a C compiler the binary is built with assumeSQLASTTag:
+// a cgo-less build queues every unattended change by design
+// (sql_validation_degraded), which TestPipelineGate_Degraded* pins.
 func TestPipelineCoverage_FullBinary(t *testing.T) {
-	dsn := pipelineURL(t)
-	// No Bootstrap here: the binary must bootstrap the sage schema itself
-	// (and holds the bootstrap advisory lock while running).
-	pool := rawPipelinePool(t)
-	report := &checkReport{}
-	defer report.dump(t, "Layer A — full-binary detection→action checks")
+	run := runPipelineBinary(t, pipelineRunOptions{tier3Safe: true})
+	defer run.dump(t, "Layer A — full-binary detection→action checks")
+	assertBinaryExpectations(t, run.pool, run.report)
+	checkDecisionReasons(t, run.pool, run.report)
+}
 
-	seedBinaryScenarios(t, pool, dsn)
-
-	binPath := buildBinary(t)
-	cfgPath := writePipelineConfig(t, dsn)
-	stopBinary := startPipelineBinary(t, binPath, cfgPath, dsn)
-	defer stopBinary()
-
-	waitForBinaryCycles(t, pool)
-	assertBinaryExpectations(t, pool, report)
+// runSlowWorkload keeps the A7 slow statement running while the binary
+// collects: slow_query judges the interval mean between two snapshots, with
+// at least analyzer.slow_query_min_calls calls in the interval (rules-05).
+func runSlowWorkload(t *testing.T, pool *pgxpool.Pool) func() {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for ctx.Err() == nil {
+			if _, err := pool.Exec(ctx, "SELECT pg_sleep(0.6)"); err != nil {
+				if ctx.Err() == nil {
+					t.Logf("A7 slow workload stopped: %v", err)
+				}
+				return
+			}
+		}
+	}()
+	return func() { cancel(); <-done }
 }
 
 // --- seeding ----------------------------------------------------------------
@@ -61,7 +75,7 @@ func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 			pipe_bloat, pipe_stale, pipe_av, pipe_invalid CASCADE;
 		DROP SEQUENCE IF EXISTS pipe_seq;`)
 
-	// A1 duplicate_index → executor drops one copy.
+	// A1 duplicate_index → the drop is queued for approval (lab-03a).
 	mustExec(t, pool, `
 		CREATE TABLE pipe_dup (s text);
 		INSERT INTO pipe_dup SELECT g::text FROM generate_series(1,2000) g;
@@ -79,7 +93,13 @@ func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 		);
 		INSERT INTO pipe_child (parent_id)
 		SELECT 1 + g % 2000 FROM generate_series(1,20000) g;`)
+	seedBinaryHygiene(t, pool)
+	seedBinaryAdvisories(t, pool, dsn)
+}
 
+// seedBinaryHygiene seeds the vacuum, analyze and tuning rules (A3-A5).
+func seedBinaryHygiene(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
 	// A3 table_bloat → executor vacuums. autovacuum off so the daemon
 	// cannot steal the fix before pg_sage does.
 	mustExec(t, pool, `
@@ -94,12 +114,19 @@ func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 
 	// A5 autovacuum_tuning → executor sets per-table scale factor.
 	// Trigger: live >= autovacuum_tune_min_rows AND upd+del >= live.
+	// Autovacuum stays on: the rule leaves a table whose autovacuum is
+	// off alone, as the DBA's deliberate choice (rules-02).
 	mustExec(t, pool, `
-		CREATE TABLE pipe_av (id int, n int) WITH (autovacuum_enabled = false);
+		CREATE TABLE pipe_av (id int, n int);
 		INSERT INTO pipe_av SELECT g, 0 FROM generate_series(1,6000) g;
 		UPDATE pipe_av SET n = 1;
 		UPDATE pipe_av SET n = 2;`)
+}
 
+// seedBinaryAdvisories seeds the advisory rules (A6, A7) and the invalid
+// index (A8).
+func seedBinaryAdvisories(t *testing.T, pool *pgxpool.Pool, dsn string) {
+	t.Helper()
 	// A6 sequence_exhaustion → advisory finding, NO action.
 	mustExec(t, pool, `
 		CREATE SEQUENCE pipe_seq AS smallint;
@@ -107,13 +134,15 @@ func seedBinaryScenarios(t *testing.T, pool *pgxpool.Pool, dsn string) {
 
 	// A7 slow_query → advisory finding, NO action. Needs
 	// pg_stat_statements (preloaded by the runner's container).
-	mustExec(t, pool, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-		SELECT pg_stat_statements_reset();`)
+	mustExec(t, pool, `CREATE EXTENSION IF NOT EXISTS pg_stat_statements`)
+	if _, err := testdb.ResetStatements(context.Background(), pool); err != nil {
+		t.Fatalf("reset this database's pg_stat_statements: %v", err)
+	}
 	for i := 0; i < 3; i++ {
 		mustExec(t, pool, "SELECT pg_sleep(0.8)")
 	}
 
-	// A8 invalid_index → executor drops the invalid leftover. A tiny
+	// A8 invalid_index → the drop of the leftover is queued for approval. A tiny
 	// statement_timeout aborts a CONCURRENTLY build, which by design
 	// leaves an INVALID index behind.
 	mustExec(t, pool, `
@@ -154,25 +183,9 @@ func seedInvalidIndex(t *testing.T, dsn string) {
 
 // --- binary lifecycle --------------------------------------------------------
 
-// writePipelineConfig renders a standalone config aimed at the pipeline DB
-// with autonomous trust, fast cycles, low rule thresholds, and no LLM.
-func writePipelineConfig(t *testing.T, dsn string) string {
-	t.Helper()
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("parse SAGE_TEST_DATABASE_URL: %v", err)
-	}
-	pass, _ := u.User.Password()
-	host, port := u.Hostname(), u.Port()
-	if port == "" {
-		port = "5432"
-	}
-	db := strings.TrimPrefix(u.Path, "/")
-
-	apiPort := freePort(t)
-	promPort := freePort(t)
-
-	yaml := fmt.Sprintf(`mode: standalone
+// pipelineConfigTemplate is the Layer A config: host, port, user,
+// password, database, tier3_safe, Prometheus port, API port.
+const pipelineConfigTemplate = `mode: standalone
 
 postgres:
   host: %s
@@ -184,11 +197,12 @@ postgres:
   max_connections: 4
 
 collector:
-  interval_seconds: 3
+  interval_seconds: 5
 
 analyzer:
   interval_seconds: 6
   slow_query_threshold_ms: 500
+  slow_query_min_calls: 2
   seq_scan_min_rows: 1000000
   unused_index_window_days: 7
   table_bloat_dead_tuple_pct: 10
@@ -205,7 +219,7 @@ trust:
   level: autonomous
   ramp_start: "2026-01-01T00:00:00Z"
   maintenance_window: "always"
-  tier3_safe: true
+  tier3_safe: %t
   tier3_moderate: true
   tier3_high_risk: false
 
@@ -217,7 +231,29 @@ prometheus:
 
 api:
   listen_addr: "127.0.0.1:%d"
-`, host, port, u.User.Username(), pass, db, promPort, apiPort)
+`
+
+// writePipelineConfig renders a standalone config aimed at the pipeline DB
+// with autonomous trust, fast cycles, low rule thresholds, and no LLM.
+// tier3Safe false keeps autonomous trust but switches the SAFE tier off.
+func writePipelineConfig(t *testing.T, dsn string, tier3Safe bool) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse SAGE_TEST_DATABASE_URL: %v", err)
+	}
+	pass, _ := u.User.Password()
+	host, port := u.Hostname(), u.Port()
+	if port == "" {
+		port = "5432"
+	}
+	db := strings.TrimPrefix(u.Path, "/")
+
+	apiPort := freePort(t)
+	promPort := freePort(t)
+
+	yaml := fmt.Sprintf(pipelineConfigTemplate,
+		host, port, u.User.Username(), pass, db, tier3Safe, promPort, apiPort)
 
 	path := filepath.Join(t.TempDir(), "pipeline-config.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
@@ -226,8 +262,9 @@ api:
 	return path
 }
 
+// startPipelineBinary starts the binary with its output in out.
 func startPipelineBinary(
-	t *testing.T, binPath, cfgPath, dsn string,
+	t *testing.T, binPath, cfgPath, dsn string, out *syncBuffer,
 ) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -239,7 +276,6 @@ func startPipelineBinary(
 		"SAGE_META_DB=",
 		"LLM_API_KEY=",
 	)
-	out := &syncBuffer{}
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Start(); err != nil {
@@ -297,16 +333,12 @@ func assertBinaryExpectations(
 	expectations := []binaryExpectation{
 		{
 			id:   "CHECK-A01",
-			desc: "duplicate_index: one of pipe_dup_a/b auto-dropped, one intact",
+			desc: "duplicate_index: the drop waits for approval (no clone rehearsal), both intact",
 			check: func(p *pgxpool.Pool) (bool, string) {
 				n := quickScalar(p, `SELECT count(*)::text FROM pg_indexes
 					WHERE indexname IN ('pipe_dup_a','pipe_dup_b')`)
-				act := quickScalar(p, `SELECT count(*)::text FROM sage.action_log
-					WHERE action_type = 'drop_index'
-					  AND sql_executed LIKE '%pipe_dup_%'
-					  AND outcome IN ('success','monitoring')`)
-				return n == "1" && act != "0",
-					fmt.Sprintf("indexes_left=%s drop_actions=%s", n, act)
+				q := queuedDecisions(p, "pipe_dup_")
+				return n == "2" && q != "0", fmt.Sprintf("indexes_left=%s queued=%s", n, q)
 			},
 		},
 		{
@@ -397,11 +429,12 @@ func assertBinaryExpectations(
 		},
 		{
 			id:   "CHECK-A08",
-			desc: "invalid_index: pipe_invalid_idx auto-dropped",
+			desc: "invalid_index: the drop waits for approval (no clone rehearsal), index intact",
 			check: func(p *pgxpool.Pool) (bool, string) {
 				n := quickScalar(p, `SELECT count(*)::text FROM pg_indexes
 					WHERE indexname = 'pipe_invalid_idx'`)
-				return n == "0", fmt.Sprintf("invalid_index_left=%s", n)
+				q := queuedDecisions(p, "pipe_invalid_idx")
+				return n == "1" && q != "0", fmt.Sprintf("invalid_index_left=%s queued=%s", n, q)
 			},
 		},
 		{

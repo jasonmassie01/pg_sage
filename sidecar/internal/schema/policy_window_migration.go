@@ -27,5 +27,17 @@ WHERE schema_version = 2
 UPDATE sage.policy SET schema_version = 3
 WHERE schema_version = 2 AND status IN ('active', 'ratified', 'proposed');
 
-ALTER TABLE IF EXISTS sage.policy ALTER COLUMN schema_version SET DEFAULT 3;
+-- Only when the default is below 3: a second boot takes no lock (config-04).
+DO $policy_default_3$
+BEGIN
+    IF to_regclass('sage.policy') IS NOT NULL AND COALESCE((
+           SELECT NULLIF(regexp_replace(pg_get_expr(d.adbin, d.adrelid), '[^0-9]', '',
+                                        'g'), '')::int
+             FROM pg_attrdef d
+             JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+            WHERE d.adrelid = to_regclass('sage.policy') AND a.attname = 'schema_version'),
+           0) < 3 THEN
+        ALTER TABLE sage.policy ALTER COLUMN schema_version SET DEFAULT 3;
+    END IF;
+END $policy_default_3$;
 `

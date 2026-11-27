@@ -46,14 +46,17 @@ const (
 	ReasonBlastRadiusExceeded      Reason = "blast_radius_exceeded"
 	ReasonRateLimitExceeded        Reason = "rate_limit_exceeded"
 	ReasonOutsideMaintenanceWindow Reason = "outside_maintenance_window"
-	ReasonDeadlineOverride         Reason = "deadline_override"
-	ReasonUnknownRiskTier          Reason = "unknown_risk_tier"
-	ReasonChangeClassNotAllowed    Reason = "change_class_not_allowed"
-	ReasonTrustRampNotSatisfied    Reason = "trust_ramp_not_satisfied"
-	ReasonProviderUnsupported      Reason = "provider_unsupported"
-	ReasonOperatorApproved         Reason = "operator_approved"
-	ReasonUnknownTrustLevel        Reason = "unknown_trust_level"
-	ReasonSQLValidationDegraded    Reason = "sql_validation_degraded"
+	// ReasonWindowClosing withholds a moderate or high action inside its
+	// window when the window closes before window_start_margin_minutes.
+	ReasonWindowClosing         Reason = "window_closing"
+	ReasonDeadlineOverride      Reason = "deadline_override"
+	ReasonUnknownRiskTier       Reason = "unknown_risk_tier"
+	ReasonChangeClassNotAllowed Reason = "change_class_not_allowed"
+	ReasonTrustRampNotSatisfied Reason = "trust_ramp_not_satisfied"
+	ReasonProviderUnsupported   Reason = "provider_unsupported"
+	ReasonOperatorApproved      Reason = "operator_approved"
+	ReasonUnknownTrustLevel     Reason = "unknown_trust_level"
+	ReasonSQLValidationDegraded Reason = "sql_validation_degraded"
 	// ReasonRefusedByPolicy sends a self-initiated action that matches a
 	// refusal_set token to a human; Decision.Detail names the token.
 	ReasonRefusedByPolicy Reason = "refused_by_policy"
@@ -65,6 +68,13 @@ const (
 	// ReasonNarrowingDuringStop executes a narrowing contract while a hard
 	// stop (emergency stop, disabled executor, replica) blocks the rest.
 	ReasonNarrowingDuringStop Reason = "narrowing_during_stop"
+	// ReasonTargetMismatch blocks a self-initiated statement that changes
+	// another relation than the one its finding or proposal names
+	// (executor-08); Decision.Detail names both. No approval lifts it.
+	ReasonTargetMismatch Reason = "target_mismatch"
+	// ReasonDropRestore executes the soft-drop restore of an index pg_sage
+	// dropped itself, past a trust downgrade (executor-01).
+	ReasonDropRestore Reason = "drop_restore_bypass"
 )
 
 // RollbackClass states how an action is undone. It mirrors the executor
@@ -142,6 +152,15 @@ type ActionRequest struct {
 	Deadline        *DeadlineContext
 	Evidence        map[string]any
 	IsReplica       bool
+	// TargetsNameNoRelation marks targets that name a setting, the
+	// instance, a database or a query, not a relation: the facts binder
+	// matches only their slot targets ("slot:<name>"). Every other check
+	// (leases, budgets, the one-object L3 rule) still sees TargetObjs.
+	TargetsNameNoRelation bool
+	// TargetMismatch, when set, says the statement changes another
+	// relation than the request names: the gate blocks it as
+	// target_mismatch with this detail.
+	TargetMismatch string
 	// ExplainFamily asks Explain for an action family's readiness, where no
 	// concrete SQL exists. Authorize ignores it and always validates SQL.
 	ExplainFamily bool
@@ -175,6 +194,9 @@ type ActionRequest struct {
 	CapabilityClass string
 	// ArtifactHash is the request-envelope hash (§6.9, §6.13), or "".
 	ArtifactHash string
+	// assumeWindowOpen evaluates the operator path as if the maintenance
+	// windows were open: only Explain sets it, to compute WindowOnly.
+	assumeWindowOpen bool
 }
 
 type Decision struct {
@@ -205,6 +227,19 @@ type Decision struct {
 	// object that parked it, that an operator approval overrode, or that
 	// was released at its hard deadline (one change per object).
 	VerificationWait *VerificationWait
+	// PolicyReadError is why the standing policy could not be read when a
+	// revert ran anyway (policy-05): it ran under safety.lock_timeout_ms.
+	PolicyReadError string
+	// PolicyVersion and PolicySHA256 name the standing-policy document the
+	// gate evaluated (policy-03). A decision made before the gate read one
+	// (a hard stop, a failed read) carries 0 and "".
+	PolicyVersion int64
+	PolicySHA256  string
+	// WindowOnly marks an Explain of an operator approval whose only
+	// refusal is the maintenance window (outside it, or closing): with the
+	// window open it would execute, so the approval can be scheduled for
+	// the next opening (policy-04). Authorize never sets it.
+	WindowOnly bool
 }
 
 // RuntimeState is the live authority snapshot for one authorization.
@@ -234,6 +269,10 @@ type RuntimeState struct {
 	// unset window restricts autonomous moderate actions but not operator
 	// approvals.
 	WindowConfigured bool
+	// TrustWindow is the trust.maintenance_window expression ("" when it
+	// is unset or disabled). The start margin and the next-window planner
+	// read when it closes and opens; "" with WindowConfigured never opens.
+	TrustWindow string
 	// SQLValidationDegraded reports a build without the parse-tree SQL
 	// layer (no cgo). Mutations it would run unattended go to approval.
 	SQLValidationDegraded bool
@@ -306,6 +345,10 @@ type GateConfig struct {
 	// A4); nil means agent governance is off and such requests are capped
 	// at L2 (approval).
 	Agents AgentDecider
+	// RecordFailed, when set, hears every decision the gate could not
+	// record, with the error; the gate then answers blocked
+	// policy_unavailable (fail closed). The executor counts and logs it.
+	RecordFailed func(context.Context, ActionRequest, Decision, error)
 }
 
 var (

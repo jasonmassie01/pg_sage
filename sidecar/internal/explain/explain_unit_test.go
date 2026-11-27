@@ -75,37 +75,9 @@ func TestExplain_EmptyQueryAndZeroQueryID(t *testing.T) {
 	}
 }
 
-func TestExplain_QueryIDNotImplemented(t *testing.T) {
-	ex := New(nil, &config.ExplainConfig{}, noopLogFn)
-	_, err := ex.Explain(context.Background(), ExplainRequest{
-		Query:   "",
-		QueryID: 12345,
-	})
-	if err == nil {
-		t.Fatal("expected error for query_id lookup, got nil")
-	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error = %q, want it to contain %q",
-			err.Error(), "not yet implemented")
-	}
-}
-
-func TestExplain_QueryIDWithQuery(t *testing.T) {
-	// When both query and query_id are provided, query_id takes precedence
-	// and returns the not-implemented error.
-	ex := New(nil, &config.ExplainConfig{}, noopLogFn)
-	_, err := ex.Explain(context.Background(), ExplainRequest{
-		Query:   "SELECT 1",
-		QueryID: 99,
-	})
-	if err == nil {
-		t.Fatal("expected error when query_id is set, got nil")
-	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error = %q, want it to contain %q",
-			err.Error(), "not yet implemented")
-	}
-}
+// tuning-10 replaced the "query_id lookup not yet implemented" refusal:
+// query_id now resolves (queryid_unit_test.go, queryid_db_test.go), and
+// query plus query_id together is refused as "not both".
 
 func TestExplain_DDLStatements(t *testing.T) {
 	ex := New(nil, &config.ExplainConfig{}, noopLogFn)
@@ -289,8 +261,9 @@ func TestBuildResult_ZeroCostPlan(t *testing.T) {
 
 // ---------- extractNodes edge cases ----------
 
-func TestExtractNodes_NoWarningAtExactly10x(t *testing.T) {
-	// Boundary: ratio must be > 10 to trigger warning, not >= 10.
+func TestExtractNodes_WarningAtExactly10x(t *testing.T) {
+	// Boundary (tuning-10): a misestimate of 10x or more warns, so exactly
+	// 10x now warns.
 	planJSON := json.RawMessage(`[{
 		"Plan": {
 			"Node Type": "Seq Scan",
@@ -309,10 +282,9 @@ func TestExtractNodes_NoWarningAtExactly10x(t *testing.T) {
 	if len(nodes) != 1 {
 		t.Fatalf("expected 1 node, got %d", len(nodes))
 	}
-	// 1000/100 = 10.0 exactly — should NOT trigger warning (> 10, not >= 10).
-	if nodes[0].Warning != "" {
-		t.Errorf("Warning = %q, want empty for exactly 10x ratio",
-			nodes[0].Warning)
+	// 1000/100 = 10.0 exactly — warns (>= 10).
+	if nodes[0].Warning == "" {
+		t.Error("Warning is empty, want a warning for exactly 10x ratio")
 	}
 }
 
@@ -353,8 +325,9 @@ func TestExtractNodes_WarningAt11x(t *testing.T) {
 	}
 }
 
-func TestExtractNodes_NoWarningWhenPlanRowsZero(t *testing.T) {
-	// When PlanRows is 0, no ratio can be computed — no warning.
+func TestExtractNodes_WarningWhenPlanRowsZero(t *testing.T) {
+	// tuning-10: an estimate of 0 counts as 1, so 1000 actual rows are a
+	// 1000x underestimate and warn (the old rule skipped PlanRows 0).
 	planJSON := json.RawMessage(`[{
 		"Plan": {
 			"Node Type": "Seq Scan",
@@ -373,9 +346,8 @@ func TestExtractNodes_NoWarningWhenPlanRowsZero(t *testing.T) {
 	if len(nodes) != 1 {
 		t.Fatalf("expected 1 node, got %d", len(nodes))
 	}
-	// PlanRows=0 means the ratio guard (n.PlanRows > 0) prevents warning.
-	if nodes[0].Warning != "" {
-		t.Errorf("Warning = %q, want empty when PlanRows is 0",
+	if !strings.Contains(nodes[0].Warning, "1000x") {
+		t.Errorf("Warning = %q, want a 1000x warning when PlanRows is 0",
 			nodes[0].Warning)
 	}
 }
@@ -485,8 +457,9 @@ func TestExtractNodes_DeeplyNestedPlan(t *testing.T) {
 }
 
 func TestExtractNodes_ActualRowsZero(t *testing.T) {
-	// Actual Rows = 0 means the node returned nothing. No warning
-	// because ratio is 0 / PlanRows which is < 10.
+	// Actual Rows = 0 means the node returned nothing. tuning-10: 0 counts
+	// as 1, so an estimate of 100 is a 100x overestimate and warns (the
+	// old rule only warned on underestimates).
 	planJSON := json.RawMessage(`[{
 		"Plan": {
 			"Node Type": "Index Scan",
@@ -508,142 +481,9 @@ func TestExtractNodes_ActualRowsZero(t *testing.T) {
 	if nodes[0].Rows != 0 {
 		t.Errorf("Rows = %d, want 0", nodes[0].Rows)
 	}
-	if nodes[0].Warning != "" {
-		t.Errorf("Warning = %q, want empty for 0 actual rows",
+	if !strings.Contains(nodes[0].Warning, "100x") {
+		t.Errorf("Warning = %q, want a 100x warning for 0 actual rows",
 			nodes[0].Warning)
-	}
-}
-
-// ---------- normalizeQuery edge cases ----------
-
-func TestNormalizeQuery_EmptyString(t *testing.T) {
-	got := normalizeQuery("")
-	if got != "" {
-		t.Errorf("normalizeQuery(\"\") = %q, want empty", got)
-	}
-}
-
-func TestNormalizeQuery_OnlyWhitespace(t *testing.T) {
-	got := normalizeQuery("   \t\n  ")
-	if got != "" {
-		t.Errorf("normalizeQuery(whitespace) = %q, want empty", got)
-	}
-}
-
-func TestNormalizeQuery_OnlyComment(t *testing.T) {
-	got := normalizeQuery("-- just a comment")
-	if got != "" {
-		t.Errorf("normalizeQuery(comment-only) = %q, want empty", got)
-	}
-}
-
-func TestNormalizeQuery_NestedBlockComments(t *testing.T) {
-	// Note: the regex is non-greedy so it handles this as two separate
-	// block comments, not as one nested one.
-	got := normalizeQuery("SELECT /* comment1 */ a /* comment2 */ FROM t")
-	want := "SELECT a FROM t"
-	if got != want {
-		t.Errorf("normalizeQuery(nested block comments)\n  got  %q\n  want %q",
-			got, want)
-	}
-}
-
-func TestNormalizeQuery_MixedCommentTypes(t *testing.T) {
-	got := normalizeQuery(
-		"SELECT /* block */ * FROM t -- line comment\nWHERE id = 1",
-	)
-	want := "SELECT * FROM t WHERE id = 1"
-	if got != want {
-		t.Errorf("normalizeQuery(mixed comments)\n  got  %q\n  want %q",
-			got, want)
-	}
-}
-
-func TestNormalizeQuery_TabsAndNewlines(t *testing.T) {
-	got := normalizeQuery("SELECT\t*\nFROM\tt\nWHERE\tid\t=\t1")
-	want := "SELECT * FROM t WHERE id = 1"
-	if got != want {
-		t.Errorf("normalizeQuery(tabs+newlines)\n  got  %q\n  want %q",
-			got, want)
-	}
-}
-
-// ---------- queryHash edge cases ----------
-
-func TestQueryHash_NilVsEmptyParams(t *testing.T) {
-	h1 := queryHash("SELECT 1", nil)
-	h2 := queryHash("SELECT 1", []string{})
-	if h1 != h2 {
-		t.Errorf("nil params vs empty slice produced different hashes: %d vs %d",
-			h1, h2)
-	}
-}
-
-func TestQueryHash_EmptyQuery(t *testing.T) {
-	// Should not panic.
-	h := queryHash("", nil)
-	if h == 0 {
-		// FNV-64a of empty string is not zero, but let's check it's
-		// deterministic rather than asserting a specific value.
-		h2 := queryHash("", nil)
-		if h != h2 {
-			t.Errorf("empty query hash not deterministic: %d vs %d", h, h2)
-		}
-	}
-}
-
-func TestQueryHash_WhitespaceNormalized(t *testing.T) {
-	h1 := queryHash("SELECT  *  FROM  t", nil)
-	h2 := queryHash("SELECT * FROM t", nil)
-	if h1 != h2 {
-		t.Errorf("queries differing only in whitespace produced "+
-			"different hashes: %d vs %d", h1, h2)
-	}
-}
-
-func TestQueryHash_MultipleParams(t *testing.T) {
-	h1 := queryHash("SELECT $1, $2", []string{"a", "b"})
-	h2 := queryHash("SELECT $1, $2", []string{"b", "a"})
-	if h1 == h2 {
-		t.Error("different param order should produce different hashes")
-	}
-}
-
-func TestQueryHash_ParamSeparation(t *testing.T) {
-	// Ensure ["ab", ""] and ["a", "b"] produce different hashes.
-	// This is guaranteed by the null separator byte between params.
-	h1 := queryHash("SELECT $1, $2", []string{"ab", ""})
-	h2 := queryHash("SELECT $1, $2", []string{"a", "b"})
-	if h1 == h2 {
-		t.Error("params ['ab',''] and ['a','b'] should produce different hashes")
-	}
-}
-
-// ---------- hasParamPlaceholder edge cases ----------
-
-func TestHasParamPlaceholder_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name  string
-		query string
-		want  bool
-	}{
-		{"$0", "SELECT $0", true},
-		{"$9", "SELECT $9", true},
-		{"$10", "SELECT $10", true},
-		{"double digit", "SELECT $12", true},
-		{"no dollar", "SELECT 1", false},
-		{"dollar without number", "SELECT $a", false},
-		{"dollar at end", "SELECT $", false},
-		{"embedded in word", "SELECT foo$1bar", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := hasParamPlaceholder(tt.query)
-			if got != tt.want {
-				t.Errorf("hasParamPlaceholder(%q) = %v, want %v",
-					tt.query, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -955,8 +795,9 @@ func TestBuildResult_RealisticAnalyzePlan(t *testing.T) {
 	if result.ActualTimeMs == nil {
 		t.Fatal("ActualTimeMs is nil for analyzed plan")
 	}
-	if *result.ActualTimeMs != 15.2 {
-		t.Errorf("ActualTimeMs = %f, want 15.2", *result.ActualTimeMs)
+	// tuning-10: the statement's Execution Time, not the root node's 15.2.
+	if *result.ActualTimeMs != 15.5 {
+		t.Errorf("ActualTimeMs = %f, want 15.5", *result.ActualTimeMs)
 	}
 	if result.PlanningTimeMs == nil {
 		t.Fatal("PlanningTimeMs is nil, expected from Planning Time in JSON")
@@ -1407,6 +1248,29 @@ func sendDataRow(w io.Writer, value string) {
 	pgMsg(w, 'D', dr)
 }
 
+// isAppPathRead reports the application search_path read (apppath),
+// which the fake answers with one NULL row: no setting applies.
+func isAppPathRead(query string) bool {
+	return strings.Contains(query, "pg_db_role_setting")
+}
+
+// fakeParamDescription describes one text parameter for the path's
+// set_config and none for every other statement.
+func fakeParamDescription(query string) []byte {
+	if strings.Contains(query, "set_config('search_path', $1") {
+		return []byte{0, 1, 0, 0, 0, 25}
+	}
+	return []byte{0, 0}
+}
+
+// sendNullRow sends a DataRow with one NULL value.
+func sendNullRow(w io.Writer) {
+	dr := make([]byte, 2+4)
+	binary.BigEndian.PutUint16(dr[0:2], 1)          // 1 column
+	binary.BigEndian.PutUint32(dr[2:6], 0xFFFFFFFF) // length -1: NULL
+	pgMsg(w, 'D', dr)
+}
+
 func (s *fakePGServer) handleConn(conn net.Conn) {
 	defer conn.Close()
 
@@ -1511,6 +1375,7 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 
 		case 'S': // Sync — respond to accumulated batch.
 			isExplain := strings.HasPrefix(parsedQuery, "EXPLAIN")
+			isPathRead := isAppPathRead(parsedQuery)
 
 			if s.failExec && (hasParse || hasExecute) {
 				sendError(conn, "42601", "simulated error")
@@ -1518,9 +1383,9 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 			} else if hasParse && hasDescribeStmt &&
 				!hasBind && !hasExecute {
 				// Phase 1: Parse + Describe Statement + Sync.
-				pgMsg(conn, '1', nil)          // ParseComplete
-				pgMsg(conn, 't', []byte{0, 0}) // ParamDescription
-				if isExplain {
+				pgMsg(conn, '1', nil)                               // ParseComplete
+				pgMsg(conn, 't', fakeParamDescription(parsedQuery)) // ParamDescription
+				if isExplain || isPathRead {
 					sendRowDescription(conn, "QUERY PLAN")
 				} else {
 					pgMsg(conn, 'n', nil) // NoData
@@ -1530,7 +1395,7 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 				// Phase 2: Bind + Describe Portal + Execute + Sync.
 				pgMsg(conn, '2', nil) // BindComplete
 				if hasDescribePortal {
-					if isExplain {
+					if isExplain || isPathRead {
 						sendRowDescription(conn, "QUERY PLAN")
 					} else {
 						pgMsg(conn, 'n', nil) // NoData
@@ -1538,6 +1403,8 @@ func (s *fakePGServer) handleConn(conn net.Conn) {
 				}
 				if isExplain {
 					sendDataRow(conn, s.planJSON)
+				} else if isPathRead {
+					sendNullRow(conn)
 				}
 				pgMsg(conn, 'C', pgStr("SET"))
 				pgMsg(conn, 'Z', []byte{'I'})
@@ -1659,8 +1526,8 @@ func TestExplain_FullPathWithFakeServer(t *testing.T) {
 	if result.ActualTimeMs == nil {
 		t.Fatal("ActualTimeMs is nil for analyzed query")
 	}
-	if *result.ActualTimeMs != 0.002 {
-		t.Errorf("ActualTimeMs = %f, want 0.002", *result.ActualTimeMs)
+	if *result.ActualTimeMs != 0.003 { // tuning-10: Execution Time, not the root's 0.002
+		t.Errorf("ActualTimeMs = %f, want the Execution Time 0.003", *result.ActualTimeMs)
 	}
 	if result.PlanningTimeMs == nil {
 		t.Fatal("PlanningTimeMs is nil")

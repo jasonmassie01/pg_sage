@@ -55,11 +55,6 @@ func settleCall(b Budgeter, held, actual int) {
 // errors.Is to avoid treating admission control as a provider failure.
 var ErrRequestCooldown = errors.New("LLM request cooldown active")
 
-type budgetReservation struct {
-	tokens   int
-	external int
-}
-
 func configEnabled(cfg config.LLMConfig) bool {
 	return cfg.ValidateDatabricksApp() == nil && cfg.Enabled && cfg.Endpoint != "" && (cfg.APIKey != "" || cfg.Auth == "databricks")
 }
@@ -103,13 +98,9 @@ func (c *Client) beginRequest(
 	if c.cfg != nil {
 		cfg = *c.cfg
 	}
-	timeoutSeconds := cfg.TimeoutSeconds
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = config.DefaultLLMTimeoutSeconds
-	}
-	requestCtx, cancel := context.WithTimeout(
-		ctx, time.Duration(timeoutSeconds)*time.Second,
-	)
+	// Each provider attempt has its own deadline (attemptTimeout); the
+	// request as a whole is bounded by the caller and by Reconfigure.
+	requestCtx, cancel := context.WithCancel(ctx)
 	c.inflight[id] = cancel
 	generation := c.generation
 	c.stateMu.Unlock()
@@ -129,13 +120,18 @@ func (c *Client) generationCurrent(generation uint64) bool {
 }
 
 // Reconfigure atomically installs a detached config and cancels requests
-// authorized by the previous endpoint, credential, or enabled state.
+// authorized by the previous endpoint, credential, or enabled state. A new
+// endpoint, key, auth mode or model also closes the circuit breaker.
 func (c *Client) Reconfigure(next *config.LLMConfig) {
 	if next == nil {
 		next = &config.LLMConfig{}
 	}
 	snapshot := *next
 	c.stateMu.Lock()
+	prev := config.LLMConfig{}
+	if c.cfg != nil {
+		prev = *c.cfg
+	}
 	c.cfg = &snapshot
 	c.generation++
 	for _, cancel := range c.inflight {
@@ -145,6 +141,7 @@ func (c *Client) Reconfigure(next *config.LLMConfig) {
 	c.mu.Lock()
 	c.cooldown = circuitCooldown(snapshot.CooldownSeconds)
 	c.mu.Unlock()
+	c.resetBreakerOnProviderChange(prev, snapshot)
 }
 
 func requestThrottleKey(cfg config.LLMConfig, system, user string) string {
@@ -231,73 +228,4 @@ func externalReservation(system, user string, maxTokens int) int {
 		return maxTokens
 	}
 	return estimate
-}
-
-func (c *Client) reserveBudget(
-	cfg config.LLMConfig,
-	tokens int,
-	external int,
-) (budgetReservation, error) {
-	c.budgetMu.Lock()
-	defer c.budgetMu.Unlock()
-	today := budgetDay(time.Now())
-	if today != c.budgetResetDay.Load() {
-		c.tokensUsedToday.Store(0)
-		c.reservedTokens = 0
-		c.budgetResetDay.Store(today)
-	}
-	used := c.tokensUsedToday.Load()
-	if cfg.TokenBudgetDaily > 0 && used >= int64(cfg.TokenBudgetDaily) {
-		return budgetReservation{}, budgetError(fmt.Sprintf(
-			"daily token budget exhausted (%d/%d)", used, cfg.TokenBudgetDaily,
-		))
-	}
-	if cfg.TokenBudgetDaily > 0 &&
-		used+c.reservedTokens+int64(tokens) > int64(cfg.TokenBudgetDaily) {
-		return budgetReservation{}, budgetError(fmt.Sprintf(
-			"daily token budget exhausted (%d reserved or used/%d)",
-			used+c.reservedTokens, cfg.TokenBudgetDaily,
-		))
-	}
-	c.reservedTokens += int64(tokens)
-	reservation := budgetReservation{tokens: tokens}
-	if c.budget != nil {
-		externalBudgetMu.Lock()
-		if !c.budget.CanSpend(external) {
-			externalBudgetMu.Unlock()
-			c.reservedTokens -= int64(tokens)
-			return budgetReservation{}, budgetError(
-				"per-database token budget exhausted",
-			)
-		}
-		// Charge the estimate as a reservation before provider I/O. A failed
-		// request releases it; a completed request reconciles it to actual use.
-		c.budget.Spend(external)
-		externalBudgetMu.Unlock()
-		reservation.external = external
-	}
-	return reservation, nil
-}
-
-func (c *Client) releaseBudget(reservation budgetReservation) {
-	c.budgetMu.Lock()
-	defer c.budgetMu.Unlock()
-	c.reservedTokens -= int64(reservation.tokens)
-	if c.budget != nil && reservation.external > 0 {
-		externalBudgetMu.Lock()
-		c.budget.Spend(-reservation.external)
-		externalBudgetMu.Unlock()
-	}
-}
-
-func (c *Client) reconcileBudget(reservation budgetReservation, actual int) {
-	c.budgetMu.Lock()
-	defer c.budgetMu.Unlock()
-	c.reservedTokens -= int64(reservation.tokens)
-	c.tokensUsedToday.Add(int64(actual))
-	if c.budget != nil {
-		externalBudgetMu.Lock()
-		c.budget.Spend(actual - reservation.external)
-		externalBudgetMu.Unlock()
-	}
 }

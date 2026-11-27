@@ -240,7 +240,7 @@ func TestMetaDBFlag(t *testing.T) {
 
 	metaURL := "postgres://meta:pass@metahost:5432/metadb"
 	cfg, err := Load([]string{
-		"--mode=standalone",
+		"--mode=meta",
 		"--meta-db=" + metaURL,
 	})
 	if err != nil {
@@ -303,7 +303,7 @@ func TestMetaDBPrecedence(t *testing.T) {
 	// CLI flag should override both.
 	cfg, err := Load([]string{
 		"--config=" + cfgPath,
-		"--mode=standalone",
+		"--mode=meta",
 		"--meta-db=postgres://cli@host/db",
 	})
 	if err != nil {
@@ -339,7 +339,7 @@ func TestMetaDBPrecedence_EnvOverYAML(t *testing.T) {
 
 	cfg, err := Load([]string{
 		"--config=" + cfgPath,
-		"--mode=standalone",
+		"--mode=meta",
 	})
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
@@ -402,7 +402,9 @@ postgres:
 	}
 }
 
-func TestStandaloneWithMetaDBAllowed(t *testing.T) {
+// config-10: meta-db with no postgres config loads once mode is left to be
+// inferred; mode standalone plus meta_db is refused (mode_test.go).
+func TestMetaDBWithoutPostgresConfigAllowed(t *testing.T) {
 	tmp := t.TempDir()
 	orig, err := os.Getwd()
 	if err != nil {
@@ -411,9 +413,8 @@ func TestStandaloneWithMetaDBAllowed(t *testing.T) {
 	t.Cleanup(func() { os.Chdir(orig) })
 	os.Chdir(tmp)
 
-	// Standalone with meta-db but no postgres config should pass.
-	yamlContent := `mode: standalone
-postgres:
+	// Meta-db with no postgres config should pass.
+	yamlContent := `postgres:
   host: ""
   database_url: ""
 `

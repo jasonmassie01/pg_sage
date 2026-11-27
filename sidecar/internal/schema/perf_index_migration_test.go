@@ -104,7 +104,6 @@ var unindexedFKExemptions = map[string]string{
 	"chatops_identities(user_id)":    "users are deleted by an admin, rarely; tiny table",
 	"notification_rules(channel_id)": "notification channels are configuration; tiny table",
 	"policy(supersedes_id)":          "policy versions are kept, never deleted",
-	"decision(policy_id)":            "policy versions are kept, never deleted",
 	"sre_runbook_runs(deployment_id, database_id, runbook_id, version)": "runbook " +
 		"versions are immutable and never deleted",
 	// Investigation-scoped keys: the primary key prefix (deployment_id,

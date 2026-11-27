@@ -25,12 +25,20 @@ type Advisor struct {
 	logFn      func(string, string, ...any)
 	llmClient  *llm.Client      // nil = deterministic-only, no LLM fallback
 	scriptGen  *ScriptGenerator // nil = deterministic SafeAlternative only
+	// enricher runs the model work off the poll path, and cache keeps one
+	// answer per statement identity for both detectors (migration-10).
+	// Both are nil without a model.
+	enricher *Enricher
+	cache    *replyCache
 }
 
 // WithCatalogReadTimeouts bounds the risk assessment's live-metric reads
 // with the safety configuration's timeouts.
 func (a *Advisor) WithCatalogReadTimeouts(t catalogread.Timeouts) *Advisor {
 	a.assessor.SetCatalogReadTimeouts(t)
+	if a.scriptGen != nil {
+		a.scriptGen.timeouts = t
+	}
 	return a
 }
 
@@ -50,7 +58,7 @@ func NewAdvisor(
 			cfg.Mode)
 	}
 	a := &Advisor{
-		classifier: NewRegexClassifier(),
+		classifier: NewClassifier(),
 		assessor:   NewRiskAssessor(pool, logFn),
 		pool:       pool,
 		cfg:        cfg,
@@ -65,6 +73,9 @@ func NewAdvisor(
 	if llmClient != nil {
 		a.scriptGen = NewScriptGenerator(
 			llmClient, pool, pgVersion, logFn)
+		a.cache = newReplyCache(enrichCacheSize, enrichCacheTTL)
+		a.scriptGen.cache = a.cache
+		a.enricher = newEnricher(dbName, enrichQueueSize, a.runEnrichJob, logFn)
 	}
 	return a
 }
@@ -74,27 +85,54 @@ func NewAdvisor(
 // threshold (risk_score > 0.3). Returns nil if all risks are low.
 //
 // The statement is sanitized first (comments stripped, literals
-// redacted) so no observed literal reaches a log, the findings table,
-// or the LLM. Only table-level DDL that no rule classified and that is
-// not already in its safe form may be sent to the LLM (G7-B01, G7-B27).
+// redacted) so no observed literal reaches a log or the findings table.
+// Analyze never calls the model: the detectors queue that work after
+// persisting the deterministic finding (queueEnrichment, migration-10).
 func (a *Advisor) Analyze(
 	ctx context.Context, sql string,
 ) (*rca.Incident, error) {
+	inc, _, err := a.AnalyzeSessionRisk(ctx, sql, "", 0)
+	return inc, err
+}
+
+// AnalyzeRisk is Analyze that also returns the winning assessment, whose
+// live measurements the finding detail carries (migration-01).
+func (a *Advisor) AnalyzeRisk(
+	ctx context.Context, sql string,
+) (*rca.Incident, *DDLRisk, error) {
+	return a.AnalyzeSessionRisk(ctx, sql, "", 0)
+}
+
+// AnalyzeSession is Analyze for DDL run by role, whose search_path
+// resolves unqualified table names ("" when the role is unknown).
+func (a *Advisor) AnalyzeSession(
+	ctx context.Context, sql, role string,
+) (*rca.Incident, error) {
+	inc, _, err := a.AnalyzeSessionRisk(ctx, sql, role, 0)
+	return inc, err
+}
+
+// AnalyzeSessionRisk is AnalyzeSession that also returns the winning
+// assessment, for the DDL running in backend pid (0 when unknown), which
+// the activity read leaves out. The risk is nil whenever the incident is.
+func (a *Advisor) AnalyzeSessionRisk(
+	ctx context.Context, sql, role string, pid int,
+) (*rca.Incident, *DDLRisk, error) {
 	clean := sanitizeDDL(sql)
 	classifications := a.classifier.Classify(clean, a.pgVersion)
 	if len(classifications) == 0 {
-		if a.llmClient != nil && a.llmClient.IsEnabled() &&
-			llmEgressAllowed(clean) {
-			return a.llmFallback(ctx, clean)
-		}
-		return nil, nil
+		return nil, nil, nil
 	}
 
+	for i := range classifications {
+		classifications[i].SessionRole = role
+		classifications[i].SessionPID = pid
+	}
 	highest, lockTimeout := a.assessHighest(ctx, classifications)
 	if highest == nil || highest.RiskScore <= incidentThreshold {
-		return nil, nil
+		return nil, nil, nil
 	}
-	incident := a.buildIncident(ctx, highest)
+	incident := a.buildIncident(highest)
 	if lockTimeout != nil && highest.LockLevel == "ACCESS EXCLUSIVE" {
 		incident.CausalChain = append(incident.CausalChain, rca.ChainLink{
 			Order:  len(incident.CausalChain) + 1,
@@ -103,31 +141,23 @@ func (a *Advisor) Analyze(
 				lockTimeout.SafeAlternative,
 		})
 	}
-	return incident, nil
+	return incident, highest, nil
 }
 
-// assessHighest scores every classification except the lock_timeout
-// annotation (which has no intrinsic hazard of its own, G7-B33) and
-// returns the highest-risk one plus the annotation, if present.
+// assessHighest scores every classification with Review's path
+// (scoreClassifications: the lock_timeout annotation is not scored,
+// G7-B33) and returns the highest-risk one plus the annotation, if
+// present.
 func (a *Advisor) assessHighest(
 	ctx context.Context, classifications []DDLClassification,
 ) (*DDLRisk, *DDLClassification) {
+	refine := func(c *DDLClassification) { a.refineAlterType(ctx, c) }
+	risks, lockTimeout, err := scoreClassifications(ctx, a.assessor, classifications, refine)
+	if err != nil {
+		a.logFn("warn", "migration: %v", err)
+	}
 	var highest *DDLRisk
-	var lockTimeout *DDLClassification
-	for i := range classifications {
-		c := classifications[i]
-		if c.RuleID == "ddl_missing_lock_timeout" {
-			lockTimeout = &classifications[i]
-			continue
-		}
-		a.refineAlterType(ctx, &c)
-		risk, err := a.assessor.Assess(ctx, c)
-		if err != nil {
-			a.logFn("warn",
-				"migration: risk assessment failed for %s: %v",
-				c.RuleID, err)
-			continue
-		}
+	for _, risk := range risks {
 		if highest == nil || risk.RiskScore > highest.RiskScore {
 			highest = risk
 		}
@@ -135,12 +165,10 @@ func (a *Advisor) assessHighest(
 	return highest, lockTimeout
 }
 
-// buildIncident converts a DDLRisk into an rca.Incident. When a
-// ScriptGenerator is available, it enhances RecommendedSQL with an
-// LLM-generated migration script.
-func (a *Advisor) buildIncident(
-	ctx context.Context, risk *DDLRisk,
-) *rca.Incident {
+// buildIncident converts a DDLRisk into an rca.Incident whose
+// recommendation is the rule's deterministic alternative; the model's
+// script, if any, arrives later in the finding's llm_ keys (migration-10).
+func (a *Advisor) buildIncident(risk *DDLRisk) *rca.Incident {
 	severity := "warning"
 	if risk.RiskScore > 0.7 {
 		severity = "critical"
@@ -149,7 +177,7 @@ func (a *Advisor) buildIncident(
 	tableFQN := qualifiedName(risk.SchemaName, risk.TableName)
 	chain := buildCausalChain(risk)
 
-	incident := &rca.Incident{
+	return &rca.Incident{
 		DetectedAt:      time.Now(),
 		Severity:        severity,
 		Source:          "schema_advisor",
@@ -161,15 +189,9 @@ func (a *Advisor) buildIncident(
 		ActionRisk:      fmt.Sprintf("risk_score=%.2f", risk.RiskScore),
 		Confidence:      risk.RiskScore,
 		DatabaseName:    a.dbName,
+		// The rule's own template: the only text a finding recommends.
+		RecommendedSQLSource: SQLSourceDeterministic,
 	}
-
-	if a.scriptGen != nil {
-		if script, err := a.scriptGen.Generate(ctx, risk); err == nil && script != "" {
-			incident.RecommendedSQL = script
-		}
-	}
-
-	return incident
 }
 
 func buildCausalChain(risk *DDLRisk) []rca.ChainLink {
@@ -195,6 +217,15 @@ func buildCausalChain(risk *DDLRisk) []rca.ChainLink {
 			Order:       3,
 			Signal:      "safe_alternative",
 			Description: risk.SafeAlternative,
+		})
+	}
+	if risk.NameAmbiguous {
+		chain = append(chain, rca.ChainLink{
+			Order:  len(chain) + 1,
+			Signal: "name_resolution",
+			Description: fmt.Sprintf("table name %q is ambiguous: it matches "+
+				"several schemas, so size and lock statistics are unknown",
+				risk.TableName),
 		})
 	}
 	return chain

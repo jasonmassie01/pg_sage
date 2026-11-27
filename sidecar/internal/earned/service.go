@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,7 +30,11 @@ type Config struct {
 	// Build is the running pg_sage build: a bench report stamped for
 	// another build is refused and never counts (roadmap 1.1).
 	Build Build
-	Now   func() time.Time
+	// AskAfterApprovals is how many person approvals of a self-initiated
+	// class, with no rollback, make Evaluate ask for L3 (ux-07a,
+	// trust.ask_after_approvals); 0 turns the ask off.
+	AskAfterApprovals int
+	Now               func() time.Time
 	// Log reports failures that must not block a restriction (a cap
 	// event that could not be written). Default: the standard logger.
 	Log func(format string, args ...any)
@@ -40,7 +45,8 @@ func DefaultConfig() Config {
 	return Config{Thresholds: DefaultThresholds(), ProposalTTL: 7 * 24 * time.Hour,
 		MaxEvidenceAge: 5 * time.Minute, ConcurrencyWindow: 15 * time.Minute,
 		SafetyWindow: 30 * 24 * time.Hour, FailoverCooldown: 30 * time.Minute,
-		EvidenceCacheTTL: time.Minute, Now: time.Now}
+		EvidenceCacheTTL: time.Minute, AskAfterApprovals: DefaultAskAfterApprovals,
+		Now: time.Now}
 }
 
 // Service is one database's ledger: levels, proposals, approvals,
@@ -52,12 +58,18 @@ type Service struct {
 
 	mu    sync.Mutex
 	cache map[pairKey]cachedLevel
+	// invalidations counts the cache drops: an idle reconcile pass makes
+	// none (earned-02).
+	invalidations int64
 	// ramp is the trust ramp, the promotion floor of self-initiated
 	// classes (WithRamp); nil: unknown.
 	ramp func() RampFloor
 	// rootNotifier tells the operator about model-root authority changes
 	// (WithRootAuthorityNotifier); nil: recorded only.
 	rootNotifier RootAuthorityNotifier
+	// modelOf is the model the database's investigator runs
+	// (WithRunningModel); nil: unknown, so model roots stay advisory.
+	modelOf func() string
 }
 
 type pairKey struct {
@@ -67,6 +79,7 @@ type pairKey struct {
 
 type cachedLevel struct {
 	level Level
+	ev    Evidence
 	at    time.Time
 }
 
@@ -89,6 +102,7 @@ func NewService(store *PostgresStore, cfg Config) (*Service, error) {
 	if cfg.EvidenceCacheTTL < 0 {
 		cfg.EvidenceCacheTTL = 0
 	}
+	cfg.AskAfterApprovals = max(cfg.AskAfterApprovals, 0)
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -173,30 +187,39 @@ func defaultState(f Family, c ActionClass) State {
 // cached for EvidenceCacheTTL.
 func (s *Service) supportedLevel(ctx context.Context, f Family, c ActionClass) (Level,
 	error) {
+	level, _, err := s.supportedEvidence(ctx, f, c)
+	return level, err
+}
+
+// supportedEvidence is the pair's current evidence and the level it
+// supports, cached together for EvidenceCacheTTL.
+func (s *Service) supportedEvidence(ctx context.Context, f Family, c ActionClass) (Level,
+	Evidence, error) {
 	key, now := pairKey{f, c}, s.now()
 	if s.cfg.EvidenceCacheTTL > 0 {
 		s.mu.Lock()
 		hit, ok := s.cache[key]
 		s.mu.Unlock()
 		if ok && now.Sub(hit.at) < s.cfg.EvidenceCacheTTL {
-			return hit.level, nil
+			return hit.level, hit.ev, nil
 		}
 	}
 	ev, err := s.Evidence(ctx, f, c)
 	if err != nil {
-		return L0, err
+		return L0, Evidence{}, err
 	}
 	level := SupportedLevel(s.cfg.Thresholds, ev)
 	s.mu.Lock()
-	s.cache[key] = cachedLevel{level: level, at: now}
+	s.cache[key] = cachedLevel{level: level, ev: ev, at: now}
 	s.mu.Unlock()
-	return level, nil
+	return level, ev, nil
 }
 
 // invalidate drops cached evidence (after outcomes, reviews, ingestion).
 func (s *Service) invalidate() {
 	s.mu.Lock()
 	s.cache = map[pairKey]cachedLevel{}
+	s.invalidations++
 	s.mu.Unlock()
 }
 
@@ -207,12 +230,15 @@ func (s *Service) ProposePromotions(ctx context.Context) ([]Proposal, error) {
 	return e.Created, err
 }
 
+// createProposal stores a pending proposal of st to target on ev, held
+// as a; kind names what it rests on ("" the bar, or approval_history).
 func (s *Service) createProposal(ctx context.Context, st State, target Level, ev Evidence,
-	a Assessment) (Proposal, bool, error) {
+	a Assessment, kind string) (Proposal, bool, error) {
 	raw, err := json.Marshal(struct {
+		Kind       string     `json:"kind,omitempty"`
 		Evidence   Evidence   `json:"evidence"`
 		Assessment Assessment `json:"assessment"`
-	}{ev, a})
+	}{kind, ev, a})
 	if err != nil {
 		return Proposal{}, false, fmt.Errorf("%w: encode evidence: %v", ErrInvalidRequest, err)
 	}
@@ -226,13 +252,37 @@ func (s *Service) createProposal(ctx context.Context, st State, target Level, ev
 	}
 	err = s.store.appendEvent(ctx, s.store.pool, Event{Family: p.Family, Class: p.Class,
 		Type: EventPromotionProposed, From: levelPtr(p.From), To: levelPtr(p.To),
-		Actor: ActorPgSage, Reason: fmt.Sprintf("evidence supports %s", p.To),
+		Actor: ActorPgSage, Reason: proposalReasonOf(p.To, ev, kind),
 		ProposalID: p.ID, Evidence: raw, At: now})
 	if err != nil {
 		return Proposal{}, false, err
 	}
 	stored, err := s.store.Proposal(ctx, p.ID)
 	return stored, err == nil, err
+}
+
+// proposalReasonOf is proposalReason, or the approval history a kind
+// approval_history proposal rests on.
+func proposalReasonOf(to Level, ev Evidence, kind string) string {
+	h := ev.ApprovalHistory
+	if kind != EvidenceKindApprovalHistory || h == nil {
+		return proposalReason(to, ev.Bench)
+	}
+	return fmt.Sprintf("approval history supports %s: %d person approvals of %s with no "+
+		"rollback in 30 days (ask after %d)", to, h.Approvals, ev.Class, h.Required)
+}
+
+// proposalReason says what a proposal rests on: the level the evidence
+// supports and, with bench evidence, the deciding report's provenance and
+// id. The newest report decides whatever its origin, so the approver must
+// see which one it is.
+func proposalReason(to Level, bench *EvalRun) string {
+	reason := fmt.Sprintf("evidence supports %s", to)
+	if bench == nil {
+		return reason
+	}
+	return strings.TrimSpace(fmt.Sprintf("%s; bench: %s %s", reason,
+		bench.ProvenanceLabel(), bench.ID))
 }
 
 // expire marks pending proposals past their expiry and records it.

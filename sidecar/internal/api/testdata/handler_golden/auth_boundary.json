@@ -1,0 +1,312 @@
+[
+  {
+    "name": "auth  /api/v1/findings/1/suppress?database=primary",
+    "role": "",
+    "request": "POST /api/v1/findings/1/suppress?database=primary",
+    "status": 401,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "authentication required"
+    }
+  },
+  {
+    "name": "auth viewer /api/v1/findings/1/suppress?database=primary",
+    "role": "viewer",
+    "request": "POST /api/v1/findings/1/suppress?database=primary",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth operator /api/v1/findings/1/suppress?database=primary",
+    "role": "operator",
+    "request": "POST /api/v1/findings/1/suppress?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "finding not found"
+    }
+  },
+  {
+    "name": "auth admin /api/v1/findings/1/suppress?database=primary",
+    "role": "admin",
+    "request": "POST /api/v1/findings/1/suppress?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "finding not found"
+    }
+  },
+  {
+    "name": "auth  /api/v1/config/databases/1",
+    "role": "",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 401,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "authentication required"
+    }
+  },
+  {
+    "name": "auth viewer /api/v1/config/databases/1",
+    "role": "viewer",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth operator /api/v1/config/databases/1",
+    "role": "operator",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth admin /api/v1/config/databases/1",
+    "role": "admin",
+    "request": "PUT /api/v1/config/databases/1",
+    "status": 200,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "active_generation": 1,
+      "desired_generation": 1,
+      "status": "updated"
+    }
+  },
+  {
+    "name": "auth  /api/v1/actions/1/approve?database=primary",
+    "role": "",
+    "request": "POST /api/v1/actions/1/approve?database=primary",
+    "status": 401,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "authentication required"
+    }
+  },
+  {
+    "name": "auth viewer /api/v1/actions/1/approve?database=primary",
+    "role": "viewer",
+    "request": "POST /api/v1/actions/1/approve?database=primary",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth operator /api/v1/actions/1/approve?database=primary",
+    "role": "operator",
+    "request": "POST /api/v1/actions/1/approve?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to approve action"
+    }
+  },
+  {
+    "name": "auth admin /api/v1/actions/1/approve?database=primary",
+    "role": "admin",
+    "request": "POST /api/v1/actions/1/approve?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to approve action"
+    }
+  },
+  {
+    "name": "auth  /api/v1/actions/1/reject?database=primary",
+    "role": "",
+    "request": "POST /api/v1/actions/1/reject?database=primary",
+    "status": 401,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "authentication required"
+    }
+  },
+  {
+    "name": "auth viewer /api/v1/actions/1/reject?database=primary",
+    "role": "viewer",
+    "request": "POST /api/v1/actions/1/reject?database=primary",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth operator /api/v1/actions/1/reject?database=primary",
+    "role": "operator",
+    "request": "POST /api/v1/actions/1/reject?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to reject action"
+    }
+  },
+  {
+    "name": "auth admin /api/v1/actions/1/reject?database=primary",
+    "role": "admin",
+    "request": "POST /api/v1/actions/1/reject?database=primary",
+    "status": 404,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to reject action"
+    }
+  },
+  {
+    "name": "auth  /api/v1/emergency-stop?database=primary",
+    "role": "",
+    "request": "POST /api/v1/emergency-stop?database=primary",
+    "status": 401,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "authentication required"
+    }
+  },
+  {
+    "name": "auth viewer /api/v1/emergency-stop?database=primary",
+    "role": "viewer",
+    "request": "POST /api/v1/emergency-stop?database=primary",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth operator /api/v1/emergency-stop?database=primary",
+    "role": "operator",
+    "request": "POST /api/v1/emergency-stop?database=primary",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to persist emergency stop"
+    }
+  },
+  {
+    "name": "auth admin /api/v1/emergency-stop?database=primary",
+    "role": "admin",
+    "request": "POST /api/v1/emergency-stop?database=primary",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to persist emergency stop"
+    }
+  },
+  {
+    "name": "auth  /api/v1/resume?database=primary",
+    "role": "",
+    "request": "POST /api/v1/resume?database=primary",
+    "status": 401,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "authentication required"
+    }
+  },
+  {
+    "name": "auth viewer /api/v1/resume?database=primary",
+    "role": "viewer",
+    "request": "POST /api/v1/resume?database=primary",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth operator /api/v1/resume?database=primary",
+    "role": "operator",
+    "request": "POST /api/v1/resume?database=primary",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to persist emergency stop"
+    }
+  },
+  {
+    "name": "auth admin /api/v1/resume?database=primary",
+    "role": "admin",
+    "request": "POST /api/v1/resume?database=primary",
+    "status": 500,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "failed to persist emergency stop"
+    }
+  },
+  {
+    "name": "auth  /api/v1/config",
+    "role": "",
+    "request": "PUT /api/v1/config",
+    "status": 401,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "authentication required"
+    }
+  },
+  {
+    "name": "auth viewer /api/v1/config",
+    "role": "viewer",
+    "request": "PUT /api/v1/config",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth operator /api/v1/config",
+    "role": "operator",
+    "request": "PUT /api/v1/config",
+    "status": 403,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "insufficient permissions"
+    }
+  },
+  {
+    "name": "auth admin /api/v1/config",
+    "role": "admin",
+    "request": "PUT /api/v1/config",
+    "status": 400,
+    "content_type": "application/json",
+    "cache_control": "no-store",
+    "body": {
+      "error": "invalid config candidate: fleet mode requires at least one database"
+    }
+  }
+]

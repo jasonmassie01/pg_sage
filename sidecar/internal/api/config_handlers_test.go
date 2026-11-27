@@ -17,21 +17,13 @@ import (
 // Requires a real ConfigStore (backed by pgxpool). We test that the
 // handler correctly returns errors from the store.
 
-func TestConfigGlobalGetHandler_NilStore(t *testing.T) {
-	// ConfigStore with nil pool will panic on GetMergedConfig.
-	// This confirms the handler does call through to the store.
-	// Integration tests cover the full path.
-	//
-	// No unit test possible without interface-based store.
-}
-
 // --- configGlobalPutHandler ---
 
 func TestConfigGlobalPutHandler_MalformedJSON(t *testing.T) {
 	cfg := &config.Config{}
 	// nil ConfigStore -- we never reach it because JSON parse
 	// fails first.
-	handler := configGlobalPutHandler(nil, cfg, nil)
+	handler := configGlobalPutHandler(nil, config.NewConfigController(cfg, nil))
 
 	w := doRequest(
 		handler, "PUT", "/api/v1/config/global",
@@ -49,46 +41,27 @@ func TestConfigGlobalPutHandler_MalformedJSON(t *testing.T) {
 	}
 }
 
-func TestConfigGlobalPutHandler_EmptyObject(t *testing.T) {
-	cfg := &config.Config{}
-	handler := configGlobalPutHandler(nil, cfg, nil)
-
-	// Empty object means no keys to iterate, so
-	// applyConfigOverrides returns no errors.
-	w := doRequest(
-		handler, "PUT", "/api/v1/config/global", "{}")
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200", w.Code)
+// config-10: the controller path is the only write path; a PUT without
+// expected_generation is refused before any store access.
+func TestConfigGlobalPutHandler_RequiresExpectedGeneration(t *testing.T) {
+	cfg := config.DefaultConfig()
+	controller := config.NewConfigController(cfg, nil)
+	handler := configGlobalPutHandler(nil, controller)
+	w := doRequestWithUser(handler, "PUT", "/api/v1/config/global",
+		`{"collector.interval_seconds":"30"}`, testAdminUser())
+	if w.Code != http.StatusPreconditionRequired {
+		t.Fatalf("status: got %d, want 428; body=%s", w.Code, w.Body.String())
 	}
-
-	var resp map[string]string
-	json.NewDecoder(w.Body).Decode(&resp)
-	if resp["status"] != "updated" {
-		t.Errorf("status: got %q, want 'updated'",
-			resp["status"])
-	}
-}
-
-func TestConfigGlobalPutHandler_ExtractsUserFromContext(
-	t *testing.T,
-) {
-	cfg := &config.Config{}
-	handler := configGlobalPutHandler(nil, cfg, nil)
-
-	// With a user in context and empty body, should succeed.
-	w := doRequestWithUser(
-		handler, "PUT", "/api/v1/config/global", "{}",
-		testAdminUser())
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200", w.Code)
+	if got := controller.Desired().Config.Collector.IntervalSeconds; got !=
+		cfg.Collector.IntervalSeconds {
+		t.Fatalf("desired interval = %d, want unchanged %d", got,
+			cfg.Collector.IntervalSeconds)
 	}
 }
 
 func TestConfigGlobalPutHandler_ContentType(t *testing.T) {
 	cfg := &config.Config{}
-	handler := configGlobalPutHandler(nil, cfg, nil)
+	handler := configGlobalPutHandler(nil, config.NewConfigController(cfg, nil))
 	w := doRequest(
 		handler, "PUT", "/api/v1/config/global",
 		"not json")
@@ -102,7 +75,8 @@ func TestConfigGlobalPutHandler_ContentType(t *testing.T) {
 
 func TestConfigGlobalDeleteHandler_RejectsExecutionMode(t *testing.T) {
 	cfg := &config.Config{}
-	handler := configGlobalDeleteHandler(nil, cfg, staticConfigBase(cfg), nil)
+	handler := configGlobalDeleteHandler(
+		nil, staticConfigBase(cfg), config.NewConfigController(cfg, nil))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("DELETE /api/v1/config/global/{key}", handler)
@@ -126,7 +100,8 @@ func TestConfigGlobalDeleteHandler_RejectsExecutionMode(t *testing.T) {
 
 func TestConfigGlobalDeleteHandler_RejectsUnknownKey(t *testing.T) {
 	cfg := &config.Config{}
-	handler := configGlobalDeleteHandler(nil, cfg, staticConfigBase(cfg), nil)
+	handler := configGlobalDeleteHandler(
+		nil, staticConfigBase(cfg), config.NewConfigController(cfg, nil))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("DELETE /api/v1/config/global/{key}", handler)
@@ -390,40 +365,6 @@ func TestConfigDBPutHandler_FleetValidation_Found(
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200", w.Code)
-	}
-}
-
-func TestSyncTrustLevelToFleet(t *testing.T) {
-	cfg := &config.Config{}
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:       "db1",
-		DatabaseID: 1,
-		Config:     config.DatabaseConfig{Name: "db1"},
-		Status: &fleet.InstanceStatus{
-			TrustLevel: "advisory",
-		},
-	})
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:       "db2",
-		DatabaseID: 2,
-		Config:     config.DatabaseConfig{Name: "db2"},
-		Status: &fleet.InstanceStatus{
-			TrustLevel: "advisory",
-		},
-	})
-
-	syncTrustLevelToFleet(mgr, "autonomous")
-
-	for _, name := range []string{"db1", "db2"} {
-		inst := mgr.GetInstance(name)
-		if inst == nil {
-			t.Fatalf("instance %q not found", name)
-		}
-		if inst.Status.TrustLevel != "autonomous" {
-			t.Errorf("db %q: trust level got %q, want autonomous",
-				name, inst.Status.TrustLevel)
-		}
 	}
 }
 

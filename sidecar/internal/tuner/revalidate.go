@@ -10,12 +10,15 @@ import (
 // loop. Fields are per-cycle counters suitable for logging and
 // Prometheus metrics.
 type RevalidateReport struct {
-	Checked  int
-	Kept     int
-	Retired  int
-	Broken   int
-	Errors   int
-	Duration time.Duration
+	Checked     int
+	Kept        int
+	Dormant     int
+	Reset       int
+	ReverifyDue int
+	Broken      int
+	Retired     int
+	Errors      int
+	Duration    time.Duration
 }
 
 // hintRow is the subset of sage.query_hints columns the
@@ -28,11 +31,13 @@ type hintRow struct {
 	CreatedAt        time.Time
 	LastRevalidated  *time.Time
 	CallsAtLastCheck *int64
+	PgssResetAt      *time.Time
+	ReverifyDue      *time.Time
 }
 
-// Revalidate runs one pass of the hint revalidation loop and
-// writes status changes back to sage.query_hints. Safe to call
-// concurrently with Tune(); the Tuner mutex serializes both.
+// Revalidate runs one pass of the hint revalidation loop over active and
+// dormant hints and writes each decision back to sage.query_hints. Safe to
+// call concurrently with Tune(); the Tuner mutex serializes both.
 func (t *Tuner) Revalidate(ctx context.Context) (RevalidateReport, error) {
 	start := time.Now()
 	t.mu.Lock()
@@ -45,75 +50,78 @@ func (t *Tuner) Revalidate(ctx context.Context) (RevalidateReport, error) {
 
 	hints, err := t.loadHintsForRevalidation(ctx)
 	if err != nil {
-		return report, fmt.Errorf("load active hints: %w", err)
+		return report, fmt.Errorf("load hints for revalidation: %w", err)
 	}
 	report.Checked = len(hints)
 	retentionCutoff := time.Duration(
 		t.cfg.HintRetirementDays) * 24 * time.Hour
 
 	for _, h := range hints {
-		decision := t.decideHintFate(ctx, h, retentionCutoff)
-		switch decision.action {
-		case hintActionKeep:
-			report.Kept++
-		case hintActionRetired:
-			report.Retired++
-			t.updateHintStatus(ctx, h.ID, "retired", decision.reason)
-		case hintActionBroken:
-			report.Broken++
-			t.updateHintStatus(ctx, h.ID, "broken", decision.reason)
-		case hintActionError:
-			report.Errors++
+		decision := t.reverifyHint(ctx, h, t.decideHintFate(ctx, h, retentionCutoff))
+		if err := t.recordRevalidation(ctx, h, decision); err != nil {
+			decision = hintDecision{action: hintActionError, reason: fmt.Sprintf(
+				"record %s: %v", decision.nextStatus(h), err)}
 		}
-		t.updateRevalidationTimestamp(ctx, h.ID, decision.currentCalls)
+		report.count(decision)
+		t.logDecision(h, decision)
 	}
 	report.Duration = time.Since(start)
 	return report, nil
 }
 
-type hintAction int
-
-const (
-	hintActionKeep hintAction = iota
-	hintActionRetired
-	hintActionBroken
-	hintActionError
-)
-
-type hintDecision struct {
-	action       hintAction
-	reason       string
-	currentCalls int64
+func (r *RevalidateReport) count(d hintDecision) {
+	switch d.action {
+	case hintActionKeep:
+		r.Kept++
+	case hintActionDormant:
+		r.Dormant++
+	case hintActionReset:
+		r.Reset++
+	case hintActionBroken:
+		r.Broken++
+	case hintActionRetire:
+		r.Retired++
+	case hintActionError:
+		r.Errors++
+		return
+	}
+	if d.reverifyDue {
+		r.ReverifyDue++
+	}
 }
 
-// decideHintFate runs the checks from plan_v0.8.5.md §3 in order,
-// short-circuiting on the first actionable outcome:
-//  0. Age cutoff — retire hints older than HintRetirementDays
-//  1. Object existence — parse directive, verify referenced
-//     indexes still exist in pg_class. Dropped index ⇒ broken.
-//  2. Dead queryid — missing from pg_stat_statements ⇒ broken
-//  3. Stagnant calls — calls_at_last_check unchanged ⇒ broken
-//  4. Observational success — mean_exec_time dropped ⇒ retired
+func (t *Tuner) logDecision(h hintRow, d hintDecision) {
+	if d.action == hintActionError {
+		t.logFn("WARN", "revalidate: hint %d left %s: %s", h.ID, h.Status, d.reason)
+		return
+	}
+	if next := d.nextStatus(h); next != h.Status || d.action == hintActionReset {
+		t.logFn("INFO", "revalidate: hint %d %s -> %s (%s)",
+			h.ID, h.Status, next, d.reason)
+	}
+	if d.reverifyDue {
+		t.logFn("INFO", "revalidate: hint %d due for re-verification "+
+			"(age_reverify: older than %d days)", h.ID, t.cfg.HintRetirementDays)
+	}
+}
+
+// decideHintFate runs the revalidation checks for one hint:
+//  1. Object existence: parse the directive and verify referenced
+//     indexes still exist in pg_class. A dropped index => broken.
+//  2. Statistics: read pg_stat_statements (summed over the queryid's
+//     rows in this database) and pg_stat_statements_info.stats_reset,
+//     then decideFromObservation: reset, dormant or active, and whether
+//     the hint is due for re-verification by age.
+//
+// A statistics read error is hintActionError and leaves the hint as it is.
 func (t *Tuner) decideHintFate(
 	ctx context.Context,
 	h hintRow,
 	retentionCutoff time.Duration,
 ) hintDecision {
-	// Check 0: age cutoff.
-	if retentionCutoff > 0 && time.Since(h.CreatedAt) > retentionCutoff {
-		return hintDecision{
-			action: hintActionRetired,
-			reason: fmt.Sprintf(
-				"retention cutoff exceeded (%s old)",
-				time.Since(h.CreatedAt).Round(time.Hour),
-			),
-		}
-	}
-
-	// Check 1: object existence — parse the directive and look up
-	// every referenced index in pg_class. Unparseable directives
-	// are logged but NOT marked broken per plan §3.3 — parser
-	// failure is our bug, not the hint's.
+	// Check 1: object existence. Unparseable directives are logged but
+	// NOT marked broken per plan §3.3 — parser failure is our bug, not
+	// the hint's.
 	if h.HintText != "" {
 		if missing := t.checkHintObjectExistence(ctx, h.HintText); missing != "" {
 			return hintDecision{
@@ -124,56 +132,24 @@ func (t *Tuner) decideHintFate(
 			}
 		}
 	}
-
-	// Check 2 + 3: fetch current stats for queryid.
-	currentCalls, meanMs, found, err := t.fetchQueryStats(ctx, h.QueryID)
+	obs, err := t.fetchQueryStats(ctx, h.QueryID)
 	if err != nil {
 		return hintDecision{
 			action: hintActionError,
 			reason: fmt.Sprintf("fetch stats: %v", err),
 		}
 	}
-	if !found {
-		return hintDecision{
-			action: hintActionBroken,
-			reason: "queryid absent from pg_stat_statements",
-		}
-	}
-	// Check 3: stagnant calls between revalidation passes.
-	if h.CallsAtLastCheck != nil && currentCalls <= *h.CallsAtLastCheck {
-		return hintDecision{
-			action:       hintActionBroken,
-			reason:       "no new executions since last revalidation",
-			currentCalls: currentCalls,
-		}
-	}
-	// Check 4: observational success. If mean execution time has
-	// dropped below 100 ms the underlying issue has resolved
-	// itself (typically via an ANALYZE or index landing) and the
-	// hint is no longer pulling its weight.
-	if meanMs > 0 && meanMs < 100 {
-		return hintDecision{
-			action: hintActionRetired,
-			reason: fmt.Sprintf(
-				"observational success: mean_exec_time %.1f ms", meanMs,
-			),
-			currentCalls: currentCalls,
-		}
-	}
-	return hintDecision{
-		action:       hintActionKeep,
-		currentCalls: currentCalls,
-	}
+	return decideFromObservation(h, obs, retentionCutoff, time.Now())
 }
 
 func (t *Tuner) loadHintsForRevalidation(
 	ctx context.Context,
 ) ([]hintRow, error) {
-	rows, err := t.pool.Query(ctx, `/* pg_sage */ 
+	rows, err := t.pool.Query(ctx, `/* pg_sage tuner */
 SELECT id, queryid, status, COALESCE(hint_text, ''), created_at,
-       last_revalidated_at, calls_at_last_check
+       last_revalidated_at, calls_at_last_check, pgss_reset_at, reverify_due
 FROM sage.query_hints
-WHERE status = 'active'
+WHERE status IN ('active', 'dormant')
 ORDER BY last_revalidated_at NULLS FIRST, id`)
 	if err != nil {
 		return nil, err
@@ -185,6 +161,7 @@ ORDER BY last_revalidated_at NULLS FIRST, id`)
 		if err := rows.Scan(
 			&h.ID, &h.QueryID, &h.Status, &h.HintText,
 			&h.CreatedAt, &h.LastRevalidated, &h.CallsAtLastCheck,
+			&h.PgssResetAt, &h.ReverifyDue,
 		); err != nil {
 			return nil, err
 		}
@@ -193,39 +170,49 @@ ORDER BY last_revalidated_at NULLS FIRST, id`)
 	return out, rows.Err()
 }
 
-func (t *Tuner) fetchQueryStats(
-	ctx context.Context, queryID int64,
-) (calls int64, meanMs float64, found bool, err error) {
-	// pg_stat_statements is server-wide: the same queryid hash can
-	// legitimately appear in multiple databases. We must scope the
-	// lookup to the current database or we risk reading stats for a
-	// neighbouring DB that happens to share a queryid. dbid is the
-	// pg_database OID of the database where the statement ran.
-	err = t.pool.QueryRow(ctx, `/* pg_sage */ 
-SELECT calls, mean_exec_time
-FROM pg_stat_statements
+// queryStatsSQL sums the queryid's pg_stat_statements rows in this
+// database. pg_stat_statements keeps one row per (userid, dbid, queryid,
+// toplevel), so one row (the old LIMIT 1) could change between passes when
+// two roles run the statement. The same queryid hash can also appear in
+// other databases, hence the dbid scope. A NULL sum means not found.
+// view and info are the qualified pg_stat_statements views.
+func queryStatsSQL(view, info string) string {
+	return `/* pg_sage tuner */
+SELECT (SELECT stats_reset FROM ` + info + `),
+       sum(calls)::bigint,
+       sum(total_exec_time) / NULLIF(sum(calls), 0)
+FROM ` + view + `
 WHERE queryid = $1
-  AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-LIMIT 1`, queryID,
-	).Scan(&calls, &meanMs)
-	if err == nil {
-		return calls, meanMs, true, nil
-	}
-	// pgx returns ErrNoRows for missing rows; treat as not-found.
-	if isNoRowsErr(err) {
-		return 0, 0, false, nil
-	}
-	return 0, 0, false, err
+  AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())`
 }
 
-func isNoRowsErr(err error) bool {
-	if err == nil {
-		return false
+func (t *Tuner) fetchQueryStats(
+	ctx context.Context, queryID int64,
+) (pgssObservation, error) {
+	var obs pgssObservation
+	if t.pool == nil {
+		return obs, fmt.Errorf(
+			"read pg_stat_statements for queryid %d: no connection pool", queryID)
 	}
-	// pgx.ErrNoRows satisfies this check via string match; a
-	// type switch would introduce a pgx import here for a
-	// purely cosmetic check.
-	return err.Error() == "no rows in result set"
+	var calls *int64
+	var meanMs *float64
+	view, info, err := statementsViews(ctx, t.pool)
+	if err == nil {
+		err = t.pool.QueryRow(ctx, queryStatsSQL(view, info), queryID).Scan(
+			&obs.ResetAt, &calls, &meanMs)
+	}
+	if err != nil {
+		return obs, fmt.Errorf("read pg_stat_statements and "+
+			"pg_stat_statements_info for queryid %d: %w", queryID, err)
+	}
+	if calls == nil {
+		return obs, nil
+	}
+	obs.Calls, obs.Found = *calls, true
+	if meanMs != nil {
+		obs.MeanMs = *meanMs
+	}
+	return obs, nil
 }
 
 // checkHintObjectExistence parses the hint text and verifies that
@@ -277,7 +264,7 @@ func (t *Tuner) indexExists(
 	ctx context.Context, idxName string,
 ) (bool, error) {
 	var n int
-	err := t.pool.QueryRow(ctx, `/* pg_sage */ 
+	err := t.pool.QueryRow(ctx, `/* pg_sage tuner */ 
 SELECT count(*)
 FROM pg_class
 WHERE relname = $1
@@ -288,46 +275,33 @@ WHERE relname = $1
 	return n > 0, nil
 }
 
-func (t *Tuner) updateHintStatus(
-	ctx context.Context, hintID int64, status, reason string,
-) {
-	_, err := t.pool.Exec(ctx, `/* pg_sage */ 
+// recordRevalidationSQL writes one decision. Only live (active or dormant)
+// rows are written, so a hint reconciled to rolled_back meanwhile stays so.
+const recordRevalidationSQL = `/* pg_sage tuner */
 UPDATE sage.query_hints
 SET status = $2,
-    rolled_back_at = CASE WHEN $2 = 'broken'
-                          THEN now() ELSE rolled_back_at END,
-    verified_at  = CASE WHEN $2 = 'retired'
-                        THEN now() ELSE verified_at END,
+    rolled_back_at = CASE WHEN $2 = 'broken' THEN now() ELSE rolled_back_at END,
+    calls_at_last_check = COALESCE($3, calls_at_last_check),
+    pgss_reset_at = COALESCE($4, pgss_reset_at),
+    reverify_due = CASE WHEN $5 THEN COALESCE(reverify_due, now())
+                        ELSE reverify_due END,
     last_revalidated_at = now()
-WHERE id = $1`, hintID, status)
-	if err != nil {
-		t.logFn("WARN",
-			"revalidate: update hint %d → %s: %v",
-			hintID, status, err)
-		return
-	}
-	t.logFn("INFO",
-		"revalidate: hint %d → %s (%s)", hintID, status, reason)
-}
+WHERE id = $1 AND status IN ('active', 'dormant')`
 
-func (t *Tuner) updateRevalidationTimestamp(
-	ctx context.Context, hintID int64, calls int64,
-) {
-	// When calls is 0 the hint was marked broken/retired and
-	// the status update already touched last_revalidated_at.
-	if calls <= 0 {
-		return
+// recordRevalidation writes the decision's status, checkpoint, stats_reset
+// and reverify_due. An error decision writes nothing.
+func (t *Tuner) recordRevalidation(
+	ctx context.Context, h hintRow, d hintDecision,
+) error {
+	if d.action == hintActionError {
+		return nil
 	}
-	_, err := t.pool.Exec(ctx, `/* pg_sage */ 
-UPDATE sage.query_hints
-SET last_revalidated_at = now(),
-    calls_at_last_check = $2
-WHERE id = $1 AND status = 'active'`, hintID, calls)
+	_, err := t.pool.Exec(ctx, recordRevalidationSQL,
+		h.ID, d.nextStatus(h), d.checkpoint, d.resetAt, d.reverifyDue)
 	if err != nil {
-		t.logFn("WARN",
-			"revalidate: update timestamps for hint %d: %v",
-			hintID, err)
+		return fmt.Errorf("update sage.query_hints id %d: %w", h.ID, err)
 	}
+	return nil
 }
 
 // StartRevalidationLoop runs the revalidation loop on a ticker
@@ -374,8 +348,8 @@ func (t *Tuner) revalidateAndLog(ctx context.Context, label string) {
 		return
 	}
 	t.logFn("INFO",
-		"revalidate: %s checked=%d kept=%d "+
-			"retired=%d broken=%d errors=%d in %s",
-		label, rpt.Checked, rpt.Kept, rpt.Retired,
-		rpt.Broken, rpt.Errors, rpt.Duration)
+		"revalidate: %s checked=%d kept=%d dormant=%d reset=%d "+
+			"reverify_due=%d broken=%d retired=%d errors=%d in %s",
+		label, rpt.Checked, rpt.Kept, rpt.Dormant, rpt.Reset,
+		rpt.ReverifyDue, rpt.Broken, rpt.Retired, rpt.Errors, rpt.Duration)
 }

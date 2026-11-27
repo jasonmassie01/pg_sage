@@ -1,0 +1,12 @@
+serviceMonitor:
+  enabled: true
+networkPolicy:
+  enabled: true
+tls:
+  existingSecret: pg-sage-tls
+secrets:
+  existingSecret: pg-sage-secrets
+  llmAPIKeyKey: llm-api-key
+  encryptionKeyKey: encryption-key
+persistence:
+  existingClaim: pg-sage-data

@@ -22,23 +22,23 @@ func TestLedgerInputFingerprintsOnlyNonExecuteVerdicts(t *testing.T) {
 		TargetObjs: []string{"public.t"}}
 	for _, verdict := range []policy.Verdict{policy.VerdictPark, policy.VerdictQueueApproval,
 		policy.VerdictObserveOnly, policy.VerdictBlocked} {
-		input := ledgerInput(&id, 3, request, policy.Decision{Verdict: verdict,
+		input := ledgerInputAt(&id, 3, request, policy.Decision{Verdict: verdict,
 			Reason: policy.ReasonPolicyUnavailable})
 		if input.Fingerprint == "" || input.Fingerprint != ledger.DecisionFingerprint(input) {
 			t.Errorf("%s: fingerprint %q, want the ledger fingerprint", verdict, input.Fingerprint)
 		}
 	}
-	execute := ledgerInput(&id, 3, request, policy.Decision{Verdict: policy.VerdictExecute})
+	execute := ledgerInputAt(&id, 3, request, policy.Decision{Verdict: policy.VerdictExecute})
 	if execute.Fingerprint != "" {
 		t.Fatalf("execute fingerprint = %q, want none (it backs its own action)",
 			execute.Fingerprint)
 	}
-	first := ledgerInput(&id, 3, request, policy.Decision{Verdict: policy.VerdictPark})
-	again := ledgerInput(&id, 3, request, policy.Decision{Verdict: policy.VerdictPark})
+	first := ledgerInputAt(&id, 3, request, policy.Decision{Verdict: policy.VerdictPark})
+	again := ledgerInputAt(&id, 3, request, policy.Decision{Verdict: policy.VerdictPark})
 	if first.Fingerprint != again.Fingerprint || first.EvidenceID == again.EvidenceID {
 		t.Fatal("repeat evaluations must share a fingerprint, not an evidence ID")
 	}
-	newer := ledgerInput(&id, 4, request, policy.Decision{Verdict: policy.VerdictPark})
+	newer := ledgerInputAt(&id, 4, request, policy.Decision{Verdict: policy.VerdictPark})
 	if newer.Fingerprint == first.Fingerprint {
 		t.Fatal("a new policy version kept the fingerprint")
 	}

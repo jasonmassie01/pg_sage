@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // ErrGenericPlanUnsupported reports a server older than PostgreSQL 16,
@@ -59,47 +59,7 @@ func SeqScans(raw []byte) ([]PlanScan, error) {
 }
 
 var (
-	blockComment = regexp.MustCompile(`(?s)^/\*.*?\*/`)
-	lineComment  = regexp.MustCompile(`^--[^\n]*\n`)
-	leadingVerb  = regexp.MustCompile(`(?i)^(select|with|insert|update|delete|merge)\b`)
-	sageRef      = regexp.MustCompile(`(?i)(^|[^a-z0-9_])"?sage"?\.`)
-)
-
-// Explainable reports whether a statement is a single plannable DML or
-// query statement (utility statements, multi-statement strings and
-// EXPLAIN itself are not).
-func Explainable(q string) bool {
-	body := stripLeadingComments(q)
-	if body == "" || !leadingVerb.MatchString(body) {
-		return false
-	}
-	trimmed := strings.TrimRight(strings.TrimSpace(body), ";")
-	return !strings.Contains(trimmed, ";")
-}
-
-func stripLeadingComments(q string) string {
-	body := strings.TrimSpace(q)
-	for {
-		switch {
-		case strings.HasPrefix(body, "/*"):
-			loc := blockComment.FindStringIndex(body)
-			if loc == nil {
-				return ""
-			}
-			body = strings.TrimSpace(body[loc[1]:])
-		case strings.HasPrefix(body, "--"):
-			loc := lineComment.FindStringIndex(body)
-			if loc == nil {
-				return ""
-			}
-			body = strings.TrimSpace(body[loc[1]:])
-		default:
-			return body
-		}
-	}
-}
-
-var (
+	sageRef       = regexp.MustCompile(`(?i)(^|[^a-z0-9_])"?sage"?\.`)
 	intervalParam = regexp.MustCompile(`(?i)\binterval\s+(\$[0-9]+)`)
 	extractParam  = regexp.MustCompile(`(?i)\bextract\(\s*\$[0-9]+\s+from\b`)
 )
@@ -142,7 +102,7 @@ func ExplainStatements(
 	}
 	var out []PlanResult
 	for _, s := range stmts {
-		if !Explainable(s.Query) || !TouchesSage(s.Query) {
+		if ok, _ := workload.Plannable(s.Query); !ok || !TouchesSage(s.Query) {
 			continue
 		}
 		out = append(out, explainOne(ctx, conn.Conn().PgConn(), s))

@@ -68,6 +68,27 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# ci-05: a keyless Sigstore signature over checksums.txt (GitHub OIDC; the
+# release job passes the token request into the container), with the
+# identity and issuer of the signed bench reports. docs/installation.md
+# shows cosign verify-blob on checksums.txt.sigstore.json.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    output: true
+
+# ci-05: an SPDX SBOM per archive (syft), published as <archive>.sbom.json.
+sboms:
+  - artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.sbom.json"
+
 changelog:
   sort: asc
   filters:
@@ -80,9 +101,16 @@ release:
   github:
     owner: jasonmassie01
     name: pg_sage
-  # The signed bench reports and their Sigstore bundles, per shard.
+  # The signed bench reports and their Sigstore bundles, per shard, and
+  # the packaged Helm chart (pg-sage-<version>.tgz, market-12).
   extra_files:
     - glob: ./release-assets/*
   name_template: "v{{.Version}}"
-  draft: false
+  # ci-05: a draft until the release job has smoke-tested the archived
+  # binary; that job then publishes it.
+  draft: true
+  # A rerun of the release job (a flaky Rekor call, a failed smoke test)
+  # deletes the draft the failed run left, so the publish step finds only
+  # this run's verified draft for the tag.
+  replace_existing_draft: true
   prerelease: auto

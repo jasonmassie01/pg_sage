@@ -45,9 +45,14 @@ func newFleetDBLLMClients(
 		)
 		attachFleetBudget(optimizerClient, databaseName)
 	}
+	var reviewClient *llm.Client
+	if cfg.LLM.ReviewLLM.Enabled {
+		reviewClient = llmClients.newClient(llmRoleReview, databaseName, allowed)
+		attachFleetBudget(reviewClient, databaseName)
+	}
 	return general, llm.NewManager(
 		general, optimizerClient, cfg.LLM.OptimizerLLM.FallbackToGeneral,
-	)
+	).WithReview(reviewClient)
 }
 
 // attachFleetBudget registers the database with the fleet budget (so
@@ -62,18 +67,34 @@ func attachFleetBudget(client *llm.Client, databaseName string) {
 
 func initializeFleetBudget(databaseNames []string) {
 	fleetLLMBudget = nil
+	publishFleetBudget(nil)
 	if cfg.LLM.FleetTokenBudgetDaily <= 0 {
 		return
 	}
 	fleetLLMBudget = fleet.NewBudget(
 		cfg.LLM.FleetTokenBudgetDaily, databaseNames,
 	)
+	publishFleetBudget(fleetLLMBudget)
 	// Need-based by default (fleet learning): measured needs refine it.
 	applyFleetBudgetSplit(nil)
 	go resetFleetBudgetDaily(shutdownCtx, fleetLLMBudget)
 	logInfo("fleet", "per-database LLM budget enabled: "+
 		"%d tokens/day across %d databases",
 		cfg.LLM.FleetTokenBudgetDaily, len(databaseNames))
+}
+
+// publishFleetBudget makes the fleet status (GET /api/v1/databases) report
+// budget, or no budget when it is nil (fleet-06). A nil *FleetBudget is
+// passed as a nil source so the manager never holds a typed nil.
+func publishFleetBudget(budget *fleet.FleetBudget) {
+	if fleetMgr == nil {
+		return
+	}
+	if budget == nil {
+		fleetMgr.SetBudgetSource(nil)
+		return
+	}
+	fleetMgr.SetBudgetSource(budget)
 }
 
 // runInstanceChecks validates one monitored database's prerequisites. A
@@ -112,5 +133,6 @@ func withCapabilityFlags(runtimeCfg *config.Config, checks *startup.CheckResult)
 	runtimeCfg.PGVersionNum = checks.PGVersionNum
 	runtimeCfg.HasWALColumns = checks.HasWALColumns
 	runtimeCfg.HasPlanTimeColumns = checks.HasPlanTimeColumns
+	runtimeCfg.StatementsSchema = checks.StatementsSchema
 	return runtimeCfg
 }

@@ -183,3 +183,16 @@ func Failf(t testing.TB, failureMessage, msg string, args ...any) {
 	t.Helper()
 	t.Fatalf("%s: %s", failureMessage, fmt.Sprintf(msg, args...))
 }
+
+// NotPanics fails the test when fn panics, naming the recovered value. Use
+// it for nil-safety contracts whose only observable outcome is that the
+// call returns.
+func NotPanics(t testing.TB, fn func(), msgAndArgs ...any) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			fail(t, false, fmt.Sprintf("unexpected panic: %v", r), msgAndArgs)
+		}
+	}()
+	fn()
+}

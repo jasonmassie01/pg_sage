@@ -17,14 +17,24 @@ type evidenceSet struct {
 	live     map[pairKey]Live
 	safety   map[Family]familySafetyRow
 	records  map[pairKey]ClassRecord
+	// marks are each family's shadow reviews in the window, read only for
+	// a page's expiry dates (evidenceNeeds.expiry).
+	marks map[Family][]reviewMark
+	// approvals are each self-initiated pair's outcomes in the approval
+	// window, read only with evidenceNeeds.approvals (ux-07a).
+	approvals     map[pairKey][]approvalMark
+	approvalsRead bool
 	// safetyRead is true when safety holds every incident family's record.
 	safetyRead bool
 }
 
 // evidenceNeeds says which reads a scope needs: the incident evidence
-// (bench, game days, shadow reviews, live record, family safety) and the
-// class records (verdict counts, the self-initiated evidence).
-type evidenceNeeds struct{ incident, records bool }
+// (bench, game days, shadow reviews, live record, family safety), the
+// class records (verdict counts, the self-initiated evidence) and the
+// shadow reviews behind the incident evidence's expiry (earned-06) and
+// the self-initiated pairs' approval history (ux-07a; the gate never
+// reads it).
+type evidenceNeeds struct{ incident, records, expiry, approvals bool }
 
 // loadEvidence reads the evidence of pairs at now: the class records of
 // every pair, the incident evidence of the incident pairs.
@@ -40,7 +50,8 @@ func (s *Service) loadEvidence(ctx context.Context, pairs []pairKey, need eviden
 func newEvidenceSet(now time.Time) *evidenceSet {
 	return &evidenceSet{at: now, bench: map[Family]*EvalRun{}, shadow: map[Family]Shadow{},
 		live: map[pairKey]Live{}, safety: map[Family]familySafetyRow{},
-		records: map[pairKey]ClassRecord{}}
+		records: map[pairKey]ClassRecord{}, marks: map[Family][]reviewMark{},
+		approvals: map[pairKey][]approvalMark{}}
 }
 
 // queueEvidence runs (or queues on r) every read of pairs' evidence into
@@ -49,6 +60,13 @@ func (s *Service) queueEvidence(ctx context.Context, r reads, pairs []pairKey,
 	need evidenceNeeds, e *evidenceSet) error {
 	if need.records {
 		if err := s.store.readClassRecords(ctx, r, pairs, e.records); err != nil {
+			return err
+		}
+	}
+	if need.approvals {
+		e.approvalsRead = true
+		if err := s.store.readApprovalMarks(ctx, r, selfPairs(pairs),
+			e.at.Add(-ApprovalHistoryWindow), e.approvals); err != nil {
 			return err
 		}
 	}
@@ -80,7 +98,10 @@ func (s *Service) queueEvidence(ctx context.Context, r reads, pairs []pairKey,
 			return err
 		}
 	}
-	return nil
+	if !need.expiry {
+		return nil
+	}
+	return s.store.readReviewMarks(ctx, r, names, e.at.Add(-th.ShadowDuration), e.marks)
 }
 
 // evidence is one pair's evidence from the set.
@@ -89,6 +110,11 @@ func (s *Service) evidenceOf(e evidenceSet, f Family, c ActionClass) Evidence {
 	if IsSelfInitiated(f) {
 		rec := e.records[pairKey{f, c}]
 		ev.Record, ev.Floor = &rec, s.floorStatus(c, e.at)
+		if e.approvalsRead {
+			h := countApprovals(approvalMarksOf(c, e.approvals[pairKey{f, c}]),
+				e.at.Add(-ApprovalHistoryWindow), s.cfg.AskAfterApprovals)
+			ev.ApprovalHistory = &h
+		}
 		return ev
 	}
 	ev.Bench, ev.GameDays = e.bench[f], e.gameDays
@@ -107,6 +133,19 @@ func (s *Service) Evidence(ctx context.Context, f Family, c ActionClass) (Eviden
 	self := IsSelfInitiated(f)
 	e, err := s.loadEvidence(ctx, []pairKey{{f, c}},
 		evidenceNeeds{incident: !self, records: self}, now)
+	if err != nil {
+		return Evidence{}, err
+	}
+	return s.evidenceOf(e, f, c), nil
+}
+
+// decisionEvidence is the pair's evidence where a promotion is decided:
+// Evidence with a self-initiated pair's approval history.
+func (s *Service) decisionEvidence(ctx context.Context, f Family, c ActionClass) (Evidence,
+	error) {
+	self := IsSelfInitiated(f)
+	e, err := s.loadEvidence(ctx, []pairKey{{f, c}},
+		evidenceNeeds{incident: !self, records: self, approvals: self}, s.now())
 	if err != nil {
 		return Evidence{}, err
 	}

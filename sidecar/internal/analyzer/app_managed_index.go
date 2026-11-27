@@ -21,26 +21,49 @@ const CategoryAppManagedIndex = "app_managed_index"
 type appManagedIndex struct {
 	Drops    int
 	LastDrop time.Time
+	// Schema, Name and Table are the index and its table (in the index's
+	// schema) as the catalog spells them, exact case.
+	Schema, Name, Table string
+	// Qualified reports that a drop named the index's schema; an
+	// unqualified drop was resolved through the search_path.
+	Qualified bool
 }
 
 // dropProposalCategories are the findings that propose dropping an index.
 var dropProposalCategories = map[string]bool{"duplicate_index": true, "unused_index": true}
 
+// dropNamePattern matches a DROP INDEX target: one or two parts, each a
+// quoted identifier ("" escapes a quote) or a run of characters that is no
+// space, semicolon, dot or quote. Text that is no name (an unterminated
+// quote) does not match, so to_regclass never sees bad syntax (PG14 and
+// PG15 raise on it).
+const dropNamePattern = `(?:"(?:[^"]|"")+"|[^\s;."]+)(?:\.(?:"(?:[^"]|"")+"|[^\s;."]+))?`
+
 // appManagedSQL lists pg_sage's executed index drops of the last 180 days
-// with the index's current definition (NULL when it is gone). Drops
-// pg_sage rolled back itself are not the application's doing.
-const appManagedSQL = `/* pg_sage */
-SELECT pg_catalog.lower(m[3]), al.rollback_sql, al.executed_at,
-       pg_catalog.pg_get_indexdef(pg_catalog.to_regclass(m[3]))
+// whose index exists again: the drop's target text, the index and its
+// table as the catalog names them, and the index's current definition.
+// Drops pg_sage rolled back itself are not the application's doing.
+const appManagedSQL = `/* pg_sage analyzer */
+SELECT m[3], ix.nspname, ix.relname, ix.tablename, al.rollback_sql, al.executed_at,
+       ix.def
 FROM sage.action_log al,
      LATERAL pg_catalog.regexp_match(al.sql_executed,
-         '^\s*DROP\s+INDEX\s+(CONCURRENTLY\s+)?(IF\s+EXISTS\s+)?([^\s;]+)', 'i') m
+         '^\s*DROP\s+INDEX\s+(CONCURRENTLY\s+)?(IF\s+EXISTS\s+)?(` + dropNamePattern + `)',
+         'i') m,
+     LATERAL (SELECT n.nspname::text, c.relname::text, t.relname::text AS tablename,
+                     pg_catalog.pg_get_indexdef(c.oid) AS def
+              FROM pg_catalog.pg_index i
+              JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+              JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+              JOIN pg_catalog.pg_class t ON t.oid = i.indrelid
+              WHERE i.indexrelid = pg_catalog.to_regclass(m[3])) ix
 WHERE al.action_type = 'drop_index' AND al.rollback_sql IS NOT NULL
   AND al.outcome NOT IN ('rolled_back', 'rolling_back', 'failed', 'pending')
   AND al.executed_at > pg_catalog.now() - interval '180 days'`
 
-// loadAppManagedIndexes returns, by lower-cased schema.index, the indexes
-// pg_sage dropped that exist again with the definition they had.
+// loadAppManagedIndexes returns, by lower-cased schema.index (the form
+// markAppManaged looks findings up by, whatever the drop's quoting), the
+// indexes pg_sage dropped that exist again with the definition they had.
 func loadAppManagedIndexes(ctx context.Context, pool catalogread.Querier) (
 	map[string]appManagedIndex, error) {
 	rows, err := pool.Query(ctx, appManagedSQL)
@@ -50,24 +73,43 @@ func loadAppManagedIndexes(ctx context.Context, pool catalogread.Querier) (
 	defer rows.Close()
 	out := map[string]appManagedIndex{}
 	for rows.Next() {
-		var target, rollback string
+		var target, schema, name, table, rollback, current string
 		var at time.Time
-		var current *string
-		if err := rows.Scan(&target, &rollback, &at, &current); err != nil {
+		if err := rows.Scan(&target, &schema, &name, &table, &rollback, &at,
+			&current); err != nil {
 			return nil, fmt.Errorf("scan index drop history: %w", err)
 		}
-		if current == nil || normalizeIndexDefinition(*current) !=
-			normalizeIndexDefinition(rollback) {
+		if normalizeIndexDefinition(current) != normalizeIndexDefinition(rollback) {
 			continue
 		}
-		m := out[target]
+		key := strings.ToLower(schema + "." + name)
+		m := out[key]
 		m.Drops++
-		if at.After(m.LastDrop) {
-			m.LastDrop = at
+		if m.Drops == 1 || at.After(m.LastDrop) {
+			m.LastDrop, m.Schema, m.Name, m.Table = at, schema, name, table
 		}
-		out[target] = m
+		m.Qualified = m.Qualified || dropNamesSchema(target)
+		out[key] = m
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read index drop history: %w", err)
+	}
+	return out, nil
+}
+
+// dropNamesSchema reports whether a DROP INDEX target names a schema: a
+// dot outside double quotes.
+func dropNamesSchema(target string) bool {
+	quoted := false
+	for _, c := range target {
+		switch {
+		case c == '"':
+			quoted = !quoted // a doubled quote toggles twice
+		case c == '.' && !quoted:
+			return true
+		}
+	}
+	return false
 }
 
 var indexDefinitionNoise = regexp.MustCompile(`(?i)\b(CONCURRENTLY|IF\s+NOT\s+EXISTS)\b`)

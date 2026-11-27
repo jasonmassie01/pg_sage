@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Play, ShieldAlert } from 'lucide-react'
+import { formatTime } from '../lib/time'
 
 // D8: the header emergency stop. It follows the database picker, needs
 // arm + confirm for both stop and resume, and names who stopped a
@@ -53,7 +54,7 @@ async function postControl(url, failure) {
 
 function StoppedAt({ at }) {
   if (!at) return null
-  return <time dateTime={at}>{new Date(at).toLocaleString()}</time>
+  return <time dateTime={at}>{formatTime(at)}</time>
 }
 
 function Attribution({ db }) {
@@ -66,7 +67,22 @@ function Attribution({ db }) {
   )
 }
 
-function badgeContent(scope, summaryStopped) {
+// fleet-09: a stop of all is a fleet latch; every database added while it
+// holds is stopped too, so the badge names the latch, not a count.
+function FleetAttribution({ fleetStop }) {
+  return (
+    <>
+      Fleet stopped by {fleetStop.fleet_stopped_by || 'unknown'}
+      {fleetStop.fleet_stopped_at && <>{' at '}<StoppedAt
+        at={fleetStop.fleet_stopped_at} /></>}
+    </>
+  )
+}
+
+function badgeContent(scope, summaryStopped, fleetStop) {
+  if (fleetStop?.fleet_stopped === true) {
+    return <FleetAttribution fleetStop={fleetStop} />
+  }
   const own = scope.all ? scope.fleetStopped : scope.stopped
   if (own.length === 1) {
     return <>{own[0].name} STOPPED<Attribution db={own[0]} /></>
@@ -82,8 +98,8 @@ function badgeContent(scope, summaryStopped) {
   return summaryStopped ? <>EMERGENCY STOP ACTIVE</> : null
 }
 
-function EmergencyStopBadge({ scope, summaryStopped }) {
-  const content = badgeContent(scope, summaryStopped)
+function EmergencyStopBadge({ scope, summaryStopped, fleetStop }) {
+  const content = badgeContent(scope, summaryStopped, fleetStop)
   if (!content) return null
   return (
     <span
@@ -91,7 +107,7 @@ function EmergencyStopBadge({ scope, summaryStopped }) {
       role="status"
       className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs
         font-semibold"
-      style={{ background: 'var(--red, #e53e3e)', color: '#fff' }}>
+      style={{ background: 'var(--red-solid)', color: '#fff' }}>
       <ShieldAlert size={14} aria-hidden="true" />
       <span>{content}</span>
     </span>
@@ -133,7 +149,7 @@ function ConfirmPanel({
         <button type="button" ref={confirmRef} onClick={onConfirm}
           disabled={busy} data-testid={`${testId}-confirm`}
           className="px-3 py-1.5 rounded font-semibold"
-          style={{ background: 'var(--red, #e53e3e)', color: '#fff' }}>
+          style={{ background: 'var(--red-solid)', color: '#fff' }}>
           {busy ? 'Working...' : confirmLabel}
         </button>
       </div>
@@ -223,7 +239,7 @@ function useControlRequest(scope, setArmed, onChanged) {
 
 export function EmergencyStopControl({
   databases = [], selectedDB, onChanged, canControl = true,
-  summaryStopped = false,
+  summaryStopped = false, fleetStop = null,
 }) {
   const scope = stopScope(databases, selectedDB)
   const { armed, setArmed, cancel, triggers } = useArming()
@@ -234,7 +250,8 @@ export function EmergencyStopControl({
   return (
     <div className="relative flex items-center gap-1.5"
       data-testid="header-emergency-controls">
-      <EmergencyStopBadge scope={scope} summaryStopped={summaryStopped} />
+      <EmergencyStopBadge scope={scope} summaryStopped={summaryStopped}
+        fleetStop={fleetStop} />
       {showControls && (
         <ControlButton testId="header-emergency-stop"
           label={`Stop ${stopTarget}`}

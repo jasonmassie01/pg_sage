@@ -11,21 +11,27 @@ import (
 	"github.com/pg-sage/sidecar/internal/ha"
 )
 
-// Source adapts an internal/ha monitor: every read probes the role, so a
-// downgrade sees the role at authorization time.
+// Source reads the database's one HA monitor (fleet-04) and never probes:
+// the HA loop keeps its snapshot current and the executor checks it just
+// before each cycle. A snapshot the loop stopped refreshing reads as an
+// unknown role, which the limiter downgrades.
 type Source struct{ monitor *ha.Monitor }
 
-// New wraps m.
-func New(m *ha.Monitor) *Source { return &Source{monitor: m} }
+// FromSnapshot reads m's snapshot.
+func FromSnapshot(m *ha.Monitor) *Source { return &Source{monitor: m} }
 
 var _ earned.HASource = (*Source)(nil)
 
-// HAStatus probes and reports the role, safe mode and last role change.
-func (s *Source) HAStatus(ctx context.Context) (earned.HAState, error) {
+// errNoMonitor fails a source without a monitor closed.
+var errNoMonitor = errors.New("no HA monitor")
+
+// HAStatus reports the role, safe mode and last role change of the last
+// check.
+func (s *Source) HAStatus(context.Context) (earned.HAState, error) {
 	if s == nil || s.monitor == nil {
-		return earned.HAState{Role: earned.RoleUnknown}, errors.New("no HA monitor")
+		return earned.HAState{Role: earned.RoleUnknown}, errNoMonitor
 	}
-	s.monitor.Check(ctx)
-	return earned.HAState{Role: string(s.monitor.Role()), SafeMode: s.monitor.InSafeMode(),
-		LastRoleChange: s.monitor.LastRoleChange()}, nil
+	snap := s.monitor.Snapshot()
+	return earned.HAState{Role: string(snap.Role), SafeMode: snap.SafeMode,
+		LastRoleChange: snap.LastChange}, nil
 }

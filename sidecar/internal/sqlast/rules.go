@@ -27,6 +27,13 @@ type Rules struct {
 	// storage parameter (key carries a "toast." namespace; value is "" for
 	// RESET and "true" for a bare option). Nil allows every parameter.
 	Reloption func(key, value string, reset bool) bool
+	// RoleParam reports whether ALTER ROLE ... IN DATABASE ... SET may name
+	// the GUC (workload budgets). Nil refuses ALTER ROLE ... SET.
+	RoleParam func(name string) bool
+	// RoleConnectionLimit reports whether ALTER ROLE ... CONNECTION LIMIT
+	// may name the role (as PostgreSQL resolves it, quotes and escapes
+	// decoded). Nil refuses ALTER ROLE ... CONNECTION LIMIT.
+	RoleConnectionLimit func(role string) bool
 	// StatisticsName reports whether a statistics object name is pg_sage's
 	// own, the only kind CREATE/DROP STATISTICS may name. Nil refuses both.
 	StatisticsName func(name string) bool

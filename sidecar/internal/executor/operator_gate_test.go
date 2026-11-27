@@ -66,7 +66,7 @@ func TestOperatorAuthorizationIsRecordedAsOperatorIntent(t *testing.T) {
 	if req.Evidence["approved_by"] != 7 || req.Evidence["finding_id"] != 42 {
 		t.Fatalf("evidence = %v", req.Evidence)
 	}
-	input := ledgerInput(nil, 3, req, policy.Decision{Verdict: policy.VerdictExecute})
+	input := ledgerInputAt(nil, 3, req, policy.Decision{Verdict: policy.VerdictExecute})
 	if input.Intent != operatorDecisionIntent {
 		t.Fatalf("ledger intent = %q, want %q (excluded from self-initiated usage)",
 			input.Intent, operatorDecisionIntent)

@@ -124,7 +124,9 @@ type fakeDeliveries struct {
 	mu     sync.Mutex
 	items  []chatops.CardDelivery
 	marked map[int64]string
-	err    error
+	// deferred is each card's last re-check delay.
+	deferred map[int64]time.Duration
+	err      error
 }
 
 func (f *fakeDeliveries) PendingFollowups(context.Context, int) ([]chatops.CardDelivery, error) {
@@ -142,6 +144,13 @@ func (f *fakeDeliveries) PendingFollowups(context.Context, int) ([]chatops.CardD
 	return out, nil
 }
 
+// ClaimFollowup always grants the claim: fencing is tested on PostgreSQL
+// (chatops, followup_db_test.go); these tests cover posting and closing.
+func (f *fakeDeliveries) ClaimFollowup(context.Context, int64, chatops.ClaimFence) (bool,
+	error) {
+	return true, nil
+}
+
 func (f *fakeDeliveries) MarkFollowedUp(_ context.Context, id int64, verdict string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -149,6 +158,18 @@ func (f *fakeDeliveries) MarkFollowedUp(_ context.Context, id int64, verdict str
 		f.marked = map[int64]string{}
 	}
 	f.marked[id] = verdict
+	return nil
+}
+
+// DeferFollowup records the deferral; the fake lists deferred cards again,
+// so a test sees every retry at once.
+func (f *fakeDeliveries) DeferFollowup(_ context.Context, id int64, d time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.deferred == nil {
+		f.deferred = map[int64]time.Duration{}
+	}
+	f.deferred[id] = d
 	return nil
 }
 

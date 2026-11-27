@@ -17,6 +17,9 @@ import (
 // RollbackMonitorConfig configures one post-action monitor. Authorize is
 // required: a nil authorizer withholds every automatic rollback.
 type RollbackMonitorConfig struct {
+	// V2 computes verification v2 beside the monitor's v1 verdict, stored
+	// as the other verdict (lab-01c); nil: v1 only.
+	V2               *verify.V2Options
 	ThresholdPct     int // regression bar on the targets' call-weighted mean
 	WindowMinutes    int // minimum window before the first verdict
 	CapMinutes       int // longest a non-drop action is watched for evidence
@@ -27,11 +30,60 @@ type RollbackMonitorConfig struct {
 	LockTimeoutMs    int
 	CloudEnvironment string
 	Authorize        func(context.Context, string) bool
-	Acquire          func(context.Context) (func(), error)
+	// Decide, when set, replaces Authorize and names why a rollback is
+	// withheld (no contract, a policy refusal, an SQL mismatch).
+	Decide func(context.Context, string) RollbackVerdict
+	// HoldForStop, when set, records a rollback the emergency stop withholds
+	// as a visible approval card instead of skipping it (the soft-drop
+	// restore, executor-01).
+	HoldForStop func(ctx context.Context, actionID int64, rollbackSQL string)
+	// QueueRevert, when set, offers a withheld rollback to a person as a
+	// "Revert action N" approval item carrying the reason (policy-05).
+	QueueRevert func(ctx context.Context, actionID int64, rollbackSQL string,
+		verdict RollbackVerdict)
+	Acquire func(context.Context) (func(), error)
+	// Track registers the rollback as in-flight work the emergency stop
+	// cancels; a latched stop refuses it.
+	Track func(ctx context.Context, label string) (context.Context, func(), error)
+	// ActionPool is the separate action identity the rollback statement
+	// runs as; nil runs it on the monitor's pool (security-09).
+	ActionPool *pgxpool.Pool
+	// RoleLock, when set, takes the cluster-wide lock of a role a role
+	// budget rollback changes, as the forward change took it (market-08b).
+	RoleLock func(ctx context.Context, role string) (func(), error)
 
 	execRollback func(context.Context, string, time.Duration, ...DDLOption) error
 	applyConfig  func(context.Context, string) configApplyOutcome
 	observe      queryObserver
+	// clock reads the database clock the monitor judges by; nil reads the
+	// monitor's pool (executor-31).
+	clock dbClock
+}
+
+// RollbackVerdict is an authorizer's answer for one automatic rollback.
+type RollbackVerdict struct {
+	Allowed bool
+	// Reason is why the rollback was withheld, recorded as rollback_reason.
+	Reason string
+	// LockCeilingMS is the policy's lock ceiling on an allowed rollback; it
+	// caps an in-transaction rollback's lock_timeout (0: none).
+	LockCeilingMS int64
+	// DecisionID is the gate decision behind the verdict (0: none).
+	DecisionID int64
+}
+
+// standingWithheld is the reason of a refusal by a yes/no authorizer.
+const standingWithheld = "standing policy withheld automatic rollback"
+
+// verdict asks Decide, or else Authorize; neither withholds the rollback.
+func (c RollbackMonitorConfig) verdict(ctx context.Context, sql string) RollbackVerdict {
+	if c.Decide != nil {
+		return c.Decide(ctx, sql)
+	}
+	if c.Authorize != nil && c.Authorize(ctx, sql) {
+		return RollbackVerdict{Allowed: true}
+	}
+	return RollbackVerdict{Reason: standingWithheld}
 }
 
 // queryObserver reads the targeted queries' measurements over a window.
@@ -42,7 +94,7 @@ func (c RollbackMonitorConfig) observer(pool *pgxpool.Pool) queryObserver {
 	if c.observe != nil {
 		return c.observe
 	}
-	return verify.NewPostgresObservationSource(pool).QueryMeasurements
+	return historyObserver(pool)
 }
 
 // MonitorAndRollback runs as a goroutine to verify an executed action
@@ -77,23 +129,24 @@ func MonitorAndRollback(
 	if rollbackSQL != "" {
 		plan.rollbackSQL = rollbackSQL
 	}
-	next := plan.firstCheck()
+	next, clock := plan.firstCheck(), cfg.databaseClock(pool)
 	for {
-		if !waitRollbackWindow(ctx, pool, actionID, time.Until(next), logFn, shutdownCh) {
+		now, ok := waitMonitorCheck(ctx, pool, actionID, next, clock, logFn, shutdownCh)
+		if !ok {
 			return
 		}
-		now := time.Now()
-		j := plan.judge(ctx, pool, cfg, now)
+		j := plan.judge(ctx, pool, cfg, now.at)
+		j.outcome.Evidence["clock"] = now.evidence()
 		if j.outcome.Verdict == verify.OutcomeRegressed {
 			finishRegressed(ctx, pool, plan, j.outcome, cfg, logFn)
 			return
 		}
-		if plan.final(now, j.outcome.Verdict) || !j.accruing &&
+		if plan.final(now.at, j.outcome.Verdict) || !j.accruing &&
 			j.outcome.Verdict == verify.OutcomeInsufficient {
 			finishMonitored(ctx, pool, plan, j.outcome, logFn)
 			return
 		}
-		next = plan.nextCheck(now)
+		next = plan.nextCheck(now.at)
 	}
 }
 
@@ -111,7 +164,7 @@ func finishRegressed(
 	}
 	rollbackRegressedAction(ctx, pool, plan.actionID, plan.rollbackSQL, cfg, logFn)
 	var outcome string
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT outcome FROM sage.action_log
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT outcome FROM sage.action_log
 		WHERE id = $1`, plan.actionID).Scan(&outcome)
 	restored := err == nil && (outcome == "rolled_back" || outcome == "already_restored")
 	o.Evidence["rollback"] = map[string]any{"outcome": outcome, "restored": restored}
@@ -141,6 +194,29 @@ func finishMonitored(
 	settleOutcome(ctx, pool, o, logFn)
 }
 
+// waitMonitorCheck waits until next on the database clock, which stamped
+// executed_at and the samples (executor-31), and returns the check's time;
+// false when the monitor stops (cancelled, or the sidecar shuts down).
+func waitMonitorCheck(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, next time.Time, clock dbClock,
+	logFn func(string, string, ...any), shutdownCh <-chan struct{},
+) (monitorTime, bool) {
+	for {
+		now := readMonitorTime(ctx, clock)
+		wait := next.Sub(now.at)
+		if !waitRollbackWindow(ctx, pool, actionID, wait, logFn, shutdownCh) {
+			return now, false
+		}
+		if wait <= 0 {
+			if now.fallback != "" {
+				logFn("rollback", "action %d: %s", actionID, now.fallback)
+			}
+			return now, true
+		}
+		// Re-read the clock: the two clocks may have drifted while it slept.
+	}
+}
+
 func waitRollbackWindow(
 	ctx context.Context, pool *pgxpool.Pool, actionID int64, window time.Duration,
 	logFn func(string, string, ...any), shutdownCh <-chan struct{},
@@ -167,19 +243,20 @@ func rollbackRegressedAction(
 	ctx context.Context, pool *pgxpool.Pool, actionID int64, rollbackSQL string,
 	cfg RollbackMonitorConfig, logFn func(string, string, ...any),
 ) {
-	if CheckEmergencyStop(ctx, pool) {
-		logFn("rollback", "emergency stop active — skipping auto-rollback for "+
-			"action %d (manual rollback required)", actionID)
-		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",
-			"emergency stop active; automatic rollback withheld")
+	// Scope a legacy hint DELETE first, so a rollback held for an
+	// emergency stop or checked by policy is the scoped one (tuning-02a).
+	rollbackSQL, err := scopeHintRollback(ctx, pool, actionID, rollbackSQL)
+	if err != nil {
+		logFn("rollback", "rollback refused for action %d: %v", actionID, err)
+		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped", err.Error())
 		return
 	}
-	if cfg.Authorize == nil || !cfg.Authorize(ctx, rollbackSQL) {
-		logFn("rollback", "policy withheld rollback for action %d", actionID)
-		setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped",
-			"standing policy withheld automatic rollback")
+	verdict, held := withheldRollback(ctx, pool, actionID, rollbackSQL, cfg, logFn)
+	if held {
 		return
 	}
+	cfg.LockTimeoutMs = rollbackLockTimeoutMS(rollbackSQL, cfg.LockTimeoutMs,
+		verdict.LockCeilingMS)
 	if !setMonitoredOutcome(ctx, pool, actionID, "rolling_back", "regression detected") {
 		logFn("rollback", "action %d changed state; rollback not repeated", actionID)
 		return
@@ -194,13 +271,57 @@ func rollbackRegressedAction(
 	}
 	if err != nil {
 		logFn("rollback", "rollback failed for action %d: %v", actionID, err)
-		updateActionOutcome(ctx, pool, actionID, "rollback_failed",
+		_ = recordActionOutcome(ctx, pool, logFn, actionID, "rollback_failed",
 			"rollback execution failed: "+err.Error())
 		return
 	}
-	updateActionOutcome(ctx, pool, actionID, "rolled_back", reason)
+	_ = recordActionOutcome(ctx, pool, logFn, actionID, "rolled_back", reason)
 	_, _ = finalizeActionVerification(ctx, pool, actionID, "revert", reason)
 	_, _ = value.NewPostgresRepository(pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
+}
+
+// withheldRollback records a rollback the emergency stop or the authorizer
+// holds back and reports whether it was held, with the authorizer's
+// verdict. The stop is checked first. A withheld rollback is offered to a
+// person as a revert item (cfg.QueueRevert), so it never dead-ends.
+func withheldRollback(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, rollbackSQL string,
+	cfg RollbackMonitorConfig, logFn func(string, string, ...any),
+) (RollbackVerdict, bool) {
+	if CheckEmergencyStop(ctx, pool) {
+		if cfg.HoldForStop != nil {
+			cfg.HoldForStop(ctx, actionID, rollbackSQL)
+			return RollbackVerdict{}, true
+		}
+		logFn("rollback", "emergency stop active — skipping auto-rollback for "+
+			"action %d (manual rollback required)", actionID)
+		skipRollback(ctx, pool, actionID, rollbackSQL,
+			RollbackVerdict{Reason: stopWithheldReason}, cfg)
+		return RollbackVerdict{}, true
+	}
+	verdict := cfg.verdict(ctx, rollbackSQL)
+	if verdict.Allowed {
+		return verdict, false
+	}
+	logFn("rollback", "rollback of action %d withheld: %s", actionID, verdict.Reason)
+	skipRollback(ctx, pool, actionID, rollbackSQL, verdict, cfg)
+	return verdict, true
+}
+
+// stopWithheldReason is the rollback_reason of a revert the emergency stop
+// withheld.
+const stopWithheldReason = "emergency stop active; automatic rollback withheld"
+
+// skipRollback records the withheld rollback and, once it claimed the
+// action, queues its revert item.
+func skipRollback(
+	ctx context.Context, pool *pgxpool.Pool, actionID int64, rollbackSQL string,
+	verdict RollbackVerdict, cfg RollbackMonitorConfig,
+) {
+	if setMonitoredOutcome(ctx, pool, actionID, "rollback_skipped", verdict.Reason) &&
+		cfg.QueueRevert != nil {
+		cfg.QueueRevert(ctx, actionID, rollbackSQL, verdict)
+	}
 }
 
 // executeRollbackSQL runs rollback DDL concurrently where possible, under a
@@ -209,12 +330,13 @@ func rollbackRegressedAction(
 func executeRollbackSQL(
 	ctx context.Context, pool *pgxpool.Pool, rollbackSQL string, cfg RollbackMonitorConfig,
 ) (string, error) {
-	if cfg.Acquire != nil {
-		release, err := cfg.Acquire(ctx)
-		if err != nil {
-			return "", err
-		}
-		defer release()
+	ctx, release, err := cfg.enterRollback(ctx, rollbackSQL)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	if cfg.ActionPool != nil {
+		pool = cfg.ActionPool // the rollback is a change: the action identity runs it
 	}
 	sql := concurrentIndexRollbackSQL(rollbackSQL)
 	timeout := cfg.StatementTimeout
@@ -234,7 +356,7 @@ func executeRollbackSQL(
 		err = execStatementsInTransaction(ctx, pool, timeout, o, sql)
 		return "created statistics removed; ANALYZE statistics are not restored", err
 	}
-	if err := cfg.exec(pool)(ctx, sql, timeout, WithLockTimeout(cfg.LockTimeoutMs)); err != nil {
+	if err := cfg.execRollbackStatement(ctx, pool, sql, timeout); err != nil {
 		return "", err
 	}
 	reason := "automatic rollback due to regression"
@@ -251,6 +373,30 @@ func executeRollbackSQL(
 	return reason, nil
 }
 
+// enterRollback registers the rollback as in-flight work the emergency stop
+// cancels, then takes the shared DDL slot; release undoes both.
+func (c RollbackMonitorConfig) enterRollback(
+	ctx context.Context, rollbackSQL string,
+) (context.Context, func(), error) {
+	done := func() {}
+	if c.Track != nil {
+		tracked, untrack, err := c.Track(ctx, rollbackSQL)
+		if err != nil {
+			return ctx, nil, err
+		}
+		ctx, done = tracked, untrack
+	}
+	if c.Acquire == nil {
+		return ctx, done, nil
+	}
+	releaseSlot, err := c.Acquire(ctx)
+	if err != nil {
+		done()
+		return ctx, nil, err
+	}
+	return ctx, func() { releaseSlot(); done() }, nil
+}
+
 func (c RollbackMonitorConfig) exec(
 	pool *pgxpool.Pool,
 ) func(context.Context, string, time.Duration, ...DDLOption) error {
@@ -258,8 +404,12 @@ func (c RollbackMonitorConfig) exec(
 		return c.execRollback
 	}
 	return func(ctx context.Context, sql string, timeout time.Duration, opts ...DDLOption) error {
-		if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
-			return ExecConcurrently(ctx, pool, sql, timeout, opts...)
+		if statementRunsTopLevel(sql) {
+			// A failed restore build is cleaned up by the remnant handler;
+			// its outcome is named in the rollback's error.
+			run := remnantRun{pool: pool, timeout: timeout, dropTimeout: timeout, opts: opts}
+			_, err := run.exec(ctx, sql)
+			return err
 		}
 		return ExecInTransaction(ctx, pool, sql, timeout, opts...)
 	}

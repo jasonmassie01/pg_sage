@@ -16,7 +16,7 @@ import (
 func chooseCut(ctx context.Context, s DB, t Table) (time.Time, error) {
 	var now time.Time
 	var newest *time.Time
-	if err := s.QueryRow(ctx, fmt.Sprintf(`SELECT now(), (SELECT max(%s) FROM %s)`,
+	if err := s.QueryRow(ctx, fmt.Sprintf(`/* pg_sage */ SELECT now(), (SELECT max(%s) FROM %s)`,
 		ident(t.Column), t.ident())).Scan(&now, &newest); err != nil {
 		return time.Time{}, fmt.Errorf("read the newest %s: %w", t.Column, err)
 	}
@@ -92,13 +92,13 @@ func buildKey(ctx context.Context, s DB, sql string, concurrently bool) error {
 		_, err := s.Exec(ctx, sql)
 		return err
 	}
-	if _, err := s.Exec(ctx, "SELECT pg_catalog.set_config('lock_timeout', $1, false)",
+	if _, err := s.Exec(ctx, "/* pg_sage */ SELECT pg_catalog.set_config('lock_timeout', $1, false)",
 		ms(convertStatementTimeout)); err != nil {
 		return fmt.Errorf("lift the lock timeout: %w", err)
 	}
 	_, err := s.Exec(ctx, sql)
 	_, rerr := s.Exec(context.WithoutCancel(ctx),
-		"SELECT pg_catalog.set_config('lock_timeout', $1, false)", ms(LockTimeout))
+		"/* pg_sage */ SELECT pg_catalog.set_config('lock_timeout', $1, false)", ms(LockTimeout))
 	if rerr != nil {
 		rerr = fmt.Errorf("restore the lock timeout: %w", rerr)
 	}
@@ -160,7 +160,8 @@ func execSteps(ctx context.Context, db DB, steps []string) error {
 // the ATTACH relies on is there and validated.
 func requireValidCheck(ctx context.Context, db DB, t Table) error {
 	var valid bool
-	err := db.QueryRow(ctx, `SELECT COALESCE((SELECT convalidated FROM pg_catalog.pg_constraint
+	err := db.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE((SELECT convalidated
+		FROM pg_catalog.pg_constraint
 		WHERE conrelid = pg_catalog.to_regclass($1) AND conname = $2), false)`,
 		t.regclass(), t.checkName()).Scan(&valid)
 	if err != nil {
@@ -207,7 +208,7 @@ func cleanupLocked(ctx context.Context, s DB, t Table) (err error) {
 	}
 	defer func() { err = errors.Join(err, restore(ctx)) }()
 	var hasCheck, hasKey bool
-	if err := s.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
+	if err := s.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint
 		WHERE conrelid = pg_catalog.to_regclass($1) AND conname = $2),
 		pg_catalog.to_regclass($3) IS NOT NULL`, t.regclass(), t.checkName(),
 		"sage."+t.keyName()).Scan(&hasCheck, &hasKey); err != nil {
@@ -273,7 +274,8 @@ var concurrentKeyMinBytes int64 = 32 << 20
 // keyBuild is "CONCURRENTLY " for a large heap, "" otherwise.
 func keyBuild(ctx context.Context, s DB, t Table) (string, error) {
 	var heap int64
-	if err := s.QueryRow(ctx, "SELECT pg_catalog.pg_relation_size(pg_catalog.to_regclass($1))",
+	if err := s.QueryRow(ctx,
+		"/* pg_sage */ SELECT pg_catalog.pg_relation_size(pg_catalog.to_regclass($1))",
 		t.regclass()).Scan(&heap); err != nil {
 		return "", fmt.Errorf("read the heap size: %w", err)
 	}

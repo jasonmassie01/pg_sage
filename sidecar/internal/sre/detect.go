@@ -35,6 +35,12 @@ type ReactiveDetector struct {
 	tmAt  []time.Time
 	hot   int // consecutive polls with a sustained LWLock class
 	state map[TriggerKind]*episode
+
+	// peak is the largest temp-file growth within one window since the
+	// last TakeTempPeak (its own lock: a take never waits for a poll).
+	peakMu   sync.Mutex
+	peak     float64
+	peakSeen bool
 }
 
 // DetectorConfig is the detector's thresholds.
@@ -121,6 +127,7 @@ func (d *ReactiveDetector) Triggers(ctx context.Context) ([]Trigger, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	ctx = probes.WithCaller(ctx, probes.CallerDetector)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	var out []Trigger
@@ -232,9 +239,32 @@ func (d *ReactiveDetector) pollTemp(ctx context.Context) (reading, bool) {
 	i := firstInWindow(d.tmAt, at, d.cfg.Window)
 	d.temp, d.tmAt = d.temp[i:], d.tmAt[i:]
 	grew, ok := probes.Delta(d.temp[0].Bytes, s.Bytes)
+	if ok {
+		d.notePeak(grew)
+	}
 	return reading{cond: ok && grew >= d.cfg.TempBytes, at: at,
 		evidence: fmt.Sprintf("%s of temp files in this database within %s (threshold %s)",
 			mebibytes(grew), d.cfg.Window, mebibytes(d.cfg.TempBytes))}, true
+}
+
+func (d *ReactiveDetector) notePeak(grew float64) {
+	d.peakMu.Lock()
+	defer d.peakMu.Unlock()
+	if !d.peakSeen || grew > d.peak {
+		d.peak, d.peakSeen = grew, true
+	}
+}
+
+// TakeTempPeak returns the largest temp-file bytes this database wrote
+// within one detector window since the previous take, and resets it;
+// false when no poll measured temp-file growth since then.
+// Self-configuration samples it to judge the temp-file threshold.
+func (d *ReactiveDetector) TakeTempPeak() (float64, bool) {
+	d.peakMu.Lock()
+	defer d.peakMu.Unlock()
+	v, ok := d.peak, d.peakSeen
+	d.peak, d.peakSeen = 0, false
+	return v, ok
 }
 
 func mebibytes(b float64) string { return fmt.Sprintf("%.0f MiB", b/(1<<20)) }

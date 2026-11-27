@@ -48,13 +48,10 @@ var (
 // posture-only, logged once.
 func governanceControlPool(c *config.Config, mgr *fleet.DatabaseManager,
 	meta *metaDBState) *pgxpool.Pool {
-	if meta != nil && meta.Pool != nil {
-		return meta.Pool
+	if p := controlPoolOf(c, mgr, meta); p != nil {
+		return p
 	}
 	if c != nil && c.Agents.ControlDatabase != "" && mgr != nil {
-		if inst := mgr.GetInstance(c.Agents.ControlDatabase); inst != nil && inst.Pool != nil {
-			return inst.Pool
-		}
 		agentPostureOnce.Do(func() {
 			logWarn("agents", "agents.control_database %q is not a connected monitored "+
 				"database: agent governance runs posture checks only", c.Agents.ControlDatabase)
@@ -65,6 +62,24 @@ func governanceControlPool(c *config.Config, mgr *fleet.DatabaseManager,
 		logInfo("agents", "agent governance runs posture checks only: set "+
 			"agents.control_database (or use mode: meta) to bind environments")
 	})
+	return nil
+}
+
+// controlPoolOf finds the control database without logging, for readers
+// that may run before the fleet finishes registering (pgaudit attribution)
+// and must not spend governance's one posture-only message on a database
+// that is still connecting.
+func controlPoolOf(c *config.Config, mgr *fleet.DatabaseManager,
+	meta *metaDBState) *pgxpool.Pool {
+	if meta != nil && meta.Pool != nil {
+		return meta.Pool
+	}
+	if c == nil || c.Agents.ControlDatabase == "" || mgr == nil {
+		return nil
+	}
+	if inst := mgr.GetInstance(c.Agents.ControlDatabase); inst != nil && inst.Pool != nil {
+		return inst.Pool
+	}
 	return nil
 }
 
@@ -145,19 +160,19 @@ func startAgentGovernance(ctx context.Context, fleetControl *pgxpool.Pool,
 		"scan started")
 }
 
-// governanceLeader decides and fences the governance jobs.
+// governanceLeader decides and fences the governance jobs; the fence's
+// scope is the elector's own lease scope.
 type governanceLeader struct {
 	elector *leader.Elector
-	scope   string
 }
 
 func agentGovernanceLeader(ctx context.Context, control,
 	fleetControl *pgxpool.Pool) governanceLeader {
-	scope := fleetLearningScope(cfg)
 	if control == fleetControl || cfg.FleetLearning.LeaderLeaseSeconds <= 0 {
-		return governanceLeader{elector: fleetLeader, scope: scope}
+		governanceElector.Store(nil)
+		return governanceLeader{elector: currentFleetLeader()}
 	}
-	scope = "agents:" + scope
+	scope := "agents:" + fleetLearningScope(cfg)
 	e := leader.NewElector(leader.NewPostgresStore(control), scope, leader.HolderID(),
 		cfg.FleetLearning.LeaderLease(), leader.WithLogger(logStructuredWrapper))
 	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -166,7 +181,8 @@ func agentGovernanceLeader(ctx context.Context, control,
 	}
 	cancel()
 	go e.Run(ctx)
-	return governanceLeader{elector: e, scope: scope}
+	governanceElector.Store(e)
+	return governanceLeader{elector: e}
 }
 
 // fence returns the lease to write under; ok is false on a follower.
@@ -174,11 +190,11 @@ func (g governanceLeader) fence(job string) (envbind.Fence, bool) {
 	if g.elector == nil {
 		return envbind.Fence{}, fleetLeaderAllows(job)
 	}
-	holder, epoch, ok := g.elector.Fence()
+	tok, ok := g.elector.Fence()
 	if !ok {
 		return envbind.Fence{}, false
 	}
-	return envbind.Fence{Scope: g.scope, Holder: holder, Epoch: epoch}, true
+	return envbind.Fence{Scope: tok.Scope, Holder: tok.Holder, Epoch: tok.Epoch}, true
 }
 
 func governedDatabases(ctx context.Context, svc *envbind.Service,

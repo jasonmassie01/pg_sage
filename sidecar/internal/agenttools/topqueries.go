@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/pg-sage/sidecar/internal/extschema"
+	"github.com/pg-sage/sidecar/internal/sqlast"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // Bounds of a top-queries request.
 const (
 	defaultTopLimit = 10
 	maxTopLimit     = 50
-	// maxTopScan is how many statements are read before exclusion.
+	// maxTopScan is how many statements are read before a custom exclusion.
 	maxTopScan = 500
 )
 
@@ -48,20 +53,43 @@ type CachedPlan struct {
 	TotalCost  float64   `json:"total_cost"`
 	PlanHash   string    `json:"plan_hash,omitempty"`
 	NodeTypes  []string  `json:"node_types"`
+	// JSON is the captured EXPLAIN document; top_queries leaves it out,
+	// the workload explorer's query page shows it.
+	JSON json.RawMessage `json:"-"`
 }
 
 var topOrders = map[string]bool{"total_time": true, "mean_time": true, "calls": true}
 
-const topQueriesSQL = `/* pg_sage */ SELECT ` + statementColumns + `
-FROM pg_stat_statements
-WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND queryid IS NOT NULL
-GROUP BY queryid
-ORDER BY CASE $1
-    WHEN 'calls' THEN sum(calls)::float8
-    WHEN 'mean_time' THEN sum(total_exec_time) / NULLIF(sum(calls), 0)
-    ELSE sum(total_exec_time) END DESC NULLS LAST, queryid
-LIMIT $2`
+// topQueriesSQL reads the heaviest statements of the current database.
+// With $3 true the workload rule (workload.AdviceSQL) is applied before
+// the LIMIT and the statements it leaves out are only counted: pg_sage's
+// own statements (its schema bootstrap alone is hundreds) must not fill
+// the bounded scan and hide the workload. The first column is that count;
+// the query columns are NULL when no statement is listed. rel is the
+// qualified pg_stat_statements view.
+func topQueriesSQL(rel string) string {
+	return `/* pg_sage */ WITH s AS (
+    SELECT queryid, min(query) AS query, sum(calls)::bigint AS calls,
+        sum(total_exec_time)::float8 AS total_ms, sum(rows)::bigint AS nrows
+    FROM ` + rel + `
+    WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND queryid IS NOT NULL
+    GROUP BY queryid),
+w AS (SELECT s.*, (NOT $3::boolean OR (` + workload.AdviceSQL("s.query") + `)) AS listed
+    FROM s),
+q AS (SELECT * FROM w WHERE listed
+    ORDER BY ` + topOrderSQL + `, queryid LIMIT $2)
+SELECT (SELECT count(*) FROM w WHERE NOT listed)::bigint,
+    q.queryid, q.query, q.calls, q.total_ms, q.nrows
+FROM (SELECT 1) one LEFT JOIN q ON true
+ORDER BY ` + topOrderSQL + `, q.queryid`
+}
+
+// topOrderSQL is the ORDER BY key of $1 (an order from topOrders).
+const topOrderSQL = `CASE $1
+    WHEN 'calls' THEN calls::float8
+    WHEN 'mean_time' THEN total_ms / NULLIF(calls, 0)
+    ELSE total_ms END DESC NULLS LAST`
 
 // TopQueries returns the heaviest statements of the current database by
 // total time (default), mean time or calls, without excluded statements.
@@ -105,35 +133,100 @@ func topRequest(req TopQueriesRequest) (int, string, error) {
 
 func (t *Tools) readTop(ctx context.Context, order string, limit int,
 ) (TopQueriesResult, error) {
-	rows, err := t.pool.Query(ctx, topQueriesSQL, order, maxTopScan)
+	rel, err := extschema.StatementsRel(ctx, t.pool, "pg_stat_statements")
+	if err != nil {
+		return TopQueriesResult{}, statementsError(err)
+	}
+	rows, err := t.pool.Query(ctx, topQueriesSQL(rel), order, maxTopScan, t.sqlWorkload)
 	if err != nil {
 		return TopQueriesResult{}, statementsError(err)
 	}
 	defer rows.Close()
 	res := TopQueriesResult{Queries: []TopQuery{}, Source: "pg_stat_statements"}
+	var sqlExcluded int
 	for rows.Next() {
-		var s statement
-		if err := rows.Scan(&s.ID, &s.Text, &s.Calls, &s.TotalTimeMs, &s.Rows); err != nil {
-			return TopQueriesResult{}, fmt.Errorf("scan pg_stat_statements: %w", err)
+		s, listed, err := scanTopRow(rows, &sqlExcluded)
+		if err != nil {
+			return TopQueriesResult{}, err
 		}
-		if t.opts.Excluded(s.Text) {
+		if !listed {
+			continue
+		}
+		q, excluded := t.present(s)
+		if excluded {
 			res.ExcludedCount++
 			continue
 		}
 		if len(res.Queries) < limit {
-			res.Queries = append(res.Queries, topQuery(s))
+			res.Queries = append(res.Queries, q)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return TopQueriesResult{}, statementsError(err)
 	}
+	res.ExcludedCount += sqlExcluded
 	return res, nil
+}
+
+// scanTopRow reads one topQueriesSQL row: it stores the count of
+// statements the SQL left out and reports whether the row has a statement.
+func scanTopRow(rows pgx.Rows, sqlExcluded *int) (statement, bool, error) {
+	var (
+		excluded int64
+		id       *int64
+		text     *string
+		calls    *int64
+		total    *float64
+		n        *int64
+	)
+	if err := rows.Scan(&excluded, &id, &text, &calls, &total, &n); err != nil {
+		return statement{}, false, fmt.Errorf("scan pg_stat_statements: %w", err)
+	}
+	*sqlExcluded = int(excluded)
+	if id == nil || text == nil || calls == nil || total == nil || n == nil {
+		return statement{}, false, nil
+	}
+	return statement{ID: *id, Text: *text, Calls: *calls, TotalTimeMs: *total,
+		Rows: *n}, true, nil
+}
+
+// present is how the agent tools and the workload explorer show a
+// statement: its normalized text and tags, and whether the workload rule
+// leaves it out (pg_sage's own statements).
+func (t *Tools) present(s statement) (TopQuery, bool) {
+	return topQuery(s), t.opts.Excluded(s.Text)
+}
+
+// Statement is one statement as present shows it.
+type Statement struct {
+	Query    string
+	Tags     map[string]string
+	Excluded bool
+}
+
+// Statements reads the statements of ids from pg_stat_statements as
+// top_queries shows them; an id without a statement (evicted, or never
+// tracked) is absent. A missing or unloaded extension is ErrUnavailable.
+func (t *Tools) Statements(ctx context.Context, ids []int64) (map[int64]Statement, error) {
+	if err := t.ready(); err != nil {
+		return nil, err
+	}
+	byID, err := t.statementsByID(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]Statement, len(byID))
+	for id, s := range byID {
+		q, excluded := t.present(s)
+		out[id] = Statement{Query: q.Query, Tags: q.Tags, Excluded: excluded}
+	}
+	return out, nil
 }
 
 func topQuery(s statement) TopQuery {
 	q := TopQuery{QueryID: QueryID(s.ID), Query: s.Text, Calls: s.Calls,
 		TotalTimeMs: s.TotalTimeMs, MeanTimeMs: s.meanMs(), Rows: s.Rows}
-	if tags := ParseSQLCommenter(s.Text); len(tags) > 0 {
+	if tags := sqlast.ParseSQLCommenter(s.Text); len(tags) > 0 {
 		q.Tags = tags
 	}
 	return q
@@ -151,9 +244,25 @@ func (t *Tools) attachPlans(ctx context.Context, queries []TopQuery) error {
 	for i, q := range queries {
 		ids[i] = int64(q.QueryID)
 	}
+	plans, err := t.Plans(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for i := range queries {
+		queries[i].Plan = plans[int64(queries[i].QueryID)]
+	}
+	return nil
+}
+
+// Plans reads the newest plan pg_sage captured for each of ids (not a
+// provider's plan history); an id without one is absent.
+func (t *Tools) Plans(ctx context.Context, ids []int64) (map[int64]*CachedPlan, error) {
+	if err := t.ready(); err != nil {
+		return nil, err
+	}
 	rows, err := t.pool.Query(ctx, cachedPlansSQL, ids)
 	if err != nil {
-		return fmt.Errorf("read sage.explain_cache: %w", err)
+		return nil, fmt.Errorf("read sage.explain_cache: %w", err)
 	}
 	defer rows.Close()
 	plans := make(map[int64]*CachedPlan, len(ids))
@@ -163,18 +272,18 @@ func (t *Tools) attachPlans(ctx context.Context, queries []TopQuery) error {
 		p := &CachedPlan{}
 		if err := rows.Scan(&id, &p.Source, &p.CapturedAt, &p.TotalCost, &p.PlanHash,
 			&raw); err != nil {
-			return fmt.Errorf("scan sage.explain_cache: %w", err)
+			return nil, fmt.Errorf("scan sage.explain_cache: %w", err)
 		}
 		p.NodeTypes = planNodeTypes(raw)
+		if json.Valid(raw) {
+			p.JSON = raw
+		}
 		plans[id] = p
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read sage.explain_cache: %w", err)
+		return nil, fmt.Errorf("read sage.explain_cache: %w", err)
 	}
-	for i := range queries {
-		queries[i].Plan = plans[int64(queries[i].QueryID)]
-	}
-	return nil
+	return plans, nil
 }
 
 // planNodeTypes lists the distinct "Node Type" values of an EXPLAIN JSON

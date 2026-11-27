@@ -1,6 +1,7 @@
 package perfgate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -56,5 +57,58 @@ func TestRenderMarkdownSuspectsAreNotOffenders(t *testing.T) {
 	if !strings.Contains(md, "## Generic-plan suspects (1)") ||
 		!strings.Contains(md, "queryid 11") {
 		t.Fatalf("suspect missing:\n%s", md)
+	}
+}
+
+func TestRenderMarkdownMeterRow(t *testing.T) {
+	p := meteredPhase(100, 140)
+	for i := 1; i <= 6; i++ {
+		p.Statements = append(p.Statements, Statement{QueryID: int64(100 + i),
+			Query: fmt.Sprintf("SELECT untagged_%d", i), Calls: 1, TotalMs: float64(i)})
+	}
+	store := meteredPhase(10)
+	store.Name = "steady (history store)"
+	store.Unmetered = "not on the monitored database's meter"
+	phases := []Phase{p, store}
+	offenders, err := Evaluate(phases, DefaultBudgets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := RenderMarkdown(SmallScale(), DefaultBudgets(), phases, offenders)
+	for _, want := range []string{
+		"| " + string(GateMeterParity) + " | within 10%", string(GateMeterCycle),
+		"## Product meter (gate H)", "| steady | 140.0 | 1 of 1 | 103.5 | 15.0 | 15.0 |",
+		"untagged_6", "untagged_2", "steady (history store): not charged (not on the " +
+			"monitored database's meter)",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("report lacks %q:\n%s", want, md)
+		}
+	}
+	// The costliest-statements section lists all of them; the meter
+	// section only the top 5 untagged.
+	meter := md[strings.Index(md, "## Product meter"):]
+	meter = meter[:strings.Index(meter, "## Sage table activity")]
+	if strings.Contains(meter, "untagged_1 ") || !strings.Contains(meter, "untagged_2 ") {
+		t.Fatalf("meter section does not list exactly the top 5 untagged:\n%s", meter)
+	}
+	if strings.Contains(meter, "/* pg_sage */") {
+		t.Fatalf("meter section lists a tagged statement as untagged:\n%s", meter)
+	}
+	if strings.Index(meter, "untagged_6") > strings.Index(meter, "untagged_5") {
+		t.Fatalf("untagged statements not costliest first:\n%s", meter)
+	}
+}
+
+func TestRenderMarkdownMeterUnknown(t *testing.T) {
+	p := meteredPhase(50)
+	offenders, err := Evaluate([]Phase{p}, DefaultBudgets())
+	if err != nil {
+		t.Fatal(err)
+	}
+	md := RenderMarkdown(SmallScale(), DefaultBudgets(), []Phase{p}, offenders)
+	if !strings.Contains(md, "FAIL") || !strings.Contains(md, "meter unknown") ||
+		!strings.Contains(md, "| steady | unknown | 0 of 0 | 50.0 |") {
+		t.Fatalf("unknown meter not reported as a failure:\n%s", md)
 	}
 }

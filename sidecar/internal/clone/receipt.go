@@ -2,6 +2,7 @@ package clone
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -9,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -61,6 +61,13 @@ type Receipt struct {
 	ExpiresAt        time.Time `json:"expires_at"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	// HolderID is the process holding the clone; HeartbeatAt is when it
+	// last said so (lab-05a). Both are empty on a receipt without a
+	// holder, which only its TTL ends.
+	HolderID    string    `json:"holder_id,omitempty"`
+	HeartbeatAt time.Time `json:"heartbeat_at,omitempty"`
+	// Estimate is the clone's cost label, written before the provider call.
+	Estimate *Cost `json:"estimate,omitempty"`
 }
 
 // ProviderRef is the provider resource id the receipt names, as
@@ -113,44 +120,36 @@ func validateReceipt(r Receipt, now time.Time) error {
 
 const receiptColumns = `id, deployment_id::text, adapter, scope, COALESCE(ref, ''), name,
 	purpose, COALESCE(principal_id, ''), COALESCE(source_database_id::text, ''), masked,
-	status, expires_at, created_at, updated_at`
+	status, expires_at, created_at, updated_at, COALESCE(holder_id, ''), heartbeat_at,
+	estimate`
 
 func scanReceipt(row pgx.Row) (Receipt, error) {
 	var r Receipt
+	var heartbeat *time.Time
+	var estimate []byte
 	err := row.Scan(&r.ID, &r.DeploymentID, &r.Adapter, &r.Scope, &r.Ref, &r.Name,
 		&r.Purpose, &r.PrincipalID, &r.SourceDatabaseID, &r.Masked, &r.Status,
-		&r.ExpiresAt, &r.CreatedAt, &r.UpdatedAt)
-	return r, err
+		&r.ExpiresAt, &r.CreatedAt, &r.UpdatedAt, &r.HolderID, &heartbeat, &estimate)
+	if err != nil {
+		return r, err
+	}
+	if heartbeat != nil {
+		r.HeartbeatAt = *heartbeat
+	}
+	if len(estimate) > 0 {
+		r.Estimate = &Cost{}
+		if err := json.Unmarshal(estimate, r.Estimate); err != nil {
+			return r, fmt.Errorf("decode clone receipt %d estimate: %w", r.ID, err)
+		}
+	}
+	return r, nil
 }
-
-const recordReceiptSQL = `/* pg_sage clone_receipt v1 */
-INSERT INTO sage.clone_instances (deployment_id, adapter, scope, name, purpose,
-    principal_id, source_database_id, masked, status, expires_at)
-VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, '')::uuid, $8, 'creating', $9)
-RETURNING ` + receiptColumns
 
 // Record writes the receipt (status creating) in one INSERT. Call it
 // before the provider call, so a crash after the provider acted still
 // leaves a record of what to adopt or destroy.
 func (s *ReceiptStore) Record(ctx context.Context, r Receipt) (Receipt, error) {
-	if err := validateReceipt(r, time.Now()); err != nil {
-		return Receipt{}, err
-	}
-	if s.pool == nil {
-		return Receipt{}, ErrNoReceiptStore
-	}
-	got, err := scanReceipt(s.pool.QueryRow(ctx, recordReceiptSQL, r.DeploymentID,
-		r.Adapter, r.Scope, r.Name, r.Purpose, r.PrincipalID, r.SourceDatabaseID, r.Masked,
-		r.ExpiresAt))
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return Receipt{}, fmt.Errorf("%w: %s/%s/%s", ErrReceiptExists, r.Adapter, r.Scope,
-			r.Name)
-	}
-	if err != nil {
-		return Receipt{}, fmt.Errorf("record clone receipt %s: %w", r.Name, err)
-	}
-	return got, nil
+	return s.RecordLimited(ctx, r, 0)
 }
 
 const markReadySQL = `/* pg_sage clone_receipt v1 */
@@ -199,21 +198,38 @@ SELECT ` + receiptColumns + ` FROM sage.clone_instances
 WHERE name = $1 AND status = 'ready' AND expires_at > now()
 ORDER BY created_at DESC, id DESC LIMIT 1`
 
+const activeRefSQL = `/* pg_sage clone_receipt v1 */
+SELECT ` + receiptColumns + ` FROM sage.clone_instances
+WHERE ref = $1 AND status = 'ready' AND expires_at > now()
+ORDER BY created_at DESC, id DESC LIMIT 1`
+
 // Active returns the newest ready, unexpired receipt for the clone
 // registered under name (a sandbox is monitored under its receipt name).
 func (s *ReceiptStore) Active(ctx context.Context, name string) (Receipt, bool, error) {
+	return s.active(ctx, activeReceiptSQL, name)
+}
+
+// ActiveRef returns the newest ready, unexpired receipt whose clone has
+// the provider resource id ref (MarkReady's ref, the Clone.ID an adapter
+// returned), which differs from the receipt's name.
+func (s *ReceiptStore) ActiveRef(ctx context.Context, ref string) (Receipt, bool, error) {
+	return s.active(ctx, activeRefSQL, ref)
+}
+
+func (s *ReceiptStore) active(ctx context.Context, query, key string) (Receipt, bool,
+	error) {
 	if s.pool == nil {
 		return Receipt{}, false, ErrNoReceiptStore
 	}
-	if strings.TrimSpace(name) == "" {
+	if strings.TrimSpace(key) == "" {
 		return Receipt{}, false, nil
 	}
-	r, err := scanReceipt(s.pool.QueryRow(ctx, activeReceiptSQL, name))
+	r, err := scanReceipt(s.pool.QueryRow(ctx, query, key))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Receipt{}, false, nil
 	}
 	if err != nil {
-		return Receipt{}, false, fmt.Errorf("read clone receipt for %s: %w", name, err)
+		return Receipt{}, false, fmt.Errorf("read clone receipt for %s: %w", key, err)
 	}
 	return r, true, nil
 }

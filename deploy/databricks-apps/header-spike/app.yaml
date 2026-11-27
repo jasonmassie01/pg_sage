@@ -1,0 +1,4 @@
+# Temporary header-capture App for the databricks-09 spike. Deploy it as its
+# own App in a test workspace, run the procedure in docs/databricks-apps.md
+# ("Service principals and MCP"), record the answer, then delete the App.
+command: ['python', 'app.py']

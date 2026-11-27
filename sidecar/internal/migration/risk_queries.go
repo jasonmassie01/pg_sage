@@ -22,11 +22,13 @@ func (ra *RiskAssessor) fetchTableStats(
 	schema := schemaOrPublic(risk.SchemaName)
 	row := ra.catalog().QueryRow(ctx, tableStatsSQL, risk.TableName, schema)
 	if err := row.Scan(&risk.EstimatedRows, &risk.TableSizeBytes); err != nil {
+		risk.noteReadErr(err)
 		ra.logFn("debug",
 			"migration: table stats unavailable for %s.%s: %v",
 			schema, risk.TableName, err)
 		return
 	}
+	risk.Measured.TableStats = true
 	// reltuples = -1 means "never analyzed" (PG14+): size unknown.
 	risk.StatsKnown = risk.EstimatedRows >= 0
 }
@@ -35,13 +37,15 @@ func (ra *RiskAssessor) fetchTableStats(
 // query mentions the table as a whole word. PostgreSQL ARE uses \y for
 // a word boundary; \b is a backspace (G7-B02). pg_sage's own sessions
 // (probes, EXPLAINs and plan captures run application query text) are
-// not load the DDL competes with.
+// not load the DDL competes with, and neither is the DDL's own backend
+// ($2, 0 when unknown, which matches no backend).
 var activeQueriesSQL = `
 SELECT COUNT(*)::int,
        COALESCE(MAX(EXTRACT(EPOCH FROM now() - query_start)), 0)
 FROM   pg_stat_activity
 WHERE  state = 'active'
   AND  pid <> pg_backend_pid()
+  AND  pid <> $2
   AND  datname = current_database()
   AND  query ~* $1
   AND  ` + selfmonitor.ActivityExclusionSQL("")
@@ -50,12 +54,15 @@ func (ra *RiskAssessor) fetchActiveQueries(
 	ctx context.Context, risk *DDLRisk,
 ) {
 	pattern := `\y` + quoteARE(risk.TableName) + `\y`
-	row := ra.catalog().QueryRow(ctx, activeQueriesSQL, pattern)
+	row := ra.catalog().QueryRow(ctx, activeQueriesSQL, pattern, risk.SessionPID)
 	if err := row.Scan(&risk.ActiveQueries, &risk.LongestQuerySec); err != nil {
+		risk.noteReadErr(err)
 		ra.logFn("debug",
 			"migration: active query check failed for %s: %v",
 			risk.TableName, err)
+		return
 	}
+	risk.Measured.Activity = true
 }
 
 var areSpecial = regexp.MustCompile(`[\\.^$|?*+()\[\]{}]`)
@@ -90,10 +97,13 @@ func (ra *RiskAssessor) fetchPendingLocks(
 	schema := schemaOrPublic(risk.SchemaName)
 	row := ra.catalog().QueryRow(ctx, pendingLocksSQL, risk.TableName, schema)
 	if err := row.Scan(&risk.PendingLocks); err != nil {
+		risk.noteReadErr(err)
 		ra.logFn("debug",
 			"migration: pending lock check failed for %s.%s: %v",
 			schema, risk.TableName, err)
+		return
 	}
+	risk.Measured.PendingLocks = true
 }
 
 const replicationLagSQL = `
@@ -107,9 +117,12 @@ func (ra *RiskAssessor) fetchReplicationLag(
 ) {
 	row := ra.catalog().QueryRow(ctx, replicationLagSQL)
 	if err := row.Scan(&risk.ReplicationLag); err != nil {
+		risk.noteReadErr(err)
 		ra.logFn("debug",
 			"migration: replication lag query failed: %v", err)
+		return
 	}
+	risk.Measured.ReplicationLag = true
 }
 
 func schemaOrPublic(s string) string {

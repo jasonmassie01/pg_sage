@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // defaultMaxNewPerTable bounds new index proposals per table per cycle.
@@ -130,7 +131,7 @@ func findSnapshotTable(snap *collector.Snapshot, name string) (collector.TableSt
 		return collector.TableStats{}, false
 	}
 	for _, t := range snap.Tables {
-		if qualified(t.SchemaName, t.RelName) == name {
+		if sqlident.Qualified(t.SchemaName, t.RelName) == name {
 			return t, true
 		}
 	}

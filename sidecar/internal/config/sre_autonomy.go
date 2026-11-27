@@ -36,17 +36,23 @@ type SREAutonomyConfig struct {
 // SREGameDaysConfig configures game days: PGIncidentBench fault programs
 // on a disposable clone (clone.provider) of the customer's database.
 type SREGameDaysConfig struct {
-	Enabled       bool     `yaml:"enabled" doc:"Run game days. Needs clone.provider (dle or snapshot) or local_dsn. Default: false."`
+	Enabled       bool     `yaml:"enabled" doc:"Run game days. Needs clone.provider dle, lakebase_branch, neon_branch or aurora_clone, or local_dsn. Default: false."`
 	IntervalHours int      `yaml:"interval_hours" doc:"Hours between scheduled game days, 24-2160. Default: 168."`
-	LocalDSN      string   `yaml:"local_dsn" doc:"Fallback when clone.provider is none: a disposable PostgreSQL database for game days and local bench runs. Never a monitored or the metadata database (refused)." secret:"true"`
+	LocalDSN      string   `yaml:"local_dsn" doc:"Fallback when clone.provider is none: a database for game days and local bench runs, on its own cluster and marked by COMMENT ON DATABASE <db> IS 'pg_sage:gameday_target'." secret:"true"`
 	Families      []string `yaml:"families" doc:"Incident families to exercise. Empty: every family the bench covers."`
+	// CustomerPrograms (benches-12) nil: on when the clone provider's
+	// clones hold customer objects (dle, lakebase_branch, neon_branch,
+	// aurora_clone).
+	CustomerPrograms *bool `yaml:"customer_programs" doc:"Run the customer programs, which exercise the monitored database's own hottest table on the clone. Nil defaults to on when the clone provider copies the database (dle, lakebase_branch, neon_branch, aurora_clone); never on local_dsn."`
 }
 
 // SRECanaryConfig configures the fleet canary for remediations.
 type SRECanaryConfig struct {
 	CanaryInstances    int     `yaml:"canary_instances" doc:"Databases changed and measured before the rollout widens, 1-10. Default: 1."`
 	RegressionLimitPct float64 `yaml:"regression_limit_pct" doc:"Regression that halts and rolls back the rollout, 0-100. Default: 10."`
-	SettleSeconds      int     `yaml:"settle_seconds" doc:"Seconds to wait after each change before measuring it, 0-3600. Default: 60."`
+	// StageWaitHours (lab-03b) pauses the rollout after each database's
+	// verdict before the next database is changed.
+	StageWaitHours int `yaml:"stage_wait_hours" doc:"Hours between a database's verdict and the next change, 0-720. Default: 24."`
 }
 
 func defaultSREAutonomyConfig() SREAutonomyConfig {
@@ -55,7 +61,8 @@ func defaultSREAutonomyConfig() SREAutonomyConfig {
 		ConcurrencyWindowMinutes: 15, SafetyWindowDays: 30, FailoverCooldownMinutes: 30,
 		ProposalTTLHours: 168, ReportRetentionDays: 90, Promotion: defaultSREPromotionConfig(),
 		GameDays: SREGameDaysConfig{IntervalHours: 168},
-		Canary:   SRECanaryConfig{CanaryInstances: 1, RegressionLimitPct: 10, SettleSeconds: 60}}
+		Canary: SRECanaryConfig{CanaryInstances: 1, RegressionLimitPct: 10,
+			StageWaitHours: 24}}
 	c.ClassPromotion = defaultSREClassPromotionConfig()
 	return c
 }
@@ -79,7 +86,7 @@ func (a SREAutonomyConfig) validate() error {
 		{"report_retention_days", a.ReportRetentionDays, 30, 3650},
 		{"game_days.interval_hours", a.GameDays.IntervalHours, 24, 2160},
 		{"canary.canary_instances", a.Canary.CanaryInstances, 1, 10},
-		{"canary.settle_seconds", a.Canary.SettleSeconds, 0, 3600},
+		{"canary.stage_wait_hours", a.Canary.StageWaitHours, 0, 720},
 	} {
 		if c.value < c.lo || c.value > c.hi {
 			return fmt.Errorf("sre.autonomy.%s must be %d-%d, got %d", c.key, c.lo, c.hi,

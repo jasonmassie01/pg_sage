@@ -182,14 +182,18 @@ func proposalsJSON(t *testing.T, ps ...map[string]any) string {
 // ---- fake index tools (optimizer) ----
 
 type fakeIndexes struct {
-	mu        sync.Mutex
-	cold      bool
-	contexts  map[string]optimizer.TableContext
-	admit     func(rec optimizer.Recommendation) optimizer.Admission
-	admitted  []string
-	measured  []string
-	ctxErr    error
-	whatIfSkp int64
+	mu       sync.Mutex
+	cold     bool
+	contexts map[string]optimizer.TableContext
+	admit    func(rec optimizer.Recommendation) optimizer.Admission
+	admitted []string
+	// drop answers MeasureDrop (nil: unverified, HypoPG unavailable);
+	// dropsMeasured records each call's index.
+	drop          func(ix optimizer.IndexRef) optimizer.DropMeasurement
+	dropsMeasured []optimizer.IndexRef
+	measured      []string
+	ctxErr        error
+	whatIfSkp     int64
 }
 
 func newFakeIndexes() *fakeIndexes {
@@ -219,10 +223,23 @@ func (f *fakeIndexes) Admit(_ context.Context, rec optimizer.Recommendation,
 	rec.Category = optimizer.OptimizerCategory
 	rec.WhatIf, rec.Validated = optimizer.WhatIfVerified, true
 	rec.EstimatedImprovementPct = 40
+	rec.AffectedQueryIDs = nil // the real Admit replaces them with the context's
 	for _, q := range tc.Queries {
 		rec.AffectedQueryIDs = append(rec.AffectedQueryIDs, q.QueryID)
 	}
 	return optimizer.Admission{Rec: rec, Outcome: optimizer.AdmitAccepted}
+}
+
+func (f *fakeIndexes) MeasureDrop(_ context.Context, ix optimizer.IndexRef,
+	_ optimizer.TableContext) optimizer.DropMeasurement {
+	f.mu.Lock()
+	f.dropsMeasured = append(f.dropsMeasured, ix)
+	f.mu.Unlock()
+	if f.drop != nil {
+		return f.drop(ix)
+	}
+	return optimizer.DropMeasurement{Verdict: optimizer.WhatIfUnverified,
+		Reason: "HypoPG unavailable"}
 }
 
 func (f *fakeIndexes) MeasuredRejections(context.Context, optimizer.TableContext) []string {
@@ -307,7 +324,7 @@ func (h *fakeHints) CheckHint(_ context.Context, p tuner.HintProposal) (
 		ObjectType: "query", ObjectIdentifier: fmt.Sprintf("queryid:%d", p.QueryID),
 		Title: "Per-query tuning", Detail: detail, Recommendation: p.Rationale,
 		RecommendedSQL: tuner.BuildInsertSQL(p.QueryID, p.Hint),
-		RollbackSQL:    tuner.BuildDeleteSQL(p.QueryID), ActionRisk: "safe"}, nil
+		RollbackSQL:    tuner.BuildDeleteSQL(p.QueryID, p.Hint), ActionRisk: "safe"}, nil
 }
 
 func (h *fakeHints) RecordHint(_ context.Context, p tuner.HintProposal) error {

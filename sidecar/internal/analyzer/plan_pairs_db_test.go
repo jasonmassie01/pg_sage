@@ -19,6 +19,26 @@ import (
 // columns): "cannot scan NULL into *float64" ended every pass (seen in
 // every performance gate run).
 
+// recordingAnalyzer is an analyzer over its own pool (on base's
+// database; base comes from phase2Pool, which a test calls once: it holds
+// the cross-package lock) whose statements are recorded, so a test can
+// count the statements a check runs.
+func recordingAnalyzer(t *testing.T, base *pgxpool.Pool, lookbackDays int) (*Analyzer,
+	*testdb.QueryRecorder) {
+	t.Helper()
+	cfg := base.Config().Copy()
+	rec := &testdb.QueryRecorder{}
+	cfg.ConnConfig.Tracer = rec
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	c := phase2Config()
+	c.Analyzer.RegressionLookbackDays = lookbackDays
+	return New(pool, c, nil, nil, nil, nil, nil, noopLog), rec
+}
+
 const planPairQueryBase = 917_000_000
 
 func cleanPlanPairs(t *testing.T, pool *pgxpool.Pool) {
@@ -155,7 +175,9 @@ func TestPlanPairsProviderCannotEnterUnboundRegression(t *testing.T) {
 		var result []planPair
 		for rows.Next() {
 			var p planPair
-			if e = rows.Scan(&p.QueryID, &p.QueryText, &p.CurrentPlan, &p.CurrentCost, &p.CurrentTime, &p.PreviousPlan, &p.PreviousCost, &p.PreviousTime); e != nil {
+			if e = rows.Scan(&p.QueryID, &p.QueryText, &p.CurrentPlan, &p.CurrentCost,
+				&p.CurrentTime, &p.PreviousPlan, &p.PreviousCost, &p.PreviousTime,
+				&p.CurrentAt, &p.PreviousAt); e != nil {
 				t.Fatal(e)
 			}
 			if p.QueryID == qid {

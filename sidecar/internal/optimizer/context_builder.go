@@ -2,19 +2,27 @@ package optimizer
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
+// groupQueriesByTable maps each snapshot table to the application
+// statements that name it, resolved like the tuning agent resolves them
+// (workload.ReferencedTables): an unqualified name belongs to the only
+// schema holding it, or to public when public is one of several.
 func groupQueriesByTable(
 	snap *collector.Snapshot,
-) map[string][]QueryInfo {
-	result := make(map[string][]QueryInfo)
+) map[workload.Relation][]QueryInfo {
+	result := make(map[workload.Relation][]QueryInfo)
+	known := workload.KnownTables(snap)
 	for _, q := range applicationQueries(snap.Queries) {
-		tables := extractTablesFromQuery(q.Query)
 		qi := QueryInfo{
 			QueryID:     q.QueryID,
 			Text:        q.Query,
@@ -22,32 +30,11 @@ func groupQueriesByTable(
 			MeanTimeMs:  q.MeanExecTime,
 			TotalTimeMs: q.TotalExecTime,
 		}
-		for _, t := range tables {
+		for _, t := range workload.ReferencedTables(q.Query, known) {
 			result[t] = append(result[t], qi)
 		}
 	}
 	return result
-}
-
-func extractTablesFromQuery(query string) []string {
-	var tables []string
-	upper := strings.ToUpper(query)
-	words := strings.Fields(upper)
-	for i, w := range words {
-		if (w == "FROM" || w == "JOIN" || w == "UPDATE" || w == "INTO") &&
-			i+1 < len(words) {
-			table := strings.ToLower(words[i+1])
-			table = strings.Trim(table, "\"(),;")
-			if table == "" || strings.HasPrefix(table, "pg_") || table == "sage" {
-				continue
-			}
-			if !strings.Contains(table, ".") {
-				table = "public." + table
-			}
-			tables = append(tables, table)
-		}
-	}
-	return tables
 }
 
 func filterByMinCalls(queries []QueryInfo, minCalls int64) []QueryInfo {
@@ -78,15 +65,18 @@ func writeRateKnown(ts collector.TableStats) bool {
 	return ts.SeqScan+ts.IdxScan+ts.NTupIns+ts.NTupUpd+ts.NTupDel > 0
 }
 
+// computeWriteRate is the percentage of index-maintaining writes among
+// those writes plus the tuples read. Inserts and non-HOT updates add index
+// entries; HOT updates and deletes do not (vacuum removes dead entries).
+// Reads are tuples, not scans: a bulk COPY is one row per tuple written and
+// must be weighed against the tuples lookups return, not their count.
 func computeWriteRate(ts collector.TableStats) float64 {
-	total := float64(
-		ts.SeqScan + ts.IdxScan + ts.NTupIns + ts.NTupUpd + ts.NTupDel,
-	)
+	writes := float64(ts.NTupIns + max(ts.NTupUpd-ts.NTupHotUpd, 0))
+	total := writes + float64(ts.SeqTupRead+ts.IdxTupFetch)
 	if total == 0 {
 		return 0
 	}
-	writes := float64(ts.NTupIns + ts.NTupUpd + ts.NTupDel)
-	return (writes / total) * 100
+	return writes / total * 100
 }
 
 func classifyWorkload(writeRatePct float64, liveTuples int64) string {
@@ -102,13 +92,16 @@ func classifyWorkload(writeRatePct float64, liveTuples int64) string {
 	return "htap"
 }
 
+// countIndexes counts the table's valid indexes: an invalid one (a failed
+// CONCURRENTLY build) is the invalid-index rule's to drop, and does not
+// hold a slot under max_indexes_per_table.
 func countIndexes(
 	indexes []collector.IndexStats,
 	schema, table string,
 ) int {
 	count := 0
 	for _, idx := range indexes {
-		if idx.SchemaName == schema && idx.RelName == table {
+		if idx.SchemaName == schema && idx.RelName == table && idx.IsValid {
 			count++
 		}
 	}
@@ -129,24 +122,31 @@ func buildIndexInfo(
 				IsUnique:   idx.IsUnique,
 				IsValid:    idx.IsValid,
 				SizeBytes:  idx.IndexBytes,
+				OID:        idx.IndexRelID,
 			})
 		}
 	}
 	return result
 }
 
+// fetchColumns reads the table's columns. A failed read returns the
+// error and no columns, never a partial list.
 func fetchColumns(
 	ctx context.Context,
 	pool catalogread.Querier,
 	schema, table string,
-) []ColumnInfo {
+) ([]ColumnInfo, error) {
+	// data_type is USER-DEFINED for every extension type (vector,
+	// halfvec, geometry, ...); udt_name names the type itself.
 	rows, err := pool.Query(ctx,
-		`/* pg_sage */ SELECT column_name, data_type, is_nullable
+		`/* pg_sage optimizer */ SELECT column_name,
+		   CASE WHEN data_type = 'USER-DEFINED' THEN udt_name ELSE data_type END,
+		   is_nullable
 		 FROM information_schema.columns
 		 WHERE table_schema = $1 AND table_name = $2
 		 ORDER BY ordinal_position`, schema, table)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("read columns of %s.%s: %w", schema, table, err)
 	}
 	defer rows.Close()
 
@@ -155,12 +155,15 @@ func fetchColumns(
 		var c ColumnInfo
 		var nullable string
 		if err := rows.Scan(&c.Name, &c.Type, &nullable); err != nil {
-			continue
+			return nil, fmt.Errorf("scan a column of %s.%s: %w", schema, table, err)
 		}
 		c.IsNullable = nullable == "YES"
 		cols = append(cols, c)
 	}
-	return cols
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read columns of %s.%s: %w", schema, table, err)
+	}
+	return cols, nil
 }
 
 func fetchColStats(
@@ -172,31 +175,34 @@ func fetchColStats(
 	// Extract column names referenced in query texts to filter
 	// pg_stats to only the columns the optimizer needs.
 	cols := extractColumnsFromQueries(queries)
-
-	var rows interface {
-		Next() bool
-		Scan(dest ...any) error
-		Close()
-	}
-	var err error
 	if len(cols) > 0 {
-		rows, err = pool.Query(ctx,
-			`/* pg_sage */ SELECT attname, n_distinct, correlation,
-			        most_common_vals::text, most_common_freqs::text
-			 FROM pg_stats
-			 WHERE schemaname = $1 AND tablename = $2
-			   AND attname = ANY($3)`, schema, table, cols)
-	} else {
-		// No column names extracted: return the most skewed
-		// columns to cap prompt size.
-		rows, err = pool.Query(ctx,
-			`/* pg_sage */ SELECT attname, n_distinct, correlation,
+		return fetchNamedColStats(ctx, pool, schema, table, cols)
+	}
+	// No column names extracted: return the most skewed
+	// columns to cap prompt size.
+	return scanColStats(pool.Query(ctx,
+		`/* pg_sage optimizer */ SELECT attname, n_distinct, correlation,
 			        most_common_vals::text, most_common_freqs::text
 			 FROM pg_stats
 			 WHERE schemaname = $1 AND tablename = $2
 			 ORDER BY abs(correlation) DESC
-			 LIMIT 15`, schema, table)
-	}
+			 LIMIT 15`, schema, table))
+}
+
+// fetchNamedColStats reads the pg_stats rows of the named columns.
+func fetchNamedColStats(ctx context.Context, pool catalogread.Querier,
+	schema, table string, cols []string) []ColStat {
+	return scanColStats(pool.Query(ctx,
+		`/* pg_sage optimizer */ SELECT attname, n_distinct, correlation,
+			        most_common_vals::text, most_common_freqs::text
+			 FROM pg_stats
+			 WHERE schemaname = $1 AND tablename = $2
+			   AND attname = ANY($3)`, schema, table, cols))
+}
+
+// scanColStats reads pg_stats rows; a failed read is no statistics (the
+// rules that need them do not apply) and an unreadable row is skipped.
+func scanColStats(rows pgx.Rows, err error) []ColStat {
 	if err != nil {
 		return nil
 	}
@@ -344,7 +350,7 @@ func buildPartitionParentSet(
 // the parent's query list, deduplicating by QueryID.
 func mergeChildQueries(
 	parentQueries []QueryInfo,
-	tableQueries map[string][]QueryInfo,
+	tableQueries map[workload.Relation][]QueryInfo,
 	childSet map[string]bool,
 	snap *collector.Snapshot,
 	parentKey string,
@@ -360,7 +366,8 @@ func mergeChildQueries(
 		if pk != parentKey || !childSet[childKey] {
 			continue
 		}
-		for _, q := range tableQueries[childKey] {
+		child := workload.Relation{Schema: p.ChildSchema, Name: p.ChildTable}
+		for _, q := range tableQueries[child] {
 			if !seen[q.QueryID] {
 				seen[q.QueryID] = true
 				merged = append(merged, q)
@@ -408,4 +415,16 @@ func parseFloatArray(s string) []float64 {
 		}
 	}
 	return result
+}
+
+// SkipScanNote is the PostgreSQL 18 note for the index agent's table
+// context, "" before 18.
+func SkipScanNote(tc TableContext) string {
+	if tc.PGMajor < skipScanMinMajor {
+		return ""
+	}
+	return fmt.Sprintf("PostgreSQL 18 skip scan: a btree index can serve an equality "+
+		"or range on its second key when its leading key has few distinct values (at "+
+		"most %d), so a single-column index on a column an existing composite holds "+
+		"second behind such a key is usually redundant.", skipScanMaxLeadingDistinct)
 }

@@ -59,8 +59,9 @@ func (e *Executor) justifyAndStore(
 	jctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	pctx := llm.WithPurpose(jctx, "justification") // llm-04: usage ledger label
 	note, _, err := e.justifier.Chat(
-		jctx, justifySystemPrompt, buildJustificationPrompt(f), 256)
+		pctx, justifySystemPrompt, buildJustificationPrompt(f), 256)
 	if err != nil {
 		e.logFn("executor", "justification failed for action %d: %v",
 			actionID, err)
@@ -69,7 +70,7 @@ func (e *Executor) justifyAndStore(
 	// json_mode wraps prose in a JSON object; store plain text (C4).
 	note = llm.UnwrapText(note)
 	if _, err := e.pool.Exec(jctx,
-		`/* pg_sage */ UPDATE sage.action_log SET justification = $1 WHERE id = $2`,
+		`/* pg_sage executor */ UPDATE sage.action_log SET justification = $1 WHERE id = $2`,
 		note, actionID,
 	); err != nil {
 		e.logFn("executor", "store justification for action %d: %v",

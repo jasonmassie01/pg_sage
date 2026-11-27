@@ -18,8 +18,10 @@
     "query_timeout_seconds": 30,
     "max_rows": 500,
     "max_bytes": 4194304,
-    "queries_per_poll": 12,
+    "queries_per_poll": 16,
     "window_seconds": 900,
-    "retention_hours": 168
+    "retention_hours": 168,
+    "settle_lag_seconds": 120,
+    "short_lookback_seconds": 7200
   }
 }

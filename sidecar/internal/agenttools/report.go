@@ -48,12 +48,17 @@ type ReportRequest struct {
 // Report is where a source fix stands and, once decided, pg_sage's verdict:
 // observed against predicted change of the target queries. Verdict is
 // "pending" until decided; a decided verdict never changes.
+// DeployReportedAt is when pg_sage first heard of the deploy (unset for reports
+// filed before it was recorded); Backdated means the deploy was reported
+// after its whole verify window had closed.
 type Report struct {
 	FindingID         int64             `json:"finding_id"`
 	Stage             string            `json:"stage"`
 	PRURL             string            `json:"pr_url,omitempty"`
 	Commit            string            `json:"commit,omitempty"`
 	DeployedAt        *time.Time        `json:"deployed_at,omitempty"`
+	DeployReportedAt  *time.Time        `json:"deploy_reported_at,omitempty"`
+	Backdated         bool              `json:"backdated"`
 	VerifyAfter       *time.Time        `json:"verify_after,omitempty"`
 	Verdict           string            `json:"verdict"`
 	Tolerance         string            `json:"tolerance,omitempty"`
@@ -147,7 +152,7 @@ func nullable(s string) *string {
 }
 
 const reportColumns = `finding_id, stage, pr_url, commit_sha, deployed_at, prediction,
-    target_queryids, verdict, tolerance, observed, evidence, reason`
+    target_queryids, verdict, tolerance, observed, evidence, reason, deploy_reported_at`
 
 // reportRow is a sage.source_fix row.
 type reportRow struct {
@@ -160,20 +165,26 @@ type reportRow struct {
 	Verdict, Tolerance *string
 	Observed, Evidence []byte
 	Reason             string
+	DeployReportedAt   *time.Time
 }
 
 func scanReport(row pgx.Row) (reportRow, error) {
 	var r reportRow
 	err := row.Scan(&r.FindingID, &r.Stage, &r.PRURL, &r.Commit, &r.DeployedAt,
 		&r.Prediction, &r.Targets, &r.Verdict, &r.Tolerance, &r.Observed, &r.Evidence,
-		&r.Reason)
+		&r.Reason, &r.DeployReportedAt)
 	return r, err
 }
 
+// prOpenedSQL records a PR: $8..$11 are its origin (agent or pg_sage, pr-01b),
+// repository, number and state, null for an agent's report.
 const prOpenedSQL = `/* pg_sage */ INSERT INTO sage.source_fix AS s (finding_id, packet_hash,
-    stage, pr_url, commit_sha, reported_by, prediction, target_queryids)
-VALUES ($1, $2, 'pr_opened', $3, $4, $5, $6, $7)
+    stage, pr_url, commit_sha, reported_by, prediction, target_queryids, origin, repo,
+    pr_number, pr_state)
+VALUES ($1, $2, 'pr_opened', $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (finding_id) DO UPDATE SET pr_url = EXCLUDED.pr_url,
+    origin = EXCLUDED.origin, repo = EXCLUDED.repo, pr_number = EXCLUDED.pr_number,
+    pr_state = EXCLUDED.pr_state,
     commit_sha = COALESCE(EXCLUDED.commit_sha, s.commit_sha),
     packet_hash = EXCLUDED.packet_hash, reported_by = EXCLUDED.reported_by,
     prediction = EXCLUDED.prediction, target_queryids = EXCLUDED.target_queryids,
@@ -189,6 +200,25 @@ func (t *Tools) reportPROpened(ctx context.Context, req ReportRequest, actor str
 	if err := validCommit(req.Commit); err != nil {
 		return Report{}, err
 	}
+	return t.writePROpened(ctx, req, actor, prOrigin{name: originAgent})
+}
+
+// prOrigin is who opened a recorded PR; repo, number and state are set
+// only for PR mode's own PRs.
+type prOrigin struct {
+	name, repo, state string
+	number            int
+}
+
+func (o prOrigin) args() []any {
+	if o.name == originAgent {
+		return []any{o.name, nil, nil, nil}
+	}
+	return []any{o.name, o.repo, o.number, o.state}
+}
+
+func (t *Tools) writePROpened(ctx context.Context, req ReportRequest, actor string,
+	origin prOrigin) (Report, error) {
 	p, err := t.reportPacket(ctx, req)
 	if err != nil {
 		return Report{}, err
@@ -197,16 +227,25 @@ func (t *Tools) reportPROpened(ctx context.Context, req ReportRequest, actor str
 	if err != nil {
 		return Report{}, fmt.Errorf("encode prediction: %w", err)
 	}
-	row, err := scanReport(t.pool.QueryRow(ctx, prOpenedSQL, req.FindingID, p.Hash,
-		req.PRURL, nullable(req.Commit), actor, pred, toInt64s(p.Targets.QueryIDs)))
+	args := append([]any{req.FindingID, p.Hash, req.PRURL, nullable(req.Commit), actor, pred,
+		toInt64s(p.Targets.QueryIDs)}, origin.args()...)
+	row, err := scanReport(t.pool.QueryRow(ctx, prOpenedSQL, args...))
 	return t.writtenReport(row, err, req)
 }
 
+// deployedSQL records a deploy and when it was reported ($9, the tools'
+// clock, the same clock deployed_at is bounded by). Re-reporting the same
+// deploy (same deployed_at) keeps the time pg_sage first heard of it, so a
+// live deploy re-reported late is never marked backdated.
 const deployedSQL = `/* pg_sage */ INSERT INTO sage.source_fix AS s (finding_id, packet_hash,
-    stage, pr_url, commit_sha, reported_by, prediction, target_queryids, deployed_at)
-VALUES ($1, $2, 'deployed', $3, $4, $5, $6, $7, $8)
+    stage, pr_url, commit_sha, reported_by, prediction, target_queryids, deployed_at,
+    deploy_reported_at)
+VALUES ($1, $2, 'deployed', $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (finding_id) DO UPDATE SET stage = 'deployed',
-    deployed_at = EXCLUDED.deployed_at, pr_url = COALESCE(EXCLUDED.pr_url, s.pr_url),
+    deployed_at = EXCLUDED.deployed_at,
+    deploy_reported_at = CASE WHEN s.deployed_at = EXCLUDED.deployed_at
+        THEN s.deploy_reported_at ELSE EXCLUDED.deploy_reported_at END,
+    pr_url = COALESCE(EXCLUDED.pr_url, s.pr_url),
     commit_sha = COALESCE(EXCLUDED.commit_sha, s.commit_sha),
     packet_hash = EXCLUDED.packet_hash, reported_by = EXCLUDED.reported_by,
     prediction = EXCLUDED.prediction, target_queryids = EXCLUDED.target_queryids,
@@ -238,7 +277,7 @@ func (t *Tools) reportDeployed(ctx context.Context, req ReportRequest, actor str
 	}
 	row, err := scanReport(t.pool.QueryRow(ctx, deployedSQL, req.FindingID, p.Hash,
 		nullable(req.PRURL), nullable(req.Commit), actor, pred, toInt64s(p.Targets.QueryIDs),
-		deployed))
+		deployed, t.now()))
 	return t.writtenReport(row, err, req)
 }
 
@@ -259,7 +298,8 @@ func (t *Tools) writtenReport(row reportRow, err error, req ReportRequest) (Repo
 // toReport renders a row; VerifyAfter is the deploy plus the window.
 func (t *Tools) toReport(r reportRow) (Report, error) {
 	out := Report{FindingID: r.FindingID, Stage: r.Stage, DeployedAt: r.DeployedAt,
-		Verdict: verify.OutcomePending, Reason: r.Reason}
+		DeployReportedAt: r.DeployReportedAt, Verdict: verify.OutcomePending, Reason: r.Reason,
+		Backdated: backdated(r.DeployedAt, r.DeployReportedAt, t.opts.VerifyWindow)}
 	if r.PRURL != nil {
 		out.PRURL = *r.PRURL
 	}
@@ -299,4 +339,10 @@ func decodeReportJSON(r reportRow, out *Report) error {
 		}
 	}
 	return nil
+}
+
+// backdated reports a deploy heard of only after its whole verify window
+// (the after-window) had closed. An unknown report time is not backdated.
+func backdated(deployed, reported *time.Time, window time.Duration) bool {
+	return deployed != nil && reported != nil && reported.Sub(*deployed) > window
 }

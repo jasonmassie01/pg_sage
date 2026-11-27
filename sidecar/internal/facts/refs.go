@@ -172,16 +172,31 @@ func verb(toks []token) string {
 // ResolveRefs names the objects a request touches: those its SQL names,
 // then its targets (deduplicated).
 func ResolveRefs(req Request) []ObjectRef {
-	toks := scanSQL(req.SQL)
-	refs := sqlRefs(toks)
-	for _, raw := range req.Targets {
-		ref, err := ParseObjectRef(raw)
-		if err != nil || containsRef(refs, ref) {
-			continue
+	return mergeRefs(sqlRefs(scanSQL(req.SQL)), targetRefs(req.Targets))
+}
+
+// targetRefs parses a request's targets; one that is no object reference
+// ("pid:123", "") is skipped.
+func targetRefs(targets []string) []ObjectRef {
+	var out []ObjectRef
+	for _, raw := range targets {
+		if ref, err := ParseObjectRef(raw); err == nil {
+			out = append(out, ref)
 		}
-		refs = append(refs, ref)
 	}
-	return refs
+	return out
+}
+
+// mergeRefs is refs followed by each of more it does not already hold, in
+// a new slice (refs is never written).
+func mergeRefs(refs, more []ObjectRef) []ObjectRef {
+	out := append([]ObjectRef(nil), refs...)
+	for _, ref := range more {
+		if !containsRef(out, ref) {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 func containsRef(refs []ObjectRef, ref ObjectRef) bool {
@@ -219,9 +234,68 @@ func sqlRefs(toks []token) []ObjectRef {
 		s.i = 1
 		s.skipWords("FROM", "ONLY")
 		return listRefs(s, KindTable)
+	case "ALTER SYSTEM":
+		return alterSystemRefs(toks)
 	}
 	return slotRefs(toks)
 }
+
+// slotBoundGUC is the cluster-wide setting past which PostgreSQL
+// invalidates any slot that retains more WAL.
+const slotBoundGUC = "max_slot_wal_keep_size"
+
+// alterSystemRefs reads ALTER SYSTEM SET or RESET of max_slot_wal_keep_size
+// as touching every slot of the cluster, whichever slot the proposal
+// names. Only an exact -1 (unbounded) is exempt: RESET, DEFAULT and every
+// finite value can later invalidate a slot, and a provider's default may
+// be finite. A slot function in the statement is still named.
+func alterSystemRefs(toks []token) []ObjectRef {
+	refs := slotRefs(toks)
+	if !boundsSlotWAL(toks) {
+		return refs
+	}
+	return append([]ObjectRef{{Kind: KindSlot, AllSlots: true}}, refs...)
+}
+
+func boundsSlotWAL(toks []token) bool {
+	s := &stmt{toks: toks}
+	switch s.word(2) {
+	case "RESET":
+		return s.word(3) == "ALL" || isSlotBoundGUC(toks, 3)
+	case "SET":
+		return isSlotBoundGUC(toks, 3) && !unboundedValue(toks[4:])
+	}
+	return false
+}
+
+// isSlotBoundGUC reports the setting's name at i, bare or quoted, in any
+// case (PostgreSQL looks setting names up case-insensitively).
+func isSlotBoundGUC(toks []token, i int) bool {
+	return i < len(toks) && (toks[i].kind == tokWord || toks[i].kind == tokQuoted) &&
+		strings.EqualFold(toks[i].text, slotBoundGUC)
+}
+
+// unboundedValue reports "= -1" or "TO '-1'" (one optional trailing
+// semicolon, nothing after it).
+func unboundedValue(rest []token) bool {
+	if len(rest) == 0 || !isPunct(rest[0], "=") &&
+		(rest[0].kind != tokWord || !strings.EqualFold(rest[0].text, "TO")) {
+		return false
+	}
+	v := rest[1:]
+	if len(v) > 0 && isPunct(v[len(v)-1], ";") {
+		v = v[:len(v)-1]
+	}
+	switch len(v) {
+	case 1:
+		return v[0].kind == tokString && v[0].text == "-1"
+	case 2:
+		return isPunct(v[0], "-") && v[1].kind == tokWord && v[1].text == "1"
+	}
+	return false
+}
+
+func isPunct(t token, text string) bool { return t.kind == tokPunct && t.text == text }
 
 func createIndexRefs(s *stmt) []ObjectRef {
 	s.i = 2

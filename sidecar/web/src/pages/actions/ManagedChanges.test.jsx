@@ -87,6 +87,31 @@ describe('ManagedChanges', () => {
       (init?.method || 'GET') === 'GET').length).toBeGreaterThan(1))
   })
 
+  it('disables approval while a proposal has blockers and says why', async () => {
+    const blocked = { ...listBody, databases: [{ database: 'orders', proposals: [
+      { id: 7, status: 'pending', proposal: { ...proposal,
+        cli: '# fill in: gcloud sql instances describe main',
+        blockers: ['flag log_line_prefix has a value pg_sage cannot quote safely'] } },
+    ] }] }
+    const mock = vi.fn(async () => response(200, blocked))
+    vi.stubGlobal('fetch', mock)
+    render(<ManagedChanges database="orders" canDecide />)
+    const approve = await screen.findByTestId('managed-change-approve')
+    expect(approve).toBeDisabled()
+    expect(approve.getAttribute('title')).toContain('log_line_prefix')
+    expect(screen.getByTestId('managed-change-reject')).toBeEnabled()
+    fireEvent.click(approve)
+    expect(mock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it('keeps approval enabled without blockers', async () => {
+    stubFetch()
+    render(<ManagedChanges database="orders" canDecide />)
+    const approve = await screen.findByTestId('managed-change-approve')
+    expect(approve).toBeEnabled()
+    expect(approve.getAttribute('title')).toBeNull()
+  })
+
   it('shows a refused decision', async () => {
     stubFetch(409)
     render(<ManagedChanges database="orders" canDecide />)

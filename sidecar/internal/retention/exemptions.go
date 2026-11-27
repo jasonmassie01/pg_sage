@@ -7,7 +7,10 @@ import "github.com/pg-sage/sidecar/internal/decommission"
 // to purgeRules or here (enforced by a test).
 var retentionExemptions = mergeExemptions(coreExemptions, fleetLearningExemptions,
 	decommissionExemptions, agentEnvClassExemptions, agentGuardExemptions,
-	agentGateExemptions, auditChainExemptions, agentKillExemptions, agentGrantExemptions)
+	agentGateExemptions, auditChainExemptions, agentKillExemptions, agentGrantExemptions,
+	trancheThreeExemptions, planExemptions, trancheFiveExemptions, reviewExemptions,
+	sprawlCensusExemptions, upgradeBriefExemptions, trancheSixExemptions,
+	trancheSevenExemptions)
 
 // agentGuardExemptions: agent identities and their roles are the record of
 // truth for who could act (spec §6.4, §6.6); §6.17 sets no age
@@ -21,6 +24,8 @@ var agentGuardExemptions = map[string]string{
 		"aged out, and stay as evidence",
 	"guard_public_baseline": "current state: the PUBLIC baseline is replaced " +
 		"whole at each preflight",
+	"guard_principal_changes": "the two-admin record of a widening agent change " +
+		"(agentgov-06), audit evidence; deleted with its principal",
 }
 
 // decommissionExemptions: the operator's acknowledgements of the
@@ -31,16 +36,27 @@ var decommissionExemptions = map[string]string{
 
 // coreExemptions are the exempt tables of the sage schema proper.
 var coreExemptions = map[string]string{
-	"action_outcome":     "deleted with its action (ON DELETE CASCADE, actions_days)",
-	"ask_messages":       "deleted with its conversation (ON DELETE CASCADE)",
+	"advisor_runs": "current state: one row per database and sub-advisor, its " +
+		"backoff clock",
+	"action_outcome": "deleted with its action (ON DELETE CASCADE, actions_days)",
+	"ask_messages":   "deleted with its conversation (ON DELETE CASCADE)",
+	"ask_runs":       "deleted with its conversation (ON DELETE CASCADE, mcp-07b)",
+	"provider_advice_sources": "current state: one row per database and provider, its " +
+		"last advice fetch (market-09)",
 	"chatops_identities": "admin-managed mapping of chat users to accounts, current state",
 	"chatops_replay":     "pruned by chatops on every callback (24 h replay window)",
 	"config":             "current configuration, not a time-series",
 	"config_audit":       "security audit trail of configuration changes",
 	"crypto_meta":        "key metadata, not a time-series",
-	"databases":          "fleet registry, not a time-series",
+	"data_cleanup":       "one row per one-shot cleanup of pg_sage's own data",
+	"fact_events": "chained history of fact decisions (audit of who lifted a guard); " +
+		"outlives its fact, kept like config_audit",
+	"databases": "fleet registry, not a time-series",
 	"first_look": "bounded by its writer: firstlook.Store.Save keeps the newest 10 " +
 		"reports per database",
+	"llm_usage": "control-database ledger pruned at startup by its writer: budget " +
+		"counters after 35 days (llmUsageRetention), attributed usage after 400 days " +
+		"(llmAttributionRetention, llm-04)",
 	"onboarding":            "one row per database, current state",
 	"ha_identity":           "HA monitor history, current state, one row per monitor",
 	"incident_avoided":      "value ledger; low volume, kept as evidence",
@@ -51,6 +67,8 @@ var coreExemptions = map[string]string{
 	"notification_rules":    "configuration",
 	"policy":                "standing policy, versioned configuration",
 	"query_hints":           "active hints, current state",
+	"sre_incident_followup": "one claim per paged incident that keeps its " +
+		"diagnosis follow-up at most once (sre-08); low volume, never aged out",
 	"recommendation_revision": "immutable revisions; deleted with their terminal " +
 		"recommendation (ON DELETE CASCADE, actions_days)",
 	"recommendation_transition": "immutable history; deleted with its terminal " +
@@ -58,7 +76,11 @@ var coreExemptions = map[string]string{
 	"rollout_run": "low-volume rollout evidence ledger",
 	"runway_samples": "runway series; the runway monitor prunes them on every pass " +
 		"(sre.runways.sample_retention_hours)",
+	"multixact_member_samples": "multixact member space readings; the runway monitor " +
+		"prunes them past 90 days on every pass (guard-02a)",
 	"rollout_instance": "per-database steps of a rollout run; low volume",
+	"schema_migrations": "migration ledger (config-04b): one row per migration " +
+		"step and one catalog fingerprint; purging it would replay every step",
 	// Sage SRE M7: earned-autonomy evidence. Purging by age would quietly
 	// lower or erase the evidence promotions rest on ("no harmful outcome
 	// ever"), so these are kept like the other evidence ledgers.
@@ -67,7 +89,12 @@ var coreExemptions = map[string]string{
 	"sre_autonomy_events":    "append-only autonomy history (audit); updates are refused",
 	"sre_autonomy_outcomes":  "append-only live outcomes; promotion evidence",
 	"sre_packet_reviews":     "operator shadow reviews; promotion evidence, one per review",
-	"sre_game_days":          "game-day runs; low volume (at most one per interval_hours)",
+	"sre_game_days": "game-day and local bench runs; low volume (one at a time, " +
+		"game days at most one per interval_hours)",
+	"bench_fixture_state": "on a bench target, the ALTER SYSTEM settings a fault " +
+		"program changed; deleted when reset, at most a few rows",
+	"unused_index_clock": "current state: one row per zero-scan index; the analyzer " +
+		"deletes a row when its index leaves the clock",
 	"trust_ledger_state": "one row per database: when its time-ramp autonomy was " +
 		"grandfathered into the trust ledger, and the reconcile cursors",
 	"trust_shadow_evidence": "shadow-mode promotion evidence, one row per counted " +
@@ -78,6 +105,10 @@ var coreExemptions = map[string]string{
 		"key (self-configuration)",
 	"config_derivation": "derivation ledger; rows only on a change, kept as the " +
 		"evidence behind each derived value",
+	"review_trigger_state": "current state, one row per database and polling source " +
+		"(what the review trigger sources last saw)",
+	"review_fleet_member": "the members of a fleet pass, deleted with their pass " +
+		"(ON DELETE CASCADE from review_fleet_pass)",
 	"schema_baseline":        "current state, one row per object",
 	"schema_findings":        "legacy table superseded by findings (v0.11); no writer",
 	"sessions":               "expired sessions are deleted by auth's session cleaner",

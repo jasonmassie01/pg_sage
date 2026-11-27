@@ -2,8 +2,7 @@ package executor
 
 import (
 	"context"
-	"os"
-	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -46,6 +45,7 @@ var baselineVerdicts = []matrixRow{
 	{"autonomous", "apply_query_hint", "queue_approval", "approval_required"},
 	{"autonomous", "investigate_query_plan", "blocked", "change_class_not_allowed"},
 	{"autonomous", "create_statistics", "execute", "authorized"},
+	{"autonomous", "set_column_statistics", "execute", "authorized"},
 	{"autonomous", "revert_created_statistics", "execute", "authorized"},
 	{"autonomous", "prepare_parameterized_query", "blocked", "change_class_not_allowed"},
 	{"autonomous", "retention_delete", "execute", "authorized"},
@@ -77,6 +77,7 @@ var baselineVerdicts = []matrixRow{
 	{"advisory", "apply_query_hint", "queue_approval", "approval_required"},
 	{"advisory", "investigate_query_plan", "blocked", "change_class_not_allowed"},
 	{"advisory", "create_statistics", "queue_approval", "approval_required"},
+	{"advisory", "set_column_statistics", "queue_approval", "approval_required"},
 	{"advisory", "revert_created_statistics", "queue_approval", "approval_required"},
 	{"advisory", "prepare_parameterized_query", "blocked", "change_class_not_allowed"},
 	{"advisory", "retention_delete", "queue_approval", "approval_required"},
@@ -108,6 +109,7 @@ var baselineVerdicts = []matrixRow{
 	{"operator", "apply_query_hint", "execute", "operator_approved"},
 	{"operator", "investigate_query_plan", "blocked", "change_class_not_allowed"},
 	{"operator", "create_statistics", "execute", "operator_approved"},
+	{"operator", "set_column_statistics", "execute", "operator_approved"},
 	{"operator", "revert_created_statistics", "execute", "operator_approved"},
 	{"operator", "prepare_parameterized_query", "blocked", "change_class_not_allowed"},
 	{"operator", "retention_delete", "execute", "operator_approved"},
@@ -116,6 +118,15 @@ var baselineVerdicts = []matrixRow{
 	{"operator", "drop_unused_index", "execute", "operator_approved"},
 	{"operator", "alter_table", "execute", "operator_approved"},
 	{"operator", "ddl_preflight", "blocked", "change_class_not_allowed"},
+	// fleetpol-02b: the default profiles' exposure mode is shadow, so the
+	// exposure contracts are observe-only in every scenario, approved ones
+	// included, until an operator sets exposure.mode to enforce.
+	{"autonomous", "revoke_public_grant", "observe_only", "exposure_shadow"},
+	{"autonomous", "enable_row_level_security", "observe_only", "exposure_shadow"},
+	{"advisory", "revoke_public_grant", "observe_only", "exposure_shadow"},
+	{"advisory", "enable_row_level_security", "observe_only", "exposure_shadow"},
+	{"operator", "revoke_public_grant", "observe_only", "exposure_shadow"},
+	{"operator", "enable_row_level_security", "observe_only", "exposure_shadow"},
 	// Intent-level contracts built outside the executor catalog (MCP
 	// candidates and the online-migration runtime).
 	{"autonomous", "mcp_create_index", "execute", "authorized"},
@@ -265,9 +276,11 @@ func TestPolicyVerdictMatrixCoversEveryContract(t *testing.T) {
 	for _, row := range baselineVerdicts {
 		covered[row.actionType]++
 	}
-	types := contractActionTypes()
-	if len(types) < 30 {
-		t.Fatalf("parsed %d contract types from source, want >= 30", len(types))
+	types := matrixActionTypes(t)
+	t.Logf("verdict matrix covers %d contract types", len(types))
+	if len(types) < 31 {
+		t.Fatalf("matrix covers %d contract types, want >= the 31 it covered before executor-30",
+			len(types))
 	}
 	for _, actionType := range types {
 		if covered[actionType] != 3 {
@@ -277,18 +290,34 @@ func TestPolicyVerdictMatrixCoversEveryContract(t *testing.T) {
 	}
 }
 
-// contractActionTypes reads every case of ContractForActionType from source,
-// so a new contract cannot be added without a matrix row.
+// contractActionTypes is every type with a contract (executor-30: it used
+// to parse the ContractForActionType switch out of action_contract.go).
 func contractActionTypes() []string {
-	source, err := os.ReadFile("action_contract.go")
-	if err != nil {
-		panic(err)
+	return ContractActionTypes()
+}
+
+// matrixUncoveredTypes are the contract types the verdict matrix has never
+// had rows for: the old source parse matched only string-literal cases, so
+// these constant-named cases were silently out of scope. Pinning them keeps
+// the matrix scope unchanged and makes any new type need rows or a listing.
+var matrixUncoveredTypes = []string{
+	ActionTypeSetRoleTimeout, ActionTypeSetRoleConnectionLimit,
+	ActionTypeRestoreDroppedIndex, ActionTypeReplaceIndex,
+	ActionTypeGuardRoleEnsure, ActionTypeGuardRoleRetire, ActionTypeGuardFreeze,
+	ActionTypeGuardKill, ActionTypeGuardUnfreeze, ActionTypeGuardGrant,
+	ActionTypeGuardRevoke,
+}
+
+// matrixActionTypes is every contract type the verdict matrix must cover.
+func matrixActionTypes(t *testing.T) []string {
+	t.Helper()
+	types := contractActionTypes()
+	for _, uncovered := range matrixUncoveredTypes {
+		if !slices.Contains(types, uncovered) {
+			t.Fatalf("matrixUncoveredTypes lists %q, which has no contract", uncovered)
+		}
 	}
-	body := regexp.MustCompile(`(?s)func ContractForActionType.*?\r?\n}\r?\n`).Find(source)
-	matches := regexp.MustCompile(`case "([a-z_]+)":`).FindAllSubmatch(body, -1)
-	types := make([]string, 0, len(matches))
-	for _, match := range matches {
-		types = append(types, string(match[1]))
-	}
-	return types
+	return slices.DeleteFunc(types, func(actionType string) bool {
+		return slices.Contains(matrixUncoveredTypes, actionType)
+	})
 }

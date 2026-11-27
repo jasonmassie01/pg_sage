@@ -28,7 +28,8 @@ func databaseName(stmt pgconf.DatabaseStmt) string {
 func captureDatabaseSetting(ctx context.Context, pool *pgxpool.Pool, stmt pgconf.DatabaseStmt) (databaseSettingPrior, error) {
 	prior := databaseSettingPrior{Database: databaseName(stmt)}
 	var exists bool
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS(SELECT FROM pg_database WHERE datname=$1),
+	err := pool.QueryRow(ctx, `/* pg_sage executor */
+		SELECT EXISTS(SELECT FROM pg_database WHERE datname=$1),
 		(SELECT substring(setting from length($2)+2) FROM pg_db_role_setting s
 		JOIN pg_database d ON d.oid=s.setdatabase CROSS JOIN LATERAL unnest(s.setconfig) setting
 		WHERE d.datname=$1 AND s.setrole=0 AND split_part(setting,'=',1)=$2)`, prior.Database, stmt.Name).Scan(&exists, &prior.Value)

@@ -3,6 +3,7 @@ package decide
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
@@ -103,7 +104,7 @@ func (d *Decider) d4(_ context.Context, s *state) (Verdict, bool) {
 			s.req.Capability), ""), true
 	case s.profile == nil:
 		return deny(ReasonCapability, "D4", fmt.Sprintf("profile %q is not configured",
-			s.p.Profile), "configure agents.profiles."+s.p.Profile), true
+			s.p.Profile), unknownProfileFix()), true
 	case !s.profile.Allows(s.req.Capability):
 		return deny(ReasonCapability, "D4", fmt.Sprintf("profile %q does not allow %s",
 			s.p.Profile, s.req.Capability), fix), true
@@ -179,4 +180,10 @@ func (d *Decider) drillCap(last time.Time, level int) int {
 		return min(level, 2)
 	}
 	return level
+}
+
+// unknownProfileFix names the profiles pg_sage ships (agentgov-06).
+func unknownProfileFix() string {
+	return "an admin sets the agent's profile to one of: " +
+		strings.Join(agentguard.ProfileNames(), ", ")
 }

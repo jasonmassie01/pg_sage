@@ -2,22 +2,28 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // statementsInfoProbeSQL reports whether pg_stat_statements_info exists
-// (pg_stat_statements 1.9+, shipped with PostgreSQL 14).
-const statementsInfoProbeSQL = sageTag +
-	`SELECT to_regclass('pg_stat_statements_info') IS NOT NULL`
+// (pg_stat_statements 1.9+, shipped with PostgreSQL 14); $1 is its
+// qualified name.
+const statementsInfoProbeSQL = sageTag + `SELECT to_regclass($1) IS NOT NULL`
 
 // statementsEpochSQL returns the instant since which pg_stat_statements
 // counters have been accumulating: the later of the last full
 // pg_stat_statements_reset() and the postmaster start (a crash discards
-// the counters without touching stats_reset).
-const statementsEpochSQL = sageTag + `
+// the counters without touching stats_reset). info is the qualified info
+// view.
+func statementsEpochSQL(info string) string {
+	return sageTag + `
 SELECT GREATEST(COALESCE(i.stats_reset, '-infinity'::timestamptz),
                 pg_postmaster_start_time())
-  FROM pg_stat_statements_info i`
+  FROM ` + info + ` i`
+}
 
 // postmasterEpochSQL is the epoch when pg_stat_statements_info is absent:
 // only a server restart can be detected.
@@ -29,14 +35,23 @@ const postmasterEpochSQL = sageTag + `SELECT pg_postmaster_start_time()`
 // (R10). An unknown epoch is recorded as such, never guessed.
 func (c *Collector) collectStatementsEpoch(ctx context.Context) time.Time {
 	var hasInfo bool
-	if err := c.catalogQueryRow(ctx, statementsInfoProbeSQL).Scan(&hasInfo); err != nil {
+	names, err := c.pgss()
+	switch {
+	case errors.Is(err, extschema.ErrExtensionAbsent):
+		// Not installed in this database: no info view, so only a server
+		// restart is detectable, as when the view is missing.
+		err = nil
+	case err == nil:
+		err = c.catalogQueryRow(ctx, statementsInfoProbeSQL, names.info).Scan(&hasInfo)
+	}
+	if err != nil {
 		c.logFn("WARN", "probe pg_stat_statements_info: %v; "+
 			"statistics epoch unknown this cycle", err)
 		return time.Time{}
 	}
 	sql := postmasterEpochSQL
 	if hasInfo {
-		sql = statementsEpochSQL
+		sql = statementsEpochSQL(names.info)
 	}
 	var epoch time.Time
 	if err := c.catalogQueryRow(ctx, sql).Scan(&epoch); err != nil {

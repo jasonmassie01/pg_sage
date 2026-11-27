@@ -12,7 +12,7 @@ import (
 
 func auditLLMModelsRouter(cfg *config.Config) http.Handler {
 	mux := http.NewServeMux()
-	registerAPIRoutes(mux, nil, cfg, nil, nil, nil, false)
+	registerAPIRoutes(mux, nil, cfg, nil, config.NewConfigController(cfg, nil), nil, false, nil)
 	return mux
 }
 

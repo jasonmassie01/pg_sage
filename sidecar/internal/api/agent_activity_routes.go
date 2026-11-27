@@ -31,9 +31,8 @@ const defaultActivityLimit = 50
 var principalIDPattern = regexp.MustCompile(`^agp_[a-z2-7]{20}$`)
 
 func registerAgentActivityRoutes(mux *http.ServeMux, reader AgentActivityReader) {
-	operatorUp := RequireRole("admin", "operator")
 	h := agentActivityHandler{reader: reader}
-	mux.Handle("GET /api/v1/agents/{id}/activity", operatorUp(http.HandlerFunc(h.get)))
+	route(mux, "GET /api/v1/agents/{id}/activity", gateOperator, http.HandlerFunc(h.get))
 }
 
 type agentActivityHandler struct{ reader AgentActivityReader }

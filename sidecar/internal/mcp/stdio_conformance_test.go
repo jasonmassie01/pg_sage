@@ -26,18 +26,31 @@ type stdioPeer struct {
 
 func startStdio(t *testing.T, server *Server) *stdioPeer {
 	t.Helper()
+	return startStdioWith(t, server, nil)
+}
+
+// startStdioWith starts a stdio runtime on pipes; configure (when set)
+// adjusts the runtime before Serve starts.
+func startStdioWith(t *testing.T, server *Server, configure func(*Runtime)) *stdioPeer {
+	t.Helper()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	runtime, err := NewRuntime(config.MCPConfig{Enabled: true, Transport: "stdio"},
 		server, inR, outW)
 	require.NoError(t, err)
 	runtime.SetWatchInterval(10 * time.Millisecond)
+	if configure != nil {
+		configure(runtime)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	peer := &stdioPeer{t: t, in: inW, lines: make(chan map[string]any, 64), cancel: cancel,
 		done: make(chan error, 1)}
 	go func() {
 		peer.done <- runtime.Serve(ctx)
 		_ = outW.Close()
+		// Once Serve is gone nothing reads stdin: fail later sends fast
+		// instead of blocking the test forever.
+		_ = inR.Close()
 	}()
 	go func() {
 		scanner := bufio.NewScanner(outR)

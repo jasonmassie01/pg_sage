@@ -87,7 +87,8 @@ type Principal struct {
 	CreatedBy     string    `json:"created_by"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
-	// SponsorActive is true when the sponsor is an existing sage.users row.
+	// SponsorActive is true while the sponsor is an existing, enabled
+	// operator or admin (agentgov-05): a demoted or deactivated one is not.
 	SponsorActive bool `json:"sponsor_active"`
 	// Tainted is true while an uncleared taint row exists (§6.10).
 	Tainted bool `json:"tainted"`

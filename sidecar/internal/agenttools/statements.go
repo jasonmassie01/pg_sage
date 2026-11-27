@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // statement is one pg_stat_statements query of the current database,
@@ -28,17 +30,25 @@ func (s statement) meanMs() float64 {
 const statementColumns = `queryid, min(query), sum(calls)::bigint,
 	sum(total_exec_time)::float8, sum(rows)::bigint`
 
-const statementsByIDSQL = `/* pg_sage */ SELECT ` + statementColumns + `
-FROM pg_stat_statements
+// statementsByIDSQL reads the ids' statements from rel, the qualified
+// pg_stat_statements view.
+func statementsByIDSQL(rel string) string {
+	return `/* pg_sage */ SELECT ` + statementColumns + `
+FROM ` + rel + `
 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
   AND queryid = ANY($1)
 GROUP BY queryid`
+}
 
 // statementsByID reads the statements with the given ids; ids without a
 // statement are absent from the map.
 func (t *Tools) statementsByID(ctx context.Context, ids []int64,
 ) (map[int64]statement, error) {
-	rows, err := t.pool.Query(ctx, statementsByIDSQL, ids)
+	rel, err := extschema.StatementsRel(ctx, t.pool, "pg_stat_statements")
+	if err != nil {
+		return nil, statementsError(err)
+	}
+	rows, err := t.pool.Query(ctx, statementsByIDSQL(rel), ids)
 	if err != nil {
 		return nil, statementsError(err)
 	}
@@ -55,20 +65,6 @@ func (t *Tools) statementsByID(ctx context.Context, ids []int64,
 		return nil, statementsError(err)
 	}
 	return out, nil
-}
-
-// statementByID reads one statement or fails with ErrNotFound.
-func (t *Tools) statementByID(ctx context.Context, id QueryID) (statement, error) {
-	found, err := t.statementsByID(ctx, []int64{int64(id)})
-	if err != nil {
-		return statement{}, err
-	}
-	s, ok := found[int64(id)]
-	if !ok {
-		return statement{}, fmt.Errorf("%w: no pg_stat_statements entry %d in this database",
-			ErrNotFound, int64(id))
-	}
-	return s, nil
 }
 
 // statementsError maps a missing or unloaded pg_stat_statements to

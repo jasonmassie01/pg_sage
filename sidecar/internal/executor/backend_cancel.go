@@ -105,7 +105,7 @@ func (e *Executor) CancelBackend(ctx context.Context, req BackendCancel) (int64,
 		return 0, err
 	}
 	run := &backendCancelRun{executor: e, req: req, maxAge: maxAge}
-	runCtx, cancel := e.detachedDDLContext(ctx)
+	runCtx, cancel := e.detachedDDLContext(ctx, "")
 	defer cancel()
 	// A signal is not DDL: it takes no DDL slot and no change lease.
 	return e.Apply(runCtx, ActionIntent{Authorize: run.authorize, SlotHeld: true,
@@ -180,10 +180,13 @@ func (r *backendCancelRun) record(ctx context.Context,
 	if actionID <= 0 {
 		return 0, fmt.Errorf("the cancel of pid %d was sent but could not be recorded", t.PID)
 	}
-	if _, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+	if _, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 		SET outcome = 'success', measured_at = now() WHERE id = $1`, actionID); err != nil {
 		e.logFn("executor", "cancel of pid %d (action %d) sent; marking it delivered "+
 			"failed: %v", t.PID, actionID, err)
+	} else {
+		sql := cancelSQL(t.PID)
+		RecordOutcome(e.databaseName, OutcomeClass(categorizeAction(sql), sql), "success")
 	}
 	return actionID, nil
 }
@@ -193,7 +196,7 @@ func (r *backendCancelRun) record(ctx context.Context,
 func (e *Executor) signalIdentity(ctx context.Context, req BackendCancel) error {
 	t := req.Target
 	var signalled bool
-	err := e.pool.QueryRow(ctx, cancelBackendIdentitySQL, t.PID, t.BackendStart,
+	err := e.actionDB().QueryRow(ctx, cancelBackendIdentitySQL, t.PID, t.BackendStart,
 		t.QueryStart, t.Database, t.User, t.QueryHash, t.QueryID,
 		nonNil(req.ProtectedRoles), nonNil(req.ProtectedApplications)).Scan(&signalled)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !signalled) {
@@ -234,7 +237,7 @@ func cancelPolicyRequest(req BackendCancel) policy.ActionRequest {
 // cancelBackendIdentitySQL cancels exactly one statement: every identity
 // column must still match, the backend must be an active client backend
 // of this database, and protected backends never match.
-const cancelBackendIdentitySQL = `/* pg_sage */
+const cancelBackendIdentitySQL = `/* pg_sage executor */
 SELECT pg_catalog.pg_cancel_backend(a.pid)
   FROM pg_catalog.pg_stat_activity AS a
  WHERE a.pid = $1

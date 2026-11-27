@@ -2,7 +2,8 @@
 
 CI (the `bench-sign` job in `.github/workflows/ci.yml`) places this
 commit's signed PGIncidentBench reports here before building the image:
-one `pgincidentbench.json` per shard (`core/`, `reactive/`, `runway/`),
+one `pgincidentbench.json` per shard (`core-a/`, `core-b/`, `reactive-a/`,
+`reactive-b/`, `runway-a/`, `runway-b/`),
 each with its Sigstore bundle `pgincidentbench.json.sigstore.json`.
 
 The Dockerfile copies this directory to `/usr/share/pg_sage/bench`, where
@@ -14,13 +15,23 @@ at a report instead, or use "Run bench locally".
 Verify a downloaded release report by hand:
 
 ```bash
-pg_sage bench verify --commit <release commit> pgincidentbench-core.json
+pg_sage bench verify --commit <release commit> pgincidentbench-core-a.json
 # or, with cosign:
-cosign verify-blob --bundle pgincidentbench-core.json.sigstore.json \
+cosign verify-blob --bundle pgincidentbench-core-a.json.sigstore.json \
   --certificate-identity https://github.com/jasonmassie01/pg_sage/.github/workflows/ci.yml@refs/tags/v<version> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  pgincidentbench-core.json
+  --certificate-github-workflow-repository jasonmassie01/pg_sage \
+  pgincidentbench-core-a.json
 ```
+
+The sidecar also pins the repository by the immutable GitHub IDs that
+Fulcio writes into every signing certificate: repository ID `1185895123`
+and owner ID `143746527` (`gh api repos/jasonmassie01/pg_sage --jq '.id,
+.owner.id'`). A repository renamed or transferred and then registered
+again under this name gets other IDs, so its `ci.yml` cannot sign a
+report that any shipped sidecar accepts. Moving the repository therefore
+needs a release that updates `ReleaseIdentity` in `internal/benchsig` and
+the matching check in the `bench-sign` and `safety-bench-sign` jobs.
 
 (`pg_sage bench verify` expects the bundle next to the report as
 `<report>.sigstore.json`; rename the release asset accordingly.)

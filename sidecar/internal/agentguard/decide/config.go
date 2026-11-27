@@ -103,17 +103,20 @@ const (
 )
 
 // DefaultProfiles are the spec's default agent profiles (§9
-// agents.profiles). G1 ships them fixed; profile configuration is later.
+// agents.profiles), built from agentguard's built-in table so the gate and
+// the store's widening check judge the same grants. G1 ships them fixed;
+// profile configuration is later.
 func DefaultProfiles() StaticProfiles {
-	return StaticProfiles{
-		"readonly-analyst": {Classes: []Capability{CapRead}, EnvCeiling: envbind.EnvProd},
-		"app-writer": {Classes: []Capability{CapRead, CapWriteInsert, CapWriteUpdate},
-			EnvCeiling: envbind.EnvProd, DirectLane: true},
-		"coding-agent": {Classes: []Capability{CapRead, CapWriteInsert, CapWriteUpdate,
-			CapWriteDelete, CapDDLAdditive, CapDDLLocking, CapSandbox},
-			EnvCeiling: envbind.EnvStage},
-		"legacy": {Classes: []Capability{CapRead}, EnvCeiling: envbind.EnvProd},
+	out := StaticProfiles{}
+	for _, g := range agentguard.ProfileCatalog() {
+		classes := make([]Capability, 0, len(g.Classes))
+		for _, c := range g.Classes {
+			classes = append(classes, Capability(c))
+		}
+		out[g.Name] = Profile{Classes: classes, EnvCeiling: envbind.Env(g.EnvCeiling),
+			DirectLane: g.DirectLane}
 	}
+	return out
 }
 
 // StaticProfiles is a fixed profile table.

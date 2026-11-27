@@ -1,10 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MCPTokensPage } from './MCPTokensPage'
 import {
   TOKENS_URL, activeAgent, activeOperator, admin, callsTo, expiredAgent,
   response, revokedAgent, stubAPI,
 } from './mcptokens/testStub'
+import { answerConfirm } from '../test/confirmDialog'
 
 // MCP v2: an admin lists the scoped MCP tokens coding agents use and revokes
 // them. Revoked and expired tokens stay listed, marked as such, and cannot be
@@ -14,10 +15,6 @@ import {
 const row = id => screen.getByTestId(`mcp-token-row-${id}`)
 const cell = (id, what) => screen.getByTestId(`mcp-token-${what}-${id}`)
 const allTokens = [activeAgent, activeOperator, revokedAgent, expiredAgent]
-
-beforeEach(() => {
-  vi.stubGlobal('confirm', vi.fn(() => true))
-})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -152,8 +149,8 @@ describe('MCPTokensPage revoke', () => {
     await screen.findByTestId(`mcp-token-row-${activeAgent.id}`)
     fireEvent.click(screen.getByTestId(`mcp-token-revoke-${activeAgent.id}`))
 
-    expect(globalThis.confirm).toHaveBeenCalledTimes(1)
-    expect(globalThis.confirm.mock.calls[0][0]).toContain('claude-code-laptop')
+    expect(callsTo(mock, 'DELETE', `${TOKENS_URL}/${activeAgent.id}`)).toHaveLength(0)
+    expect(await answerConfirm()).toContain('claude-code-laptop')
     await waitFor(() => expect(cell(activeAgent.id, 'status'))
       .toHaveTextContent(/^revoked$/i))
     const deletes = callsTo(mock, 'DELETE', `${TOKENS_URL}/${activeAgent.id}`)
@@ -164,12 +161,12 @@ describe('MCPTokensPage revoke', () => {
   })
 
   it('does not revoke when the admin cancels the confirmation', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false))
     const mock = stubAPI({ tokens: [activeAgent] })
     render(<MCPTokensPage currentUser={admin} />)
     await screen.findByTestId(`mcp-token-row-${activeAgent.id}`)
     fireEvent.click(screen.getByTestId(`mcp-token-revoke-${activeAgent.id}`))
-    expect(globalThis.confirm).toHaveBeenCalledTimes(1)
+    await answerConfirm('cancel')
+    expect(screen.queryByRole('dialog')).toBeNull()
     // Give any stray request a chance to fire before asserting none did.
     await new Promise(r => setTimeout(r, 20))
     expect(callsTo(mock, 'DELETE', /\/api\/v1\/mcp\/tokens\//)).toHaveLength(0)
@@ -185,6 +182,7 @@ describe('MCPTokensPage revoke', () => {
     render(<MCPTokensPage currentUser={admin} />)
     await screen.findByTestId(`mcp-token-row-${activeAgent.id}`)
     fireEvent.click(screen.getByTestId(`mcp-token-revoke-${activeAgent.id}`))
+    await answerConfirm()
     expect(await screen.findByText('token not found')).toBeInTheDocument()
     expect(cell(activeAgent.id, 'status')).toHaveTextContent(/^active$/i)
   })
@@ -207,6 +205,7 @@ describe('MCPTokensPage revoke', () => {
       await screen.findByTestId(`mcp-token-row-${activeAgent.id}`)
       const btn = screen.getByTestId(`mcp-token-revoke-${activeAgent.id}`)
       fireEvent.click(btn)
+      await answerConfirm()
       await waitFor(() => expect(
         screen.queryByTestId(`mcp-token-revoke-${activeAgent.id}`)?.disabled ?? true,
       ).toBe(true))
@@ -223,6 +222,7 @@ describe('MCPTokensPage revoke', () => {
     render(<MCPTokensPage currentUser={admin} />)
     await screen.findByTestId(`mcp-token-row-${activeOperator.id}`)
     fireEvent.click(screen.getByTestId(`mcp-token-revoke-${activeOperator.id}`))
+    await answerConfirm()
     await waitFor(() => expect(cell(activeOperator.id, 'status'))
       .toHaveTextContent(/^revoked$/i))
     expect(cell(activeAgent.id, 'status')).toHaveTextContent(/^active$/i)

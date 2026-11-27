@@ -15,14 +15,23 @@ import (
 // default chain; Google Application Default Credentials), never from this
 // file; without them telemetry reports unavailable and nothing changes.
 type CloudTelemetryConfig struct {
-	Enabled               *bool             `yaml:"enabled" doc:"Read host telemetry (CPU, memory, storage, IOPS, replica lag, DB load) and parameter groups / database flags of RDS, Aurora and Cloud SQL databases. Nil defaults to enabled; without provider credentials it reports unavailable."`
-	PollIntervalSeconds   int               `yaml:"poll_interval_seconds" doc:"Seconds between telemetry polls. 0 = 60. Range 30-3600. CloudWatch bills GetMetricData per metric (about 10 metrics per poll)."`
-	MaxReplicaLagSeconds  float64           `yaml:"max_replica_lag_seconds" doc:"Autonomous index builds wait while a replica lags more than this. 0 = 30."`
-	MinFreeStoragePct     float64           `yaml:"min_free_storage_pct" doc:"Autonomous index builds wait while bounded free storage (including autoscaling headroom) is below this percentage. 0 = 10."`
-	MinStorageRunwayHours float64           `yaml:"min_storage_runway_hours" doc:"Autonomous index builds wait while storage at its recent rate runs out within this many hours. 0 = 24."`
-	MinAvailableMemoryPct float64           `yaml:"min_available_memory_pct" doc:"Autonomous index builds wait, and memory settings may not grow, while available host memory is below this percentage. 0 = 5."`
-	AWS                   CloudTelemetryAWS `yaml:"aws"`
-	GCP                   CloudTelemetryGCP `yaml:"gcp"`
+	Enabled               *bool                 `yaml:"enabled" doc:"Read host telemetry (CPU, memory, storage, IOPS, replica lag, DB load) of RDS, Aurora, Cloud SQL, AlloyDB and Azure flexible server databases, and parameter groups / database flags of RDS, Aurora and Cloud SQL. Nil defaults to enabled; without provider credentials it reports unavailable."`
+	PollIntervalSeconds   int                   `yaml:"poll_interval_seconds" doc:"Seconds between telemetry polls. 0 = 60. Range 30-3600. CloudWatch bills GetMetricData per metric (about 10 metrics per poll)."`
+	MaxReplicaLagSeconds  float64               `yaml:"max_replica_lag_seconds" doc:"Autonomous index builds wait while a replica lags more than this. 0 = 30."`
+	MinFreeStoragePct     float64               `yaml:"min_free_storage_pct" doc:"Autonomous index builds wait while bounded free storage (including autoscaling headroom) is below this percentage. 0 = 10."`
+	MinStorageRunwayHours float64               `yaml:"min_storage_runway_hours" doc:"Autonomous index builds wait while storage at its recent rate runs out within this many hours. 0 = 24."`
+	MinAvailableMemoryPct float64               `yaml:"min_available_memory_pct" doc:"Autonomous index builds wait, and memory settings may not grow, while available host memory is below this percentage. 0 = 5."`
+	AWS                   CloudTelemetryAWS     `yaml:"aws"`
+	GCP                   CloudTelemetryGCP     `yaml:"gcp"`
+	AlloyDB               CloudTelemetryAlloyDB `yaml:"alloydb"`
+}
+
+// CloudTelemetryAlloyDB names the AlloyDB instance of a standalone
+// database (fleet databases use cloud_resource.gcp).
+type CloudTelemetryAlloyDB struct {
+	Project  string `yaml:"project" doc:"Google Cloud project of the AlloyDB instance. Empty: the project of the Application Default Credentials. Standalone mode only."`
+	Cluster  string `yaml:"cluster" doc:"AlloyDB cluster ID (set with instance). Standalone mode only."`
+	Instance string `yaml:"instance" doc:"AlloyDB instance ID within cluster (the primary, or a read pool). Standalone mode only."`
 }
 
 // CloudTelemetryAWS names an RDS instance or Aurora cluster whose host
@@ -44,6 +53,7 @@ var (
 	cloudAWSRegion     = regexp.MustCompile(`^[a-z]{2}(-gov)?-[a-z]+-[0-9]$`)
 	cloudGCPProject    = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
 	cloudGCPInstance   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,97}$`)
+	cloudAlloyDBID     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 )
 
 // IsEnabled reports whether telemetry runs (default: on).
@@ -102,7 +112,10 @@ func (c *Config) validateCloudTelemetry() error {
 	if ct.MinFreeStoragePct > 100 || ct.MinAvailableMemoryPct > 100 {
 		return fmt.Errorf("cloud_telemetry percentages must be at most 100")
 	}
-	return ct.validateIdentity(c.Mode)
+	if err := ct.validateIdentity(c.Mode); err != nil {
+		return err
+	}
+	return c.validateCloudResources()
 }
 
 func (ct CloudTelemetryConfig) validateIdentity(mode string) error {
@@ -115,6 +128,9 @@ func (ct CloudTelemetryConfig) validateIdentity(mode string) error {
 		{"aws.db_cluster_identifier", ct.AWS.DBClusterIdentifier, cloudRDSIdentifier},
 		{"gcp.project", ct.GCP.Project, cloudGCPProject},
 		{"gcp.instance", ct.GCP.Instance, cloudGCPInstance},
+		{"alloydb.project", ct.AlloyDB.Project, cloudGCPProject},
+		{"alloydb.cluster", ct.AlloyDB.Cluster, cloudAlloyDBID},
+		{"alloydb.instance", ct.AlloyDB.Instance, cloudAlloyDBID},
 	}
 	for _, chk := range checks {
 		if chk.value != "" && !chk.pattern.MatchString(chk.value) {
@@ -122,10 +138,13 @@ func (ct CloudTelemetryConfig) validateIdentity(mode string) error {
 		}
 	}
 	named := ct.AWS.DBInstanceIdentifier != "" || ct.AWS.DBClusterIdentifier != "" ||
-		ct.GCP.Instance != ""
+		ct.GCP.Instance != "" || ct.AlloyDB.Cluster != "" || ct.AlloyDB.Instance != ""
 	if named && mode != "" && mode != "standalone" {
 		return fmt.Errorf("cloud_telemetry instance names are standalone only; fleet " +
 			"databases are identified from their hosts")
+	}
+	if (ct.AlloyDB.Cluster == "") != (ct.AlloyDB.Instance == "") {
+		return fmt.Errorf("cloud_telemetry.alloydb: set cluster and instance together")
 	}
 	if ct.AWS.DBInstanceIdentifier != "" && ct.AWS.DBClusterIdentifier != "" {
 		return fmt.Errorf("cloud_telemetry.aws: set db_instance_identifier or " +
@@ -134,9 +153,12 @@ func (ct CloudTelemetryConfig) validateIdentity(mode string) error {
 	return nil
 }
 
-func overlayCloudTelemetryEnv(cfg *Config) {
-	if v, ok := envBool("SAGE_CLOUD_TELEMETRY_ENABLED"); ok {
-		cfg.CloudTelemetry.Enabled = &v
+func overlayCloudTelemetryEnv(o *envOverlay, cfg *Config) {
+	enabled, ok, err := lookupEnv("SAGE_CLOUD_TELEMETRY_ENABLED", parseEnvBool)
+	if err != nil {
+		o.errs = append(o.errs, err.Error())
+	} else if ok {
+		cfg.CloudTelemetry.Enabled = &enabled
 	}
 	for env, field := range map[string]*string{
 		"SAGE_AWS_REGION":                 &cfg.CloudTelemetry.AWS.Region,

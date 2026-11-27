@@ -17,7 +17,9 @@ import (
 //     lifts a fleet or database flag → 202 (two admins);
 //   - POST /api/v1/agents/{id}/freeze (operator) {reason} → 200;
 //   - POST /api/v1/agents/{id}/unfreeze (admin) {reason} → 202, pending
-//     until a second admin repeats it after a kill.
+//     until a second admin repeats it after a kill;
+//   - GET /api/v1/agents/freezes (operator) → 200 with the open freezes,
+//     fleet first, each with its pending release (at most 200, agentgov-07).
 //
 // Kill and freeze are narrowing: they work under the emergency stop and at
 // every trust level. The actor is always the session user. Without a
@@ -29,28 +31,35 @@ type AgentKillSwitch interface {
 	Freeze(context.Context, agentguard.FreezeRequest) (agentguard.KillReport, error)
 	Unfreeze(context.Context, agentguard.UnfreezeRequest) (agentguard.UnfreezeResult, error)
 	Release(context.Context, agentguard.ReleaseRequest) (agentguard.UnfreezeResult, error)
+	OpenFreezes(context.Context) (agentguard.FreezeList, error)
 }
 
 const maxAgentKillBody = 4 << 10
 
 func registerAgentKillRoutes(mux *http.ServeMux, sw AgentKillSwitch) {
-	operatorUp := RequireRole("admin", "operator")
-	admin := RequireRole("admin")
 	h := agentKillHandlers{sw: sw}
-	mux.Handle("POST /api/v1/agents/kill", admin(http.HandlerFunc(h.kill)))
-	mux.Handle("POST /api/v1/agents/kill/release", admin(http.HandlerFunc(h.release)))
-	mux.Handle("POST /api/v1/agents/{id}/freeze", operatorUp(http.HandlerFunc(h.freeze)))
-	mux.Handle("POST /api/v1/agents/{id}/unfreeze", admin(http.HandlerFunc(h.unfreeze)))
+	route(mux, "POST /api/v1/agents/kill", gateAdmin, http.HandlerFunc(h.kill))
+	route(mux, "POST /api/v1/agents/kill/release", gateAdmin, http.HandlerFunc(h.release))
+	route(mux, "POST /api/v1/agents/{id}/freeze", gateOperator, http.HandlerFunc(h.freeze))
+	route(mux, "POST /api/v1/agents/{id}/unfreeze", gateAdmin, http.HandlerFunc(h.unfreeze))
+	route(mux, "GET /api/v1/agents/freezes", gateOperator, http.HandlerFunc(h.freezes))
 }
 
 type agentKillHandlers struct{ sw AgentKillSwitch }
 
+// available answers 503 without a switch; false means the answer is sent.
+func (h agentKillHandlers) available(w http.ResponseWriter) bool {
+	if h.sw != nil {
+		return true
+	}
+	sreErrorCode(w, "the agent kill switch needs mode: meta or agents.control_database "+
+		"and at least one monitored database", "unavailable", http.StatusServiceUnavailable)
+	return false
+}
+
 // decode reads a strict JSON body into v; false means the answer is sent.
 func (h agentKillHandlers) decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	if h.sw == nil {
-		sreErrorCode(w, "the agent kill switch needs mode: meta or agents.control_database "+
-			"and at least one monitored database", "unavailable",
-			http.StatusServiceUnavailable)
+	if !h.available(w) {
 		return false
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAgentKillBody))
@@ -124,6 +133,22 @@ func (h agentKillHandlers) release(w http.ResponseWriter, r *http.Request) {
 		Scope: agentguard.KillScope(body.Scope), Database: body.Database,
 		Reason: body.Reason, Actor: authenticatedActor(r), ActorUserID: sessionUserID(r)})
 	writeUnfreeze(w, r, res, err)
+}
+
+// freezes lists the open freezes; an empty list is [], never null.
+func (h agentKillHandlers) freezes(w http.ResponseWriter, r *http.Request) {
+	if !h.available(w) {
+		return
+	}
+	list, err := h.sw.OpenFreezes(r.Context())
+	if err != nil {
+		writeAgentKillError(w, r, err)
+		return
+	}
+	if list.Items == nil {
+		list.Items = []agentguard.ListedFreeze{}
+	}
+	jsonResponse(w, list)
 }
 
 func sessionUserID(r *http.Request) int {

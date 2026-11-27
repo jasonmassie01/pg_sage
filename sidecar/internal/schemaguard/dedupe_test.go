@@ -150,16 +150,18 @@ func TestUnchangedDecisionIsRecordedOnceButStillRouted(t *testing.T) {
 		Invariant{Kind: InvariantTypeTightening, Schema: "public", Table: "users",
 			Subject: "account_id", ProposedSQL: "ALTER TABLE users ALTER COLUMN account_id"},
 	)
+	// The two FK indexes are routed every scan; the type tightening is a
+	// recommendation, recorded but never routed (migration-09).
 	first := f.scan(t)
-	if first.Detected != 3 || first.Recorded != 3 || first.Unchanged != 0 || first.Routed != 3 {
-		t.Fatalf("first scan = %+v, want 3 detected, routed and recorded", first)
+	if first.Detected != 3 || first.Recorded != 3 || first.Unchanged != 0 || first.Routed != 2 {
+		t.Fatalf("first scan = %+v, want 3 detected and recorded, 2 routed", first)
 	}
 	second := f.scan(t)
-	if second.Recorded != 0 || second.Unchanged != 3 || second.Routed != 3 {
-		t.Fatalf("second scan = %+v, want 0 recorded, 3 unchanged, 3 routed", second)
+	if second.Recorded != 0 || second.Unchanged != 3 || second.Routed != 2 {
+		t.Fatalf("second scan = %+v, want 0 recorded, 3 unchanged, 2 routed", second)
 	}
-	if f.ledger.count() != 3 || f.router.count() != 6 {
-		t.Fatalf("ledger rows=%d routes=%d, want 3 rows and 6 routes",
+	if f.ledger.count() != 3 || f.router.count() != 4 {
+		t.Fatalf("ledger rows=%d routes=%d, want 3 rows and 4 routes",
 			f.ledger.count(), f.router.count())
 	}
 }
@@ -176,7 +178,7 @@ func TestSubjectDistinguishesInvariantsOnOneTable(t *testing.T) {
 		t.Fatal("the same constraint in two unrelated schemas shares an identity")
 	}
 	kind := left
-	kind.Kind = InvariantRedundantIndex
+	kind.Kind = InvariantTypeTightening
 	if InvariantIdentity(left) == InvariantIdentity(kind) {
 		t.Fatal("two invariant kinds share an identity")
 	}
@@ -332,8 +334,10 @@ func TestRouteFailureStillRecordsEarlierOutcomes(t *testing.T) {
 	custodian := NewCustodian(detector, &targetContracts{}, ledger,
 		&failSecondRoute{err: routeErr}, ledger, testPolicy())
 	result, err := custodian.Scan(context.Background())
-	if !errors.Is(err, routeErr) || result.Recorded != 2 || ledger.count() != 2 {
-		t.Fatalf("result=%+v rows=%d err=%v, want the first outcome and the failure",
+	// migration-08: the failure no longer halts the scan, so the third
+	// invariant is routed and recorded too.
+	if !errors.Is(err, routeErr) || result.Recorded != 3 || ledger.count() != 3 {
+		t.Fatalf("result=%+v rows=%d err=%v, want every outcome and the failure",
 			result, ledger.count(), err)
 	}
 	tables := []string{}
@@ -341,8 +345,8 @@ func TestRouteFailureStillRecordsEarlierOutcomes(t *testing.T) {
 		tables = append(tables, row.Invariant.Table)
 	}
 	sort.Strings(tables)
-	if strings.Join(tables, ",") != "first,second" {
-		t.Fatalf("recorded tables = %v, want first and second", tables)
+	if strings.Join(tables, ",") != "first,second,third" {
+		t.Fatalf("recorded tables = %v, want first, second and third", tables)
 	}
 }
 

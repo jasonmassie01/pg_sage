@@ -22,9 +22,11 @@ import (
 
 // outOfScopeGUCs are instance-capacity settings the configuration advisor
 // owns (WAL, checkpoints, connections): no workload case justifies them.
+// idle_in_transaction_session_timeout ends sessions, so only the connection
+// advisor proposes it, from connection-state evidence (advisors-07).
 var outOfScopeGUCs = map[string]bool{"max_wal_size": true, "min_wal_size": true,
 	"wal_buffers": true, "checkpoint_timeout": true, "checkpoint_completion_target": true,
-	"max_connections": true}
+	"max_connections": true, "idle_in_transaction_session_timeout": true}
 
 // plainValue is a setting value pg_sage will quote into SQL.
 var plainValue = regexp.MustCompile(`^[A-Za-z0-9_.+-]{1,32}$`)
@@ -125,6 +127,7 @@ func (v *validator) gated(c Case, p Proposal, f analyzer.Finding, class,
 	s := v.a.settings
 	out := advisor.GateConfigFindingsHost([]analyzer.Finding{f}, s.hostMemory(), s.CloudEnv,
 		s.DatabaseName, settings)
+	out = v.a.gateInstance(out)
 	if len(out) != 1 {
 		return reject(p, ReasonInvalid, "the configuration gates refused %s",
 			f.RecommendedSQL)

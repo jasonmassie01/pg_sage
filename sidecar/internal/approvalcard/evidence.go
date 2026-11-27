@@ -27,7 +27,8 @@ var nonEvidenceKeys = map[string]bool{
 	"partition_plan": true, "partitioned_parent": true, "estimated_improvement_pct": true,
 	"estimated_size_bytes": true, "confidence_score": true, "table": true,
 	"suggested_rewrite": true, "query": true, "recommended_sql": true,
-	"proposed_sql": true, "plan_source": true,
+	"proposed_sql": true, "plan_source": true, "what_if_measured": true,
+	"what_if_unplanned_queryids": true,
 }
 
 // evidenceOf cites the finding, its numbers, the queries and plan it is

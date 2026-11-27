@@ -353,7 +353,7 @@ func TestCatalogQuery_BoundedTransaction(t *testing.T) {
 			Scan(&st, &lt, &par, &jit, &ro)
 		got = []string{st, lt, par, jit, ro}
 	}
-	if _, err := c.collectLocks(context.Background()); err != nil || probeErr != nil {
+	if _, _, err := c.collectLocks(context.Background()); err != nil || probeErr != nil {
 		t.Fatalf("collectLocks: %v (probe %v)", err, probeErr)
 	}
 	want := []string{"750ms", "30s", "0", "off", "on"}

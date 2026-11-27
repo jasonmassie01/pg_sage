@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // SelfBudgetConfig is pg_sage's declared budget for itself (roadmap
 // phase 3): what the sidecar may cost the host and the database it
@@ -56,15 +59,28 @@ func (s SelfBudgetConfig) validate() error {
 
 // EffectiveSelfDBTimeMsPerHour is the database-time budget per hour and
 // whether self_budget sets it: the explicit value, else
-// analyzer.self_cost_budget_ms per collector cycle scaled to an hour
-// (raised as sage_self_cost, so self_budget does not check it again).
+// analyzer.self_cost_budget_ms per configured collector cycle scaled to an
+// hour (raised as sage_self_cost, so self_budget does not check it again).
+// A database whose collector runs at another period inherits
+// InheritedDBTimeMsPerHour at that period instead.
 func (c *Config) EffectiveSelfDBTimeMsPerHour() (float64, bool) {
 	if c.SelfBudget.DBTimeMsPerHour > 0 {
 		return float64(c.SelfBudget.DBTimeMsPerHour), true
 	}
-	secs := c.Collector.IntervalSeconds
-	if secs <= 0 {
-		secs = 60
+	period := c.Collector.Interval()
+	if period <= 0 {
+		period = time.Minute // the shipped collector.interval_seconds
 	}
-	return float64(c.Analyzer.SelfCostBudgetMs) * 3600 / float64(secs), false
+	return InheritedDBTimeMsPerHour(c.Analyzer.SelfCostBudgetMs, period), false
+}
+
+// InheritedDBTimeMsPerHour is a per-cycle database-time budget (budgetMs,
+// analyzer.self_cost_budget_ms) scaled to an hour of cycles of period. It
+// is 0 when the budget is disabled or the period is unknown (0): there is
+// no default cycle to assume.
+func InheritedDBTimeMsPerHour(budgetMs int, period time.Duration) float64 {
+	if budgetMs <= 0 || period <= 0 {
+		return 0
+	}
+	return float64(budgetMs) * float64(time.Hour) / float64(period)
 }

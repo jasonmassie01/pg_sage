@@ -3,13 +3,13 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/migration"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func requireMigrationSafetyDB(
@@ -18,10 +18,7 @@ func requireMigrationSafetyDB(
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
-	dsn := os.Getenv("SAGE_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Skipf("database unavailable: %v", err)

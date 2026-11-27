@@ -3,6 +3,7 @@ package rollout
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 type Engine struct {
@@ -11,6 +12,17 @@ type Engine struct {
 }
 
 func NewEngine(verifier ReVerifier, applier Applier) *Engine { return &Engine{verifier, applier} }
+
+// validatePolicy refuses a policy that could widen past its own blast
+// radius or skip the per-instance re-verification.
+func validatePolicy(policy Policy) error {
+	if policy.CanaryInstances <= 0 || policy.MaxAffectedInstances <= 0 ||
+		policy.CanaryInstances > policy.MaxAffectedInstances ||
+		policy.AggregateRegressionLimitPct < 0 || !policy.RequireLocalReverification {
+		return ErrInvalidPolicy
+	}
+	return nil
+}
 
 // applied is one changed instance, kept for a rollback.
 type applied struct {
@@ -30,7 +42,10 @@ type rolloutRun struct {
 // then widens one instance at a time. A failed verification, a canary
 // aggregate regression or (after the canary) an instance regression past
 // the limit halts it and rolls back every instance it changed, newest
-// first. The blast-radius limit halts without a rollback.
+// first. The blast-radius limit and a verdict still pending at its
+// deadline halt without a rollback. An error (a failed re-verification,
+// apply or measurement, or the caller's context ending) also rolls back
+// every changed instance before it is returned.
 func (engine *Engine) Rollout(ctx context.Context, request Request) (Result, error) {
 	run := &rolloutRun{request: request, result: Result{Instances: map[string]InstanceResult{}}}
 	if request.Prior.EvidenceID == "" || request.Prior.ValidatedInstanceID == "" ||
@@ -42,7 +57,7 @@ func (engine *Engine) Rollout(ctx context.Context, request Request) (Result, err
 	}
 	for _, instance := range request.Instances {
 		if err := ctx.Err(); err != nil {
-			return run.result, err
+			return engine.fail(ctx, run, err)
 		}
 		if run.result.AppliedInstances >= request.Policy.MaxAffectedInstances {
 			run.result.Halted, run.result.HaltReason = true, "blast_radius_limit"
@@ -50,15 +65,24 @@ func (engine *Engine) Rollout(ctx context.Context, request Request) (Result, err
 		}
 		halt, err := engine.step(ctx, run, instance)
 		if err != nil {
-			return run.result, err
+			return engine.fail(ctx, run, err)
 		}
 		if halt != "" {
 			run.result.Halted, run.result.HaltReason = true, halt
-			engine.rollbackAll(ctx, run)
+			if halt != HaltVerificationPending {
+				engine.rollbackAll(ctx, run, StatusRollbackFailed)
+			}
 			return run.result, nil
 		}
 	}
 	return run.result, nil
+}
+
+// fail rolls back every changed instance after a rollout error; one whose
+// rollback fails too is left applied_unverified with the rollback error.
+func (engine *Engine) fail(ctx context.Context, run *rolloutRun, err error) (Result, error) {
+	engine.rollbackAll(ctx, run, StatusAppliedUnverified)
+	return run.result, err
 }
 
 // step re-verifies, applies and measures one instance; it returns the
@@ -67,7 +91,8 @@ func (engine *Engine) step(ctx context.Context, run *rolloutRun, instance Instan
 	error) {
 	candidate, err := engine.verifier.Reverify(ctx, instance, run.request.Prior)
 	if err != nil {
-		return "", fmt.Errorf("local verifier for %s: %w", instance.ID, err)
+		return "", run.instanceError(instance, fmt.Errorf("local verifier for %s: %w",
+			instance.ID, err))
 	}
 	if !candidate.Eligible {
 		run.result.Instances[instance.ID] = InstanceResult{Status: StatusNotLocallyVerified,
@@ -76,23 +101,40 @@ func (engine *Engine) step(ctx context.Context, run *rolloutRun, instance Instan
 	}
 	change, err := engine.applier.Apply(ctx, instance, candidate)
 	if err != nil {
-		return "", fmt.Errorf("apply to %s: %w", instance.ID, err)
+		return "", run.instanceError(instance, fmt.Errorf("apply to %s: %w", instance.ID, err))
 	}
 	run.result.AppliedInstances++
 	run.changed = append(run.changed, applied{instance, change})
 	outcome, err := engine.applier.Measure(ctx, instance, change)
 	if err != nil {
-		return "", fmt.Errorf("measure %s: %w", instance.ID, err)
+		err = fmt.Errorf("measure %s: %w", instance.ID, err)
+		run.result.Instances[instance.ID] = InstanceResult{Status: StatusApplied,
+			Detail: err.Error()}
+		return "", err
 	}
-	run.result.Instances[instance.ID] = InstanceResult{Status: StatusApplied,
+	status := StatusApplied
+	if outcome.Pending {
+		status = StatusVerificationPending
+	}
+	run.result.Instances[instance.ID] = InstanceResult{Status: status,
 		EvidenceID: outcome.EvidenceID, RegressionPct: outcome.RegressionPct,
-		Detail: outcome.Detail}
+		Detail: outcome.Detail, EffectPct: outcome.EffectPct,
+		ControlPct: outcome.ControlPct, EffectMethod: outcome.EffectMethod}
 	return run.judge(instance, outcome), nil
+}
+
+// instanceError records an instance the rollout could not change.
+func (run *rolloutRun) instanceError(instance Instance, err error) error {
+	run.result.Instances[instance.ID] = InstanceResult{Status: StatusFailed, Detail: err.Error()}
+	return err
 }
 
 // judge decides whether an instance's outcome halts the rollout.
 func (run *rolloutRun) judge(instance Instance, outcome Outcome) string {
 	policy := run.request.Policy
+	if outcome.Pending {
+		return HaltVerificationPending
+	}
 	if outcome.Failed {
 		return "verification_failed"
 	}
@@ -114,8 +156,9 @@ func (run *rolloutRun) judge(instance Instance, outcome Outcome) string {
 }
 
 // rollbackAll undoes every changed instance, newest first, on a context
-// that outlives the caller's: a halt must not leave a partial rollout.
-func (engine *Engine) rollbackAll(ctx context.Context, run *rolloutRun) {
+// that outlives the caller's: a halt must not leave a partial rollout. An
+// instance whose rollback fails takes failedStatus and the error.
+func (engine *Engine) rollbackAll(ctx context.Context, run *rolloutRun, failedStatus string) {
 	rollbacker, ok := engine.applier.(Rollbacker)
 	rollbackCtx := context.WithoutCancel(ctx)
 	for i := len(run.changed) - 1; i >= 0; i-- {
@@ -126,7 +169,8 @@ func (engine *Engine) rollbackAll(ctx context.Context, run *rolloutRun) {
 			res.Status = StatusRollbackUnavailable
 		default:
 			if err := rollbacker.Rollback(rollbackCtx, c.instance, c.change); err != nil {
-				res.Status = StatusRollbackFailed
+				res.Status = failedStatus
+				res.Detail = strings.TrimPrefix(res.Detail+"; rollback failed: "+err.Error(), "; ")
 				run.result.RollbackErrors = append(run.result.RollbackErrors,
 					fmt.Sprintf("%s: %v", c.instance.ID, err))
 			} else {

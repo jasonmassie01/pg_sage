@@ -107,9 +107,7 @@ func validateFleetReloadPlan(plan fleetReloadPlan, controlName string) error {
 }
 
 func validateFleetDatabasePolicy(db config.DatabaseConfig) error {
-	switch db.TrustLevel {
-	case "", "observation", "advisory", "autonomous":
-	default:
+	if db.TrustLevel != "" && !config.IsTrustLevel(db.TrustLevel) {
 		return fmt.Errorf("%w: databases[%q].trust_level %q", errInvalidFleetDatabase,
 			db.Name, db.TrustLevel)
 	}

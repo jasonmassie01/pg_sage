@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -50,6 +51,25 @@ func DecisionFingerprint(input DecisionInput) string {
 	return "fp_" + hex.EncodeToString(sum[:16])
 }
 
+// CandidateKey identifies the candidate a decision is about, whatever the
+// gate decided: database, feature, targets (in any order), the proposed SQL
+// and the principal. Verdict, intent and policy version are not part of
+// it, so an operator's execute and an autonomous park of the same change
+// share it. An execute ends the candidate's open withheld rows (an
+// episode); the next withheld verdict starts a new row.
+func CandidateKey(input DecisionInput) string {
+	database := ""
+	if input.DatabaseID != nil {
+		database = strconv.Itoa(*input.DatabaseID)
+	}
+	targets := append([]string(nil), input.TargetObjects...)
+	sort.Strings(targets)
+	parts := []string{database, input.Feature, strings.Join(targets, "\x1e"),
+		input.ProposedSQL, input.PrincipalID}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
+	return "ck_" + hex.EncodeToString(sum[:16])
+}
+
 // missingConflictIndex reports PostgreSQL's 42P10: ON CONFLICT names no
 // usable unique index (idx_decision_fingerprint dropped or INVALID).
 func missingConflictIndex(err error) bool {
@@ -76,26 +96,78 @@ func (r *PostgresRepository) UpsertDecision(
 		id, err = r.InsertDecision(ctx, input)
 		return id, input.EvidenceID, err
 	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r.retierDecision(ctx, input, values)
+	}
 	if err != nil {
 		return 0, "", fmt.Errorf("persist fingerprinted decision: %w", err)
 	}
 	return id, evidenceID, nil
 }
 
+// retierDecision records a repeat whose risk tier differs from the open
+// row's (the upsert updated nothing). A decision's tier is its authority,
+// sealed in the audit chain (audit-11), so the open row is never re-tiered:
+// it is resolved and the repeat starts a new decision, in one transaction,
+// so the fingerprint keeps exactly one open row. A writer racing it at yet
+// another tier is refused, never merged: the gate's next cycle records it.
+func (r *PostgresRepository) retierDecision(
+	ctx context.Context, input DecisionInput, values []any,
+) (int64, string, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, "", fmt.Errorf("re-tier decision %s: begin: %w", input.Fingerprint, err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, retireDecisionSQL, input.Fingerprint,
+		input.RiskTier); err != nil {
+		return 0, "", fmt.Errorf("re-tier decision %s: resolve the open row at another "+
+			"tier: %w", input.Fingerprint, err)
+	}
+	var id int64
+	var evidenceID string
+	err = tx.QueryRow(ctx, upsertDecisionSQL, values...).Scan(&id, &evidenceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", fmt.Errorf("%w: decision %s was re-tiered concurrently; the next "+
+			"evaluation records it", ErrDecisionRetiered, input.Fingerprint)
+	}
+	if err != nil {
+		return 0, "", fmt.Errorf("re-tier decision %s at %s: %w", input.Fingerprint,
+			input.RiskTier, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, "", fmt.Errorf("re-tier decision %s: commit: %w", input.Fingerprint, err)
+	}
+	return id, evidenceID, nil
+}
+
+// ErrDecisionRetiered reports a fingerprint repeated at two tiers at once.
+var ErrDecisionRetiered = errors.New("decision re-tiered concurrently")
+
+// retireDecisionSQL resolves the fingerprint's open row when its tier is
+// not the repeat's.
+const retireDecisionSQL = `/* pg_sage */ UPDATE sage.decision SET resolved_at = now()
+	WHERE fingerprint = $1 AND resolved_at IS NULL AND risk_tier IS DISTINCT FROM $2`
+
 // upsertDecisionSQL bumps only unindexed columns on a repeat, so the
-// update stays HOT unless the deadline changed.
-const upsertDecisionSQL = `INSERT INTO sage.decision
-	(database_id, feature, intent, target_objects, policy_version, verdict,
-	 risk_tier, reason, evidence, evidence_id, deadline_kind, deadline_hard_at,
-	 fingerprint, principal_id, task_id, artifact_hash)
-	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,
-	        NULLIF($14,''),NULLIF($15,''),NULLIF($16,''))
+// update stays HOT unless the deadline changed. candidate_key is indexed
+// but unchanged on a repeat (it is derived from the fingerprint's inputs),
+// except on a row written before policy-02, which gains its key here. A
+// repeat records the latest guardrails and deadline override; the policy
+// hash is the version's (the version is in the fingerprint), so it stays.
+// A repeat at another risk tier updates nothing and returns no row
+// (retierDecision): the tier of a recorded decision never changes.
+const upsertDecisionSQL = insertDecisionColumns + `
 	ON CONFLICT (fingerprint) WHERE fingerprint IS NOT NULL AND resolved_at IS NULL
 	DO UPDATE SET repeat_count = sage.decision.repeat_count + 1,
 	              last_seen_at = now(), reason = EXCLUDED.reason,
-	              risk_tier = EXCLUDED.risk_tier, evidence = EXCLUDED.evidence,
+	              evidence = EXCLUDED.evidence,
 	              deadline_kind = EXCLUDED.deadline_kind,
-	              deadline_hard_at = EXCLUDED.deadline_hard_at
+	              deadline_hard_at = EXCLUDED.deadline_hard_at,
+	              candidate_key = EXCLUDED.candidate_key,
+	              guardrails = EXCLUDED.guardrails,
+	              off_window_ok = EXCLUDED.off_window_ok
+	WHERE sage.decision.risk_tier = EXCLUDED.risk_tier
 	RETURNING id, evidence_id`
 
 // fingerprintParam is the index of $13, fingerprint, in decisionValues.

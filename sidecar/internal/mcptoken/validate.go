@@ -45,6 +45,11 @@ func normalize(req CreateRequest) (CreateRequest, error) {
 	if err != nil {
 		return CreateRequest{}, err
 	}
+	if scopes[0] == ScopeMetrics && databases[0] != allDatabases {
+		// /metrics renders every database's series: it cannot be narrowed.
+		return CreateRequest{}, invalid("databases must be [\"*\"] for a metrics token: " +
+			"/metrics covers every database")
+	}
 	if req.ExpiresIn < MinLifetime || req.ExpiresIn > MaxLifetime {
 		return CreateRequest{}, invalid("expires_in %s must be between %s and %s",
 			req.ExpiresIn, MinLifetime, MaxLifetime)
@@ -52,8 +57,25 @@ func normalize(req CreateRequest) (CreateRequest, error) {
 	if err := checkText("created_by", req.CreatedBy, maxActorLen); err != nil {
 		return CreateRequest{}, err
 	}
+	if err := req.Audit.validate(); err != nil {
+		return CreateRequest{}, err
+	}
 	req.Scopes, req.Databases = scopes, databases
 	return req, nil
+}
+
+const maxSourceIPLen = 200
+
+// validate checks the audit's shape.
+func (a Audit) validate() error {
+	if a.ActorUserID < 0 {
+		return invalid("audit actor_user_id must not be negative")
+	}
+	if len(a.SourceIP) > maxSourceIPLen || hasControl(a.SourceIP) {
+		return invalid("audit source_ip must be at most %d characters without control "+
+			"characters", maxSourceIPLen)
+	}
+	return nil
 }
 
 // checkText requires 1..max characters and no control characters.
@@ -82,10 +104,17 @@ func hasControl(value string) bool {
 func normalizeScopes(scopes []string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, s := range scopes {
-		if _, ok := scopeOrder[s]; !ok {
-			return nil, invalid("unknown scope %q (want read, propose, approve)", s)
+		if _, ok := scopeOrder[s]; !ok && s != ScopeMetrics {
+			return nil, invalid("unknown scope %q (want read, propose, approve, or metrics "+
+				"alone)", s)
 		}
 		seen[s] = true
+	}
+	if seen[ScopeMetrics] {
+		if len(seen) != 1 {
+			return nil, invalid("the metrics scope must be the token's only scope")
+		}
+		return []string{ScopeMetrics}, nil
 	}
 	if !seen[ScopeRead] {
 		return nil, invalid("scopes must include read")
@@ -101,6 +130,8 @@ func normalizeScopes(scopes []string) ([]string, error) {
 func checkOwner(req CreateRequest, scopes []string) error {
 	approve := scopes[len(scopes)-1] == ScopeApprove
 	switch {
+	case req.Kind == KindAgent && scopes[0] == ScopeMetrics:
+		return invalid("the metrics scope is only for operator tokens")
 	case req.Kind == KindAgent && approve:
 		return ErrApproveForAgent
 	case req.Kind == KindOperator && req.OwnerUserID <= 0:

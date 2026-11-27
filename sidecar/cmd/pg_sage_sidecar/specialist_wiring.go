@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -30,7 +29,7 @@ import (
 type specialistRuntime struct {
 	svc     *specialist.Service
 	handler http.Handler
-	mcp     *specialistMCPBackend
+	mcp     *mcp.SpecialistService
 	worker  *specialist.OutboundWorker
 	store   specialist.RequestStore
 }
@@ -60,6 +59,13 @@ func buildSpecialist(cfg *config.Config, mgr *fleet.DatabaseManager, pool *pgxpo
 		registry)
 }
 
+// specialistLimits are the contract's bounds from configuration.
+func specialistLimits(sc config.SpecialistConfig) specialist.Limits {
+	return specialist.Limits{WritesPerMinute: sc.WritesPerMinute,
+		ReadsPerMinute: sc.ReadsPerMinute, MaxOpenPerIdentity: sc.MaxOpenPerIdentity,
+		MaxOpenTotal: sc.MaxOpenTotal, MaxLiveAge: sc.MaxLiveAge()}
+}
+
 // buildSpecialistWithStore wires the contract on store (tests pass a
 // memory store and no authenticator).
 func buildSpecialistWithStore(cfg *config.Config, mgr *fleet.DatabaseManager,
@@ -72,9 +78,7 @@ func buildSpecialistWithStore(cfg *config.Config, mgr *fleet.DatabaseManager,
 	}
 	deps := specialist.Deps{Directory: specialist.NewFleetDirectory(mgr, custodians),
 		Store: store, KeepIdentifiers: sc.KeepIdentifiers, Logger: slog.Default(),
-		Limits: specialist.Limits{WritesPerMinute: sc.WritesPerMinute,
-			ReadsPerMinute: sc.ReadsPerMinute, MaxOpenPerIdentity: sc.MaxOpenPerIdentity,
-			MaxOpenTotal: sc.MaxOpenTotal}}
+		Limits: specialistLimits(sc)}
 	if len(registry) > 0 && registry[0] != nil {
 		deps.Calibrator = specialist.BenchCalibrator{Registry: registry[0]}
 	}
@@ -91,7 +95,7 @@ func buildSpecialistWithStore(cfg *config.Config, mgr *fleet.DatabaseManager,
 	}
 	return &specialistRuntime{svc: svc, store: store,
 		handler: specialist.NewHandler(svc, auth, opts),
-		mcp:     &specialistMCPBackend{svc: svc},
+		mcp:     &mcp.SpecialistService{Service: svc},
 		worker:  specialistWorker(sc, svc, store)}, nil
 }
 
@@ -109,6 +113,31 @@ func specialistHandlerOptions(sc config.SpecialistConfig) (specialist.HandlerOpt
 	if sc.Webhook.SigningSecret != "" {
 		opts.Webhook = &specialist.WebhookAdapter{Secret: sc.Webhook.SigningSecret,
 			Tolerance: sc.Webhook.Tolerance()}
+	}
+	return withAlertAdapters(opts, sc)
+}
+
+// withAlertAdapters adds the incident.io and Azure Monitor adapters (mcp-02),
+// each off until its secret is configured.
+func withAlertAdapters(opts specialist.HandlerOptions,
+	sc config.SpecialistConfig) (specialist.HandlerOptions, error) {
+	if io := sc.IncidentIO; io.SigningSecret != "" {
+		routes, err := specialist.ParseAlertRoutes("specialist.incidentio.routes",
+			io.Routes, true)
+		if err != nil {
+			return opts, err
+		}
+		opts.IncidentIO = &specialist.IncidentIOAdapter{Secret: io.SigningSecret,
+			Field: io.DatabaseField, Routes: routes}
+	}
+	if az := sc.AzureMonitor; az.SharedSecret != "" {
+		routes, err := specialist.ParseAlertRoutes("specialist.azure_monitor.resources",
+			az.Resources, true)
+		if err != nil {
+			return opts, err
+		}
+		opts.AzureMonitor = &specialist.AzureMonitorAdapter{Secret: az.SharedSecret,
+			Resources: routes}
 	}
 	return opts, nil
 }
@@ -161,10 +190,6 @@ func startSpecialistOutbound(ctx context.Context) {
 	go rt.worker.Run(ctx)
 }
 
-// specialistMCPBackend serves the MCP specialist tools from the shared
-// service.
-type specialistMCPBackend struct{ svc *specialist.Service }
-
 // processSpecialistMCP resolves the process contract at call time (the MCP
 // runtime starts before the API router builds it).
 type processSpecialistMCP struct{}
@@ -177,41 +202,6 @@ func (processSpecialistMCP) SpecialistCall(ctx context.Context, tool string,
 			specialist.ErrUnavailable)
 	}
 	return rt.mcp.SpecialistCall(ctx, tool, caller, database, args)
-}
-
-// SpecialistCall implements mcp.SpecialistBackend.
-func (b specialistMCPBackend) SpecialistCall(ctx context.Context, tool string,
-	caller mcp.SpecialistCaller, database string, args json.RawMessage) (any, error) {
-	id := specialist.Identity{TokenID: caller.TokenID, Name: caller.Name, Kind: caller.Kind,
-		Scopes: caller.Scopes, Databases: caller.Databases, Transport: "mcp"}
-	var ref struct {
-		InvestigationID string `json:"investigation_id"`
-		RemediationID   string `json:"remediation_id"`
-		Reason          string `json:"reason"`
-	}
-	if tool != "specialist_open_investigation" {
-		if err := json.Unmarshal(args, &ref); err != nil {
-			return nil, fmt.Errorf("%w: %v", specialist.ErrInvalid, err)
-		}
-	}
-	switch tool {
-	case "specialist_open_investigation":
-		req, err := specialist.DecodeOpenRequest(bytes.NewReader(args))
-		if err != nil {
-			return nil, err
-		}
-		return b.svc.Open(ctx, id, database, req)
-	case "specialist_investigation_status":
-		return b.svc.Status(ctx, id, database, ref.InvestigationID)
-	case "specialist_investigation_result":
-		return b.svc.Result(ctx, id, database, ref.InvestigationID)
-	case "specialist_investigation_transcript":
-		return b.svc.Transcript(ctx, id, database, ref.InvestigationID)
-	case "specialist_request_remediation":
-		return b.svc.RequestRemediation(ctx, id, database, ref.InvestigationID,
-			ref.RemediationID, specialist.RemediationRequest{Reason: ref.Reason})
-	}
-	return nil, fmt.Errorf("%w: unknown specialist tool %q", specialist.ErrInvalid, tool)
 }
 
 // specialistCustodians maps databases to their runway advisors, which

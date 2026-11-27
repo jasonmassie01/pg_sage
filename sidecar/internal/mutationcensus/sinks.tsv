@@ -1,0 +1,30 @@
+# pg_sage mutation inventory (security-06). One row per function that can
+# write to a database pg_sage connects to: path#Func<TAB>class<TAB>note.
+# Classes: gate:<contract>[,<contract>] (only through Executor.Apply under
+# contracts registered in internal/executor), sage_schema, text, clone_only,
+# out_of_gate:<reason>. See doc.go and docs/security.md.
+internal/agentguard/grants/grant.go#grantRun.grantRelation	gate:guard_grant	column SELECT grant to the broker role; runs only inside Executor.Apply
+internal/agentguard/grants/grant.go#grantRun.schemaRow	gate:guard_grant	schema USAGE grant to the broker role; runs only inside Executor.Apply
+internal/agentguard/grants/revoke.go#revokeRun.revokeGrant	gate:guard_revoke	column REVOKE ... GRANTED BY pg_sage; runs only inside Executor.Apply
+internal/agentguard/grants/revoke_rows.go#revokeRun.revokeSchema	gate:guard_revoke	schema USAGE REVOKE ... GRANTED BY pg_sage; runs only inside Executor.Apply
+internal/agentguard/kill_cluster.go#Switch.disableRole	out_of_gate:kill_direct_fallback	kill switch NOLOGIN: runs under guard_kill/guard_freeze and is also the direct fallback when the gate is unreachable (agentguard census, spec 6.2.5)
+internal/agentguard/kill_cluster.go#cancelInflight	out_of_gate:kill_direct_fallback	kill switch pg_cancel_backend of agent backends; same closed-list fallback as disableRole
+internal/agentguard/kill_cluster.go#terminate	out_of_gate:kill_direct_fallback	kill switch pg_terminate_backend of agent backends; same closed-list fallback as disableRole
+internal/agentguard/roles_ensure.go#ensureRun.applyDatabases	gate:guard_role_ensure	per-database read-only settings of the agent roles
+internal/agentguard/roles_ensure.go#ensureRun.applySetting	gate:guard_role_ensure	ALTER ROLE ... IN DATABASE ... SET of an agent role
+internal/agentguard/roles_ensure.go#ensureRun.upsertRoles	gate:guard_role_ensure	CREATE/ALTER ROLE of the broker and login roles
+internal/agentguard/roles_retire.go#retireRun.dropOwned	gate:guard_role_retire	DROP OWNED BY a retired agent role
+internal/agentguard/roles_retire.go#retireRun.dropRoles	gate:guard_role_retire	DROP ROLE of a retired agent role
+internal/agentguard/roles_retire.go#retireRun.inherit	gate:guard_role_retire	temporary membership pg_sage needs to drop what the role owns
+internal/agentguard/unfreeze_roles.go#unfreezeExec.alterRoles	gate:guard_unfreeze	restores LOGIN and the connection limit after a freeze
+internal/decommission/drop.go#dropInTx	sage_schema	agentgov-11 admin drop of the 27 legacy tables: every name is sage-qualified (pgx.Identifier{"sage", n}) inside one transaction that also writes sage.config_audit
+internal/executor/backend_cancel.go#Executor.signalIdentity	gate:cancel_backend	identity-checked pg_cancel_backend of a root blocker, run by backendCancelRun through Executor.Apply
+internal/executor/backend_signal.go#Executor.signalMatchingBackend	gate:cancel_backend,terminate_backend	operator-approved backend signal, run by the manual path (manualRun) through Executor.Apply; refuses without approved_by
+internal/executor/config_apply.go#applyConfigChangeWithin	out_of_gate:rollback_monitor_revert	ALTER SYSTEM/DATABASE plus pg_reload_conf: the custodian and settle paths run it under alter_system_guc/alter_database_guc, but the rollback monitor also calls it to revert a gated change outside Executor.Apply; the stricter class is recorded
+internal/executor/vacuum_run.go#Executor.cancelVacuumBackend	gate:vacuum_table	vacuum-05 watchdog: pg_cancel_backend of the VACUUM backend pg_sage itself started in a vacuum_table run (execVacuumWatched), on a stall, the cap or the emergency stop
+internal/migration/runtime/postgres.go#PostgresApplier.Apply	out_of_gate:migration_policy_gate	MCP online-migration expand steps: dynamic step.SQL authorized step by step by policy.Gate in migration/runtime.Orchestrator, not by an executor contract
+internal/migration/runtime/postgres_rehearsal.go#PostgresRehearsalRunner.applyStep	clone_only	rehearses the expand steps on the clone DSN the clone provider returned; never the monitored pool
+internal/optimizer/hypopg_session.go#hypopgSession.createIndex	out_of_gate:hypothetical_index_session	hypopg_create_index inside the what-if transaction: backend-local, no catalog change, gone when the session closes
+internal/retention/purge.go#Cleaner.purgeRows	sage_schema	relation is always sage.<table> or one of its partitions (purge.go, partitions.go callers)
+internal/schema/deferred_index_build.go#buildDeferredIndex	sage_schema	config-04c background build of the decision-ledger indexes: DROP/CREATE INDEX CONCURRENTLY of a fixed ledgerIndex on sage.<table>, names quoted with pgx.Identifier
+internal/upgradecheck/rehearsal_run.go#rehearsalRun.analyze	clone_only	ANALYZE of the upgraded rehearsal clone through clone.GuardedConnect, which refuses the production target; never the monitored pool

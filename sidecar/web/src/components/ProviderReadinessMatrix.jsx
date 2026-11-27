@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import { AlertTriangle, CheckCircle, CircleHelp } from 'lucide-react'
 import { useAPI } from '../hooks/useAPI'
+import { instanceOwnerLabel } from '../lib/instanceOwner'
 
 function statusText(row, key) {
   const status = row.capabilities?.permissions?.[key]?.status
@@ -9,6 +10,36 @@ function statusText(row, key) {
 
 function extensionText(row, key) {
   return row.capabilities?.extensions?.[key] || 'unknown'
+}
+
+// The provider's enable path (for example the azure.extensions allow-list),
+// shown only when it adds to the runtime status.
+function extensionHint(row, key) {
+  const hint = row.capabilities?.extension_hints?.[key]
+  return hint && hint !== extensionText(row, key) ? hint : ''
+}
+
+function ExtensionCell({ row, name }) {
+  const hint = extensionHint(row, name)
+  return (
+    <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
+      <div>{extensionText(row, name)}</div>
+      {hint && <div className="text-xs">{`hint: ${hint}`}</div>}
+    </td>
+  )
+}
+
+// Which database owns the instance settings (advisors-08b); a dash when
+// the database reports no instance owner (single-database mode).
+function InstanceOwnerCell({ row }) {
+  const label = instanceOwnerLabel(row.capabilities)
+  return (
+    <td className="py-2" data-testid="readiness-instance-owner"
+      title={label?.title}
+      style={{ color: 'var(--text-secondary)' }}>
+      {label ? label.text : '—'}
+    </td>
+  )
 }
 
 function readinessIcon(row) {
@@ -84,14 +115,15 @@ export function ProviderReadinessMatrix() {
         <table className="w-full text-sm">
           <thead>
             <tr style={{ color: 'var(--text-secondary)' }}>
-              <th className="text-left font-medium py-2">Database</th>
-              <th className="text-left font-medium py-2">Provider</th>
-              <th className="text-left font-medium py-2">Auto-safe</th>
-              <th className="text-left font-medium py-2">Analyze</th>
-              <th className="text-left font-medium py-2">Stats</th>
-              <th className="text-left font-medium py-2">Hints</th>
-              <th className="text-left font-medium py-2">Replica</th>
-              <th className="text-left font-medium py-2">Blocker</th>
+              <th scope="col" className="text-left font-medium py-2">Database</th>
+              <th scope="col" className="text-left font-medium py-2">Provider</th>
+              <th scope="col" className="text-left font-medium py-2">Auto-safe</th>
+              <th scope="col" className="text-left font-medium py-2">Analyze</th>
+              <th scope="col" className="text-left font-medium py-2">Stats</th>
+              <th scope="col" className="text-left font-medium py-2">Hints</th>
+              <th scope="col" className="text-left font-medium py-2">Replica</th>
+              <th scope="col" className="text-left font-medium py-2">Instance settings</th>
+              <th scope="col" className="text-left font-medium py-2">Blocker</th>
             </tr>
           </thead>
           <tbody>
@@ -116,23 +148,20 @@ export function ProviderReadinessMatrix() {
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
                     {statusText(row, 'analyze')}
                   </td>
-                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                    {extensionText(row, 'pg_stat_statements')}
-                  </td>
-                  <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
-                    {extensionText(row, 'pg_hint_plan')}
-                  </td>
+                  <ExtensionCell row={row} name="pg_stat_statements" />
+                  <ExtensionCell row={row} name="pg_hint_plan" />
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
                     {row.capabilities?.is_replica === true ? 'yes'
                       : row.capabilities?.is_replica === false ? 'no' : 'unknown'}
                   </td>
+                  <InstanceOwnerCell row={row} />
                   <td className="py-2" style={{ color: 'var(--text-secondary)' }}>
                     {blockerText(row)}
                   </td>
                 </tr>
                 {actionFamilies(row).length > 0 && (
                   <tr key={`${row.name}-families`}>
-                    <td colSpan={8} className="pb-3">
+                    <td colSpan={9} className="pb-3">
                       <div className="flex flex-wrap gap-1.5"
                         aria-label={`${row.name} action families`}>
                         {actionFamilies(row).map(family => (
@@ -142,7 +171,7 @@ export function ProviderReadinessMatrix() {
                             style={{
                               color: familyColor(family),
                               border: '1px solid var(--border)',
-                              background: 'var(--bg-muted)',
+                              background: 'var(--bg-hover)',
                             }}>
                             {family.action_type}
                             <span style={{ color: 'var(--text-secondary)' }}>

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // Google credentials from the standard Application Default Credentials
@@ -74,8 +76,9 @@ func (t *GCPToken) Token(ctx context.Context) (string, error) {
 
 // NewGCPTokenSource resolves the first credential the chain offers.
 func NewGCPTokenSource(ctx context.Context, opts GCPAuthOptions) (*GCPToken, error) {
-	if opts.HTTPClient == nil {
-		opts.HTTPClient = &http.Client{Timeout: 20 * time.Second}
+	callerClient := opts.HTTPClient != nil
+	if !callerClient {
+		opts.HTTPClient = egress.HTTPClient(20 * time.Second)
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -97,7 +100,12 @@ func NewGCPTokenSource(ctx context.Context, opts GCPAuthOptions) (*GCPToken, err
 		}
 	}
 	if host := metadataHost(opts.MetadataHost); host != "" {
-		if t, err := metadataSource(ctx, host, opts); err == nil {
+		metaOpts := opts
+		if !callerClient {
+			// The one egress exemption: only this metadata host.
+			metaOpts.HTTPClient = egress.MetadataClient(host, 20*time.Second)
+		}
+		if t, err := metadataSource(ctx, host, metaOpts); err == nil {
 			return t, nil
 		}
 	}

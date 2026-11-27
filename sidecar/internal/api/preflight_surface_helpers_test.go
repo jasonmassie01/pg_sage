@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/value"
 )
 
@@ -29,7 +29,7 @@ type surfaceFixture struct {
 
 func surfacePool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
+	dsn := testdb.SkipUnlessLive(t)
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil || cfg == nil {
 		t.Fatalf("disposable database required: %v", err)
@@ -51,7 +51,7 @@ func surfacePool(t *testing.T) *pgxpool.Pool {
 func surfaceRouter(t *testing.T, pool *pgxpool.Pool, cfg *config.Config,
 	runtime *RuntimeDeps) *surfaceFixture {
 	t.Helper()
-	handler := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil, runtime,
+	handler := newTestRouter(nil, cfg, pool, nil, nil, nil, runtime,
 		SessionAuthMiddleware(pool))
 	server := httptest.NewTLSServer(handler)
 	t.Cleanup(server.Close)
@@ -126,7 +126,7 @@ func surfaceMCP(t *testing.T, pool *pgxpool.Pool, stopped bool) *RuntimeDeps {
 	backend, err := mcp.NewProductionBackend(mcp.ProductionDependencies{
 		Gate: gate, Planner: mcp.DeterministicIntentPlanner{},
 		Executor: mcp.NewProductionIntentExecutor(access, plan.NewPlanner(), gate),
-		Policy: access, Ledger: access, Guarantees: access,
+		Policy:   access, Ledger: access, Guarantees: access,
 		Value: mcp.NewValueAccess(value.NewFleetService(func() []value.Source {
 			return []value.Source{{Name: "primary", Pool: pool}}
 		})),

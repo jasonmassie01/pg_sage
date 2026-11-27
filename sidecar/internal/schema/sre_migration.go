@@ -61,9 +61,8 @@ CREATE TABLE IF NOT EXISTS sage.sre_investigations (
 CREATE UNIQUE INDEX IF NOT EXISTS sre_one_live_trigger
     ON sage.sre_investigations (deployment_id, database_id, trigger_fingerprint)
     WHERE state IN ('queued', 'collecting', 'evaluating', 'needs_evidence', 'paused');
-CREATE UNIQUE INDEX IF NOT EXISTS sre_investigation_idempotency
-    ON sage.sre_investigations (deployment_id, database_id, idempotency_key)
-    WHERE idempotency_key IS NOT NULL;
+-- The idempotency key is unique per attempt: sre_investigation_attempt
+-- (ddlSREAttempts, sre-01) replaced the all-time sre_investigation_idempotency.
 
 CREATE TABLE IF NOT EXISTS sage.sre_steps (
     deployment_id    uuid NOT NULL,

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // ---------------------------------------------------------------------------
@@ -343,7 +344,7 @@ func TestTreeVacuumBlocked_Branch2_PreparedXacts(t *testing.T) {
 		},
 	}
 
-	inc := eng.treeVacuumBlocked(sig, snap)
+	inc := eng.treeVacuumBlocked(sig, snap, testVacuumRules())
 
 	// Root cause mentions orphaned prepared transaction and the GID.
 	if !strings.Contains(inc.RootCause, "Orphaned prepared transaction") {
@@ -387,6 +388,10 @@ func TestTreeVacuumBlocked_Branch2_FindsOldestPreparedTx(t *testing.T) {
 		},
 		// No idle-in-tx locks at all.
 		Locks: nil,
+		// rca-01: both are this database's. The test named db1 and db2,
+		// pinning blame on another database's prepared xact, which does
+		// not hold back this database's vacuum (the collector now reads
+		// only current_database()'s).
 		PreparedXacts: []collector.PreparedTransaction{
 			{
 				GID:      "young_tx",
@@ -399,7 +404,7 @@ func TestTreeVacuumBlocked_Branch2_FindsOldestPreparedTx(t *testing.T) {
 				GID:      "oldest_tx",
 				Prepared: now.Add(-24 * time.Hour),
 				Owner:    "user2",
-				Database: "db2",
+				Database: "db1",
 				XIDAge:   90_000_000, // highest age
 			},
 		},
@@ -415,7 +420,7 @@ func TestTreeVacuumBlocked_Branch2_FindsOldestPreparedTx(t *testing.T) {
 		},
 	}
 
-	inc := eng.treeVacuumBlocked(sig, snap)
+	inc := eng.treeVacuumBlocked(sig, snap, testVacuumRules())
 
 	// Should reference the oldest prepared tx (highest XIDAge).
 	if !strings.Contains(inc.RootCause, "oldest_tx") {
@@ -439,6 +444,16 @@ func TestTreeVacuumBlocked_Branch2_NotBranch1(t *testing.T) {
 		Tables: []collector.TableStats{
 			{SchemaName: "public", RelName: "t1", NLiveTup: 1000, NDeadTup: 200},
 		},
+		// rca-01: the idle session is named because the holder read
+		// shows it holding an xmin older than the prepared xact's. The
+		// test listed only its lock row, pinning blame on a session with
+		// no evidence that it holds the horizon at all.
+		XminHolders: []probes.XminHolder{
+			{Kind: probes.HolderSession, PID: 9999, State: idleState,
+				XminAge: 60_000_000, XactAgeS: 3600},
+			{Kind: probes.HolderPreparedXact, Name: md5Hex("some_tx"),
+				State: "prepared", XminAge: 50_000_000, XactAgeS: 3600},
+		},
 		Locks: []collector.LockInfo{
 			{PID: 9999, State: &idleState},
 		},
@@ -460,15 +475,18 @@ func TestTreeVacuumBlocked_Branch2_NotBranch1(t *testing.T) {
 		},
 	}
 
-	inc := eng.treeVacuumBlocked(sig, snap)
+	inc := eng.treeVacuumBlocked(sig, snap, testVacuumRules())
 
 	// Should hit Branch 1 (idle-in-tx), NOT Branch 2 (prepared tx).
 	if strings.Contains(inc.RootCause, "Orphaned prepared transaction") {
 		t.Errorf("Should have hit Branch 1 (idle-in-tx), not Branch 2. "+
 			"RootCause = %q", inc.RootCause)
 	}
-	if !strings.Contains(inc.RootCause, "Idle-in-transaction") {
-		t.Errorf("Expected Branch 1 root cause mentioning idle-in-transaction, "+
+	// rca-01 review: "Idle-in-transaction PID" is the text Cases offers a
+	// terminate for, kept for a holder the tree would terminate. This one
+	// has no idle time (no state_change), so it is named by its state.
+	if !strings.Contains(inc.RootCause, "PID 9999 (idle in transaction)") {
+		t.Errorf("Expected Branch 1 root cause naming idle-in-transaction PID 9999, "+
 			"got %q", inc.RootCause)
 	}
 }
@@ -497,7 +515,7 @@ func TestTreeVacuumBlocked_Branch3_NoPreparedTxNoIdle(t *testing.T) {
 		},
 	}
 
-	inc := eng.treeVacuumBlocked(sig, snap)
+	inc := eng.treeVacuumBlocked(sig, snap, testVacuumRules())
 
 	// Branch 3: autovacuum falling behind.
 	if !strings.Contains(inc.RootCause, "Autovacuum falling behind") {

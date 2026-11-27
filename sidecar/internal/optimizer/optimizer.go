@@ -11,9 +11,7 @@ package optimizer
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/catalogread"
@@ -26,21 +24,27 @@ type Optimizer struct {
 	pool      *pgxpool.Pool
 	cfg       *config.OptimizerConfig
 	validator *Validator
-	planner   *PlanCapture
 	hypopg    *HypoPG
 	whatIf    whatIfValidator  // defaults to hypopg; tests inject fakes
 	memory    *rejectionMemory // nil: rejection memory off or no database
 	logFn     func(string, string, ...any)
-	// catalogTimeouts bound the context builder's catalog reads.
+	// catalogTimeouts bound the context builder's catalog reads; their
+	// lock timeout also bounds the HypoPG what-if's lock waits (at most 1 s).
 	catalogTimeouts catalogread.Timeouts
+
+	// skipScanPlans plans workload statements for the PG 18 skip-scan
+	// evidence (nil without a database: no evidence, nothing dropped).
+	skipScanPlans genericPlanner
 
 	// whatIfSkips counts candidates rejection memory skipped (MemoryStats).
 	whatIfSkips atomic.Int64
 }
 
 // WithCatalogReadTimeouts bounds the context builder's catalog reads
-// (columns, pg_stats, collation) with the safety configuration's
-// statement and lock timeouts; the default is the shipped safety values.
+// (columns, pg_stats, collation) and the validator's volatility lookups
+// with the safety configuration's statement and lock timeouts, and the
+// HypoPG what-if's lock waits with the lock timeout; the default is the
+// shipped safety values.
 func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
 	return func(o *Optimizer) { o.catalogTimeouts = t }
 }
@@ -49,7 +53,6 @@ func WithCatalogReadTimeouts(t catalogread.Timeouts) func(*Optimizer) {
 func New(
 	pool *pgxpool.Pool,
 	cfg *config.OptimizerConfig,
-	pgVersionNum int,
 	logFn func(string, string, ...any),
 	options ...func(*Optimizer),
 ) *Optimizer {
@@ -57,12 +60,8 @@ func New(
 		pool:      pool,
 		cfg:       cfg,
 		validator: NewValidator(pool, cfg, logFn),
-		planner: NewPlanCapture(
-			pool, pgVersionNum, false,
-			cfg.PlanSource, logFn,
-		),
-		hypopg: NewHypoPG(pool, logFn),
-		logFn:  logFn,
+		hypopg:    NewHypoPG(pool, logFn),
+		logFn:     logFn,
 
 		catalogTimeouts: catalogread.Default(),
 	}
@@ -74,6 +73,12 @@ func New(
 	for _, opt := range options {
 		opt(o)
 	}
+	o.hypopg.lockTimeout = o.catalogTimeouts.Lock
+	o.hypopg.readTimeouts = o.catalogTimeouts
+	o.validator.timeouts = o.catalogTimeouts
+	if pool != nil {
+		o.skipScanPlans = poolPlanner{pool: pool, lockTimeout: o.catalogTimeouts.Lock}
+	}
 	return o
 }
 
@@ -82,13 +87,6 @@ type whatIfValidator interface {
 	IsAvailable(ctx context.Context) bool
 	Validate(ctx context.Context, rec Recommendation, queries []QueryInfo,
 	) (WhatIfResult, error)
-}
-
-// WithAutoExplain enables auto_explain as a plan source.
-func WithAutoExplain() func(*Optimizer) {
-	return func(o *Optimizer) {
-		o.planner.autoExplainAvailable = true
-	}
 }
 
 // ColdStart reports whether there are fewer than min_snapshots snapshots,
@@ -130,31 +128,39 @@ type Admission struct {
 }
 
 // Admit canonicalizes, validates, checks rejection memory and HypoPG-
-// measures one candidate for tc. An idea rejection memory already measured
-// on this workload skips the what-if (unless an operator asked); a new
-// what-if rejection is remembered.
+// measures one candidate for tc, then applies the write-impact gate to the
+// measurement. An idea rejection memory already measured on this workload
+// skips the what-if; a new what-if rejection is remembered. On PostgreSQL
+// 18 a candidate an existing composite already serves through skip scan,
+// shown by every top statement's plan, is rejected (and remembered)
+// before the what-if. Memory's age and material-change rules let an idea
+// be measured again once it may have changed.
 func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableContext,
 ) Admission {
 	rec, err := canonicalizeRecommendation(rec, tc)
 	if err != nil {
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: err.Error()}
 	}
-	if ok, reason := o.validator.Validate(ctx, rec, tc); !ok {
+	rec, ok, reason := o.validator.ValidateAndQualify(ctx, rec, tc)
+	if !ok {
 		return Admission{Rec: rec, Outcome: AdmitInvalid, Reason: reason}
 	}
-	if !operatorRequested(ctx) {
-		if r, seen := o.memory.view(ctx, tc).suppress(rec); seen {
-			o.whatIfSkips.Add(1)
-			return Admission{Rec: rec, Outcome: AdmitMeasured, Reason: fmt.Sprintf(
-				"already measured %dx, last %s: %s", max(r.MeasureCount, 1),
-				r.MeasuredAt.UTC().Format("2006-01-02 15:04 UTC"), r.Reason)}
-		}
+	minPct := o.minImprovePct(tc)
+	if a, seen := o.remembered(ctx, rec, tc, minPct); seen {
+		return a
+	}
+	if ix, served := o.servedBySkipScan(ctx, rec, tc); served {
+		return o.rejectServedBySkipScan(ctx, rec, tc, ix, minPct)
 	}
 	rec, rejected := o.enrichWithHypoPG(ctx, rec, tc)
+	if !rejected {
+		rec, rejected = o.gateWriteImpact(rec, tc)
+	}
 	if rejected {
-		o.memory.remember(ctx, tc, rec, o.cfg.HypoPGMinImprovePct)
+		o.memory.remember(ctx, tc, rec, minPct)
 		return Admission{Rec: rec, Outcome: AdmitRejected, Reason: rec.WhatIfReason}
 	}
+	rec = noteUnknownColumns(rec, tc)
 	// The queryids the index is expected to help, for verify-and-revert.
 	rec.AffectedQueryIDs = contextQueryIDs(tc)
 	return Admission{Rec: rec, Outcome: AdmitAccepted}
@@ -163,22 +169,27 @@ func (o *Optimizer) Admit(ctx context.Context, rec Recommendation, tc TableConte
 // MeasuredRejections lists the newest shapes rejection memory already
 // measured and rejected on tc's workload, for the agent's case packet.
 func (o *Optimizer) MeasuredRejections(ctx context.Context, tc TableContext) []string {
-	return o.memory.view(ctx, tc).promptLines()
+	return o.memory.view(ctx, tc).withoutStaleSkipScan(tc).promptLines(o.minImprovePct(tc))
 }
 
 // enrichWithHypoPG measures the recommendation with hypothetical indexes
 // and records the verdict (Phase 0 item 7). A complete measurement below
 // HypoPGMinImprovePct rejects it. Anything less than a complete
-// measurement — HypoPG unavailable, an error, no measurable query, a
-// query that could not be planned — is "unverified": the recommendation
-// is kept, but only an operator can approve it (the executor gates on
-// the verdict).
+// measurement — an access method HypoPG cannot model (the candidate's or
+// an in-flight index's), HypoPG unavailable, an error, no measurable
+// query, a query that could not be planned — is "unverified": the
+// recommendation is kept, but only an operator can approve it (the
+// executor gates on the verdict).
 func (o *Optimizer) enrichWithHypoPG(
 	ctx context.Context,
 	rec Recommendation,
 	tc TableContext,
 ) (Recommendation, bool) {
 	rec.Validated = false
+	if reason := hypopgCannotModelRec(rec); reason != "" {
+		rec.WhatIf, rec.WhatIfReason = WhatIfUnverified, reason
+		return rec, false
+	}
 	if o.whatIf == nil || !o.whatIf.IsAvailable(ctx) {
 		rec.WhatIf, rec.WhatIfReason = WhatIfUnverified, "HypoPG unavailable"
 		return rec, false
@@ -188,7 +199,13 @@ func (o *Optimizer) enrichWithHypoPG(
 		o.logFn("optimizer", "hypopg validation failed for %s: %v", rec.Table, err)
 	}
 	verdict, reason := whatIfVerdict(res, err, o.cfg.HypoPGMinImprovePct)
+	if verdict == WhatIfRejected && len(res.Regressions) == 0 {
+		if ix, ok := skipScanCandidate(tc, rec); ok {
+			reason = joinReasons(reason, "already served by "+ix.Name+" through skip scan")
+		}
+	}
 	rec.WhatIf, rec.WhatIfReason = verdict, reason
+	rec.WhatIfMeasured, rec.WhatIfUnplannedQueryIDs = res.Measured, res.UnplannedQueryIDs
 	if res.Measured > 0 {
 		rec.EstimatedImprovementPct = res.Improvement
 	}
@@ -223,29 +240,4 @@ func (o *Optimizer) MemoryStats() MemoryStats {
 		return MemoryStats{}
 	}
 	return MemoryStats{WhatIfSkipped: o.whatIfSkips.Load()}
-}
-
-type operatorRequestKey struct{}
-
-// WithOperatorRequest marks an admission an operator asked for: every
-// candidate is measured, whatever rejection memory says (memory still
-// records what it measures).
-func WithOperatorRequest(ctx context.Context) context.Context {
-	return context.WithValue(ctx, operatorRequestKey{}, true)
-}
-
-func operatorRequested(ctx context.Context) bool {
-	requested, _ := ctx.Value(operatorRequestKey{}).(bool)
-	return requested
-}
-
-// WithLakebasePlanScope permits only plans from a live-verified resource binding.
-// A blank scope keeps provider history unavailable while startup is unresolved.
-func WithLakebasePlanScope(scope func() string, retention ...time.Duration) func(*Optimizer) {
-	return func(o *Optimizer) {
-		o.planner.providerScope = scope
-		if len(retention) == 1 {
-			o.planner.providerRetention = retention[0]
-		}
-	}
 }

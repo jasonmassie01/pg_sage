@@ -35,6 +35,11 @@ type Investigation struct {
 	Summary          Summary   `json:"summary"`
 	ConcludedAt      time.Time `json:"concluded_at"`
 	EvidencePurgedAt time.Time `json:"evidence_purged_at"`
+	// sre-01: the run's number under its idempotency key, the expired run
+	// it supersedes and the newer attempt that superseded it.
+	Attempt      int  `json:"attempt"`
+	Supersedes   UUID `json:"supersedes,omitempty"`
+	SupersededBy UUID `json:"superseded_by,omitempty"`
 }
 
 // MarshalJSON adds the scope ids and renders unset times as null.
@@ -60,7 +65,11 @@ func timePtr(t time.Time) *time.Time {
 
 // Lease is a worker's fenced claim on an investigation. Every write
 // compares the worker, fence and lease expiry; a stale worker cannot
-// commit.
+// commit. Until and SegmentDeadline are host-monotonic deadlines derived
+// from the database's remaining lease and segment time (sre-12), not
+// database timestamps: compare them only with the host clock
+// (time.Until). Investigation.LeaseUntil and SegmentDeadline stay
+// database timestamps, for display.
 type Lease struct {
 	Scope           Scope
 	InvestigationID UUID
@@ -178,5 +187,7 @@ type Store interface {
 	Resume(ctx context.Context, scope Scope, id UUID, version int64) (Investigation, error)
 	Stop(ctx context.Context, scope Scope, id UUID, version int64) (Investigation, error)
 	Evidence(ctx context.Context, scope Scope, id UUID) ([]Evidence, error)
+	StepEvidence(ctx context.Context, scope Scope, id UUID, key string) ([]Evidence, error)
+	StepKeys(ctx context.Context, scope Scope, id UUID) (map[string]bool, error)
 	Ping(ctx context.Context) error
 }

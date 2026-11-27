@@ -1,6 +1,10 @@
 package rca
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/pg-sage/sidecar/internal/signalid"
+)
 
 // ---------------------------------------------------------------------------
 // Log-based decision trees: map log-originated signals to Incidents
@@ -17,7 +21,38 @@ func (e *Engine) runLogDecisionTrees(signals []*Signal) []Incident {
 	var incidents []Incident
 	incidents = append(incidents, e.logTreesCriticalP0(sigMap)...)
 	incidents = append(incidents, e.logTreesWarningP1(sigMap)...)
+	incidents = append(incidents, logTreesWraparound(sigMap)...)
+	if s := sumOverloadSignals(signals); s != nil {
+		incidents = append(incidents, logTreeWatcherOverloaded(s))
+	}
+	attachLogOccurrences(incidents, signals)
 	return incidents
+}
+
+// logTreeWatcherOverloaded reports log lines the watcher lost (rca-06):
+// log-based detection may have missed events, though critical lines are
+// kept first. It proposes no SQL.
+func logTreeWatcherOverloaded(s *Signal) Incident {
+	rootCause := fmt.Sprintf("Log watcher overloaded: %d log lines dropped "+
+		"before classification; log-based incident detection may have "+
+		"missed events", intMetric(s, "dropped_lines"))
+	evidence := fmt.Sprintf("queue_overflow=%d classifier_cap=%d",
+		intMetric(s, "queue_overflow_lines"),
+		intMetric(s, "classifier_cap_lines"))
+	return buildLogIncident(s.FiredAt, "warning", []string{s.ID}, rootCause,
+		[]ChainLink{
+			{Order: 1, Signal: s.ID, Description: rootCause,
+				Evidence: evidence},
+			{Order: 2, Signal: s.ID,
+				Description: "Reduce log volume (log_min_messages, " +
+					"log_statement, log_min_duration_statement) or raise " +
+					"logwatch.max_lines_per_cycle",
+				Evidence: "PANIC, FATAL and resource, shutdown, system " +
+					"and corruption errors are never the lines dropped " +
+					"first"},
+		},
+		nil, "", "safe",
+	)
 }
 
 // logTreesCriticalP0 handles the P0 critical log signals.
@@ -25,43 +60,43 @@ func (e *Engine) logTreesCriticalP0(
 	sigMap map[string]*Signal,
 ) []Incident {
 	var out []Incident
-	if s, ok := sigMap["log_deadlock_detected"]; ok {
+	if s, ok := sigMap[signalid.LogDeadlockDetected]; ok {
 		out = append(out, logTreeDeadlock(s))
 	}
-	if s, ok := sigMap["log_connection_refused"]; ok {
+	if s, ok := sigMap[signalid.LogConnectionRefused]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"Connection refused: too many clients already", "high_risk"))
 	}
-	if s, ok := sigMap["log_out_of_memory"]; ok {
+	if s, ok := sigMap[signalid.LogOutOfMemory]; ok {
 		out = append(out, logTreeOOM(s))
 	}
-	if s, ok := sigMap["log_disk_full"]; ok {
+	if s, ok := sigMap[signalid.LogDiskFull]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"Disk full: no space left on device", "high_risk"))
 	}
-	if s, ok := sigMap["log_panic_server_crash"]; ok {
+	if s, ok := sigMap[signalid.LogPanicServerCrash]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"PostgreSQL server crash (PANIC or signal)", "high_risk"))
 	}
-	if s, ok := sigMap["log_data_corruption"]; ok {
+	if s, ok := sigMap[signalid.LogDataCorruption]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"Data corruption detected (class XX error)", "high_risk"))
 	}
-	if s, ok := sigMap["log_txid_wraparound_warning"]; ok {
+	if s, ok := sigMap[signalid.LogTxidWraparoundWarning]; ok {
 		out = append(out, logTreeTxidWraparound(s))
 	}
-	if s, ok := sigMap["log_archive_failed"]; ok {
+	if s, ok := sigMap[signalid.LogArchiveFailed]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"WAL archive command failed", "moderate"))
 	}
-	if s, ok := sigMap["log_temp_file_created"]; ok {
+	if s, ok := sigMap[signalid.LogTempFileCreated]; ok {
 		out = append(out, logTreeTempFile(s))
 	}
-	if s, ok := sigMap["log_checkpoint_too_frequent"]; ok {
+	if s, ok := sigMap[signalid.LogCheckpointTooFrequent]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Checkpoints occurring too frequently "+
-				"-- consider increasing checkpoint_completion_target "+
-				"or max_wal_size", "safe"))
+				"-- WAL volume is forcing them; increase max_wal_size",
+			"safe"))
 	}
 	return out
 }
@@ -71,37 +106,43 @@ func (e *Engine) logTreesWarningP1(
 	sigMap map[string]*Signal,
 ) []Incident {
 	var out []Incident
-	if s, ok := sigMap["log_lock_timeout"]; ok {
+	if s, ok := sigMap[signalid.LogLockTimeout]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Lock wait timeout exceeded", "safe"))
 	}
-	if s, ok := sigMap["log_statement_timeout"]; ok {
+	if s, ok := sigMap[signalid.LogStatementTimeout]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Statement timeout exceeded", "safe"))
 	}
-	if s, ok := sigMap["log_replication_conflict"]; ok {
+	if s, ok := sigMap[signalid.LogReplicationConflict]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Replication conflict with recovery on standby",
 			"moderate"))
 	}
-	if s, ok := sigMap["log_wal_segment_removed"]; ok {
+	if s, ok := sigMap[signalid.LogWALSegmentRemoved]; ok {
 		out = append(out, logTreeSimple(s, "critical",
 			"WAL segment removed before replica could consume "+
 				"it -- replica may need rebuild", "high_risk"))
 	}
-	if s, ok := sigMap["log_autovacuum_cancel"]; ok {
+	if s, ok := sigMap[signalid.LogAutovacuumCancel]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Autovacuum task cancelled due to lock conflict",
 			"safe"))
 	}
-	if s, ok := sigMap["log_replication_slot_inactive"]; ok {
+	if s, ok := sigMap[signalid.LogReplicationSlotInactive]; ok {
 		out = append(out, logTreeReplicationSlot(s))
 	}
-	if s, ok := sigMap["log_authentication_failure"]; ok {
+	if s, ok := sigMap[signalid.LogInternalError]; ok {
+		out = append(out, logTreeSimple(s, "warning",
+			"Internal error (SQLSTATE XX000) -- an unexpected internal "+
+				"condition such as a cache lookup failure; investigate if "+
+				"it repeats", "safe"))
+	}
+	if s, ok := sigMap[signalid.LogAuthenticationFailure]; ok {
 		out = append(out, logTreeSimple(s, "warning",
 			"Authentication failure", "safe"))
 	}
-	if s, ok := sigMap["log_slow_query"]; ok {
+	if s, ok := sigMap[signalid.LogSlowQuery]; ok {
 		out = append(out, logTreeSlowQuery(s))
 	}
 	return out
@@ -135,25 +176,35 @@ func logTreeSimple(
 }
 
 // logTreeDeadlock handles log_deadlock_detected with self-inflicted
-// detection and PID extraction.
+// detection, the classifier's participant PIDs and count (rca-07) and,
+// when the DETAIL was read, the wait cycle (rca-07b).
 func logTreeDeadlock(s *Signal) Incident {
 	evidence := fmt.Sprintf("database=%s",
 		stringMetric(s, "database"))
-	if pids := stringMetric(s, "pids"); pids != "" {
-		evidence += fmt.Sprintf(", pids=%s", pids)
+	if occ := logOccurrencesFromSignal(s); occ != nil {
+		if len(occ.PIDs) > 0 {
+			evidence += ", pids=" + joinInts(occ.PIDs)
+		}
+		evidence += fmt.Sprintf(", occurrences=%d", occ.Count)
+		if occ.ParticipantsUnparsed > 0 {
+			evidence += fmt.Sprintf(", participants_unparsed=%d", occ.ParticipantsUnparsed)
+		}
 	}
 	if boolMetric(s, "self_inflicted") {
 		evidence += " [self-inflicted deadlock]"
 	}
+	chain := []ChainLink{{
+		Order: 1, Signal: s.ID,
+		Description: "Deadlock detected between concurrent transactions",
+		Evidence:    evidence,
+	}}
+	if link, ok := deadlockCycleLink(s); ok {
+		chain = append(chain, link)
+	}
 	return buildLogIncident(s.FiredAt, "critical",
 		[]string{s.ID},
 		"Deadlock detected between concurrent transactions",
-		[]ChainLink{{
-			Order: 1, Signal: s.ID,
-			Description: "Deadlock detected between concurrent transactions",
-			Evidence:    evidence,
-		}},
-		dbAffected(s), "", "moderate",
+		chain, dbAffected(s), "", "moderate",
 	)
 }
 
@@ -194,8 +245,38 @@ func logTreeOOM(s *Signal) Incident {
 // holds the xmin horizon back: stale backend_xmin, replication slots
 // (catalog_xmin), or orphaned prepared transactions.
 func logTreeTxidWraparound(s *Signal) Incident {
-	rootCause := "Transaction ID wraparound imminent " +
-		"-- identify what holds the xmin horizon"
+	return logTreeXIDHorizon(s, "Transaction ID wraparound imminent "+
+		"-- identify what holds the xmin horizon",
+		"XID wraparound warning from PostgreSQL")
+}
+
+// logTreesWraparound handles the wraparound outages and the multixact
+// limits. The XID warning stays in logTreesCriticalP0.
+func logTreesWraparound(sigMap map[string]*Signal) []Incident {
+	var out []Incident
+	if s, ok := sigMap[signalid.LogWraparoundOutage]; ok {
+		out = append(out, logTreeXIDHorizon(s,
+			"Transaction ID wraparound protection engaged: the database "+
+				"refuses commands that assign new transaction IDs until it "+
+				"is vacuumed",
+			"Wraparound stop limit reached (SQLSTATE 54000)"))
+	}
+	if s, ok := sigMap[signalid.LogMultiXactWraparoundWarning]; ok {
+		out = append(out, logTreeMultiXact(s,
+			"MultiXact ID wraparound approaching -- vacuum must freeze "+
+				"old multixacts before the stop limit"))
+	}
+	if s, ok := sigMap[signalid.LogMultiXactWraparoundOutage]; ok {
+		out = append(out, logTreeMultiXact(s,
+			"MultiXact wraparound protection engaged: the database refuses "+
+				"commands that create new MultiXactIds until it is vacuumed"))
+	}
+	return out
+}
+
+// logTreeXIDHorizon builds a wraparound incident whose diagnostic SQL
+// shows the three sources that can hold the xmin horizon back.
+func logTreeXIDHorizon(s *Signal, rootCause, firstLink string) Incident {
 	// Diagnostic: show the three sources that can hold back xmin.
 	sql := "-- 1. Oldest backend xmin holders\n" +
 		"SELECT pid, usename, state, " +
@@ -220,7 +301,7 @@ func logTreeTxidWraparound(s *Signal) Incident {
 		[]string{s.ID}, rootCause,
 		[]ChainLink{
 			{Order: 1, Signal: s.ID,
-				Description: "XID wraparound warning from PostgreSQL",
+				Description: firstLink,
 				Evidence:    stringMetric(s, "message")},
 			{Order: 2, Signal: s.ID,
 				Description: "Autovacuum cannot freeze because " +
@@ -228,6 +309,32 @@ func logTreeTxidWraparound(s *Signal) Incident {
 				Evidence: "Check: stale backend_xmin, " +
 					"replication slot catalog_xmin, " +
 					"orphaned prepared transactions"},
+		},
+		dbAffected(s), sql, "high_risk",
+	)
+}
+
+// logTreeMultiXact builds a multixact-limit incident. Old multixacts are
+// frozen by vacuum, so the diagnostic shows the databases and tables with
+// the oldest relminmxid.
+func logTreeMultiXact(s *Signal, rootCause string) Incident {
+	sql := "SELECT datname, mxid_age(datminmxid) AS mxid_age " +
+		"FROM pg_database ORDER BY 2 DESC;\n" +
+		"SELECT c.oid::regclass AS relation, " +
+		"mxid_age(c.relminmxid) AS mxid_age " +
+		"FROM pg_class c WHERE c.relkind IN ('r','m','t') " +
+		"ORDER BY 2 DESC LIMIT 10;"
+	return buildLogIncident(s.FiredAt, "critical",
+		[]string{s.ID}, rootCause,
+		[]ChainLink{
+			{Order: 1, Signal: s.ID,
+				Description: rootCause,
+				Evidence:    stringMetric(s, "message")},
+			{Order: 2, Signal: s.ID,
+				Description: "Vacuum the databases and tables with the " +
+					"oldest relminmxid; long transactions holding row " +
+					"locks keep old multixacts alive",
+				Evidence: "mxid_age(datminmxid) per database"},
 		},
 		dbAffected(s), sql, "high_risk",
 	)
@@ -258,12 +365,17 @@ func logTreeTempFile(s *Signal) Incident {
 	)
 }
 
-// logTreeReplicationSlot handles log_replication_slot_inactive with
-// a diagnostic SQL recommendation. Shows ALL slots (active and
-// inactive) since active slots with slow consumers are equally
-// dangerous for WAL retention and xmin horizon.
+// logTreeReplicationSlot handles log_replication_slot_inactive, which
+// fires when PostgreSQL invalidates a slot. Its diagnostic SQL shows ALL
+// slots (active and inactive) since active slots with slow consumers are
+// equally dangerous for WAL retention and xmin horizon.
 func logTreeReplicationSlot(s *Signal) Incident {
-	rootCause := "Replication slot accumulating WAL"
+	slot := "a slot"
+	if name := stringMetric(s, "slot_name"); name != "" {
+		slot = fmt.Sprintf("slot %q", name)
+	}
+	rootCause := "Replication slot accumulating WAL: PostgreSQL invalidated " +
+		slot + " (the log detail says why); its consumer must be re-synced"
 	sql := "SELECT slot_name, slot_type, active, " +
 		"pg_size_pretty(pg_wal_lsn_diff(" +
 		"pg_current_wal_lsn(), restart_lsn)) AS retained " +

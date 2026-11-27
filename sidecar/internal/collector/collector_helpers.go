@@ -60,7 +60,7 @@ func (c *Collector) collectStatStatementsMax(
 	var val int
 	err := c.catalogQueryRow(
 		ctx,
-		`/* pg_sage */ SELECT setting::int FROM pg_settings
+		`/* pg_sage collector */ SELECT setting::int FROM pg_settings
 		 WHERE name = 'pg_stat_statements.max'`,
 	).Scan(&val)
 	if err != nil {
@@ -98,17 +98,24 @@ func (c *Collector) ensurePartitions(ctx context.Context, at time.Time) {
 // category. An unavailable category is unknown, not empty: no row.
 func snapshotRows(snap *Snapshot) ([]snapstore.Row, error) {
 	categories := map[string]any{
-		"queries":      snap.Queries,
-		"tables":       snap.Tables,
-		"indexes":      snap.Indexes,
-		"foreign_keys": snap.ForeignKeys,
-		"system":       snap.System,
-		"locks":        snap.Locks,
-		"sequences":    snap.Sequences,
-		"replication":  snap.Replication,
-		"io":           snap.IO,
-		"partitions":   snap.Partitions,
-		"config_data":  snap.ConfigData,
+		"queries":             snap.Queries,
+		"tables":              snap.Tables,
+		"indexes":             snap.Indexes,
+		"foreign_keys":        snap.ForeignKeys,
+		"system":              snap.System,
+		"locks":               snap.Locks,
+		"sequences":           snap.Sequences,
+		"replication":         snap.Replication,
+		"archiver":            snap.Archiver,
+		"io":                  snap.IO,
+		"partitions":          snap.Partitions,
+		"prepared_xacts":      snap.PreparedXacts,
+		"config_data":         snap.ConfigData,
+		"partitioned_indexes": snap.PartitionedIndexes,
+		"index_bloat":         snap.IndexBloat,
+		"subscriptions":       snap.Subscriptions,
+		"workload_sessions":   snap.WorkloadSessions,
+		"wait_events":         snap.WaitEvents,
 	}
 	rows := make([]snapstore.Row, 0, len(categories))
 	for cat, data := range categories {

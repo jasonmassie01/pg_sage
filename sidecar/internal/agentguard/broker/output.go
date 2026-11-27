@@ -224,8 +224,9 @@ func (c *classifier) relationSensitivity(ctx context.Context, r relation) classi
 	return cls
 }
 
-// maskedRefs refuses a statement that uses a masked column of a referenced
-// relation outside its bare output (G1-15: a cast on a masked column).
+// maskedRefs refuses a statement that uses a masked or denied column of a
+// referenced relation outside its bare output (G1-15: a cast on a masked
+// column; security-02: a filter on a denied column is a value oracle).
 func (c *classifier) maskedRefs(ctx context.Context, rels []relation,
 	read sqlast.BrokeredRead) string {
 	masked, known := map[string]bool{}, map[string]bool{}
@@ -233,7 +234,7 @@ func (c *classifier) maskedRefs(ctx context.Context, rels []relation,
 		for attnum, name := range c.names[r.OID] {
 			known[name] = true
 			cls := c.columnClass(ctx, r.OID, attnum)
-			if decideColumn(c.env, cls, c.unmasked(r.OID, attnum)) == actMask {
+			if decideColumn(c.env, cls, c.unmasked(r.OID, attnum)) != actPass {
 				masked[name] = true
 			}
 		}

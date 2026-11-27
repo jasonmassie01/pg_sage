@@ -6,8 +6,11 @@ import (
 	"time"
 )
 
+// steadyPhase is the fixture of the gate A-G tests. Gate H (the product
+// meter) has its own fixture, meteredPhase, in meter_gate_test.go.
 func steadyPhase() Phase {
-	return Phase{Name: "steady", Steady: true, Window: 90 * time.Second, Cycles: 6}
+	return Phase{Name: "steady", Steady: true, Window: 90 * time.Second, Cycles: 6,
+		Unmetered: "gate A-G fixture"}
 }
 
 func TestEvaluateCleanRunHasNoOffenders(t *testing.T) {

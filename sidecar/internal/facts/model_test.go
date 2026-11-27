@@ -23,18 +23,20 @@ import (
 
 func modelEvidence() []EvidenceItem {
 	return []EvidenceItem{
-		{ID: "E1", Kind: "catalog", Ref: "schemas:test_memory_*",
-			Detail: "41 schemas test_memory_<hash>, each a copy of 3 tables, no scans for 6 h"},
+		{ID: "E1", Kind: "catalog", Ref: "schema:test_memory_a1",
+			Detail: "3 tables, 0 scans and writes since statistics reset, 0 updates or deletes"},
 		{ID: "E2", Kind: "action_log", Ref: "drop_index:public.idx_thesis_allocation_run",
 			Detail: "dropped by pg_sage 8 times, recreated with the same definition"},
 		{ID: "E3", Kind: "slot", Ref: "slot:cdc_orders",
 			Detail: "logical slot, plugin pgoutput, active, application_name debezium"},
+		{ID: "E4", Kind: "catalog", Ref: "schema:test_memory_b2",
+			Detail: "3 tables, 0 scans and writes since statistics reset, 0 updates or deletes"},
 	}
 }
 
 const validModelReply = `[
  {"type":"test_fixture","subject_kind":"schema","subject":"test_memory_*",
-  "value":{},"evidence":["E1"],"rationale":"identical leaked copies, idle"},
+  "value":{},"evidence":["E1","E4"],"rationale":"identical leaked copies, idle"},
  {"type":"owned_by_app_migrations","subject_kind":"index",
   "subject":"public.idx_thesis_allocation_run","evidence":["E2"],
   "rationale":"recreated by migrations"},
@@ -101,7 +103,7 @@ func TestParseModelProposalsDropsUncitedAndInvalidItems(t *testing.T) {
 	 {"type":"owned_by_magic","subject_kind":"schema","subject":"app","evidence":["E1"]},
 	 {"type":"append_only","subject_kind":"schema","subject":"app","evidence":["E1"]},
 	 {"type":"test_fixture","subject_kind":"schema","subject":"test_memory_*",
-	  "evidence":["E1"]}
+	  "evidence":["E1","E4"]}
 	]`
 	got, rejected, err := ParseModelProposals(raw, modelEvidence(), bindNow)
 	if err != nil {
@@ -117,15 +119,21 @@ func TestParseModelProposalsDropsUncitedAndInvalidItems(t *testing.T) {
 			t.Fatalf("rejection %d = %v, want %v", i, rejected[i], want)
 		}
 	}
+	// The cap counts grounded proposals: 30 schema facts, each citing its
+	// own schema's summary, keep only maxModelProposals.
 	var many []string
+	var schemas []EvidenceItem
 	for i := 0; i < 30; i++ {
-		many = append(many, fmt.Sprintf(`{"type":"append_only","subject_kind":"table",`+
-			`"subject":"app.t%d","evidence":["E1"]}`, i))
+		schemas = append(schemas, EvidenceItem{ID: fmt.Sprintf("E%d", i+1),
+			Kind: "catalog", Ref: fmt.Sprintf("schema:app_t%d", i), Detail: "1 tables"})
+		many = append(many, fmt.Sprintf(`{"type":"owned_by_app_migrations",`+
+			`"subject_kind":"schema","subject":"app_t%d","evidence":["E%d"]}`, i, i+1))
 	}
-	got, _, err = ParseModelProposals("["+strings.Join(many, ",")+"]", modelEvidence(),
+	got, rejected, err = ParseModelProposals("["+strings.Join(many, ",")+"]", schemas,
 		bindNow)
-	if err != nil || len(got) != maxModelProposals {
-		t.Fatalf("cap: %d proposals, %v", len(got), err)
+	if err != nil || len(got) != maxModelProposals || len(rejected) != 0 ||
+		got[maxModelProposals-1].Subject != fmt.Sprintf("app_t%d", maxModelProposals-1) {
+		t.Fatalf("cap: %d proposals, %d rejected, %v", len(got), len(rejected), err)
 	}
 }
 

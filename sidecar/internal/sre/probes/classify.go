@@ -11,6 +11,11 @@ import (
 // role for (MissingRoleError).
 const ReasonMissingRole = "missing_role"
 
+// ReasonHistoryNotRegistered is a history probe refused because the
+// process keeps history in the meta database and the probe's pool has no
+// registered history store (histstore.ErrNotRegistered).
+const ReasonHistoryNotRegistered = "history_not_registered"
+
 // pgReasons maps SQLSTATE codes to a typed status and a stable reason.
 var pgReasons = map[string]struct {
 	status Status

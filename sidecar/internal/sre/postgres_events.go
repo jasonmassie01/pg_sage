@@ -84,7 +84,8 @@ func (s *PostgresStore) Events(ctx context.Context, scope Scope, id UUID) ([]Eve
 
 // VerifyEvents recomputes every hash and link of the chain. A missing,
 // reordered or rewritten link is ErrChainBroken; so is an existing
-// investigation without events.
+// investigation without events, and an operator-refresh evidence row
+// that no evidence_refreshed event attests to (playbooks-06).
 func (s *PostgresStore) VerifyEvents(ctx context.Context, scope Scope, id UUID) error {
 	if _, err := s.Get(ctx, scope, id); err != nil {
 		return err
@@ -107,6 +108,14 @@ func (s *PostgresStore) VerifyEvents(ctx context.Context, scope Scope, id UUID) 
 	if total == 0 || bad > 0 {
 		return fmt.Errorf("%w: %d of %d links fail verification", ErrChainBroken,
 			bad, total)
+	}
+	unattested, err := s.unattestedRefreshes(ctx, scope, id)
+	if err != nil {
+		return storeErr(ctx, "verify refreshed evidence", err)
+	}
+	if unattested > 0 {
+		return fmt.Errorf("%w: %d refreshed evidence rows have no matching %s event",
+			ErrChainBroken, unattested, EventEvidenceRefreshed)
 	}
 	return nil
 }

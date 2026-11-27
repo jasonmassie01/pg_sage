@@ -1,0 +1,30 @@
+{
+  "provider": "cloud-sql",
+  "mechanism": "database_flag",
+  "target": "orders-prod:orders",
+  "project": "orders-prod",
+  "instance": "orders",
+  "parameter": "work_mem",
+  "value": "65536",
+  "pg_value": "64MB",
+  "unit": "kB",
+  "current_value": "4096",
+  "apply_method": "immediate",
+  "reboot_required": false,
+  "rollback": {
+    "value": "4096",
+    "reset": false,
+    "apply_method": "immediate",
+    "cli": "gcloud sql instances patch orders --project=orders-prod --database-flags='log_min_duration_statement=1000,work_mem=4096'"
+  },
+  "cli": "gcloud sql instances patch orders --project=orders-prod --database-flags='log_min_duration_statement=1000,work_mem=65536'",
+  "console_url": "https://console.cloud.google.com/sql/instances/orders/edit?project=orders-prod",
+  "notes": [
+    "Cloud SQL supports a subset of PostgreSQL settings as flags; gcloud rejects an unsupported one without changing the instance."
+  ],
+  "requires_approval": true,
+  "auto_apply": false,
+  "auto_apply_withheld": "pg_sage never applies provider parameter changes in this release: an operator runs the command (most need a reboot, an outage) and pg_sage verifies the running value afterwards",
+  "reason": "requires a restart",
+  "fingerprint": "v2:eaaf63865fd82ad5"
+}

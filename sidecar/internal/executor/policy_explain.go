@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
@@ -40,38 +41,89 @@ func (e *Executor) ExplainAction(
 	return decision
 }
 
+// cancelledExplainDecision fails a family closed when the caller is gone,
+// so a closed dashboard request reads nothing more from the database.
+func cancelledExplainDecision(contract ActionContract, err error) ActionPolicyDecision {
+	decision := noStandingPolicyDecision(contract)
+	decision.BlockedReason = string(policy.ReasonPolicyUnavailable)
+	decision.Detail = "policy explanation stopped: " + err.Error()
+	return decision
+}
+
 // ExplainFamilies reports the standing gate's verdict for each action
 // family (no concrete SQL) against one policy snapshot, recording nothing.
-// A nil executor, no gate, or a gate that cannot batch-explain fails closed.
+// It fails closed as ExplainActions does.
 func (e *Executor) ExplainFamilies(
 	ctx context.Context, contracts []ActionContract, isReplica bool,
 ) []ActionPolicyDecision {
-	out := make([]ActionPolicyDecision, len(contracts))
+	requests := make([]ExplainActionRequest, len(contracts))
+	for i, contract := range contracts {
+		requests[i].Contract = contract
+	}
+	return e.ExplainActions(ctx, requests, isReplica)
+}
+
+// ExplainActionRequest is one action to explain under Contract. A request
+// whose Finding has a RecommendedSQL is explained as the executor would
+// authorize that finding's statement (its targets, bindings and approval
+// rules); one without SQL is the contract's family readiness.
+type ExplainActionRequest struct {
+	Contract ActionContract
+	Finding  analyzer.Finding
+}
+
+// ExplainActions reports the standing gate's verdict for each request
+// against one policy snapshot (one ExplainBatch), recording nothing. A nil
+// executor, no gate, or a gate that cannot batch-explain fails closed; so
+// does a cancelled or expired ctx (policy_unavailable, nothing read).
+func (e *Executor) ExplainActions(
+	ctx context.Context, requests []ExplainActionRequest, isReplica bool,
+) []ActionPolicyDecision {
+	out := make([]ActionPolicyDecision, len(requests))
+	if err := ctx.Err(); err != nil {
+		for i, request := range requests {
+			out[i] = cancelledExplainDecision(request.Contract, err)
+		}
+		return out
+	}
 	var batch policy.BatchExplainer
 	ok := false
 	if e != nil {
 		batch, ok = e.StandingPolicyGate().(policy.BatchExplainer)
 	}
 	if !ok {
-		for i, contract := range contracts {
-			out[i] = noStandingPolicyDecision(contract)
+		for i, request := range requests {
+			out[i] = noStandingPolicyDecision(request.Contract)
 		}
 		return out
 	}
-	requests := make([]policy.ActionRequest, len(contracts))
-	for i, contract := range contracts {
-		requests[i] = policy.ActionRequest{
-			Contract: policyContract(contract), ExplainFamily: true,
-			Feature: changeClassForActionType(contract.ActionType), IsReplica: isReplica,
-		}
+	gateRequests := make([]policy.ActionRequest, len(requests))
+	for i, request := range requests {
+		gateRequests[i] = explainGateRequest(request, isReplica)
 	}
 	provider := e.policyProvider()
-	for i, decision := range batch.ExplainBatch(ctx, requests) {
+	for i, decision := range batch.ExplainBatch(ctx, gateRequests) {
 		out[i] = standingPolicyDecision(decision)
-		out[i].Guardrails = append([]string(nil), contracts[i].Guardrails...)
+		out[i].Guardrails = append([]string(nil), requests[i].Contract.Guardrails...)
 		out[i].Provider = provider
 	}
 	return out
+}
+
+// explainGateRequest builds the gate request for one explanation: the
+// family request without SQL, or the finding's request under the given
+// contract, its statement bound to the finding's object (executor-08).
+func explainGateRequest(request ExplainActionRequest, isReplica bool) policy.ActionRequest {
+	contract := policyContract(request.Contract)
+	if request.Finding.RecommendedSQL == "" {
+		return policy.ActionRequest{
+			Contract: contract, ExplainFamily: true, IsReplica: isReplica,
+			Feature: changeClassForActionType(request.Contract.ActionType),
+		}
+	}
+	gateRequest := contractFindingRequest(request.Finding, contract, isReplica)
+	bindFindingRequest(&gateRequest, request.Finding)
+	return gateRequest
 }
 
 // policyProvider is the provider the gate evaluates against: the configured

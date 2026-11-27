@@ -14,7 +14,7 @@ func TestRecord_AggregatesDuplicateQueryIDs(t *testing.T) {
 	defer pool.Close()
 	const qid = int64(505050505)
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.query_store WHERE queryid=$1", qid)
-	err := Record(ctx, pool, []Sample{
+	err := recordNow(ctx, pool, []Sample{
 		{QueryID: qid, Calls: 10, TotalExecMs: 100, MeanExecMs: 10, Rows: 1},
 		{QueryID: qid, Calls: 20, TotalExecMs: 300, MeanExecMs: 15, Rows: 2},
 	})
@@ -45,72 +45,58 @@ func TestRecord_AggregatesDuplicateQueryIDs(t *testing.T) {
 	}
 }
 
-// G1-B26: verification must distinguish "never sampled" (unknown) from
-// measured or insufficient evidence instead of collapsing all into ok=false.
-func TestWindowedLatencyEvidence_Statuses(t *testing.T) {
+// G1-B26: verification must distinguish "never sampled" (no intervals)
+// from measured, reset or idle evidence instead of collapsing them.
+func TestQueryIntervals_EvidenceStates(t *testing.T) {
 	pool, ctx := requireDB(t)
 	defer pool.Close()
 	const qid = int64(262626262)
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.query_store WHERE queryid=$1", qid)
-	from := time.Now().Add(-time.Hour)
+	from, to := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
 
-	ev, err := WindowedLatencyEvidence(ctx, pool, qid, from, time.Now().Add(time.Hour))
-	if err != nil {
-		t.Fatal(err)
+	if w := windowOf(t, ctx, pool, qid, from, to); w != (window{}) {
+		t.Fatalf("not sampled: window = %+v, want empty", w)
 	}
-	if ev.Status != EvidenceNotSampled {
-		t.Fatalf("status = %q, want %q", ev.Status, EvidenceNotSampled)
-	}
-
 	record := func(calls int64, total float64) {
 		t.Helper()
-		if err := Record(ctx, pool, []Sample{
+		if err := recordNow(ctx, pool, []Sample{
 			{QueryID: qid, Calls: calls, TotalExecMs: total}}); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	record(100, 1000)
-	ev, _ = WindowedLatencyEvidence(ctx, pool, qid, from, time.Now().Add(time.Hour))
-	if ev.Status != EvidenceInsufficientSamples {
-		t.Fatalf("one sample: status = %q, want %q", ev.Status, EvidenceInsufficientSamples)
+	if w := windowOf(t, ctx, pool, qid, from, to); w.intervals != 0 {
+		t.Fatalf("one sample: window = %+v, want no interval", w)
 	}
 	record(200, 4000)
-	ev, _ = WindowedLatencyEvidence(ctx, pool, qid, from, time.Now().Add(time.Hour))
-	if ev.Status != EvidenceMeasured || math.Abs(ev.LatencyMs-30) > 1e-9 {
-		t.Fatalf("measured evidence = %+v, want measured 30ms", ev)
+	w := windowOf(t, ctx, pool, qid, from, to)
+	if ms, ok := w.measured(); !ok || math.Abs(ms-30) > 1e-9 || w.intervals != 1 {
+		t.Fatalf("measured window = %+v (%.3f ms), want one interval at 30ms", w, ms)
 	}
 	record(5, 50)
-	ev, _ = WindowedLatencyEvidence(ctx, pool, qid, from, time.Now().Add(time.Hour))
-	if ev.Status != EvidenceCountersReset {
-		t.Fatalf("after reset: status = %q, want %q", ev.Status, EvidenceCountersReset)
+	if w := windowOf(t, ctx, pool, qid, from, to); !w.broken {
+		t.Fatalf("after reset: window = %+v, want broken", w)
 	}
 }
 
 // G1-B26: an idle query (sampled, but no new calls) is not a regression
-// signal and is reported distinctly from "not sampled".
-func TestWindowedLatencyEvidence_NoNewCalls(t *testing.T) {
+// signal: its interval has no calls and no latency.
+func TestQueryIntervals_NoNewCalls(t *testing.T) {
 	pool, ctx := requireDB(t)
 	defer pool.Close()
 	const qid = int64(262626263)
 	_, _ = pool.Exec(ctx, "DELETE FROM sage.query_store WHERE queryid=$1", qid)
 	from := time.Now().Add(-time.Minute)
 	for i := 0; i < 2; i++ {
-		if err := Record(ctx, pool, []Sample{
+		if err := recordNow(ctx, pool, []Sample{
 			{QueryID: qid, Calls: 50, TotalExecMs: 500}}); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	ev, err := WindowedLatencyEvidence(ctx, pool, qid, from, time.Now().Add(time.Minute))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ev.Status != EvidenceNoNewCalls {
-		t.Fatalf("status = %q, want %q", ev.Status, EvidenceNoNewCalls)
-	}
-	ms, ok, err := WindowedLatencyMsBetween(ctx, pool, qid, from, time.Now().Add(time.Minute))
-	if err != nil || ok || ms != 0 {
-		t.Fatalf("legacy wrapper = (%v, %v, %v), want (0, false, nil)", ms, ok, err)
+	w := windowOf(t, ctx, pool, qid, from, time.Now().Add(time.Minute))
+	if ms, ok := w.measured(); ok || ms != 0 || w.intervals != 1 || w.calls != 0 || w.broken {
+		t.Fatalf("idle window = %+v (%v, %v), want one interval without calls", w, ms, ok)
 	}
 }

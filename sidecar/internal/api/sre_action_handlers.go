@@ -17,12 +17,11 @@ import (
 // use); nothing here executes.
 
 func registerSREActionRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	viewerUp := RequireRole("admin", "operator", "viewer")
-	operatorUp := RequireRole("admin", "operator")
 	base := sreInvestigationsPath + "/{id}/proposals"
-	mux.Handle("GET "+base, viewerUp(proposalListHandler(mgr)))
-	mux.Handle("POST "+base, operatorUp(proposeHandler(mgr)))
-	mux.Handle("POST "+base+"/{pid}/request", operatorUp(requestExecutionHandler(mgr)))
+	route(mux, "GET "+base, gateViewer, proposalListHandler(mgr))
+	routeDB(mux, "POST "+base, gateOperator, pathDB, proposeHandler(mgr))
+	routeDB(mux, "POST "+base+"/{pid}/request", gateOperator, pathDB,
+		requestExecutionHandler(mgr))
 }
 
 // actionService resolves {db} to its action service.

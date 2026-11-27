@@ -1,5 +1,3 @@
-//go:build cgo
-
 package broker
 
 import (
@@ -70,7 +68,12 @@ func randomPrincipalID(t *testing.T) string {
 
 func livePool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := testdb.SkipUnlessLive(t)
+	return livePoolOn(t, testdb.SkipUnlessLive(t))
+}
+
+// livePoolOn is livePool on the database dsn names.
+func livePoolOn(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
 	require.NoError(t, err)
@@ -92,6 +95,18 @@ func ident(s string) string { return pgx.Identifier{s}.Sanitize() }
 func newFixture(t *testing.T, env envbind.Env, mutate ...func(*Config)) *fixture {
 	t.Helper()
 	return newFixtureOn(t, livePool(t), env, mutate...)
+}
+
+// newAttributionFixture is newFixture on a fresh database of the exclusive
+// server, held for t alone (testdb.Exclusive), for a test that judges the
+// attribution: pg_stat_statements evicts entries and counts the evictions
+// (dealloc) across the whole cluster, and on the shared server other suites
+// fill it, so an eviction anywhere turns the verdict to dealloc_advanced
+// (CI, PG16: want entries_missing).
+func newAttributionFixture(t *testing.T, env envbind.Env) *fixture {
+	t.Helper()
+	return newFixtureOn(t, livePoolOn(t, testdb.Exclusive(t,
+		"attribution reads pg_stat_statements' cluster-wide eviction count")), env)
 }
 
 // newFixtureOn builds the fixture on super, a bootstrapped superuser pool.
@@ -205,4 +220,17 @@ type auditRow struct {
 	verdict, reason, step, envelope, task string
 	rowCount                              int
 	classes                               []string
+}
+
+// cell is one result value, "<null>" for NULL.
+func cell(t *testing.T, r Result, row, col int) string {
+	t.Helper()
+	if row >= len(r.Rows) || col >= len(r.Rows[row]) {
+		t.Fatalf("no cell (%d,%d) in %+v", row, col, r.Rows)
+	}
+	v := r.Rows[row][col]
+	if v == nil {
+		return "<null>"
+	}
+	return *v
 }

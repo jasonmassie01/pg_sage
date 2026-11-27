@@ -100,6 +100,8 @@ type outcome struct {
 	rule string
 	n    int
 	note string
+	// truncated: the rule found more than it kept, or its read was cut.
+	truncated bool
 }
 
 // step reads one part of the catalog and evaluates its rules; when the
@@ -199,18 +201,23 @@ func (p *pass) run(ctx context.Context, st step) error {
 		return p.fail(ctx, st, err)
 	}
 	for _, o := range outcomes {
-		status := CheckOK
-		if o.n > 0 {
-			status = CheckFinding
-		}
-		note := o.note
-		if strings.HasPrefix(note, degradedPrefix) {
-			status, note = CheckDegraded, strings.TrimPrefix(note, degradedPrefix)
-		}
-		p.report.Checks = append(p.report.Checks, Check{Rule: o.rule, Section: st.section,
-			Status: status, Note: note})
+		p.report.Checks = append(p.report.Checks, checkFor(o, st.section))
 	}
 	return nil
+}
+
+// checkFor is the check an outcome of a step in section reports.
+func checkFor(o outcome, section string) Check {
+	status := CheckOK
+	if o.n > 0 {
+		status = CheckFinding
+	}
+	note := o.note
+	if strings.HasPrefix(note, degradedPrefix) {
+		status, note = CheckDegraded, strings.TrimPrefix(note, degradedPrefix)
+	}
+	return Check{Rule: o.rule, Section: section, Status: status, Note: note,
+		Truncated: o.truncated}
 }
 
 // degradedPrefix marks an outcome note as a degraded check.
@@ -280,8 +287,8 @@ func degradeReason(err error, timeoutMS int, setBy string) string {
 			}
 			return fmt.Sprintf("statement timeout (%s) reached: %s", limit, pgErr.Message)
 		case "42501":
-			return "permission denied: " + pgErr.Message + "; GRANT pg_monitor to the " +
-				"pg_sage role"
+			return "permission denied: " + pgErr.Message + "; to fix it, run " +
+				"GRANT pg_monitor TO <pg_sage role>;"
 		}
 	}
 	return err.Error()
@@ -310,7 +317,7 @@ func (p *pass) header(ctx context.Context) {
 func (p *pass) add(rule string, items []Item) outcome {
 	kept, dropped := capItems(items, p.opts.Thresholds.MaxItemsPerRule)
 	p.report.Items = append(p.report.Items, kept...)
-	o := outcome{rule: rule, n: len(kept)}
+	o := outcome{rule: rule, n: len(kept), truncated: dropped > 0}
 	if dropped > 0 {
 		o.note = fmt.Sprintf("%d more not shown", dropped)
 	}
@@ -342,7 +349,10 @@ func operatorLimit(settingMS int, source string) (int, string) {
 }
 
 // fixtureProposals are the idle test schemas the fact store should hear
-// about; the window must be known for "idle" to mean anything.
+// about; the window must be known for "idle" to mean anything. A read cut
+// at maxSchemaRows (in name order) may have left live schemas unread, and
+// in name order they follow the last one read: it counts as live, so no
+// family pattern that would also match the unread schemas is proposed.
 func fixtureProposals(ss []Schema, w StatsWindow, now time.Time) []facts.Proposal {
 	if !w.Known {
 		return nil
@@ -350,6 +360,9 @@ func fixtureProposals(ss []Schema, w StatsWindow, now time.Time) []facts.Proposa
 	acts := make([]facts.SchemaActivity, len(ss))
 	for i, s := range ss {
 		acts[i] = facts.SchemaActivity{Name: s.Name, Tables: s.Tables, Activity: s.Activity}
+	}
+	if len(acts) >= maxSchemaRows {
+		acts[len(acts)-1].Activity = max(acts[len(acts)-1].Activity, 1)
 	}
 	return facts.IdleFixtureProposals(acts, now.Sub(w.Since), now)
 }

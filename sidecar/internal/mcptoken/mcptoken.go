@@ -42,24 +42,30 @@ const (
 	KindOperator Kind = "operator"
 )
 
-// Scopes, in canonical order.
+// Scopes, in canonical order. ScopeMetrics authorizes a Prometheus scrape
+// of /metrics on the API listener and grants no MCP tool: it is a token's
+// only scope, on an operator token (observability-08).
 const (
 	ScopeRead    = "read"
 	ScopePropose = "propose"
 	ScopeApprove = "approve"
+	ScopeMetrics = "metrics"
 )
 
 var (
 	ErrInvalid         = errors.New("mcptoken: invalid token request")
 	ErrApproveForAgent = errors.New("mcptoken: approve scope is only for operator tokens")
 	ErrOwnerRequired   = errors.New(
-		"mcptoken: an operator token needs an operator or admin owner")
+		"mcptoken: an operator token needs an enabled operator or admin owner")
 	// ErrPrincipalRequired: from G1 an agent token is minted for an agent
 	// principal (POST /api/v1/agents/{id}/tokens), never on its own.
 	ErrPrincipalRequired = errors.New(
 		"mcptoken: an agent token is issued for an agent principal")
 	ErrNotFound     = errors.New("mcptoken: token not found")
 	ErrUnauthorized = errors.New("mcptoken: token invalid, expired or revoked")
+	// ErrScopeMissing: the token is valid but lacks the scope the caller
+	// needs (ValidateMetrics with a read token, say).
+	ErrScopeMissing = errors.New("mcptoken: token lacks the required scope")
 )
 
 // CreateRequest describes a token to issue.
@@ -74,25 +80,38 @@ type CreateRequest struct {
 	// for; required for agent tokens, refused on operator tokens.
 	PrincipalID string
 	CreatedBy   string
+	// Audit is who issued it; recorded as mcp_token_created (operator) or
+	// agent_token_minted (agent) in the insert's transaction.
+	Audit Audit
+}
+
+// Audit says who made a token change and from where (agentgov-05). The
+// sage.auth_audit row it becomes never carries the secret or its hash.
+type Audit struct {
+	ActorUserID int    // the signed-in admin; 0 when no user made it
+	SourceIP    string // the client address as the API resolved it
 }
 
 // Token is a stored token. Secret is set only in Create's return value.
 type Token struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Kind        Kind       `json:"kind"`
-	Scopes      []string   `json:"scopes"`
-	Databases   []string   `json:"databases"` // ["*"] when all
-	OwnerUserID *int       `json:"owner_user_id,omitempty"`
-	PrincipalID string     `json:"principal_id,omitempty"`
-	CreatedBy   string     `json:"created_by"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
-	RevokedBy   string     `json:"revoked_by,omitempty"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
-	Prefix      string     `json:"prefix"`
-	Secret      string     `json:"token,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Kind        Kind     `json:"kind"`
+	Scopes      []string `json:"scopes"`
+	Databases   []string `json:"databases"` // ["*"] when all
+	OwnerUserID *int     `json:"owner_user_id,omitempty"`
+	PrincipalID string   `json:"principal_id,omitempty"`
+	// PrincipalStatus is the agent principal's status (active, frozen,
+	// retired); set only by List, and only on agent tokens.
+	PrincipalStatus string     `json:"principal_status,omitempty"`
+	CreatedBy       string     `json:"created_by"`
+	CreatedAt       time.Time  `json:"created_at"`
+	ExpiresAt       time.Time  `json:"expires_at"`
+	RevokedAt       *time.Time `json:"revoked_at,omitempty"`
+	RevokedBy       string     `json:"revoked_by,omitempty"`
+	LastUsedAt      *time.Time `json:"last_used_at,omitempty"`
+	Prefix          string     `json:"prefix"`
+	Secret          string     `json:"token,omitempty"`
 }
 
 // Grant is what a validated token may do right now.
@@ -151,9 +170,12 @@ func isBase64URL(c rune) bool {
 func roleScopes(role string) map[string]bool {
 	switch role {
 	case "admin", "operator":
-		return map[string]bool{ScopeRead: true, ScopePropose: true, ScopeApprove: true}
+		return map[string]bool{ScopeRead: true, ScopePropose: true, ScopeApprove: true,
+			ScopeMetrics: true}
 	case "viewer":
-		return map[string]bool{ScopeRead: true}
+		// metrics is read-level: a viewer already sees these values in
+		// the dashboard.
+		return map[string]bool{ScopeRead: true, ScopeMetrics: true}
 	default:
 		return nil
 	}

@@ -52,6 +52,9 @@ func (d *Dispatcher) broadcastTo(ctx context.Context, id int, event Event) bool 
 		d.logFn("ERROR", "broadcast %s: loading channel %d: %v", event.Type, id, err)
 		return false
 	}
+	if IsTicketIntegration(ch.Type) {
+		return false
+	}
 	sender, ok := d.senders[ch.Type]
 	if !ok {
 		msg := fmt.Sprintf("no sender for type %q", ch.Type)
@@ -95,4 +98,11 @@ func (s *PoolStore) EnabledChannelIDs(ctx context.Context) ([]int, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// IsTicketIntegration reports whether a channel type is a ticket system
+// that cases link to (market-14: jira), stored with the channels for its
+// sealed credentials but never an alert destination.
+func IsTicketIntegration(channelType string) bool {
+	return channelType == "jira"
 }

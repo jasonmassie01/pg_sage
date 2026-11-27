@@ -14,7 +14,7 @@ import (
 func TestOrchestratorEmptyWorkloadIsInconclusive(t *testing.T) {
 	provider := freshProvider()
 	runner := &fakeRunner{measurement: Measurement{
-		MaxLockDuration: 20 * time.Millisecond, DiskDeltaBytes: 4096,
+		MaxStepDuration: 20 * time.Millisecond, DiskDeltaBytes: 4096,
 	}}
 	result, err := NewOrchestrator(provider, runner, testOptions()).Rehearse(
 		context.Background(), rehearsalPlan())

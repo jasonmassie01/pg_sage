@@ -246,8 +246,7 @@ func structuralInvariants(tables map[uint32]structuralTable) []schemaguard.Invar
 		for _, column := range t.tightening {
 			result = append(result, schemaguard.Invariant{
 				Kind: schemaguard.InvariantTypeTightening, Schema: t.schema, Table: t.name,
-				Subject:     column,
-				ProposedSQL: typeTighteningProposal(t.schema, t.name, column),
+				Subject: column,
 			})
 		}
 	}

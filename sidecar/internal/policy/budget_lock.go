@@ -1,6 +1,9 @@
 package policy
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // authorizeSerialized evaluates and records a budget-spending request
 // inside the cross-process budget lock (GateConfig.Serialize): the usage
@@ -22,9 +25,9 @@ func (gate *authorizationGate) authorizeSerialized(
 		}
 		return decision
 	}
-	if err := done(true); err != nil {
-		return decisionForRequest(req, blocked(ReasonPolicyUnavailable,
-			"budget lock: commit the recorded decision: "+err.Error()))
+	if err := done(true); err != nil { // the recorded row is lost with the commit
+		return gate.recordFailure(ctx, req, decision,
+			fmt.Errorf("budget lock: commit the recorded decision: %w", err))
 	}
 	return decision
 }

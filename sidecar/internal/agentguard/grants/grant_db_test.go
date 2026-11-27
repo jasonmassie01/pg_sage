@@ -230,7 +230,8 @@ func TestGrant_PrincipalStateGates(t *testing.T) {
 	_, err = f.manager.Grant(ctx, req)
 	require.NoError(t, err, "dev target within a dev ceiling")
 
-	_, err = f.store.SetStatus(ctx, f.p.ID, agentguard.StatusFrozen, "test")
+	_, err = f.store.SetStatus(ctx, f.p.ID, agentguard.StatusFrozen,
+		agentguard.Audit{Reason: "test"})
 	require.NoError(t, err)
 	_, err = f.manager.Grant(ctx, f.request("id"))
 	denied(t, err, agentguard.ReasonFrozen)

@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS sage.audit_chain_link (
     chain       text        NOT NULL,
     seq         bigint      NOT NULL,
     row_id      bigint      NOT NULL,
-    op          text        NOT NULL CHECK (op IN ('I','U','D','T')),
+    op          text        NOT NULL CONSTRAINT audit_chain_link_op_check
+                            CHECK (op IN ('I','U','D','T','C','P')),
     v           integer     NOT NULL,
     sealed_hash text        NOT NULL,
     state       text        NOT NULL,
@@ -30,6 +31,8 @@ CREATE INDEX IF NOT EXISTS audit_chain_link_row
     ON sage.audit_chain_link (chain, row_id, seq);
 CREATE INDEX IF NOT EXISTS audit_chain_link_truncate
     ON sage.audit_chain_link (chain, seq) WHERE op = 'T';
+CREATE INDEX IF NOT EXISTS audit_chain_link_marker
+    ON sage.audit_chain_link (chain, seq) WHERE op IN ('C','P');
 CREATE TABLE IF NOT EXISTS sage.audit_chain_meta (
     chain         text        PRIMARY KEY,
     table_name    text        NOT NULL,
@@ -41,12 +44,26 @@ CREATE TABLE IF NOT EXISTS sage.audit_chain_meta (
 // ddlAppend appends one link at commit. The advisory lock orders writers;
 // the head probe reads the last committed link (READ COMMITTED takes a new
 // snapshot per statement), and the primary key refuses a fork outright.
+// Under REPEATABLE READ or SERIALIZABLE the probe would read the
+// transaction's snapshot and two writers would take one seq, so such a
+// transaction is refused with a named error before the lock (audit-02):
+// the trigger runs at commit, too late for SET LOCAL to change the level.
 var ddlAppend = fmt.Sprintf(`
 CREATE OR REPLACE FUNCTION sage.audit_chain_append(
     p_chain text, p_row bigint, p_op text, p_v integer, p_sealed text, p_state text,
     OUT o_seq bigint, OUT o_prev text, OUT o_hash text)
 LANGUAGE plpgsql AS $fn$
 BEGIN
+    IF current_setting('transaction_isolation') NOT IN
+        ('read committed', 'read uncommitted') THEN
+        RAISE EXCEPTION 'pg_sage audit chain %%: transaction_isolation is %%, '
+            'and a chained write needs read committed', p_chain,
+            current_setting('transaction_isolation')
+            USING ERRCODE = '55000',
+            HINT = 'Write the audited table in a read committed transaction, and '
+                'set default_transaction_isolation = ''read committed'' for the '
+                'writing role (ALTER ROLE ... IN DATABASE ... SET).';
+    END IF;
     PERFORM pg_advisory_xact_lock(%d, hashtext(p_chain));
     /* pg_sage audit_chain v1 */
     SELECT l.seq, l.hash INTO o_seq, o_prev FROM sage.audit_chain_link l

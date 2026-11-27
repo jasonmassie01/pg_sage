@@ -65,8 +65,8 @@ function BudgetLine({ b }) {
   return (
     <div data-testid="tuning-budget" style={muted}>
       Last cycle: {b.tokens_used} of {b.token_limit} tokens, {b.requests_used} of{' '}
-      {b.request_limit} requests, {b.cases_asked} cases examined, {b.cases_deferred}{' '}
-      deferred to later cycles (their open findings stay open).
+      {b.request_limit} requests, {b.cases_asked} issues examined, {b.cases_deferred}{' '}
+      deferred to later cycles (their open issues stay open).
       {b.day_token_limit > 0 && (
         <> Today (UTC): {b.day_tokens_used} of {b.day_token_limit} tokens.</>
       )}
@@ -108,7 +108,7 @@ export function TuningCalibration({ database }) {
       )}
       {one && !state.loading && !state.error && classes.length === 0 && (
         <div data-testid="tuning-calibration-empty" style={muted}>
-          No decided outcomes yet: every tuning proposal is uncalibrated and shows no
+          No decided outcomes yet: every tuning change is uncalibrated and shows no
           confidence.
         </div>
       )}
@@ -116,10 +116,10 @@ export function TuningCalibration({ database }) {
         <table className="w-full text-left">
           <thead>
             <tr style={muted}>
-              <th className="pr-3 font-normal">action</th>
-              <th className="pr-3 font-normal">prediction</th>
-              <th className="pr-3 font-normal">outcomes</th>
-              <th className="font-normal">by predicted improvement</th>
+              <th scope="col" className="pr-3 font-normal">action</th>
+              <th scope="col" className="pr-3 font-normal">prediction</th>
+              <th scope="col" className="pr-3 font-normal">outcomes</th>
+              <th scope="col" className="font-normal">by predicted improvement</th>
             </tr>
           </thead>
           <tbody>

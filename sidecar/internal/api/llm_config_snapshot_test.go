@@ -22,9 +22,9 @@ func TestModelHandlersFollowActiveConfig(t *testing.T) {
 			defer server.Close()
 			base := config.DefaultConfig()
 			controller := config.NewConfigController(base, nil, llm.New(&base.LLM, nil))
-			handler := listModelsHandler(&base.LLM, controller)
+			handler := listModelsHandler(controller)
 			if method == http.MethodPost {
-				handler = discoverModelsHandler(&base.LLM, controller)
+				handler = discoverModelsHandler(controller)
 			}
 			changed := config.Clone(base)
 			changed.LLM.Enabled, changed.LLM.Endpoint = true, server.URL
@@ -55,17 +55,21 @@ func TestModelHandlersDoNotUsePendingRestartConfig(t *testing.T) {
 	if len(controller.PendingRestart()) == 0 {
 		t.Fatal("expected unregistered LLM owner to require restart")
 	}
-	response := callModelSnapshotHandler(http.MethodGet, listModelsHandler(&base.LLM, controller))
+	response := callModelSnapshotHandler(http.MethodGet, listModelsHandler(controller))
 	if response.Code != 503 || !strings.Contains(response.Body.String(), "not configured") {
 		t.Fatalf("pending settings leaked into active API: %d %s", response.Code, response.Body)
 	}
 }
 
-func TestModelHandlerNilConfiguration(t *testing.T) {
-	for _, handler := range []http.HandlerFunc{listModelsHandler(nil), discoverModelsHandler(nil)} {
+func TestModelHandlerUnconfiguredLLM(t *testing.T) {
+	empty := llmController(&config.LLMConfig{})
+	handlers := []http.HandlerFunc{
+		listModelsHandler(empty), discoverModelsHandler(empty),
+	}
+	for _, handler := range handlers {
 		response := callModelSnapshotHandler(http.MethodPost, handler)
 		if response.Code != 503 || !strings.Contains(response.Body.String(), "not configured") {
-			t.Fatalf("nil config should be actionable: %d %s", response.Code, response.Body)
+			t.Fatalf("unconfigured LLM should be actionable: %d %s", response.Code, response.Body)
 		}
 	}
 }
@@ -80,7 +84,7 @@ func TestModelConfigConcurrentPublication(t *testing.T) {
 		go func() {
 			defer readers.Done()
 			for range 100 {
-				current := activeLLMConfig(nil, []*config.ConfigController{controller})
+				current := activeLLMConfig(controller)
 				if current.Model != "initial-model" && current.Model != "changed-model" {
 					t.Errorf("partial model snapshot: %q", current.Model)
 				}
@@ -94,7 +98,7 @@ func TestModelConfigConcurrentPublication(t *testing.T) {
 		applyModelSnapshot(t, controller, base)
 	}
 	readers.Wait()
-	if got := activeLLMConfig(nil, []*config.ConfigController{controller}).Model; got != base.LLM.Model {
+	if got := activeLLMConfig(controller).Model; got != base.LLM.Model {
 		t.Fatalf("final model = %q, want %q", got, base.LLM.Model)
 	}
 }

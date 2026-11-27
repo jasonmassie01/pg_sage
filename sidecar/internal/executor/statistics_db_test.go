@@ -13,6 +13,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -43,7 +44,11 @@ func newStatsFixture(t *testing.T) *statsFixture {
 	fx.sql = fmt.Sprintf("CREATE STATISTICS public.%s (dependencies, ndistinct) "+
 		"ON a, b FROM public.%s", fx.name, table)
 	fx.query = fmt.Sprintf("SELECT * FROM public.%s WHERE a = 1 AND b = 1", table)
-	for _, sql := range []string{"INSERT INTO public." + table +
+	// No autoanalyze: one that lands after the plans are captured moves the
+	// statistics build time past them, and the verdict finds no plans after
+	// it (the insert's counts can reach the stats system after the ANALYZE).
+	for _, sql := range []string{"ALTER TABLE public." + table +
+		" SET (autovacuum_enabled = off)", "INSERT INTO public." + table +
 		" SELECT i % 100, i % 100 FROM generate_series(1, 20000) i",
 		"ANALYZE public." + table} {
 		fx.mustExec(t, sql)
@@ -251,7 +256,9 @@ func TestStatisticsVerdictFromTheActionsOwnAnalyze(t *testing.T) {
 	waitBuiltSinceAction(t, fx.ctx, fx.pool, plan)
 	fx.capturePlans(t, postAnalyzeCaptureTime(t, fx.ctx, fx.pool))
 	evidence := map[string]any{}
-	j := plan.judgeEstimates(fx.ctx, fx.pool, time.Now().Add(time.Second), evidence)
+	// The monitor judges at the database clock (executor-31), as here.
+	j := plan.judgeEstimates(fx.ctx, fx.pool, testdb.MustDBNow(t, fx.pool).Add(time.Second),
+		evidence)
 	if j.Verdict != verify.OutcomeImproved {
 		t.Fatalf("estimates = %s (%s), want improved from the in-action ANALYZE",
 			j.Verdict, j.Reason)
@@ -278,26 +285,15 @@ func waitBuiltSinceAction(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		plan.r2.StatisticsTable)
 }
 
-// postAnalyzeCaptureTime puts the synthetic plans after PostgreSQL's ANALYZE
-// timestamp, even when the database VM clock is slightly ahead of the host.
-// The monitor's upper bound uses the host clock, so wait for the final seeded
-// timestamp to be observable there before starting its first judgement.
+// postAnalyzeCaptureTime stamps the synthetic plans on the database clock,
+// after PostgreSQL's ANALYZE timestamp. The monitor bounds its window by
+// the same clock (executor-31), so a database clock ahead of the host's
+// needs no wait.
 func postAnalyzeCaptureTime(t *testing.T, ctx context.Context, pool *pgxpool.Pool) time.Time {
 	t.Helper()
-	var at time.Time
-	if err := pool.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&at); err != nil {
+	at, err := testdb.DBNow(ctx, pool)
+	if err != nil {
 		t.Fatalf("read database capture clock: %v", err)
-	}
-	wait := time.Until(at.Add(2 * time.Millisecond))
-	if wait > time.Second {
-		t.Fatalf("database capture clock is too far ahead of host: %s", wait)
-	}
-	timer := time.NewTimer(max(wait, 0))
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-	case <-ctx.Done():
-		t.Fatalf("wait for capture timestamp: %v", ctx.Err())
 	}
 	return at
 }

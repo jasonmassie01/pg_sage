@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/auth"
 )
 
 // Store persists principals and taint in the control database.
@@ -49,8 +49,6 @@ const (
 	sqlFKViol     = "23503"
 )
 
-var profilePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,99}$`)
-
 // CreateRequest describes a new principal.
 type CreateRequest struct {
 	Name          string
@@ -59,6 +57,7 @@ type CreateRequest struct {
 	Profile       string
 	EnvCeiling    Env // "" = dev, the table default
 	CreatedBy     string
+	Audit         Audit // recorded as agent_created
 }
 
 func (r CreateRequest) normalize() (CreateRequest, error) {
@@ -70,12 +69,15 @@ func (r CreateRequest) normalize() (CreateRequest, error) {
 		return r, invalid("name %q must match ^[a-z][a-z0-9-]{1,62}$", r.Name)
 	case r.SponsorUserID != nil && *r.SponsorUserID <= 0:
 		return r, invalid("sponsor_user_id must be a positive user id")
-	case !profilePattern.MatchString(r.Profile):
-		return r, invalid("profile %q must be a profile name", r.Profile)
+	case !KnownProfile(r.Profile):
+		return r, unknownProfile(r.Profile)
 	case !r.EnvCeiling.Valid():
 		return r, invalid("env_ceiling %q must be branch, dev, stage or prod", r.EnvCeiling)
 	}
 	if err := checkText("tenant", r.Tenant, 0, maxTenantLen); err != nil {
+		return r, err
+	}
+	if err := r.Audit.validate(auth.AuditAgentCreated); err != nil {
 		return r, err
 	}
 	return r, checkText("created_by", r.CreatedBy, 1, maxActorLen)
@@ -94,10 +96,12 @@ func checkText(field, value string, min, max int) error {
 	return nil
 }
 
-// principalColumns reads a principal with its sponsor and taint state.
+// principalColumns reads a principal with its sponsor and taint state. A
+// sponsor is active while an enabled operator or admin (agentgov-05): a
+// demoted or deactivated sponsor leaves the principal unsponsored.
 const principalColumns = `p.id, p.name, p.sponsor_user_id, p.tenant, p.profile,
 	p.env_ceiling, p.status, p.frozen_reason, p.created_by, p.created_at, p.updated_at,
-	(u.id IS NOT NULL),
+	(u.id IS NOT NULL AND u.role IN ('operator', 'admin') AND u.disabled_at IS NULL),
 	EXISTS (SELECT 1 FROM sage.guard_taint t
 	        WHERE t.principal_id = p.id AND t.cleared_at IS NULL)`
 
@@ -114,7 +118,8 @@ func scanPrincipal(row pgx.Row) (Principal, error) {
 	return p, err
 }
 
-// Create inserts a principal with a fresh id.
+// Create inserts a principal with a fresh id and its agent_created event,
+// in one transaction. The sponsor must be an enabled operator or admin.
 func (s *Store) Create(ctx context.Context, req CreateRequest) (Principal, error) {
 	req, err := req.normalize()
 	if err != nil {
@@ -127,16 +132,34 @@ func (s *Store) Create(ctx context.Context, req CreateRequest) (Principal, error
 	if err != nil {
 		return Principal{}, err
 	}
-	_, err = s.pool.Exec(ctx, `/* pg_sage guard_principal_create v1 */
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		return createInTx(ctx, tx, id, req)
+	})
+	if err != nil {
+		return Principal{}, err
+	}
+	return s.Get(ctx, id)
+}
+
+func createInTx(ctx context.Context, tx pgx.Tx, id string, req CreateRequest) error {
+	if req.SponsorUserID != nil {
+		if err := checkSponsor(ctx, tx, *req.SponsorUserID); err != nil {
+			return err
+		}
+	}
+	_, err := tx.Exec(ctx, `/* pg_sage guard_principal_create v1 */
 		INSERT INTO sage.guard_principals (id, name, sponsor_user_id, tenant, profile,
 			env_ceiling, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		id, req.Name, req.SponsorUserID, req.Tenant, req.Profile, string(req.EnvCeiling),
 		req.CreatedBy)
 	if err != nil {
-		return Principal{}, mapWriteError(err, "creating principal "+req.Name)
+		return mapWriteError(err, "creating principal "+req.Name)
 	}
-	return s.Get(ctx, id)
+	return record(ctx, tx, req.Audit, auth.AuditAgentCreated, req.SponsorUserID,
+		map[string]any{"principal_id": id, "name": req.Name, "tenant": req.Tenant,
+			"after": shape{SponsorUserID: req.SponsorUserID, Profile: req.Profile,
+				EnvCeiling: string(req.EnvCeiling)}})
 }
 
 // mapWriteError turns constraint violations into the store's errors.

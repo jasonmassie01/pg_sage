@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/notify"
 )
 
 const pdEventsURL = "https://events.pagerduty.com/v2/enqueue"
@@ -18,14 +20,17 @@ type PagerDutyChannel struct {
 	logFn      func(string, string, ...any)
 }
 
-// NewPagerDuty creates a PagerDutyChannel.
+// NewPagerDuty creates a PagerDutyChannel. The fixed Events API endpoint
+// goes through client too, so proxy and redirect handling match the other
+// channels; nil applies the strict target policy (alerting-11).
 func NewPagerDuty(
 	routingKey string,
+	client *http.Client,
 	logFn func(string, string, ...any),
 ) *PagerDutyChannel {
 	return &PagerDutyChannel{
 		routingKey: routingKey,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		client:     policyClient(client),
 		logFn:      logFn,
 	}
 }
@@ -52,6 +57,20 @@ func (p *PagerDutyChannel) doPost(
 	return postJSON(ctx, p.client, "pagerduty", pdEventsURL, payload, nil)
 }
 
+// pagerDutyDedupKey is <database>:<category>:<object> for a named database
+// and <category>:<object> otherwise, bounded to the Events API limit.
+// Identical schemas in a fleet that share a routing key would otherwise
+// merge into one incident, and one database's resolve would close another
+// database's page (alerting-02). Trigger and resolve use the same key.
+func pagerDutyDedupKey(alert Alert) string {
+	first := alert.Findings[0]
+	key := FormatDedupKey(first.Category, first.ObjectIdentifier)
+	if alert.Database != "" {
+		key = alert.Database + ":" + key
+	}
+	return notify.BoundPagerDutyDedupKey(key)
+}
+
 func (p *PagerDutyChannel) buildPayload(
 	alert Alert,
 ) ([]byte, error) {
@@ -59,10 +78,7 @@ func (p *PagerDutyChannel) buildPayload(
 		return nil, fmt.Errorf("no findings in alert")
 	}
 
-	first := alert.Findings[0]
-	dedupKey := FormatDedupKey(
-		first.Category, first.ObjectIdentifier,
-	)
+	dedupKey := pagerDutyDedupKey(alert)
 
 	titles := make([]string, 0, len(alert.Findings))
 	for _, f := range alert.Findings {

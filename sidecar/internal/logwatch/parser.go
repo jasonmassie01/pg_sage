@@ -22,8 +22,10 @@ type jsonLogRaw struct {
 	Message     string `json:"message"`
 	Detail      string `json:"detail"`
 	Hint        string `json:"hint"`
+	Context     string `json:"context"`
 	Statement   string `json:"statement"`
 	Application string `json:"application_name"`
+	BackendType string `json:"backend_type"`
 }
 
 // Keywords that make a LOG-severity line worth parsing.
@@ -36,6 +38,7 @@ var logKeywords = []string{
 	"replication slot",
 	"vacuum",
 	"terminated by signal",
+	"invalidating", // PG14-15 slot invalidation omits "replication slot"
 	"duration:",
 }
 
@@ -67,8 +70,10 @@ func ParseJSONLogLine(line []byte) (LogEntry, error) {
 		Message:     raw.Message,
 		Detail:      raw.Detail,
 		Hint:        raw.Hint,
+		Context:     raw.Context,
 		Query:       raw.Statement,
 		Application: raw.Application,
+		BackendType: raw.BackendType,
 	}, nil
 }
 
@@ -89,8 +94,10 @@ const (
 	csvColMessage     = 13
 	csvColDetail      = 14
 	csvColHint        = 15
+	csvColContext     = 18
 	csvColQuery       = 19
 	csvColApplication = 22
+	csvColBackendType = 23 // PG13+
 )
 
 // ParseCSVLogLine parses a pre-split CSV record from pg_csvlog.
@@ -115,6 +122,10 @@ func ParseCSVLogLine(record []string) (LogEntry, error) {
 		)
 	}
 
+	backendType := ""
+	if len(record) > csvColBackendType {
+		backendType = record[csvColBackendType]
+	}
 	return LogEntry{
 		Timestamp:   ts,
 		PID:         pid,
@@ -126,8 +137,10 @@ func ParseCSVLogLine(record []string) (LogEntry, error) {
 		Message:     record[csvColMessage],
 		Detail:      record[csvColDetail],
 		Hint:        record[csvColHint],
+		Context:     record[csvColContext],
 		Query:       record[csvColQuery],
 		Application: record[csvColApplication],
+		BackendType: backendType,
 	}, nil
 }
 

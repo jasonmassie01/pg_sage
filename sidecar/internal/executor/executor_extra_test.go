@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -14,14 +13,8 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
-
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 var (
 	testPool     *pgxpool.Pool
@@ -37,8 +30,8 @@ const destructiveTestLockKey = "pg_sage_test_cross_pkg"
 func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 
+	dsn := testdb.SkipUnlessLive(t)
 	testPoolOnce.Do(func() {
-		dsn := testDSN()
 
 		ctx, cancel := context.WithTimeout(
 			context.Background(), 45*time.Second,
@@ -76,26 +69,17 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPool = nil
 			return
 		}
-		defer releaseLock()
-
-		// Bootstrap sage schema and tables.
-		if err := schema.Bootstrap(ctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("bootstrap: %w", err)
+		// The lock's connection must go back before Close, which waits
+		// for every acquired connection: closing first hangs the package.
+		if err := bootstrapTestSchema(ctx, testPool); err != nil {
+			releaseLock()
+			testPoolErr = err
 			testPool.Close()
 			testPool = nil
 			return
 		}
-
-		// Run config migration so database_id column and composite
-		// unique index exist (required by SetEmergencyStop's ON CONFLICT).
-		if err := schema.MigrateConfigSchema(ctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("config migration: %w", err)
-			testPool.Close()
-			testPool = nil
-			return
-		}
-
 		releasePoolAdvisoryLocks(ctx, testPool)
+		releaseLock()
 	})
 
 	if testPoolErr != nil {
@@ -123,6 +107,19 @@ func serializeAcrossPackages(
 		t.Fatalf("acquire cross-package test lock: %v", err)
 	}
 	t.Cleanup(releaseLock)
+}
+
+// bootstrapTestSchema bootstraps the sage schema and runs the config
+// migration, so the database_id column and the composite unique index
+// exist (SetEmergencyStop's ON CONFLICT needs them).
+func bootstrapTestSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	if err := schema.Bootstrap(ctx, pool); err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
+		return fmt.Errorf("config migration: %w", err)
+	}
+	return nil
 }
 
 func lockCrossPackage(
@@ -261,34 +258,34 @@ func TestNonReversibleActionsSkipRollback(t *testing.T) {
 	// Verify the preconditions that cause RunCycle to skip rollback
 	// monitoring for non-reversible actions (VACUUM, ANALYZE, terminate).
 	tests := []struct {
-		name           string
-		sql            string
-		wantCategory   string
-		wantConcurrent bool
+		name         string
+		sql          string
+		wantCategory string
+		wantTopLevel bool
 	}{
 		{
-			name:           "VACUUM has empty rollback and no concurrently",
-			sql:            "VACUUM t",
-			wantCategory:   "vacuum",
-			wantConcurrent: false,
+			name:         "VACUUM has empty rollback and runs top-level",
+			sql:          "VACUUM t",
+			wantCategory: "vacuum",
+			wantTopLevel: true,
 		},
 		{
-			name:           "ANALYZE has empty rollback and no concurrently",
-			sql:            "ANALYZE t",
-			wantCategory:   "analyze",
-			wantConcurrent: false,
+			name:         "ANALYZE has empty rollback and runs in a transaction",
+			sql:          "ANALYZE t",
+			wantCategory: "analyze",
+			wantTopLevel: false,
 		},
 		{
-			name:           "pg_terminate_backend has empty rollback",
-			sql:            "SELECT pg_terminate_backend(12345)",
-			wantCategory:   "terminate_backend",
-			wantConcurrent: false,
+			name:         "pg_terminate_backend has empty rollback",
+			sql:          "SELECT pg_terminate_backend(12345)",
+			wantCategory: "terminate_backend",
+			wantTopLevel: false,
 		},
 		{
-			name:           "VACUUM FULL also non-reversible",
-			sql:            "VACUUM FULL public.large_table",
-			wantCategory:   "vacuum",
-			wantConcurrent: false,
+			name:         "VACUUM FULL also non-reversible, uncontracted, in a transaction",
+			sql:          "VACUUM FULL public.large_table",
+			wantCategory: "vacuum",
+			wantTopLevel: false,
 		},
 	}
 
@@ -309,10 +306,10 @@ func TestNonReversibleActionsSkipRollback(t *testing.T) {
 					tc.sql, gotCat, tc.wantCategory)
 			}
 
-			gotConc := NeedsConcurrently(f.RecommendedSQL)
-			if gotConc != tc.wantConcurrent {
-				t.Errorf("NeedsConcurrently(%q) = %v, want %v",
-					tc.sql, gotConc, tc.wantConcurrent)
+			gotTop := statementRunsTopLevel(f.RecommendedSQL)
+			if gotTop != tc.wantTopLevel {
+				t.Errorf("statementRunsTopLevel(%q) = %v, want %v",
+					tc.sql, gotTop, tc.wantTopLevel)
 			}
 		})
 	}
@@ -439,12 +436,12 @@ func TestActionOrdering_CreateBeforeDrop(t *testing.T) {
 			secondCat, "drop_index")
 	}
 
-	// Both should need CONCURRENTLY
-	if !NeedsConcurrently(stmts[0]) {
-		t.Error("CREATE statement should need CONCURRENTLY")
+	// Both run top-level (CONCURRENTLY index actions)
+	if !statementRunsTopLevel(stmts[0]) {
+		t.Error("CREATE statement should run top-level")
 	}
-	if !NeedsConcurrently(stmts[1]) {
-		t.Error("DROP statement should need CONCURRENTLY")
+	if !statementRunsTopLevel(stmts[1]) {
+		t.Error("DROP statement should run top-level")
 	}
 }
 

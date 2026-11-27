@@ -1,17 +1,23 @@
 package tuning
 
 import (
+	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
-// systemPrompt is the tuning agent's instructions. Everything about the
-// database arrives in the user message's data block and from the tools.
-var systemPrompt = strings.Join([]string{
+// promptRulesHead and promptRulesTail are the tuning agent's instructions
+// around rule 8, which cites this database's work_mem cap (workMemRule).
+// Everything about the database arrives in the user message's data block
+// and from the tools.
+var promptRulesHead = []string{
 	"You are pg_sage's PostgreSQL tuning agent. You examine one workload case " +
 		"at a time (a top statement, a regression, or write amplification) and " +
 		"propose typed changes that fix it, or none.",
+	//qualifiedrefs:prose prompt rule for the model, not SQL
 	"Use the read-only tools to look before you propose: statement, table, explain, " +
 		"whatif_index (HypoPG), write_cost, extended_stats, and rehearse when it is " +
 		"offered. Every tool result has an evidence ID (R1, R2, ...).",
@@ -34,11 +40,11 @@ var systemPrompt = strings.Join([]string{
 		"keys) becomes a replacement: pg_sage builds it and drops the old one in one " +
 		"approved action, so say which index it replaces in the rationale.",
 	"7. An index costs every insert and non-HOT update; check write_cost on " +
-		"write-heavy tables. Drop only indexes that are never used or covered by " +
-		"another index, never unique or primary keys.",
-	"8. work_mem applies per sort or hash node per connection: keep max_connections " +
-		"x work_mem x hash_mem_multiplier within memory, and never above 256MB " +
-		"without saying why. Never set an autovacuum scale factor to 0.",
+		"write-heavy tables. Drop only an index another valid index covers, never " +
+		"unique or primary keys; never-scanned indexes are left to the unused-index rule.",
+}
+
+var promptRulesTail = []string{
 	"9. Hints use pg_hint_plan syntax for one statement, table-scoped (IndexScan, " +
 		"BitmapScan, NoSeqScan, HashJoin, ...). Do not use Set(enable_seqscan off) " +
 		"or other planner toggles.",
@@ -46,7 +52,30 @@ var systemPrompt = strings.Join([]string{
 		"dependencies or mcv, when correlated columns are misestimated.",
 	"11. If nothing is warranted, answer {\"proposals\":[]} with a note.",
 	llm.UntrustedDataRule,
-}, "\n")
+}
+
+// systemPrompt is the agent's instructions for this database.
+func (a *Agent) systemPrompt() string {
+	rules := make([]string, 0, len(promptRulesHead)+1+len(promptRulesTail))
+	rules = append(rules, promptRulesHead...)
+	rules = append(rules, workMemRule(a.settings.WorkMemMaxMB, a.settings.hostMemory()))
+	return strings.Join(append(rules, promptRulesTail...), "\n")
+}
+
+// workMemRule is rule 8: the cap it cites is the one the tuner enforces on
+// work_mem hints, min(tuner.work_mem_max_mb, 5% of host memory) (tuning-03).
+func workMemRule(maxMB int, host advisor.HostMemory) string {
+	ceiling, known := tuner.WorkMemCeilingMB(maxMB, host.TotalBytes)
+	bound := fmt.Sprintf("never above %dMB, the lower of tuner.work_mem_max_mb and 5%% of "+
+		"host memory", ceiling)
+	if !known {
+		bound = fmt.Sprintf("never above %dMB (tuner.work_mem_max_mb); host memory is "+
+			"unknown, so a work_mem hint waits for an operator's approval", ceiling)
+	}
+	return "8. work_mem applies per sort or hash node per connection: keep max_connections " +
+		"x work_mem x hash_mem_multiplier within memory, and " + bound + ". Never set " +
+		"an autovacuum scale factor to 0."
+}
 
 // typeShapes are the JSON forms of the proposal types.
 var typeShapes = map[ProposalType]string{

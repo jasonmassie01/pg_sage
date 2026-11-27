@@ -2,9 +2,7 @@ package analyzer
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -97,8 +95,8 @@ func TestRegression_IndexDDLQuotesIdentifiers(t *testing.T) {
 	fkS := &collector.Snapshot{
 		Tables: []collector.TableStats{{SchemaName: "Sales", RelName: "Orders"}},
 		ForeignKeys: []collector.ForeignKey{{
-			TableName: "Orders", ReferencedTable: "Customers",
-			FKColumn: "CustomerId", ConstraintName: "orders_fk",
+			Schema: "Sales", TableName: "Orders", ReferencedTable: "Customers",
+			Columns: []string{"CustomerId"}, ConstraintName: "orders_fk",
 		}},
 	}
 	assertSQL(t, ruleMissingFKIndexes(fkS, nil, nil, nil),
@@ -115,30 +113,15 @@ func assertSQL(t *testing.T, ff []Finding, want string) {
 	}
 }
 
-// G2-B23: a zero slow-query threshold must fall back to the default
-// instead of flagging every query as +Inf x critical.
-func TestRegression_SlowQueryZeroThreshold(t *testing.T) {
-	cfg := phase2Config()
-	cfg.Analyzer.SlowQueryThresholdMs = 0
-	snap := &collector.Snapshot{Queries: []collector.QueryStats{
-		{QueryID: 1, Query: "SELECT 1", MeanExecTime: 5, Calls: 10},
-		{QueryID: 2, Query: "SELECT 2", MeanExecTime: 3000, Calls: 10},
-	}}
-	got := ruleSlowQueries(snap, nil, cfg, nil)
-	if len(got) != 1 || got[0].ObjectIdentifier != "queryid:2" {
-		t.Fatalf("findings = %+v, want only queryid:2", got)
-	}
-	if strings.Contains(got[0].Title, "Inf") || got[0].Severity != "warning" {
-		t.Fatalf("title=%q severity=%q", got[0].Title, got[0].Severity)
-	}
-}
-
 // C18/G1-B35: a descending sequence approaching its minimum must be
-// reported even though the collector's pct_used is 0 for it.
+// reported. The collector's pct_used is the share consumed in the
+// direction of travel over [min_value, max_value] (sequencePageSQL), so
+// the fixture carries what it reports for this sequence (rules-11).
 func TestRegression_DescendingSequenceExhaustion(t *testing.T) {
 	snap := &collector.Snapshot{Sequences: []collector.SequenceStats{{
 		SchemaName: "public", SequenceName: "down_seq", DataType: "integer",
-		LastValue: -2_000_000_000, MaxValue: -1, IncrementBy: -1, PctUsed: 0,
+		LastValue: -2_000_000_000, MinValue: -2_147_483_648, MaxValue: -1,
+		IncrementBy: -1, PctUsed: 93.13,
 	}}}
 	got := ruleSequenceExhaustion(snap, nil, nil, nil)
 	if len(got) != 1 || got[0].Severity != "critical" {
@@ -152,33 +135,6 @@ func TestRegression_DescendingSequenceExhaustion(t *testing.T) {
 	got = ruleSequenceExhaustion(asc, nil, nil, nil)
 	if len(got) != 1 || got[0].Severity != "warning" {
 		t.Fatalf("ascending control findings = %+v, want 1 warning", got)
-	}
-}
-
-// G1-B06: the regression baseline must read the field name the collector
-// actually persists (collector.QueryStats → "mean_exec_time").
-func TestRegression_HistoricalAveragesReadCollectorField(t *testing.T) {
-	pool := phase2Pool(t)
-	phase2CleanSnapshots(t, pool)
-	ctx := context.Background()
-	t.Cleanup(func() { phase2CleanSnapshots(t, pool) })
-	for _, mean := range []float64{10, 30} {
-		data, err := json.Marshal([]collector.QueryStats{{
-			QueryID: 4242, Query: "SELECT phase2_test", MeanExecTime: mean,
-		}})
-		if err != nil {
-			t.Fatalf("marshal: %v", err)
-		}
-		if _, err := pool.Exec(ctx,
-			`INSERT INTO sage.snapshots (category, data) VALUES ('queries', $1)`,
-			data); err != nil {
-			t.Fatalf("insert: %v", err)
-		}
-	}
-	a := New(pool, phase2Config(), nil, nil, nil, nil, nil, noopLog)
-	avg := a.buildHistoricalAverages(ctx)[4242]
-	if avg < 19.9 || avg > 20.1 {
-		t.Fatalf("historical avg = %v, want 20", avg)
 	}
 }
 

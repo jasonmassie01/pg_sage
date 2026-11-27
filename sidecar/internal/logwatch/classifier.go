@@ -7,65 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
-
-// signalPattern defines one pattern the classifier matches against log entries.
-type signalPattern struct {
-	ID         string
-	Severity   string
-	SQLStates  []string // exact match (or prefix for XX/28)
-	Substrings []string // case-insensitive, ALL must match
-	MinLevel   string   // minimum ErrorLevel
-	OptIn      bool     // requires explicit config enable
-}
-
-// patterns is the full catalog of 18 signal definitions.
-var patterns = []signalPattern{
-	{ID: "log_deadlock_detected", Severity: "critical",
-		SQLStates: []string{"40P01"}, MinLevel: "ERROR"},
-	{ID: "log_connection_refused", Severity: "critical",
-		SQLStates: []string{"53300"}, MinLevel: "FATAL"},
-	{ID: "log_out_of_memory", Severity: "critical",
-		SQLStates: []string{"53200"}, MinLevel: "ERROR"},
-	{ID: "log_disk_full", Severity: "critical",
-		SQLStates: []string{"53100"}, MinLevel: "ERROR"},
-	{ID: "log_panic_server_crash", Severity: "critical",
-		Substrings: []string{"server process was terminated by signal"},
-		MinLevel:   "LOG"},
-	{ID: "log_data_corruption", Severity: "critical",
-		MinLevel: "WARNING"},
-	{ID: "log_txid_wraparound_warning", Severity: "critical",
-		Substrings: []string{"must be vacuumed within"},
-		MinLevel:   "WARNING"},
-	{ID: "log_archive_failed", Severity: "critical",
-		Substrings: []string{"archive command failed"}, MinLevel: "LOG"},
-	{ID: "log_temp_file_created", Severity: "warning",
-		Substrings: []string{"temporary file"}, MinLevel: "LOG"},
-	{ID: "log_checkpoint_too_frequent", Severity: "warning",
-		Substrings: []string{"checkpoints are occurring too frequently"},
-		MinLevel:   "LOG"},
-	{ID: "log_lock_timeout", Severity: "warning",
-		SQLStates: []string{"55P03"}, MinLevel: "ERROR"},
-	{ID: "log_statement_timeout", Severity: "warning",
-		SQLStates: []string{"57014"}, MinLevel: "ERROR"},
-	{ID: "log_replication_conflict", Severity: "warning",
-		Substrings: []string{"conflict with recovery"},
-		MinLevel:   "ERROR"},
-	{ID: "log_wal_segment_removed", Severity: "critical",
-		Substrings: []string{"WAL segment has already been removed"},
-		MinLevel:   "ERROR"},
-	{ID: "log_autovacuum_cancel", Severity: "warning",
-		Substrings: []string{"canceling autovacuum task"},
-		MinLevel:   "LOG"},
-	{ID: "log_replication_slot_inactive", Severity: "warning",
-		Substrings: []string{"replication slot", "inactive"},
-		MinLevel:   "WARNING"},
-	{ID: "log_authentication_failure", Severity: "warning",
-		MinLevel: "FATAL"},
-	{ID: "log_slow_query", Severity: "info",
-		Substrings: []string{"duration:"}, MinLevel: "LOG", OptIn: true},
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -139,13 +84,26 @@ type ClassifierConfig struct {
 	SlowQueryEnabled bool
 	TempFileMinBytes int64 // skip temp-file signals below this
 	MaxLinesPerCycle int   // 0 = unlimited
+	// DeadlockStatementText is rca.deadlock_statement_text: "redacted"
+	// keeps each deadlock participant's redacted statement text; anything
+	// else keeps only its fingerprint (rca-07b).
+	DeadlockStatementText string
 }
 
-// dedupEntry tracks repeated occurrences of (signalID, database).
+// dedupEntry tracks repeated occurrences of (signalID, database) within
+// one dedup window. emitted is how many of them a signal already reported
+// (rca-07); sig is the window's first signal, the template of follow-ups.
 type dedupEntry struct {
 	firstSeen time.Time
+	lastSeen  time.Time
 	count     int
+	emitted   int
 	pids      map[int]bool
+	sig       *rca.Signal
+	// participants is the wait cycle of the window's newest deadlock line
+	// whose DETAIL named one, unparsed that line's unread lines (rca-07b).
+	participants []rca.DeadlockParticipant
+	unparsed     int
 }
 
 // Classifier matches LogEntry values against the signal pattern table and
@@ -156,11 +114,18 @@ type Classifier struct {
 	slowQueryEnabled bool
 	tempFileMinBytes int64
 	maxLinesPerCycle int
-	logFn            func(string, string, ...any)
+	// redactedStatements keeps deadlock statement text (rca-07b).
+	redactedStatements bool
+	logFn              func(string, string, ...any)
 
-	dedupBuf       map[string]*dedupEntry
+	dedupBuf map[string]*dedupEntry
+	// pending holds follow-ups of windows closed before a drain reported
+	// them (rca-07).
+	pending        []*rca.Signal
 	linesThisCycle int
-	mu             sync.Mutex
+	// cappedThisCycle counts lines skipped by maxLinesPerCycle (rca-06).
+	cappedThisCycle int
+	mu              sync.Mutex
 }
 
 // NewClassifier creates a Classifier from the given config.
@@ -186,18 +151,23 @@ func NewClassifier(
 		slowQueryEnabled: cfg.SlowQueryEnabled,
 		tempFileMinBytes: cfg.TempFileMinBytes,
 		maxLinesPerCycle: cfg.MaxLinesPerCycle,
-		logFn:            logFn,
-		dedupBuf:         make(map[string]*dedupEntry),
+		redactedStatements: cfg.DeadlockStatementText ==
+			config.DeadlockStatementTextRedacted,
+		logFn:    logFn,
+		dedupBuf: make(map[string]*dedupEntry),
 	}
 }
 
 // Classify evaluates a single LogEntry and returns a Signal if it matches
-// a known pattern, or nil if no match / dedup suppresses it.
+// a known pattern, or nil if no match / dedup suppresses it. The per-cycle
+// line cap never skips a critical line (isCriticalLog).
 func (c *Classifier) Classify(entry LogEntry) *rca.Signal {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.maxLinesPerCycle > 0 && c.linesThisCycle >= c.maxLinesPerCycle {
+	if c.maxLinesPerCycle > 0 && c.linesThisCycle >= c.maxLinesPerCycle &&
+		!isCriticalLog(entry.ErrorLevel, entry.SQLState) {
+		c.cappedThisCycle++
 		return nil
 	}
 	c.linesThisCycle++
@@ -217,26 +187,32 @@ func (c *Classifier) Classify(entry LogEntry) *rca.Signal {
 		return nil
 	}
 
-	if c.isDuplicate(pat.ID, entry.Database, entry.PID, entry.Timestamp) {
+	key := pat.ID + "\x00" + entry.Database
+	if c.recordOccurrence(key, occurrencePIDs(pat.ID, entry), entry.Timestamp, sig) {
 		return nil
 	}
 	return sig
 }
 
-// ResetCycle resets the per-cycle line counter. Called by Drain().
-func (c *Classifier) ResetCycle() {
+// ResetCycle resets the per-cycle line counter and returns how many lines
+// the cap skipped this cycle. Called by Drain().
+func (c *Classifier) ResetCycle() int {
 	c.mu.Lock()
-	c.linesThisCycle = 0
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	capped := c.cappedThisCycle
+	c.linesThisCycle, c.cappedThisCycle = 0, 0
+	return capped
 }
 
-// CleanExpiredDedup removes dedup entries older than dedupWindow.
+// CleanExpiredDedup removes dedup entries whose window has closed. An
+// entry with repeats no signal reported yet leaves a pending follow-up.
 func (c *Classifier) CleanExpiredDedup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := time.Now()
 	for k, de := range c.dedupBuf {
-		if now.Sub(de.firstSeen) > c.dedupWindow {
+		if now.Sub(de.firstSeen) >= c.dedupWindow {
+			c.closeEntry(de)
 			delete(c.dedupBuf, k)
 		}
 	}
@@ -258,52 +234,15 @@ func (c *Classifier) matchPattern(entry LogEntry) (signalPattern, bool) {
 		if pat.OptIn && !c.optInEnabled(pat.ID) {
 			continue
 		}
-		if c.matchesSQLStateOrSubstring(pat, entry, lower) {
+		if matchesEntry(pat, entry, lower) {
 			return pat, true
 		}
 	}
 	return signalPattern{}, false
 }
 
-// matchesSQLStateOrSubstring checks SQLState then substring rules.
-func (c *Classifier) matchesSQLStateOrSubstring(
-	pat signalPattern, entry LogEntry, lower string,
-) bool {
-	switch pat.ID {
-	case "log_panic_server_crash":
-		return entry.ErrorLevel == "PANIC" ||
-			strings.Contains(lower, "server process was terminated by signal")
-	case "log_data_corruption":
-		return strings.HasPrefix(entry.SQLState, "XX")
-	case "log_authentication_failure":
-		return strings.HasPrefix(entry.SQLState, "28")
-	}
-	if len(pat.SQLStates) > 0 && entry.SQLState != "" {
-		for _, s := range pat.SQLStates {
-			if entry.SQLState == s {
-				return true
-			}
-		}
-	}
-	if len(pat.Substrings) > 0 {
-		return allSubstringsMatch(lower, pat.Substrings)
-	}
-	return false
-}
-
-// allSubstringsMatch returns true if lower contains every substring
-// (already lowered).
-func allSubstringsMatch(lower string, subs []string) bool {
-	for _, sub := range subs {
-		if !strings.Contains(lower, strings.ToLower(sub)) {
-			return false
-		}
-	}
-	return true
-}
-
 func (c *Classifier) optInEnabled(id string) bool {
-	if id == "log_slow_query" {
+	if id == signalid.LogSlowQuery {
 		return c.slowQueryEnabled
 	}
 	return false
@@ -333,22 +272,13 @@ func (c *Classifier) buildSignal(
 	if entry.Detail != "" {
 		metrics["detail"] = Truncate(entry.Detail, MaxRawMessageLen)
 	}
-
-	switch pat.ID {
-	case "log_temp_file_created":
-		sz := parseTempFileSize(entry.Message)
-		if sz < c.tempFileMinBytes {
-			return nil
-		}
-		metrics["temp_file_bytes"] = sz
-	case "log_slow_query":
-		dur := parseSlowQueryDuration(entry.Message)
-		metrics["duration_ms"] = dur
-		if entry.Query != "" {
-			metrics["query"] = Truncate(entry.Query, MaxQueryLen)
-		}
+	if entry.BackendType != "" {
+		metrics["backend_type"] = entry.BackendType
 	}
-
+	applyExtract(pat, entry.Message, metrics)
+	if !c.addSignalMetrics(pat.ID, entry, metrics) {
+		return nil
+	}
 	return &rca.Signal{
 		ID:       pat.ID,
 		FiredAt:  entry.Timestamp,
@@ -357,37 +287,30 @@ func (c *Classifier) buildSignal(
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Dedup
-// ---------------------------------------------------------------------------
-
-// isDuplicate returns true if (signalID, database) was already seen within
-// the dedup window. On first occurrence it records the entry and returns false.
-func (c *Classifier) isDuplicate(
-	signalID, database string, pid int, ts time.Time,
-) bool {
-	key := signalID + "\x00" + database
-	de, exists := c.dedupBuf[key]
-	if !exists {
-		c.dedupBuf[key] = &dedupEntry{
-			firstSeen: ts,
-			count:     1,
-			pids:      map[int]bool{pid: true},
+// addSignalMetrics adds the metrics specific to signal id. It returns
+// false when the signal is suppressed (a temp file below the size floor).
+func (c *Classifier) addSignalMetrics(id string, entry LogEntry, metrics map[string]any) bool {
+	switch id {
+	case signalid.LogTempFileCreated:
+		sz := parseTempFileSize(entry.Message)
+		if sz < c.tempFileMinBytes {
+			return false
 		}
-		return false
-	}
-	if ts.Sub(de.firstSeen) > c.dedupWindow {
-		// Window expired — start a new entry.
-		c.dedupBuf[key] = &dedupEntry{
-			firstSeen: ts,
-			count:     1,
-			pids:      map[int]bool{pid: true},
+		metrics["temp_file_bytes"] = sz
+	case signalid.LogStatementTimeout:
+		// 57014 without the English text (lc_messages): a timeout or a
+		// cancel, which the classifier cannot tell apart (rca-07).
+		if !strings.Contains(strings.ToLower(entry.Message), "statement timeout") {
+			metrics["message_unclassified"] = true
 		}
-		return false
-	}
-	de.count++
-	if len(de.pids) < MaxAffectedPIDs {
-		de.pids[pid] = true
+	case signalid.LogDeadlockDetected:
+		c.addDeadlockParticipants(entry, metrics)
+	case signalid.LogSlowQuery:
+		dur := parseSlowQueryDuration(entry.Message)
+		metrics["duration_ms"] = dur
+		if entry.Query != "" {
+			metrics["query"] = Truncate(entry.Query, MaxQueryLen)
+		}
 	}
 	return true
 }

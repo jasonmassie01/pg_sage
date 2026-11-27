@@ -31,7 +31,7 @@ const basePlan = `[{"Plan": {
   ]},
   "Planning Time": 0.3, "Execution Time": 12.9}]`
 
-var hashPattern = regexp.MustCompile(`^v1:[0-9a-f]{32}$`)
+var hashPattern = regexp.MustCompile(`^v2u:[0-9a-f]{32}$`)
 
 func mustCompute(t *testing.T, plan string) string {
 	t.Helper()
@@ -201,6 +201,6 @@ func TestCompute_DelimiterInjectionDoesNotCollide(t *testing.T) {
 
 func ExampleCompute() {
 	h, _ := Compute([]byte(`{"Node Type": "Seq Scan", "Relation Name": "t"}`))
-	fmt.Println(strings.HasPrefix(h, "v1:"))
+	fmt.Println(strings.HasPrefix(h, "v2u:"))
 	// Output: true
 }

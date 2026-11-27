@@ -28,11 +28,6 @@ func (rt *databaseRuntime) installAutonomy(ex *executor.Executor) {
 	if control == nil {
 		control = rt.spec.Pool
 	}
-	var databaseID *int
-	if rt.spec.DatabaseID > 0 {
-		id := rt.spec.DatabaseID
-		databaseID = &id
-	}
 	if !settings.Enforce {
 		logWarn(rt.spec.Scope, "db %q: sre.autonomy.enforce is false: self-initiated "+
 			"actions (custodians, index create/drop, GUC, vacuum, analyze, hints) run "+
@@ -40,9 +35,10 @@ func (rt *databaseRuntime) installAutonomy(ex *executor.Executor) {
 	}
 	// The M5 SLO engine is built with the investigator, before execution.
 	err := processAutonomy().install(rt.ctx, ex, autonomyBinding{database: rt.spec.Name,
-		control: control, monitored: rt.spec.Pool, databaseID: databaseID,
+		control: control, monitored: rt.spec.Pool, databaseID: rt.recordID(),
 		settings: settings, budget: slobudget.New(rt.sloEngine),
-		notifier: rt.ledgerNotifier()})
+		notifier: rt.ledgerNotifier(), runningModel: llmModelSource(rt.generalLLM),
+		ha: rt.ha})
 	if err != nil {
 		logError(rt.spec.Scope, "db %q: trust ledger unavailable; self-initiated "+
 			"actions are blocked until it is: %v", rt.spec.Name, err)
@@ -69,7 +65,9 @@ func (rt *databaseRuntime) startAutonomyLoops() {
 			}
 		})
 	})
-	rt.start(func() { every(rt.ctx, settings.EvaluateInterval(), evaluator(entry.Service)) })
+	rt.start(func() {
+		every(rt.ctx, settings.EvaluateInterval(), evaluator(entry, notifier))
+	})
 	rt.start(func() { every(rt.ctx, benchIngestInterval, benchIngester(entry.Service, settings)) })
 	rt.startLocalBench(entry.Service, settings)
 	rt.startGameDays(entry.Service, settings)
@@ -91,16 +89,32 @@ func (rt *databaseRuntime) ledgerNotifier() autonomyNotifier {
 	return n
 }
 
-func evaluator(svc *earned.Service) func(context.Context) {
+// evaluator proposes the promotions the evidence supports, then sweeps
+// the earned levels whose evidence decays (earned-06): a decay is
+// recorded as a cap without waiting for an action, and an expiry a week
+// away is warned about once.
+func evaluator(entry earned.RegistryEntry, n earned.ExpiryNotifier) func(context.Context) {
 	return func(ctx context.Context) {
-		created, err := svc.ProposePromotions(ctx)
+		created, err := entry.Service.ProposePromotions(ctx)
 		if err != nil {
 			logWarn("autonomy", "evaluate promotions: %v", err)
-			return
 		}
 		for _, p := range created {
 			logInfo("autonomy", "proposed %s/%s %s -> %s: an admin must approve it",
 				p.Family, p.Class, p.From, p.To)
+		}
+		if entry.Limiter == nil {
+			return
+		}
+		res, err := entry.Limiter.Sweep(ctx, n)
+		if err != nil {
+			logWarn("autonomy", "db %q: sweep decaying evidence: %v",
+				entry.Service.Database(), err)
+		}
+		if res.Capped+res.Cleared+res.Warned > 0 {
+			logInfo("autonomy", "db %q: evidence sweep of %d pairs: %d capped, %d cleared, "+
+				"%d expiry warnings", entry.Service.Database(), res.Pairs, res.Capped,
+				res.Cleared, res.Warned)
 		}
 	}
 }
@@ -109,7 +123,7 @@ func evaluator(svc *earned.Service) func(context.Context) {
 // disposable target exists.
 func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutonomyConfig) {
 	provider, name, err := gameDayProvider(s.GameDays, rt.cfg.Clone,
-		monitoredDSNs(rt.spec.Pool))
+		localTargetGuardFor(rt.spec.Pool, svc.Store().Pool()))
 	if err != nil {
 		logError("autonomy", "db %q: game days off: %v", rt.spec.Name, err)
 		return
@@ -122,11 +136,16 @@ func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutono
 		var runner *gameday.Runner
 		runner, err = gameday.NewRunner(gameday.Config{Database: rt.spec.Name, Provider: name,
 			Families: trimmedFamilies(s.GameDays.Families),
-			Interval: time.Duration(s.GameDays.IntervalHours) * time.Hour},
+			Interval: time.Duration(s.GameDays.IntervalHours) * time.Hour,
+			Warn:     gameDayWarn, CustomerPrograms: s.GameDays.CustomerPrograms,
+			Snapshots: rt.tableSnapshots()},
 			provider, srebench.GameDayFaults{}, svc, store)
 		if err == nil {
 			processAutonomy().gameDays.Register(rt.spec.Name, runner)
-			rt.start(func() { every(rt.ctx, gameDayCheckInterval, gameDayTick(runner)) })
+			delay := gameDayStartDelay(rt.spec.Name, gameDayCheckInterval)
+			rt.start(func() {
+				everyAfter(rt.ctx, delay, gameDayCheckInterval, gameDayTick(runner))
+			})
 		}
 	}
 	if err != nil {
@@ -134,8 +153,28 @@ func (rt *databaseRuntime) startGameDays(svc *earned.Service, s config.SREAutono
 	}
 }
 
+// gameDayWarn logs a game day that scored nothing.
+func gameDayWarn(format string, args ...any) { logWarn("autonomy", format, args...) }
+
+// tableSnapshots is this database's collector, which a game day's
+// customer programs pick their table from (benches-12: bindings are per
+// database); nil before the collector exists, so they skip.
+func (rt *databaseRuntime) tableSnapshots() gameday.TableSnapshots {
+	if rt.collector == nil {
+		return nil
+	}
+	return rt.collector
+}
+
+// gameDayTick first abandons game days a stopped process left running
+// past gameday.MaxRunTime (destroying their clones), then runs one when due.
 func gameDayTick(runner *gameday.Runner) func(context.Context) {
 	return func(ctx context.Context) {
+		if n, err := runner.AbandonStale(ctx); err != nil {
+			logWarn("autonomy", "abandon stale game days: %v", err)
+		} else if n > 0 {
+			logInfo("autonomy", "abandoned %d stale game day(s) and destroyed their clones", n)
+		}
 		gd, ran, err := runner.RunDue(ctx)
 		if err != nil {
 			logWarn("autonomy", "game day %s on %s: %v", gd.ID, gd.Database, err)
@@ -146,18 +185,20 @@ func gameDayTick(runner *gameday.Runner) func(context.Context) {
 }
 
 // gameDayProvider is the disposable target of game days: the configured
-// clone provider, else the local development database, else none (off).
+// clone provider, else the local development database (never on the
+// cluster of a database guard refuses), else none (off).
 func gameDayProvider(s config.SREGameDaysConfig, cloneCfg config.CloneProviderConfig,
-	monitored []string) (clone.Provider, string, error) {
+	guard localTargetGuard) (clone.Provider, string, error) {
 	if !s.Enabled {
 		return nil, "", nil
 	}
-	if cloneCfg.Provider == "dle" || cloneCfg.Provider == "snapshot" {
-		p, err := configuredMCPCloneProvider(cloneCfg)
+	if cloneCfg.Provider == "dle" || cloneCfg.Provider == clone.LakebaseAdapter ||
+		cloneCfg.Provider == clone.NeonAdapter || cloneCfg.Provider == clone.AuroraAdapter {
+		p, err := cloneProviderFor(cloneCfg, guard.own)
 		return p, cloneCfg.Provider, err
 	}
 	if s.LocalDSN != "" {
-		p, err := gameday.NewLocalProvider(s.LocalDSN, monitored)
+		p, err := gameday.NewLocalProvider(s.LocalDSN, guard.dsns, guard.pools)
 		if err != nil {
 			return nil, "", err
 		}

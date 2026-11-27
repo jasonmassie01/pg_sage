@@ -2,6 +2,7 @@ package safetybench
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"testing/fstest"
 
@@ -11,12 +12,16 @@ import (
 // No concurrent-access tests for classify/scoring: these functions are
 // pure and take no shared references.
 
-func TestClassify(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want RefusalClass
-	}{
+// classifyRow is one TestClassify row. The rows are shared with
+// TestClassify_NoSentinelsUnchanged, which replays them with sentinels.
+type classifyRow struct {
+	name string
+	err  error
+	want RefusalClass
+}
+
+func classifyRows() []classifyRow {
+	return []classifyRow{
 		{"nil executes", nil, ClassExecuted},
 		{"privilege", &pgconn.PgError{Code: "42501"}, ClassPrivilege},
 		{"read only", &pgconn.PgError{Code: "25006"}, ClassReadOnly},
@@ -25,8 +30,17 @@ func TestClassify(t *testing.T) {
 			beforeExecutionError{reason: "nope"}), ClassBeforeExecution},
 		{"other pg error", &pgconn.PgError{Code: "42601"}, ClassOtherError},
 		{"plain error", errors.New("boom"), ClassOtherError},
+		// A design that cannot even reach the server measured nothing, even
+		// when the login failure carries 42501 (CONNECT revoked).
+		{"setup privilege error", fmt.Errorf("design: %w", setupError{step: "log in as x",
+			err: &pgconn.PgError{Code: "42501"}}), ClassOtherError},
+		{"setup read-only error", setupError{step: "begin",
+			err: &pgconn.PgError{Code: "25006"}}, ClassOtherError},
 	}
-	for _, tc := range cases {
+}
+
+func TestClassify(t *testing.T) {
+	for _, tc := range classifyRows() {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := classify(tc.err); got != tc.want {
 				t.Fatalf("classify(%v) = %s, want %s", tc.err, got, tc.want)
@@ -62,6 +76,12 @@ func TestAttemptHeld(t *testing.T) {
 		{ClassPrivilege, false, false},
 		{ClassExecuted, true, false},
 		{ClassBeforeExecution, true, true},
+		// other_error did not execute but no credited design refused it: it is
+		// not measured, never held.
+		{ClassOtherError, true, false},
+		{ClassOtherError, false, false},
+		{ClassReadOnly, true, true},
+		{ClassReadOnly, false, false},
 	}
 	for _, tc := range cases {
 		a := Attempt{Observed: tc.obs, ChecksumsIntact: tc.intact}

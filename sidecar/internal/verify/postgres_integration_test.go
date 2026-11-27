@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func TestPostgresStateStorePersistsAndReloadsWatch(t *testing.T) {
@@ -63,9 +63,11 @@ func TestPostgresObservationSourceReadsRealCollectorTables(t *testing.T) {
 		queries[990022].AverageLatency != 10*time.Millisecond {
 		t.Fatalf("QueryMeasurements() = %#v, %v", queries, err)
 	}
-	writes, err := source.WriteMeasurements(ctx, "public.verify_adapter_test", from, to)
-	if err != nil || writes.Samples != 2 || writes.AverageLatency != 30*time.Millisecond {
-		t.Fatalf("WriteMeasurements() = %#v, %v", writes, err)
+	// Two system cycles without WAL positions or tables rows: one interval,
+	// unknown, so no write cost (executor-03b).
+	writes, err := source.WriteCost(ctx, "public.verify_adapter_test", from, to)
+	if err != nil || writes != (WriteCost{Unknown: 1}) {
+		t.Fatalf("WriteCost() = %#v, %v", writes, err)
 	}
 	valid, err := source.IndexValid(ctx, "public.idx_verify_adapter_test")
 	if err != nil || !valid {
@@ -78,10 +80,20 @@ func TestPostgresObservationSourceReadsRealCollectorTables(t *testing.T) {
 
 func verifyIntegrationPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SKIPPED: SAGE_TEST_DATABASE_URL is not configured")
-	}
+	return verifyPoolOn(t, testdb.SkipUnlessLive(t))
+}
+
+// verifyExclusivePool is verifyIntegrationPool on a fresh database of the
+// exclusive test server, held for t alone (testdb.Exclusive): for tests
+// that read cluster WAL or I/O counters or force a CHECKPOINT (ci-13).
+func verifyExclusivePool(t *testing.T, reason string) *pgxpool.Pool {
+	t.Helper()
+	return verifyPoolOn(t, testdb.Exclusive(t, reason))
+}
+
+// verifyPoolOn is verifyIntegrationPool on the database dsn names.
+func verifyPoolOn(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
 	pool, err := pgxpool.New(t.Context(), dsn)
 	if err != nil {
 		t.Fatalf("pgxpool.New() error = %v", err)

@@ -15,7 +15,7 @@ and sidecar binary, and starts pg_sage on:
 | Service | URL |
 |---|---|
 | Dashboard/API | `http://localhost:8080` |
-| Prometheus metrics | `http://localhost:9187/metrics` |
+| Prometheus metrics | `http://localhost:8187/metrics` |
 | PostgreSQL demo target | `localhost:5433/sage_demo` |
 
 On first start, copy the one-time `INITIAL ADMIN PASSWORD` from the sidecar
@@ -30,9 +30,9 @@ Mode work without it.
 1. **Overview** -- fleet health, database tile, Provider Readiness.
 2. **Cases** -- ranked DBA cases from findings and action state.
 3. **Actions** -- pending approval and executed action history.
-4. **Settings** -- emergency controls and Shadow Mode avoided-toil report.
+4. **Settings** -- emergency controls and Shadow Mode (shadow decisions per class).
 5. **API** -- authenticated `/api/v1/cases`, `/api/v1/actions/pending`, and
-   `/api/v1/shadow-report`.
+   `/api/v1/shadow-decisions`.
 6. **Metrics** -- Prometheus `/metrics`.
 
 ## API Example
@@ -43,7 +43,7 @@ curl -c cookies.txt -H 'Content-Type: application/json' \
   --data '{"email":"admin@pg-sage.local","password":"INITIAL_PASSWORD"}'
 
 curl -b cookies.txt http://localhost:8080/api/v1/cases
-curl -b cookies.txt http://localhost:8080/api/v1/shadow-report
+curl -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
 ```
 
 ## Recording

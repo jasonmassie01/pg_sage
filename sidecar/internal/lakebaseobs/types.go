@@ -117,16 +117,25 @@ type Options struct {
 	WarehouseID string
 	// SourceObjects permits explicitly governed views with the same contract.
 	// Every identifier is validated and quoted; no SQL expressions are allowed.
-	SourceObjects  map[Stream]string
-	AllowPayload   bool
-	MaxRows        int
-	MaxBytes       int
-	QueryTimeout   time.Duration
-	PollInterval   time.Duration
-	Window         time.Duration
-	Retention      time.Duration
+	SourceObjects map[Stream]string
+	AllowPayload  bool
+	MaxRows       int
+	MaxBytes      int
+	QueryTimeout  time.Duration
+	PollInterval  time.Duration
+	Window        time.Duration
+	Retention     time.Duration
+	// QueriesPerPoll bounds warehouse reads per poll; zero means
+	// 2*len(Streams)+4: a forward and a short reconcile read per stream,
+	// plus four for the daily deep sweep.
 	QueriesPerPoll int
 	Streams        []Stream
+	// SettleLag keeps forward reads this far behind now so rows the provider
+	// commits late are visible before their window is read.
+	SettleLag time.Duration
+	// ShortLookback is how far behind the forward edge each short reconcile
+	// sweep re-reads.
+	ShortLookback time.Duration
 }
 
 func (o Options) defaults() Options {
@@ -148,11 +157,17 @@ func (o Options) defaults() Options {
 	if o.Retention == 0 {
 		o.Retention = SourceRetention
 	}
-	if o.QueriesPerPoll == 0 {
-		o.QueriesPerPoll = 12
-	}
 	if len(o.Streams) == 0 {
 		o.Streams = []Stream{Plans, Logs, ASH, DDL, DatabaseCounters, DatabaseGauges}
+	}
+	if o.QueriesPerPoll == 0 {
+		o.QueriesPerPoll = 2*len(o.Streams) + 4
+	}
+	if o.SettleLag == 0 {
+		o.SettleLag = 120 * time.Second
+	}
+	if o.ShortLookback == 0 {
+		o.ShortLookback = 2 * time.Hour
 	}
 	return o
 }
@@ -160,6 +175,12 @@ func (o Options) defaults() Options {
 func (o Options) validate() error {
 	if o.WarehouseID == "" || len(o.WarehouseID) > 128 || o.MaxRows < 1 || o.MaxRows > 10000 || o.MaxBytes < 1024 || o.MaxBytes > 16<<20 || o.QueryTimeout < time.Second || o.QueryTimeout > 2*time.Minute || o.PollInterval < time.Second || o.Window < time.Millisecond || o.Window > SourceRetention || o.Retention <= 0 || o.Retention > SourceRetention || o.QueriesPerPoll < 1 || o.QueriesPerPoll > 1000 {
 		return errors.New("lakebase telemetry options outside supported bounds")
+	}
+	if o.SettleLag < 0 || o.SettleLag > time.Hour {
+		return errors.New("lakebase telemetry settle lag must be between 0 and 1 hour")
+	}
+	if o.ShortLookback <= 0 || o.ShortLookback > SourceRetention {
+		return errors.New("lakebase telemetry short lookback must be positive and at most 7 days")
 	}
 	seen := map[Stream]bool{}
 	for _, s := range o.Streams {

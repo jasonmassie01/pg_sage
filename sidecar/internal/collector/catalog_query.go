@@ -36,10 +36,12 @@ type catalogHook func(ctx context.Context, tx pgx.Tx, sql string, args []any)
 // timeouts, no parallel workers or JIT; a catalog scan spawning two
 // workers per statement made pg_sage use 5 backends on lifeos,
 // measured.md section 2). The timeouts are read per statement, so a
-// configuration reload applies on the next one.
+// configuration reload applies on the next one. Every statement's cost
+// goes to the cycle cost meter (cost_meter.go).
 func (c *Collector) reader(db catalogread.Beginner) catalogread.Reader {
 	r := catalogread.New(db, catalogread.FromSafety(c.cfg.Safety))
 	r.After = c.onCatalogQuery
+	r.Done = c.meter.record
 	return r
 }
 

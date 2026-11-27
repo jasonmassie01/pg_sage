@@ -132,7 +132,7 @@ func TestRun_KeepsActionReferencedByValueLedger(t *testing.T) {
 	execRetry(t, ctx, `INSERT INTO sage.incident_avoided
 		(kind, severity, credited_minutes, evidence_id, decision_id,
 		 action_log_id, verification_id, occurred_at)
-		VALUES ('lock_storm', 'prevented', 5, $1, $2, $3, $4,
+		VALUES ('xid_wraparound', 'near_miss', 5, $1, $2, $3, $4,
 		        now() - interval '400 days')`, tag, decisionID, actionID, verificationID)
 	snapTag := uniqueTag("b12_value_snap")
 	execRetry(t, ctx, `INSERT INTO sage.snapshots (collected_at, category, data)

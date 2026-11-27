@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/mcp"
 	"github.com/pg-sage/sidecar/internal/mcpauth"
 	"github.com/pg-sage/sidecar/internal/mcptoken"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // mcpDatabasePrefix is the per-database MCP endpoint: each monitored
@@ -30,9 +31,9 @@ type principalGetter interface {
 // principal an OAuth identity is bound to.
 func registerMCPRoutes(mux *http.ServeMux, handler http.Handler,
 	tokens *mcptoken.Store, oauth *mcpauth.Validator, principals principalGetter) {
-	h := bindMCPPrincipalOAuth(handler, tokens, oauth, principals)
-	mux.Handle("POST "+mcpEndpointPath, h)
-	mux.Handle("POST "+mcpDatabasePrefix+"{database}", h)
+	h := bindMCPPrincipalOAuth(accessPrincipalMiddleware(handler), tokens, oauth, principals)
+	route(mux, "POST "+mcpEndpointPath, gateSelfAuth, h)
+	route(mux, "POST "+mcpDatabasePrefix+"{database}", gateSelfAuth, h)
 }
 
 // registerMCPMetadata publishes RFC 9728 metadata on the root mux (no
@@ -41,7 +42,7 @@ func registerMCPMetadata(root *http.ServeMux, oauth *mcpauth.Validator) {
 	if oauth == nil {
 		return
 	}
-	root.Handle("GET "+mcpauth.MetadataPrefix+"/", oauth.MetadataHandler())
+	route(root, "GET "+mcpauth.MetadataPrefix+"/", gatePublic, oauth.MetadataHandler())
 }
 
 // bindMCPPrincipalOAuth authenticates an MCP request with an OAuth access
@@ -89,7 +90,8 @@ type oauthDeps struct {
 
 // serveMCPOAuth validates an access token for the resource the request
 // addresses, loads the principal its identity is bound to from core's
-// store, and binds the agent identity (agentguard) for the gate.
+// store, and binds the agent identity (agentguard) and the policy gate's
+// ref (sponsor, task, act subject) for the gate, as the token path does.
 func serveMCPOAuth(w http.ResponseWriter, r *http.Request, next http.Handler,
 	d oauthDeps, raw string) {
 	resource, _, ok := d.validator.ResourceForPath(r.URL.EscapedPath())
@@ -113,6 +115,7 @@ func serveMCPOAuth(w http.ResponseWriter, r *http.Request, next http.Handler,
 	id := agentguard.Identity{Principal: pr, Databases: tok.Databases,
 		TaskID: tok.TaskID, OnBehalfOf: tok.OnBehalfOf}
 	ctx := agentguard.WithIdentity(mcp.WithPrincipal(r.Context(), p), id)
+	ctx = policy.WithPrincipalRef(ctx, principalRef(id))
 	next.ServeHTTP(w, r.WithContext(ctx))
 }
 

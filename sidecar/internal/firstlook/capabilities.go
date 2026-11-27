@@ -3,6 +3,9 @@ package firstlook
 import (
 	"fmt"
 	"strings"
+
+	prov "github.com/pg-sage/sidecar/internal/provider"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Capability names.
@@ -40,6 +43,7 @@ type Extensions struct {
 	HypoPGAvailable         bool
 	AutoExplainLoaded       bool
 	PreloadLibraries        *string
+	SessionPreloadLibraries *string
 }
 
 // ExtensionCapabilities reports each extension with its enablement steps
@@ -47,6 +51,9 @@ type Extensions struct {
 // pg_stat_statements, which query analysis needs; info for the optional
 // HypoPG and auto_explain), plus one when query text is hidden.
 func ExtensionCapabilities(e Extensions, provider string) ([]Capability, []Item) {
+	if name := prov.Canonical(provider); name != "" {
+		provider = name
+	}
 	caps := []Capability{statStatements(e, provider), hypoPG(e, provider),
 		autoExplain(e, provider)}
 	var items []Item
@@ -80,7 +87,7 @@ func queryTextItem(role string) Item {
 		Detail: "pg_stat_statements shows <insufficient privilege> for other roles' " +
 			"queries, so query findings cannot name the statement.",
 		Recommendation: "Grant pg_read_all_stats (pg_monitor includes it).",
-		SuggestedSQL:   "GRANT pg_read_all_stats TO " + ident(role) + ";",
+		SuggestedSQL:   "GRANT pg_read_all_stats TO " + sqlident.Role(role) + ";",
 		Evidence: []Evidence{{Source: "pg_stat_statements",
 			Ref: "pg_stat_statements.query = '<insufficient privilege>'"}}}
 }
@@ -97,7 +104,8 @@ func statStatements(e Extensions, provider string) Capability {
 		return c
 	case loadedKnownTrue:
 		c.Status, c.Detail = CapabilityMissing, "The library is loaded; the extension "+
-			"is not created in this database."
+			"is not created in this database. pg_sage picks it up on its next "+
+			"collection cycle: no pg_sage restart is needed."
 		c.Steps = []string{createStatements}
 		return c
 	case loadedKnownFalse:
@@ -106,62 +114,24 @@ func statStatements(e Extensions, provider string) Capability {
 		c.Status = CapabilityMissing
 	}
 	c.Detail = "Without it pg_sage sees no query statistics: the first look and the " +
-		"catalog rules still run, query tuning does not."
+		"catalog rules still run, query tuning does not. Once it is created, pg_sage " +
+		"picks it up on its next collection cycle: no pg_sage restart is needed."
 	c.Steps = preloadSteps(provider, "pg_stat_statements", e.PreloadLibraries)
 	return c
 }
 
 // preloadSteps are the steps that add lib to shared_preload_libraries and
-// create the extension, per provider.
+// create the extension: the provider registry's steps, or the self-managed
+// ALTER SYSTEM steps.
 func preloadSteps(provider, lib string, preload *string) []string {
 	create := "CREATE EXTENSION IF NOT EXISTS " + lib + ";"
-	switch provider {
-	case "lakebase":
-		return []string{"Lakebase manages shared_preload_libraries; verify the extension is " +
-			"supported by this endpoint and ask a database owner to enable it in this database.", create}
-	case "rds", "aurora":
-		group := "DB parameter group"
-		if provider == "aurora" {
-			group = "DB cluster parameter group"
-		}
-		return []string{fmt.Sprintf("In the instance's %s, add %s to "+
-			"shared_preload_libraries.", group, lib),
-			"Then reboot the instance (the setting applies at start).", create}
-	case "cloud-sql":
-		return []string{fmt.Sprintf("Cloud SQL preloads %s; no database flag is needed "+
-			"to enable it. Its settings are database flags (gcloud sql instances patch "+
-			"INSTANCE --database-flags=...).", lib), create}
-	case "alloydb":
-		return []string{fmt.Sprintf("AlloyDB preloads %s; no database flag is needed to "+
-			"enable it. Its settings are database flags (gcloud alloydb instances update "+
-			"INSTANCE --database-flags=...).", lib), create}
-	case "azure", "azure-cosmos":
-		return []string{fmt.Sprintf("In the server parameters, add %s to azure.extensions "+
-			"and to shared_preload_libraries (az postgres flexible-server parameter set).",
-			strings.ToUpper(lib)), "Restart the server (shared_preload_libraries applies " +
-			"at start).", create}
-	case "neon", "supabase":
-		return []string{fmt.Sprintf("%s is preloaded on %s.", lib, provider), create}
+	if steps := prov.PreloadSteps(provider, lib); steps != nil {
+		return append(steps, create)
 	}
 	return []string{fmt.Sprintf("As a superuser: ALTER SYSTEM SET shared_preload_libraries "+
-		"= '%s';", withLibrary(preload, lib)),
+		"= %s;", libraryList(preload, lib)),
 		"Then restart PostgreSQL: shared_preload_libraries changes only at server start.",
 		create}
-}
-
-// withLibrary appends lib to the preload list; an unreadable list keeps a
-// placeholder the operator fills in.
-func withLibrary(preload *string, lib string) string {
-	if preload == nil {
-		return "<existing libraries>," + lib
-	}
-	var libs []string
-	for _, l := range strings.Split(*preload, ",") {
-		if l = strings.TrimSpace(l); l != "" && l != lib {
-			libs = append(libs, l)
-		}
-	}
-	return strings.Join(append(libs, lib), ",")
 }
 
 func hypoPG(e Extensions, provider string) Capability {
@@ -179,7 +149,7 @@ func hypoPG(e Extensions, provider string) Capability {
 		c.Steps = []string{"Install the hypopg package on the database server (e.g. " +
 			"apt install postgresql-<version>-hypopg), then CREATE EXTENSION IF NOT " +
 			"EXISTS hypopg;"}
-		if provider == "azure" || provider == "azure-cosmos" {
+		if provider == prov.Azure || provider == prov.AzureCosmos {
 			c.Steps = []string{"Add HYPOPG to the azure.extensions server parameter, " +
 				"then CREATE EXTENSION IF NOT EXISTS hypopg;"}
 		}
@@ -192,6 +162,14 @@ func hypoPG(e Extensions, provider string) Capability {
 		"against the planner before they are proposed."
 	return c
 }
+
+// autoExplainLogSettings make auto_explain's plans ones pg_sage ingests
+// from a csvlog or jsonlog server log (rca-04): JSON, with the query
+// identifier, which only verbose output prints.
+const autoExplainLogSettings = "ALTER SYSTEM SET auto_explain.log_min_duration = '1s'; " +
+	"ALTER SYSTEM SET auto_explain.log_format = 'json'; " +
+	"ALTER SYSTEM SET auto_explain.log_verbose = on; " +
+	"ALTER SYSTEM SET compute_query_id = on;"
 
 func autoExplain(e Extensions, provider string) Capability {
 	c := Capability{Name: CapAutoExplain, Status: CapabilityOK,
@@ -208,7 +186,7 @@ func autoExplain(e Extensions, provider string) Capability {
 		c.Detail = "Direct auto_explain log access is unavailable; Lakebase plan history has a separate delivery status."
 		c.Steps = []string{"Lakebase exposes plan history and PostgreSQL logs through system.lakebase. " +
 			"Configure the opt-in lakebase_observability reader with an explicit endpoint/database binding and inspect its source status. Direct server log-file ingestion is unavailable."}
-	case "rds", "aurora", "azure", "azure-cosmos":
+	case prov.RDS, prov.Aurora, prov.Azure, prov.AzureCosmos:
 		steps := preloadSteps(provider, "auto_explain", e.PreloadLibraries)
 		c.Steps = append(steps[:len(steps)-1], "Set auto_explain.log_min_duration "+
 			"(e.g. 1000 ms) in the same parameters.")
@@ -220,8 +198,9 @@ func autoExplain(e Extensions, provider string) Capability {
 			"settings if your plan offers it (auto_explain.log_min_duration)."}
 	default:
 		c.Steps = []string{"As a superuser: ALTER SYSTEM SET session_preload_libraries " +
-			"= 'auto_explain';", "ALTER SYSTEM SET auto_explain.log_min_duration = " +
-			"'1s';", "SELECT pg_reload_conf(); -- new sessions load it, no restart"}
+			"= " + libraryList(e.SessionPreloadLibraries, "auto_explain") + ";",
+			autoExplainLogSettings,
+			"SELECT pg_reload_conf(); -- new sessions load it, no restart"}
 	}
 	return c
 }

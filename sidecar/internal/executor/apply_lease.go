@@ -68,19 +68,21 @@ func leaseSpecFor(intent ActionIntent) (TargetLease, bool) {
 	if len(targets) == 0 {
 		targets = targetObjectsForFinding(*intent.Lease)
 	}
-	if intent.Lease.Category == optimizer.OptimizerCategory && len(targets) > 0 {
+	if table := analyzer.OptimizerFindingTable(*intent.Lease); intent.Lease.Category ==
+		optimizer.OptimizerCategory && len(targets) > 0 && table != "" {
 		// "schema.table|<index definition>" (C05) names no catalog object.
-		targets = []string{analyzer.OptimizerFindingTable(*intent.Lease)}
+		targets = []string{table}
 	}
 	return TargetLease{Kind: kind, Actor: actor, Targets: append([]string(nil), targets...),
 		Intent: intent.Lease.RecommendedSQL}, true
 }
 
 // isLeasedMutation reports statements that hold their object while they
-// run: every DDL mutation, and VACUUM (a custodian freeze can hold a table
-// for minutes). ANALYZE, settings and signals take no lease.
+// run: every DDL mutation, VACUUM (a custodian freeze can hold a table for
+// minutes) and the exposure REVOKE (fleetpol-02b: two cycles on one table
+// must yield one action). ANALYZE, settings and signals take no lease.
 func isLeasedMutation(sql string) bool {
-	if isDDLMutation(sql) {
+	if isDDLMutation(sql) || exposureActionType(sql) != "" {
 		return true
 	}
 	upper := strings.ToUpper(strings.TrimSpace(sql))
@@ -122,7 +124,7 @@ func (e *Executor) acquireTargetLease(
 		return func() {}, false, nil
 	}
 	manager := policy.NewPostgresLeaseManager(e.pool, nil, decision.DecisionID,
-		e.ddlTimeout()+time.Minute)
+		e.maxDDLTimeout()+time.Minute)
 	var leaseID policy.LeaseID
 	if decision.SerializeMode == policy.SerializeQueue {
 		leaseID, err = e.leaseQueue().Acquire(ctx, policy.QueuedLeaseRequest{

@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { AlertTriangle, RotateCcw } from 'lucide-react'
+import { formatClock } from '../lib/time'
 
 function formatTokens(n) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -8,17 +9,10 @@ function formatTokens(n) {
   return String(n)
 }
 
+// formatResetTime names the reset's zone (ux-05d review): a budget that
+// resets at UTC midnight otherwise reads as a bare local evening time.
 function formatResetTime(iso) {
-  if (!iso) return null
-  try {
-    const d = new Date(iso)
-    return d.toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return iso
-  }
+  return iso ? formatClock(iso) : null
 }
 
 function ClientLine({ label, client }) {

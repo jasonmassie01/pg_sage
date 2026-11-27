@@ -66,6 +66,10 @@ type ReplayReport struct {
 	HeldOutCells []CellRecord  `json:"held_out_cells"`
 	ModelLift    []LiftRecord  `json:"model_lift,omitempty"`
 	LLMBudget    *BudgetRecord `json:"llm_budget,omitempty"`
+	// Compare is a compare run's per-family table (sre-03 Phase 2).
+	Compare *SupportCompare `json:"compare,omitempty"`
+	// rca-07b: participants_named per deadlock case with a server-log record.
+	ParticipantsNamed []ParticipantsScore `json:"participants_named,omitempty"`
 }
 
 // BuildReplayReport scores replay results.
@@ -73,7 +77,8 @@ func BuildReplayReport(rs []Result, cases []replay.Case, meta ReplayMeta) Replay
 	s := Summarize(rs, meta.Arms)
 	r := ReplayReport{Schema: replay.Schema, GeneratedAt: meta.GeneratedAt,
 		ServerVersion: meta.ServerVersion, LLM: meta.LLM, Cases: len(cases),
-		Corpus: corpusCounts(cases), Arms: s.Arms, Gated: meta.Gated}
+		Corpus: corpusCounts(cases), Arms: s.Arms, Gated: meta.Gated,
+		ParticipantsNamed: participantsScores(cases)}
 	for _, arm := range s.Arms {
 		for _, fam := range s.Families {
 			r.Cells = append(r.Cells, cellOf(arm, fam, s.Tally(arm, fam)))
@@ -110,7 +115,7 @@ func (r *ReplayReport) addHeldOut(rs []Result, meta ReplayMeta) {
 	if meta.LLM.budget != nil {
 		r.LLMBudget = &budget
 	}
-	r.ModelLift = BuildModelLift(rs, meta.LLM.Mode, budget.Exhausted)
+	r.ModelLift = BuildModelLift(rs, meta.LLM.Mode, meta.LLM.Model, budget.Exhausted)
 }
 
 func corpusCounts(cases []replay.Case) []CorpusCount {
@@ -151,12 +156,16 @@ func (r ReplayReport) Markdown() string {
 	view.writeModel(&b)
 	writeUsage(&b, r.Usage, r.LLM)
 	r.writeHeldOut(&b)
+	writeParticipants(&b, r.ParticipantsNamed)
 	b.WriteString("\n### Replay gates\n\n")
 	b.WriteString(row("gate", "family", "arm", "status", "observed", "threshold", "note"))
 	b.WriteString(separator(7))
 	for _, g := range r.Gates {
 		b.WriteString(row(g.ID, g.Family, g.Arm, string(g.Status), g.Observed, g.Threshold,
 			g.Reason))
+	}
+	if r.Compare != nil {
+		b.WriteString("\n" + r.Compare.Markdown())
 	}
 	b.WriteString("\n### Replay runs\n\n")
 	view.writeRuns(&b)

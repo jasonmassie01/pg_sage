@@ -146,7 +146,7 @@ func TestSpecialistTools_ErrorsAreDistinguishable(t *testing.T) {
 		"database_not_permitted": codeNotPermitted, "not_found": codeNotFound,
 		"invalid_request": codeInvalidParams, "rate_limited": codeRateLimited,
 		"too_many_investigations": codeTooManyInvestigations,
-		"not_requestable": codeConflict, "unavailable": codeUnavailable,
+		"not_requestable":         codeConflict, "unavailable": codeUnavailable,
 		"payload_too_large": codeInvalidParams, "internal": codeInternal}
 	for code, want := range cases {
 		backend := &specialistRecordingBackend{err: codedErr(code)}

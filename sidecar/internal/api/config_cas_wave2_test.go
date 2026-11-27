@@ -19,7 +19,7 @@ func TestWave2ControlledConfigGetReportsDesiredAndActiveGenerations(t *testing.T
 	if _, err := controller.Apply(t.Context(), 1, candidate); err != nil {
 		t.Fatalf("apply restart-pending candidate: %v", err)
 	}
-	handler := configGetHandler(fleet.NewManager(cfg), cfg, controller)
+	handler := configGetHandler(fleet.NewManager(cfg), controller)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response,
 		httptest.NewRequest(http.MethodGet, "/api/v1/config", nil))
@@ -49,4 +49,3 @@ type apiPreparedConfig struct{}
 func (apiPreparedConfig) Commit(context.Context) error   { return nil }
 func (apiPreparedConfig) Rollback(context.Context) error { return nil }
 func (apiPreparedConfig) Drain(context.Context) error    { return nil }
-

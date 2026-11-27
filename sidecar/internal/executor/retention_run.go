@@ -66,7 +66,7 @@ func (r *retentionRun) execute(ctx context.Context, decision ActionPolicyDecisio
 		MaxRows:       r.maxRows(),
 	})
 	if err != nil {
-		updateActionOutcome(ctx, e.pool, actionID, "failed",
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed",
 			"retention batch rolled back: "+err.Error())
 		return actionID, fmt.Errorf("retention batch: %w", err)
 	}
@@ -86,7 +86,7 @@ func (r *retentionRun) recordStart(ctx context.Context, decisionID int64) (int64
 		return 0, fmt.Errorf("encode retention action: %w", err)
 	}
 	var actionID int64
-	err = e.pool.QueryRow(ctx, `/* pg_sage */ INSERT INTO sage.action_log
+	err = e.pool.QueryRow(ctx, `/* pg_sage executor */ INSERT INTO sage.action_log
 		(action_type, sql_executed, before_state, outcome, decision_id, database_id)
 		VALUES ('retention_delete', $1, $2, 'pending', NULLIF($3, 0), $4::bigint)
 		RETURNING id`, r.statement(), before, decisionID, e.databaseIDValue()).
@@ -109,7 +109,7 @@ func (r *retentionRun) verify(ctx context.Context, actionID int64) error {
 			e.logFn("executor", "record retention verification for action %d: %v",
 				actionID, finalizeErr)
 		}
-		updateActionOutcome(ctx, e.pool, actionID, "failed", err.Error())
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed", err.Error())
 		r.recordOutcome(ctx, actionID, r.failedVerdict(err))
 		return err
 	}
@@ -130,7 +130,7 @@ func (r *retentionRun) verifyOutcome(ctx context.Context, actionID int64) error 
 	}
 	var disposition string
 	var recorded, recordedAction int64
-	err := r.executor.pool.QueryRow(ctx, `/* pg_sage */ SELECT disposition, deleted_rows,
+	err := r.executor.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT disposition, deleted_rows,
 		COALESCE(action_id, 0) FROM sage.retention_run WHERE id=$1`, o.RunID).
 		Scan(&disposition, &recorded, &recordedAction)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -150,12 +150,14 @@ func (r *retentionRun) verifyOutcome(ctx context.Context, actionID int64) error 
 
 func (r *retentionRun) recordSuccess(ctx context.Context, actionID int64) {
 	e, o := r.executor, r.outcome
-	if _, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+	if _, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 		SET outcome='success', measured_at=now(),
 		    after_state=jsonb_build_object('deleted_rows', $2::bigint,
 		                                   'retention_run_id', $3::bigint)
 		WHERE id=$1`, actionID, o.Deleted, o.RunID); err != nil {
 		e.logFn("executor", "record retention action %d success: %v", actionID, err)
+	} else {
+		RecordOutcome(e.databaseName, OutcomeClass("retention_delete", ""), "success")
 	}
 	reason := fmt.Sprintf("retention batch verified: %d rows within the reviewed bound "+
 		"of %d, all inside the declared predicate", o.Deleted, r.maxRows())

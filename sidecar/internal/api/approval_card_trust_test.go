@@ -37,7 +37,7 @@ func (fx *cardFixture) ledgerRouter(t *testing.T, user *auth.User) http.Handler 
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(fx.mgr, config.DefaultConfig(), nil,
+	return newTestRouter(fx.mgr, config.DefaultConfig(), nil,
 		&ActionDeps{Fleet: fx.mgr}, nil, nil,
 		&RuntimeDeps{Autonomy: &AutonomyDeps{Ledgers: reg}}, inject)
 }

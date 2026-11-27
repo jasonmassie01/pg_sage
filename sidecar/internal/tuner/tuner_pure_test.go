@@ -186,13 +186,14 @@ func TestBuildInsertSQL_UsesQueryIDNotQueryText(t *testing.T) {
 	if strings.Contains(sql, "SELECT * FROM t") {
 		t.Errorf("query text should not be stored in hint_plan.hints: %s", sql)
 	}
-	if !strings.Contains(sql, "query_id = 17") {
-		t.Errorf("query id predicate missing: %s", sql)
+	// tuning-02: the plain VALUES form keys the row by query id.
+	if !strings.Contains(sql, "VALUES (17, '', ") {
+		t.Errorf("query id value missing: %s", sql)
 	}
 }
 
 func TestBuildDeleteSQL_UsesQueryID(t *testing.T) {
-	sql := BuildDeleteSQL(17)
+	sql := BuildDeleteSQL(17, "HashJoin(a b)")
 	if !strings.Contains(sql, "query_id = 17") {
 		t.Errorf("query id missing from delete: %s", sql)
 	}
@@ -211,15 +212,21 @@ func TestBuildInsertSQL_TagCollision(t *testing.T) {
 	}
 }
 
+// tuning-02: duplicate rows are refused by pg_hint_plan's unique index,
+// which fails the INSERT loudly; a WHERE NOT EXISTS guard made it a silent
+// no-op whose rollback could delete the row already there.
 func TestBuildInsertSQL_AvoidsDuplicateHintRows(t *testing.T) {
 	sql := BuildInsertSQL(1, "hint")
-	if !strings.Contains(sql, "WHERE NOT EXISTS") {
-		t.Errorf("should avoid duplicate hint rows: %s", sql)
+	if strings.Contains(sql, "WHERE NOT EXISTS") {
+		t.Errorf("duplicate guard turns a conflict into a silent no-op: %s", sql)
+	}
+	if !strings.HasSuffix(sql, "VALUES (1, '', $sageqh$hint$sageqh$)") {
+		t.Errorf("not the plain VALUES insert: %s", sql)
 	}
 }
 
 func TestBuildDeleteSQL(t *testing.T) {
-	sql := BuildDeleteSQL(12345)
+	sql := BuildDeleteSQL(12345, "HashJoin(a b)")
 	if sql == "" {
 		t.Fatal("BuildDeleteSQL returned empty string")
 	}

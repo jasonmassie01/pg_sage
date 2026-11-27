@@ -21,6 +21,20 @@ type Broker struct {
 	deps  Deps
 	pools *pools
 	proof explain.ReadProofOptions
+	parse parser
+}
+
+// parser is the SQL parser the broker verifies statements with: the C
+// parser, or none on a build without cgo (every statement is then
+// refused). Tests on such builds substitute a scripted one to reach the
+// execution path; nothing else replaces it.
+type parser struct {
+	brokered func(sql string) (sqlast.BrokeredRead, error)
+	read     func(sql string) (sqlast.ReadQuery, error)
+}
+
+func cParser() parser {
+	return parser{brokered: sqlast.InspectBrokeredRead, read: sqlast.InspectReadQuery}
 }
 
 // New returns a broker over cfg and deps.
@@ -36,7 +50,8 @@ func New(cfg Config, deps Deps) (*Broker, error) {
 	}
 	return &Broker{cfg: cfg, deps: deps, pools: newPools(cfg),
 		proof: explain.ReadProofOptions{AllowRLS: true, DenySecurityDefiner: true,
-			DenyFunction: deniedFunction, AllowCatalogRelation: catalogAllowed}}, nil
+			DenyFunction: deniedFunction, AllowCatalogRelation: catalogAllowed},
+		parse: cParser()}, nil
 }
 
 // Close closes every broker connection.
@@ -47,7 +62,9 @@ func (b *Broker) Evict(principalID string) { b.pools.evict(principalID) }
 
 // roleNamer lets a Logins source name a broker role other than the core's
 // sage_agentb_<id10> (AgentSafetyBench's fixture role).
-type roleNamer interface{ BrokerRoleName(principalID string) string }
+type roleNamer interface {
+	BrokerRoleName(principalID string) string
+}
 
 // roleOf is the broker role the principal logs in as.
 func (b *Broker) roleOf(principalID string) string {
@@ -57,7 +74,7 @@ func (b *Broker) roleOf(principalID string) string {
 	return agentguard.BrokerRoleName(principalID)
 }
 
-// call is one agent_query in flight.
+// call is one agent_query, or one agent explain_query, in flight.
 type call struct {
 	b       *Broker
 	id      agentguard.Identity
@@ -68,6 +85,13 @@ type call struct {
 	rec     AuditRecord
 	// path is the profile schemas of the search path (grantedSchemas).
 	path []string
+	// tool is the MCP tool the gate decides for.
+	tool string
+	// explain plans the statement instead of fetching its rows; planJSON
+	// is the plan, and prepared marks the statement to deallocate.
+	explain  bool
+	planJSON []byte
+	prepared bool
 }
 
 // Query runs one agent read. Refusals and database errors are results;
@@ -78,29 +102,39 @@ func (b *Broker) Query(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	id, ok := agentguard.IdentityFromContext(ctx)
-	if !ok {
-		return blocked(string(agentguard.ReasonUnsponsored),
-			"agent_query runs as an agent principal; this caller has none",
-			"use an agent token minted for a principal, or set mcp.stdio_principal"), nil
+	c, refused, err := b.open(ctx, req.Database, req.SQL, "agent_query")
+	if c == nil {
+		return refused, err
 	}
-	if !id.MayUseDatabase(req.Database) {
-		return Result{}, fmt.Errorf("%w: %s", ErrNotPermitted, req.Database)
-	}
-	t, err := b.deps.Targets.Target(ctx, req.Database)
-	if err != nil {
-		return Result{}, err
-	}
-	if t.DatabaseID == "" {
-		return blocked(ReasonDatabaseUnbound, "the database has no bound identity yet, so "+
-			"its reads cannot be attributed", "wait for pg_sage to bind the database "+
-			"(its first SRE cycle) and retry"), nil
-	}
-	c := &call{b: b, id: id, t: t, req: req, params: params, maxRows: maxRows,
-		rec: AuditRecord{PrincipalID: id.Principal.ID, TaskID: id.TaskID,
-			EnvelopeHash: rawHash(req.SQL)}}
+	c.req, c.params, c.maxRows = req, params, maxRows
 	res, err := c.run(ctx)
 	return c.finish(ctx, res, err)
+}
+
+// open starts a call: the caller's agent identity, the token's databases
+// and the target's bound id. A nil call comes with a refusal or an error.
+func (b *Broker) open(ctx context.Context, database, sql, tool string) (*call, Result,
+	error) {
+	id, ok := agentguard.IdentityFromContext(ctx)
+	if !ok {
+		return nil, blocked(string(agentguard.ReasonUnsponsored),
+			tool+" runs as an agent principal; this caller has none",
+			"use an agent token minted for a principal, or set mcp.stdio_principal"), nil
+	}
+	if !id.MayUseDatabase(database) {
+		return nil, Result{}, fmt.Errorf("%w: %s", ErrNotPermitted, database)
+	}
+	t, err := b.deps.Targets.Target(ctx, database)
+	if err != nil {
+		return nil, Result{}, err
+	}
+	if t.DatabaseID == "" {
+		return nil, blocked(ReasonDatabaseUnbound, "the database has no bound identity "+
+			"yet, so its reads cannot be attributed", "wait for pg_sage to bind the "+
+			"database (its first SRE cycle) and retry"), nil
+	}
+	return &call{b: b, id: id, t: t, tool: tool, rec: AuditRecord{PrincipalID: id.Principal.ID,
+		TaskID: id.TaskID, EnvelopeHash: rawHash(sql)}}, Result{}, nil
 }
 
 func rawHash(sql string) string {
@@ -119,6 +153,8 @@ func (c *call) finish(ctx context.Context, res Result, err error) (Result, error
 		c.rec.Reason = res.ReasonCode
 	case res.Status == StatusFailed:
 		c.rec.Reason = "sqlstate_" + res.SQLState
+	case c.explain:
+		// A plan returns no rows: row_count stays NULL.
 	default:
 		n := res.RowCount
 		c.rec.RowCount = &n
@@ -127,7 +163,7 @@ func (c *call) finish(ctx context.Context, res Result, err error) (Result, error
 		c.rec.EnvelopeHash = res.EnvelopeHash
 	}
 	if err := c.b.deps.Audit.Record(ctx, c.t, c.rec); err != nil {
-		c.b.deps.Log("ERROR", "agent_query by %s on %s returned nothing: %v",
+		c.b.deps.Log("ERROR", "%s by %s on %s returned nothing: %v", c.tool,
 			c.id.Principal.ID, c.t.Name, err)
 		if errors.Is(err, ErrUnavailable) {
 			return Result{}, err
@@ -144,7 +180,7 @@ func (c *call) run(ctx context.Context) (Result, error) {
 			"%U at byte %d (a hidden or control character)", r, at),
 			"remove invisible and bidi control characters"), nil
 	}
-	read, err := sqlast.InspectBrokeredRead(c.req.SQL)
+	read, err := c.b.parse.brokered(c.req.SQL)
 	switch {
 	case errors.Is(err, sqlast.ErrUnavailable):
 		return blocked(ReasonParserUnavailable, "this pg_sage build cannot parse SQL, so "+
@@ -152,12 +188,13 @@ func (c *call) run(ctx context.Context) (Result, error) {
 	case err != nil:
 		return blocked(ReasonUnsupportedShape, err.Error(),
 			"send exactly one SELECT statement (no writes, SET, locking or INTO)"), nil
-	case read.Params != len(c.params):
+	case !c.paramsFit(read.Params):
 		return Result{}, invalidf("the statement uses %d parameters, %d given", read.Params,
 			len(c.params))
 	}
 	c.rec.Fingerprint = read.Fingerprint
-	envelope := envelopeHash(c.id.Principal.ID, c.t.DatabaseID, read.Canonical, c.params)
+	envelope := envelopeHash(c.id.Principal.ID, c.t.DatabaseID, c.envelopeStatement(read),
+		c.params)
 	c.rec.EnvelopeHash = envelope
 	res, err := c.decideAndRun(ctx, read)
 	res.EnvelopeHash = envelope
@@ -177,7 +214,7 @@ func (c *call) decideAndRun(ctx context.Context, read sqlast.BrokeredRead) (Resu
 		return Result{}, err
 	}
 	v := c.b.deps.Decider.Decide(ctx, decide.Request{PrincipalID: c.id.Principal.ID,
-		Tool: "agent_query", Kind: agentguard.ToolAgent, Capability: decide.CapRead,
+		Tool: c.tool, Kind: agentguard.ToolAgent, Capability: decide.CapRead,
 		Database: c.t.Name, Objects: objectsOf(rels), TaskID: c.id.TaskID})
 	c.rec.Step = v.Step
 	if !v.Allowed {

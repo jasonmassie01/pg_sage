@@ -179,15 +179,18 @@ func TestParseLLMFindings_ObjectTypeAlwaysConfiguration(t *testing.T) {
 	}
 }
 
+// Model keys outside the detail allowlist are kept, as data, under
+// detail.model (advisors-04).
 func TestParseLLMFindings_DetailPreserved(t *testing.T) {
 	raw := `[{"object_identifier":"x","extra_field":"extra_val"}]`
 	findings := parseLLMFindings(raw, "test", noopLog)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1, got %d", len(findings))
 	}
-	val, ok := findings[0].Detail["extra_field"]
+	model, _ := findings[0].Detail[modelDetailKey].(map[string]any)
+	val, ok := model["extra_field"]
 	if !ok {
-		t.Fatal("expected 'extra_field' in Detail")
+		t.Fatal("expected 'extra_field' in Detail.model")
 	}
 	strVal, ok := val.(string)
 	if !ok || strVal != "extra_val" {
@@ -367,7 +370,7 @@ func TestAdvisor_LatestFindings_MultipleCopies(t *testing.T) {
 
 func TestAdvisor_ShouldRun_IntervalBoundary(t *testing.T) {
 	a := newTestAdvisor(true, true, 60)
-	a.lastRunAt = time.Now().Add(-61 * time.Second)
+	ranAt(a, time.Now().Add(-61*time.Second))
 	if !a.ShouldRun() {
 		t.Fatal("expected true after interval elapsed")
 	}
@@ -375,7 +378,7 @@ func TestAdvisor_ShouldRun_IntervalBoundary(t *testing.T) {
 
 func TestAdvisor_ShouldRun_JustBeforeInterval(t *testing.T) {
 	a := newTestAdvisor(true, true, 60)
-	a.lastRunAt = time.Now().Add(-59 * time.Second)
+	ranAt(a, time.Now().Add(-59*time.Second))
 	if a.ShouldRun() {
 		t.Fatal("expected false before interval elapsed")
 	}
@@ -401,7 +404,7 @@ func TestAnalyzeBloat_NilConfigData(t *testing.T) {
 		ConfigData: nil,
 	}
 	findings, err := analyzeBloat(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -425,7 +428,7 @@ func TestAnalyzeBloat_NoQualifyingTables(t *testing.T) {
 		},
 	}
 	findings, err := analyzeBloat(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -449,7 +452,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_EmptyQueries(t *testing.T) {
 		Queries: nil,
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, nil, snap,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -475,7 +478,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_LowActivity(t *testing.T) {
 		},
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, nil, snap,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -498,7 +501,7 @@ func TestAnalyzeQueryRewrites_NoCandidates_SpillsLowCalls(t *testing.T) {
 		},
 	}
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, nil, snap,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -542,7 +545,7 @@ func TestAnalyzeWAL_NilConfigData(t *testing.T) {
 		ConfigData: nil,
 	}
 	findings, err := analyzeWAL(
-		context.Background(), nil, snap, nil,
+		context.Background(), nil, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -929,28 +932,6 @@ func TestBloatFinding_AllFieldsForced(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// detectPlatform additional cases (wal.go)
-// ---------------------------------------------------------------------------
-
-func TestDetectPlatform_NilSettings_Direct(t *testing.T) {
-	got := detectPlatform(nil)
-	if got != "self-managed" {
-		t.Fatalf("expected 'self-managed', got %q", got)
-	}
-}
-
-func TestDetectPlatform_NoMatch(t *testing.T) {
-	settings := []collector.PGSetting{
-		{Name: "work_mem", Setting: "4MB", Source: "configuration file"},
-		{Name: "wal_level", Setting: "replica", Source: "default"},
-	}
-	got := detectPlatform(settings)
-	if got != "self-managed" {
-		t.Fatalf("expected 'self-managed', got %q", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // countUnloggedTables additional cases (wal.go)
 // ---------------------------------------------------------------------------
 
@@ -978,27 +959,6 @@ func TestCountUnloggedTables_MixedPersistence(t *testing.T) {
 	got := countUnloggedTables(snap)
 	if got != 1 {
 		t.Errorf("expected 1, got %d", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Connection churn calculation (connection.go)
-// ---------------------------------------------------------------------------
-
-func TestConnectionChurn_Rate(t *testing.T) {
-	// ConnectionChurn is raw over 5 minutes.
-	churn := 50
-	rate := float64(churn) / 5.0
-	if rate != 10.0 {
-		t.Fatalf("expected 10.0, got %.1f", rate)
-	}
-}
-
-func TestConnectionChurn_Zero(t *testing.T) {
-	churn := 0
-	rate := float64(churn) / 5.0
-	if rate != 0.0 {
-		t.Fatalf("expected 0.0, got %.1f", rate)
 	}
 }
 
@@ -1258,7 +1218,7 @@ func TestAnalyzeBloat_FullPath_WithMockLLM(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1287,14 +1247,6 @@ func TestAnalyzeBloat_WithPrevSnapshot(t *testing.T) {
 	defer srv.Close()
 
 	now := time.Now()
-	prev := &collector.Snapshot{
-		CollectedAt: now.Add(-time.Hour),
-		Tables: []collector.TableStats{
-			{SchemaName: "public", RelName: "big",
-				NLiveTup: 7000, NDeadTup: 2000,
-				TableBytes: 50 * 1024 * 1024},
-		},
-	}
 	snap := &collector.Snapshot{
 		CollectedAt: now,
 		ConfigData: &collector.ConfigSnapshot{
@@ -1310,7 +1262,7 @@ func TestAnalyzeBloat_WithPrevSnapshot(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, prev,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1337,7 +1289,7 @@ func TestAnalyzeBloat_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -1366,7 +1318,7 @@ func TestAnalyzeBloat_NilLastAutovacuum(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1415,7 +1367,6 @@ func TestAnalyzeConnections_FullPath(t *testing.T) {
 				{State: "idle in transaction", Count: 2,
 					AvgDurationSeconds: 45},
 			},
-			ConnectionChurn: 50,
 		},
 		System: collector.SystemStats{
 			ActiveBackends: 5,
@@ -1524,14 +1475,8 @@ func TestAnalyzeWAL_FullPath(t *testing.T) {
 		},
 	}
 
-	prev := &collector.Snapshot{
-		System: collector.SystemStats{
-			TotalCheckpoints: 120,
-		},
-	}
-
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, prev,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1554,7 +1499,7 @@ func TestAnalyzeWAL_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -1579,7 +1524,7 @@ func TestAnalyzeWAL_NoPrevSnapshot(t *testing.T) {
 	}
 
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1618,7 +1563,7 @@ func TestAnalyzeQueryRewrites_FullPath(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1664,7 +1609,7 @@ func TestAnalyzeQueryRewrites_SpillCandidates(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1687,7 +1632,7 @@ func TestAnalyzeQueryRewrites_LLMError(t *testing.T) {
 	}
 
 	_, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err == nil {
@@ -1714,7 +1659,7 @@ func TestAnalyzeQueryRewrites_LongQuery_Truncated(t *testing.T) {
 	}
 
 	findings, err := analyzeQueryRewrites(
-		context.Background(), nil, mgr, snap,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1735,7 +1680,6 @@ func TestAnalyze_NoConfigSnapshot(t *testing.T) {
 	// We can't easily test this without a real collector, but
 	// the nil snapshot check happens before sub-advisors.
 	a := newTestAdvisor(true, true, 0) // interval=0 so ShouldRun=true
-	a.lastRunAt = time.Time{}          // zero value
 
 	// Analyze will call a.coll.LatestSnapshot() which panics on nil coll.
 	// We can only test the disabled/LLM-disabled paths safely.
@@ -1779,7 +1723,7 @@ func TestAnalyzeBloat_MultipleTables_OnlyQualifyingIncluded(t *testing.T) {
 	}
 
 	findings, err := analyzeBloat(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {
@@ -1820,38 +1764,7 @@ func TestAnalyzeWAL_WithUnloggedTables(t *testing.T) {
 	}
 
 	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
-		&config.Config{}, noopLog,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(findings) != 0 {
-		t.Fatalf("expected 0, got %d", len(findings))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// WAL detectPlatform integration (wal.go)
-// ---------------------------------------------------------------------------
-
-func TestAnalyzeWAL_CloudSQLPlatform(t *testing.T) {
-	llmResp := `[]`
-	srv, mgr := mockLLMServer(t, llmResp)
-	defer srv.Close()
-
-	snap := &collector.Snapshot{
-		ConfigData: &collector.ConfigSnapshot{
-			PGSettings: []collector.PGSetting{
-				{Name: "max_wal_size", Setting: "1", Unit: "GB",
-					Source: "cloud-sql"},
-			},
-		},
-		System: collector.SystemStats{TotalCheckpoints: 50},
-	}
-
-	findings, err := analyzeWAL(
-		context.Background(), mgr, snap, nil,
+		context.Background(), mgr, snap,
 		&config.Config{}, noopLog,
 	)
 	if err != nil {

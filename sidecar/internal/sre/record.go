@@ -95,6 +95,11 @@ type Summary struct {
 	// similar past incidents the model turn was offered as context.
 	Runbook *RunbookRun `json:"runbook,omitempty"`
 	Memory  *MemoryRef  `json:"memory,omitempty"`
+	// EvidenceNewestAt and EvidenceAgeS (sre-02) are when the newest dated
+	// evidence the diagnosis rests on was observed and how old it was when
+	// the run ended; unset when the run had no dated evidence.
+	EvidenceNewestAt *time.Time `json:"evidence_newest_at,omitempty"`
+	EvidenceAgeS     int64      `json:"evidence_age_s,omitempty"`
 }
 
 // Conclusion ends an investigation run: concluded (a supported root
@@ -121,6 +126,8 @@ const (
 	EventModelReviewed  = "model_reviewed"
 	EventModelRejected  = "model_rejected"
 	EventModelDisagreed = "model_disagreed"
+	// sre-01: the newest attempt of a trigger expired and was the last.
+	EventAttemptsExhausted = "attempts_exhausted"
 )
 
 // Event is one link of an investigation's hash chain.
@@ -144,6 +151,10 @@ type ListFilter struct {
 	Cursor string
 	// CaseID, when set, lists only the investigations of that case.
 	CaseID string
+	// CaseIDs, when set, lists the newest investigation of each named
+	// case (at most MaxListCaseIDs), newest first, in one page. It is not
+	// combined with Cursor or CaseID.
+	CaseIDs []string
 }
 
 // Page is one page of investigations.

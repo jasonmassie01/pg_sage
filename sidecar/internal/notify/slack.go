@@ -58,16 +58,17 @@ func (s *SlackSender) Send(
 		return fmt.Errorf("build slack payload: %w", err)
 	}
 	switch {
+	case planToken(evt) != "" && CardInteractive(ch):
+		if payload, err = withPlanButtons(payload, evt); err != nil {
+			return fmt.Errorf("build slack payload: %w", err)
+		}
 	case factToken(evt) != "" && CardInteractive(ch):
 		if payload, err = withFactButtons(payload, factToken(evt)); err != nil {
 			return fmt.Errorf("build slack payload: %w", err)
 		}
 	case cardToken(evt) != "" && CardInteractive(ch):
-		if payload, err = withCardButtons(payload, cardToken(evt)); err != nil {
-			return fmt.Errorf("build slack payload: %w", err)
-		}
-	case ch.Config["interactive"] == "true":
-		if payload, err = withApprovalButtons(payload, evt); err != nil {
+		payload, err = withCardButtons(payload, evt)
+		if err != nil {
 			return fmt.Errorf("build slack payload: %w", err)
 		}
 	}
@@ -136,8 +137,7 @@ func postSlackWebhook(
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("slack returned status %d",
-			resp.StatusCode)
+		return &HTTPStatusError{Service: "slack", Code: resp.StatusCode}
 	}
 	return nil
 }

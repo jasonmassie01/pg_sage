@@ -152,11 +152,46 @@ func (d fakeDirectory) Backend(name string) (Backend, bool) {
 	return b, ok
 }
 
-type memStore struct {
+// switchDirectory is a fleet directory whose databases can go missing, as
+// FleetDirectory's do while the manager reloads or reconnects one: absent
+// names miss, and with flap every other lookup of any name misses.
+type switchDirectory struct {
 	mu       sync.Mutex
-	records  []Record
-	err      error
-	terminal map[string]bool
+	backends map[string]Backend
+	absent   map[string]bool
+	flap     bool
+	calls    int
+}
+
+func newSwitchDirectory(backends map[string]Backend) *switchDirectory {
+	return &switchDirectory{backends: backends, absent: map[string]bool{}}
+}
+
+func (d *switchDirectory) Backend(name string) (Backend, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.calls++
+	if d.absent[name] || (d.flap && d.calls%2 == 0) {
+		return nil, false
+	}
+	b, ok := d.backends[name]
+	return b, ok
+}
+
+func (d *switchDirectory) setAbsent(name string, absent bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.absent[name] = absent
+}
+
+type memStore struct {
+	mu        sync.Mutex
+	records   []Record
+	err       error
+	liveErr   error // LiveOpened only
+	markErr   error // MarkTerminal only
+	markCalls int
+	terminal  map[string]bool
 }
 
 func newMemStore() *memStore { return &memStore{terminal: map[string]bool{}} }
@@ -181,6 +216,9 @@ func (m *memStore) LiveOpened(_ context.Context, tokenID string) ([]LiveRef, err
 	if m.err != nil {
 		return nil, m.err
 	}
+	if m.liveErr != nil {
+		return nil, m.liveErr
+	}
 	var out []LiveRef
 	for _, r := range m.records {
 		if r.Kind != KindOpen || !r.Created || m.terminal[r.ID] ||
@@ -188,7 +226,7 @@ func (m *memStore) LiveOpened(_ context.Context, tokenID string) ([]LiveRef, err
 			continue
 		}
 		out = append(out, LiveRef{RecordID: r.ID, Database: r.Database,
-			InvestigationID: r.InvestigationID})
+			InvestigationID: r.InvestigationID, OpenedAt: r.CreatedAt})
 	}
 	return out, nil
 }
@@ -196,8 +234,22 @@ func (m *memStore) LiveOpened(_ context.Context, tokenID string) ([]LiveRef, err
 func (m *memStore) MarkTerminal(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.markCalls++
+	if m.markErr != nil {
+		return m.markErr
+	}
 	m.terminal[id] = true
 	return nil
+}
+
+func (m *memStore) marks() (int, map[string]bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]bool{}
+	for k, v := range m.terminal {
+		out[k] = v
+	}
+	return m.markCalls, out
 }
 
 func (m *memStore) ForInvestigation(_ context.Context, tokenID, database,

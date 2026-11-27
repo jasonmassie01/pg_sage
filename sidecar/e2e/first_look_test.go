@@ -16,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/firstlook"
 )
 
 // Five-minute time to value (roadmap phase 3): start the sidecar exactly
@@ -28,13 +30,7 @@ type firstLookReport struct {
 	Databases []struct {
 		Database string `json:"database"`
 		Report   *struct {
-			Items []struct {
-				Rule     string `json:"rule"`
-				Object   string `json:"object"`
-				Evidence []struct {
-					Ref string `json:"ref"`
-				} `json:"evidence"`
-			} `json:"items"`
+			Items []firstlook.Item `json:"items"`
 		} `json:"report"`
 	} `json:"databases"`
 }
@@ -72,7 +68,35 @@ func TestFirstLookWithinAMinute(t *testing.T) {
 		t.Fatalf("pg_sage_time_to_first_finding_seconds = %v, want (0, 60]", ttff)
 	}
 	t.Logf("TTFF_SECONDS=%.3f", ttff)
+	assertFirstFindingFromCatalog(t, dsn, name, report.Databases[0].Report.Items)
 	assertReadOnlyOnboarding(t, env, dsn, name)
+}
+
+// assertFirstFindingFromCatalog checks the time to first finding came from
+// a qualifying catalog finding, not from a setup note (firstlook-07).
+func assertFirstFindingFromCatalog(t *testing.T, dsn, name string, items []firstlook.Item) {
+	t.Helper()
+	if n := firstlook.CountItems(items); n.Findings < 1 {
+		t.Fatalf("first look counts %+v: the seeded problems are not findings", n)
+	}
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("monitored pool: %v", err)
+	}
+	defer pool.Close()
+	// The tracker sets the metric just before the source is written.
+	var source string
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		err = pool.QueryRow(context.Background(), `SELECT coalesce(first_finding_source,
+			'') FROM sage.onboarding WHERE database_name = $1`, name).Scan(&source)
+		if (err == nil && source != "") || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if err != nil || source != "first_look" {
+		t.Fatalf("first finding source = %q err %v, want first_look", source, err)
+	}
 }
 
 // seededQuickstartDatabase creates a database with a duplicate index, an

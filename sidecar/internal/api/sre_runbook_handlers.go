@@ -17,10 +17,12 @@ import (
 // Typed runbook and incident memory routes (AI-SRE-SPEC §7.1, §9). Viewers
 // list and read runbooks, their run history and an investigation's
 // similar past incidents. Operators write drafts (JSON or English compiled
-// by the model), retire runbooks and record investigation outcomes. Only
-// admins sign, and a signature names the version and the content hash the
-// signer reviewed. Every route is scoped to the named database. Nothing
-// here runs a runbook or executes a proposal.
+// by the model), revise them and record investigation outcomes; a revision
+// stages a draft while the signed version keeps running. Only admins sign,
+// and a signature names the version and the content hash the signer
+// reviewed; only admins retire, since retirement is permanent. Every route
+// is scoped to the named database. Nothing here runs a runbook or executes
+// a proposal.
 
 const runbooksPath = "/api/v1/databases/{db}/runbooks"
 
@@ -29,22 +31,20 @@ const maxRunbookBody = 64 << 10
 
 func registerRunbookRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	ledgers *earned.Registry) {
-	viewerUp := RequireRole("admin", "operator", "viewer")
-	operatorUp := RequireRole("admin", "operator")
-	adminOnly := RequireRole("admin")
 	one := runbooksPath + "/{id}"
-	mux.Handle("GET "+runbooksPath, viewerUp(runbookListHandler(mgr)))
-	mux.Handle("POST "+runbooksPath, operatorUp(runbookCreateHandler(mgr)))
-	mux.Handle("POST "+runbooksPath+"/compile", operatorUp(runbookCompileHandler(mgr)))
-	mux.Handle("GET "+one, viewerUp(runbookGetHandler(mgr)))
-	mux.Handle("GET "+one+"/runs", viewerUp(runbookRunsHandler(mgr)))
-	mux.Handle("POST "+one+"/versions", operatorUp(runbookReviseHandler(mgr)))
-	mux.Handle("POST "+one+"/retire", operatorUp(runbookRetireHandler(mgr)))
-	mux.Handle("POST "+one+"/sign", adminOnly(runbookSignHandler(mgr)))
-	mux.Handle("GET "+sreInvestigationsPath+"/{id}/similar",
-		viewerUp(similarIncidentsHandler(mgr)))
-	mux.Handle("POST "+sreInvestigationsPath+"/{id}/outcome",
-		operatorUp(outcomeHandler(mgr, ledgers)))
+	route(mux, "GET "+runbooksPath, gateViewer, runbookListHandler(mgr))
+	routeDB(mux, "POST "+runbooksPath, gateOperator, pathDB, runbookCreateHandler(mgr))
+	routeDB(mux, "POST "+runbooksPath+"/compile", gateOperator, pathDB,
+		runbookCompileHandler(mgr))
+	route(mux, "GET "+one, gateViewer, runbookGetHandler(mgr))
+	route(mux, "GET "+one+"/runs", gateViewer, runbookRunsHandler(mgr))
+	routeDB(mux, "POST "+one+"/versions", gateOperator, pathDB, runbookReviseHandler(mgr))
+	route(mux, "POST "+one+"/retire", gateAdmin, runbookRetireHandler(mgr))
+	route(mux, "POST "+one+"/sign", gateAdmin, runbookSignHandler(mgr))
+	route(mux, "GET "+sreInvestigationsPath+"/{id}/similar", gateViewer,
+		similarIncidentsHandler(mgr))
+	routeDB(mux, "POST "+sreInvestigationsPath+"/{id}/outcome", gateOperator, pathDB,
+		outcomeHandler(mgr, ledgers))
 }
 
 // runbookError writes a canonical error code for runbook and memory errors.

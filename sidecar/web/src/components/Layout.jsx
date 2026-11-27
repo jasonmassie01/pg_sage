@@ -1,71 +1,29 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react'
-import {
-  AlertTriangle, Activity, Settings, Gauge,
-  Home, LogOut, Server, Menu, X, ChevronDown, ShieldCheck, BookCheck, KeyRound,
-  MessageSquare, Bot,
-} from 'lucide-react'
+import { LogOut, Menu, X, ChevronDown } from 'lucide-react'
 import { DatabasePicker } from './DatabasePicker'
 import { EmergencyStopControl } from './EmergencyStopControl'
 import { useAPI } from '../hooks/useAPI'
 import { useLiveRefetch } from '../hooks/useLiveEvents'
+import { useLiveStatus } from '../hooks/liveEventsContext'
+import { FreshnessIndicator } from './FreshnessIndicator'
 import { TimeRangePicker } from './TimeRangePicker'
-import { TrustBadge } from './TrustBadge'
-import { PostgresMeme } from './PostgresMeme'
+import { TimeZoneToggle } from './TimeZoneToggle'
+import { HeaderTrustBadge } from './HeaderTrustBadge'
+import { PageIntro } from './PageIntro'
 import { pageGuide } from './pageGuide'
 import { MonitoringContext } from './MonitoringContext'
+import { PageErrorBoundary } from './PageErrorBoundary'
+import { SecretsPostureBanner } from './SecretsPostureBanner'
+import { findRoute, navGroups, routeHref, routeLabel } from '../routes'
+import { inboxBadge } from '../lib/inbox'
+import { readPref, writePref } from '../lib/storage'
 
 const PendingActionsContext = createContext({ refetch: () => {} })
 
 export function usePendingActionsRefetch() {
   return useContext(PendingActionsContext).refetch
 }
-
-const NAV_GROUPS = [
-  {
-    heading: 'Operate',
-    items: [
-      { path: '#/', icon: Home, label: 'Value',
-        tid: 'nav-value' },
-      { path: '#/cases', icon: AlertTriangle,
-        label: 'Cases', tid: 'nav-cases',
-        aliases: ['#/findings'] },
-      { path: '#/actions', icon: Activity, label: 'Actions',
-        tid: 'nav-actions' },
-      { path: '#/slos', icon: Gauge, label: 'SLOs',
-        tid: 'nav-slos' },
-      { path: '#/trust', icon: ShieldCheck, label: 'Trust',
-        tid: 'nav-trust' },
-      { path: '#/facts', icon: BookCheck, label: 'Facts',
-        tid: 'nav-facts' },
-      { path: '#/ask', icon: MessageSquare, label: 'Ask Sage',
-        tid: 'nav-ask' },
-      { path: '#/manage-databases', icon: Server,
-        label: 'Fleet', admin: true,
-        tid: 'nav-databases' },
-      { path: '#/settings', icon: Settings, label: 'Settings',
-        admin: true, tid: 'nav-settings' },
-      { path: '#/mcp-tokens', icon: KeyRound, label: 'MCP tokens',
-        admin: true, standaloneOnly: true, tid: 'nav-mcp-tokens' },
-      { path: '#/agents', icon: Bot, label: 'Agents',
-        operator: true, standaloneOnly: true, tid: 'nav-agents' },
-    ],
-  },
-]
-
-const ADVANCED_ITEMS = [
-  { path: '#/advanced/findings', label: 'Findings explorer' },
-  { path: '#/advanced/actions', label: 'Action history' },
-  { path: '#/advanced/runbooks', label: 'Runbooks' },
-  { path: '#/advanced/autonomy', label: 'Earned autonomy' },
-  { path: '#/advanced', label: 'Snapshot & metrics' },
-]
-
-/* Flat list of all nav items for header label lookup */
-const ALL_NAV_ITEMS = [
-  ...NAV_GROUPS.flatMap(g => g.items),
-  ...ADVANCED_ITEMS,
-]
 
 function NavHeading({ children }) {
   return (
@@ -82,12 +40,21 @@ function NavHeading({ children }) {
   )
 }
 
-function NavLink({ item, active, pendingCount }) {
+// inboxCountURL is the inbox count of the selected database, or of the
+// fleet in the all-databases view (ux-01b: the one nav badge).
+function inboxCountURL(selectedDB) {
+  const base = '/api/v1/inbox/count'
+  return selectedDB && selectedDB !== 'all'
+    ? `${base}?database=${encodeURIComponent(selectedDB)}` : base
+}
+
+function NavLink({ route, active, pending }) {
+  const Icon = route.icon
   return (
     <a
-      href={item.path}
+      href={routeHref(route)}
       aria-current={active ? 'page' : undefined}
-      data-testid={item.tid}
+      data-testid={route.testId}
       className={`sage-nav-link flex items-center gap-2 px-3 py-2 rounded text-sm${active ? ' sage-nav-link-active' : ''}`}
       style={{
         color: active
@@ -95,72 +62,145 @@ function NavLink({ item, active, pendingCount }) {
         background: active
           ? 'var(--bg-hover)' : 'transparent',
       }}>
-      <item.icon size={16} />
-      {item.label}
-      {item.path === '#/actions' && pendingCount > 0 && (
-        <span
+      <Icon size={16} />
+      {routeLabel(route)}
+      {route.id === 'inbox' && pending && (
+        <span data-testid="nav-badge"
+          title={pending.title}
           className="ml-auto px-1.5 py-0.5 rounded-full text-xs"
           style={{
-            background: 'var(--red, #e53e3e)',
+            background: 'var(--red-solid)',
             color: '#fff',
             fontSize: '0.65rem',
             lineHeight: 1,
           }}>
-          {pendingCount}
+          {pending.text}
         </span>
       )}
     </a>
   )
 }
 
+// CollapsibleNav is a nav group the viewer can fold (ux-11: Evidence).
+// Layout keeps the open state so the desktop sidebar and the mobile drawer
+// share it.
+function CollapsibleNav({ group, activeId, pending, open, onToggle }) {
+  const listId = `${group.id}-navigation`
+  return (
+    <div>
+      <button type="button" aria-expanded={open} aria-controls={listId}
+        onClick={onToggle}
+        className="mt-3 flex w-full items-center gap-2 rounded px-3 py-2 text-sm"
+        style={{ color: 'var(--text-secondary)' }}>
+        <ChevronDown size={16} aria-hidden="true"
+          style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+        {group.heading}
+      </button>
+      {open && (
+        <div id={listId} className="ml-3 border-l pl-2" style={{ borderColor: 'var(--border)' }}>
+          {group.routes.map(route => (
+            <NavLink key={route.id} route={route} active={route.id === activeId}
+              pending={pending} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// SidebarNav renders the nav groups this user can see, from the route
+// registry (dashboard-06).
+function SidebarNav({ user, platformManaged, activeId, pending, collapsed }) {
+  return navGroups(user, platformManaged).map(group => (group.collapsible
+    ? <CollapsibleNav key={group.id} group={group} activeId={activeId} pending={pending}
+      open={collapsed.isOpen(group)} onToggle={() => collapsed.toggle(group)} />
+    : (
+      <div key={group.id}>
+        <NavHeading>{group.heading}</NavHeading>
+        {group.routes.map(route => (
+          <NavLink key={route.id} route={route} active={route.id === activeId}
+            pending={pending} />
+        ))}
+      </div>
+    )))
+}
+
+const navPrefKey = group => `pg_sage_nav_${group.id}`
+
+// storedOpen is the viewer's last choice for a collapsible group: true,
+// false, or null when they made none (or storage is unavailable).
+function storedOpen(group) {
+  const value = readPref(navPrefKey(group), '')
+  if (value === 'open') return true
+  if (value === 'closed') return false
+  return null
+}
+
+// useCollapsedGroups: a collapsible group is open when the viewer last
+// opened it, or, before any choice, when the current page is in it. The
+// choice persists per browser (lib/storage.js); blocked storage keeps it
+// for this page view only.
+function useCollapsedGroups(activeRoute) {
+  const [choices, setChoices] = useState({})
+  const choice = group => (group.id in choices ? choices[group.id] : storedOpen(group))
+  const isOpen = group => choice(group) ?? activeRoute?.navGroup === group.id
+  const toggle = group => {
+    const next = !isOpen(group)
+    writePref(navPrefKey(group), next ? 'open' : 'closed')
+    setChoices(prev => ({ ...prev, [group.id]: next }))
+  }
+  return { isOpen, toggle }
+}
+
+// ScopeEmpty stands in for the scope picker before any database exists;
+// only an admin can open the Fleet page to add one.
+function ScopeEmpty({ isAdmin }) {
+  return (
+    <span data-testid="scope-empty" className="text-sm"
+      style={{ color: 'var(--text-secondary)' }}>
+      No databases yet.{' '}
+      {isAdmin
+        ? <a href="#/manage-databases" className="underline"
+          style={{ color: 'var(--accent)' }}>Add a database</a>
+        : 'Ask an admin to add one.'}
+    </span>
+  )
+}
+
+// App owns the one /api/v1/databases poll: fleetData is its result (null
+// until the first load) and onFleetChanged refetches it.
 export function Layout({
-  children, databases, selectedDB, onSelectDB,
-  user, authMode = user?.auth_mode, fleetData: fleetDataProp, fleetError, onFleetChanged, onLogout, pageTitle,
+  children, databases, selectedDB, onSelectDB, selectedTag = '', onSelectTag, scopeNotice,
+  user, authMode = user?.auth_mode, fleetData, fleetUpdatedAt, fleetError,
+  onFleetChanged, onLogout, pageTitle,
   ...rest
 }) {
   const hash = (window.location.hash || '#/').split('?')[0]
   const canReviewActions =
     user?.role === 'admin' || user?.role === 'operator'
   const { data: countData, refetch: refetchPending } = useAPI(
-    canReviewActions ? '/api/v1/actions/pending/count' : null, 30000,
+    canReviewActions ? inboxCountURL(selectedDB) : null, 30000,
   )
+  // The Inbox badge counts every decision waiting on a person in the
+  // selected database, or in the fleet (ux-01b); Actions keeps no badge.
+  // It refetches on any database's action events and when a page decides
+  // something; a hidden tab refreshes it when shown.
   useLiveRefetch(['actions'], refetchPending)
-  const pendingCount = countData?.count || 0
-
-  // Reuse the fleet data App.jsx already fetches to avoid a
-  // duplicate 30s poll. Fall back to our own useAPI when the
-  // prop is absent (kept for older callers/tests).
-  const { data: fleetDataOwn, refetch: refetchFleetOwn } = useAPI(
-    user && !fleetDataProp ? '/api/v1/databases' : null, 30000,
-  )
-  const fleetData = fleetDataProp || fleetDataOwn
+  const pending = inboxBadge(countData)
+  const liveStatus = useLiveStatus()
   const emergencyStopped =
     fleetData?.summary?.emergency_stopped === true
 
-  // TrustBadge reflects the selected database's trust_level.
-  // "all" collapses to the worst (least autonomous) across the
-  // fleet so a single observation-mode instance still shows up
-  // on the overview.
-  const trustLevel = (() => {
-    if (!fleetData?.databases?.length) return null
-    if (selectedDB && selectedDB !== 'all') {
-      const d = fleetData.databases.find(x => x.name === selectedDB)
-      return d?.status?.trust_level || null
-    }
-    const order = { observation: 0, advisory: 1, autonomous: 2 }
-    let worst = null
-    for (const d of fleetData.databases) {
-      const t = d.status?.trust_level
-      if (!t) continue
-      if (worst == null || order[t] < order[worst]) worst = t
-    }
-    return worst
-  })()
-
   const isAdmin = user?.role === 'admin'
   const platformManaged = authMode === 'databricks_app'
+  const activeRoute = findRoute(hash)
+  const headerTitle = pageTitle || activeRoute?.title || 'pg_sage'
+  // Each tab names its page for the tab list and screen readers (dashboard-10).
+  useEffect(() => {
+    document.title = headerTitle === 'pg_sage' ? 'pg_sage' : `${headerTitle} · pg_sage`
+  }, [headerTitle])
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const collapsed = useCollapsedGroups(activeRoute)
 
   // Close the drawer on navigation. Listen for hashchange so that
   // clicking a link inside the drawer (which is a plain anchor)
@@ -199,55 +239,8 @@ export function Layout({
 
       <div className="sage-sidebar-label"><span className="sage-terminal-prompt" aria-hidden="true">❯</span> database control room</div>
 
-      {NAV_GROUPS.map(group => {
-        const visible = group.items.filter(
-          n => (!n.admin || isAdmin) && (!n.operator || canReviewActions)
-            && (!n.standaloneOnly || !platformManaged),
-        )
-        if (visible.length === 0) return null
-        return (
-          <div key={group.heading}>
-            <NavHeading>{group.heading}</NavHeading>
-            {visible.map(n => (
-              <NavLink
-                key={n.path}
-                item={n}
-                active={hash === n.path || n.aliases?.includes(hash)}
-                pendingCount={pendingCount}
-              />
-            ))}
-          </div>
-        )
-      })}
-
-      <div>
-        <button type="button" aria-expanded={advancedOpen}
-          aria-controls="advanced-navigation"
-          onClick={() => setAdvancedOpen(open => !open)}
-          className="mt-3 flex w-full items-center gap-2 rounded px-3 py-2 text-sm"
-          style={{ color: 'var(--text-secondary)' }}>
-          <ChevronDown size={16} aria-hidden="true"
-            style={{ transform: advancedOpen ? 'rotate(180deg)' : 'none' }} />
-          Advanced
-        </button>
-        {advancedOpen && (
-          <div id="advanced-navigation" className="ml-3 border-l pl-2"
-            style={{ borderColor: 'var(--border)' }}>
-            {ADVANCED_ITEMS.map(item => (
-              <a key={item.path} href={item.path}
-                className="block rounded px-3 py-2 text-sm"
-                style={{
-                  color: hash === item.path
-                    ? 'var(--accent)' : 'var(--text-secondary)',
-                  background: hash === item.path
-                    ? 'var(--bg-hover)' : 'transparent',
-                }}>
-                {item.label}
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
+      <SidebarNav user={user} platformManaged={platformManaged}
+        activeId={activeRoute?.id} pending={pending} collapsed={collapsed} />
 
       <div
         className="sage-account mt-auto pt-4"
@@ -340,39 +333,55 @@ export function Layout({
               <h1
               className="text-base md:text-lg font-semibold truncate"
               style={{ color: 'var(--text-primary)' }}>
-              {pageTitle || ALL_NAV_ITEMS.find(n => n.path === hash)?.label
-                || 'pg_sage'}
+              {headerTitle}
               </h1>
             </div>
           </div>
           <div className="flex items-center gap-1.5 md:gap-3
             flex-wrap justify-end min-w-0">
+            <FreshnessIndicator status={liveStatus} updatedAt={fleetUpdatedAt} />
             <EmergencyStopControl
               databases={fleetData?.databases || []}
               selectedDB={selectedDB}
               canControl={canReviewActions}
               summaryStopped={emergencyStopped}
-              onChanged={onFleetChanged || refetchFleetOwn}
+              fleetStop={fleetData?.summary}
+              onChanged={onFleetChanged}
             />
-            {trustLevel && <TrustBadge level={trustLevel} />}
-            <TimeRangePicker />
-            {databases && databases.length > 0 && (
-              <DatabasePicker
-                data-testid="database-picker"
-                databases={databases}
-                selected={selectedDB}
-                onSelect={onSelectDB}
-              />
+            <HeaderTrustBadge rows={fleetData?.databases} selectedDB={selectedDB} />
+            {activeRoute?.usesTimeRange && (
+              <TimeRangePicker label={activeRoute.timeRangeLabel} />
+            )}
+            <TimeZoneToggle />
+            <DatabasePicker
+              data-testid="database-picker"
+              databases={databases}
+              selected={selectedDB}
+              selectedTag={selectedTag}
+              onSelect={onSelectDB}
+              onSelectTag={onSelectTag}
+            />
+            {fleetData && !fleetError && databases?.length === 0 && (
+              <ScopeEmpty isAdmin={isAdmin} />
             )}
           </div>
         </header>
         <div className="sage-content p-3 md:p-6">
-          <MonitoringContext database={selectedDB} fleetData={fleetData} error={fleetError} user={user} />
-          <PostgresMeme route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
-          <PendingActionsContext.Provider
-            value={{ refetch: refetchPending }}>
-            {children}
-          </PendingActionsContext.Provider>
+          {/* A page render error stays here; the header and nav survive. */}
+          <PageErrorBoundary resetKey={window.location.hash || '#/'}>
+            <SecretsPostureBanner isAdmin={isAdmin} />
+            {scopeNotice && (
+              <p role="status" data-testid="scope-notice" className="mb-4 text-sm"
+                style={{ color: 'var(--amber, #f0a54a)' }}>{scopeNotice}</p>
+            )}
+            <MonitoringContext database={selectedDB} fleetData={fleetData}
+              error={fleetError} user={user} />
+            <PageIntro route={hash} guide={pageGuide(hash, { pageTitle, authMode })} />
+            <PendingActionsContext.Provider
+              value={{ refetch: refetchPending }}>
+              {children}
+            </PendingActionsContext.Provider>
+          </PageErrorBoundary>
         </div>
       </main>
     </div>

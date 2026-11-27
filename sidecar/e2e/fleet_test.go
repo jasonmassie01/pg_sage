@@ -26,16 +26,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // adminDSN returns the admin Postgres DSN pointing at the
 // "postgres" database, suitable for CREATE/DROP DATABASE.
 func adminDSN(t *testing.T) string {
 	t.Helper()
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
+	return testdb.SkipUnlessLive(t)
 }
 
 // createTestDB creates a database if it does not exist.
@@ -73,10 +72,11 @@ func dropTestDB(
 }
 
 // dbDSN preserves the designated server and targets a fixture database.
-func dbDSN(dbName string) string {
-	parsed, err := url.Parse(os.Getenv("SAGE_TEST_DATABASE_URL"))
+func dbDSN(t *testing.T, dbName string) string {
+	t.Helper()
+	parsed, err := url.Parse(testdb.SkipUnlessLive(t))
 	if err != nil {
-		return ""
+		t.Fatalf("parse %s: %v", testdb.EnvName, err)
 	}
 	parsed.Path = "/" + dbName
 	return parsed.String()
@@ -265,7 +265,7 @@ func TestFleet(t *testing.T) {
 	// Clear sage.users + FK deps so admin bootstrap fires.
 	// The schema may not exist yet (fresh DB), so errors are
 	// logged but not fatal.
-	clearSageSchema(t, dbDSN(fleetDB1))
+	clearSageSchema(t, dbDSN(t, fleetDB1))
 
 	// --- Build binary and start ---
 	binary := buildBinary(t)

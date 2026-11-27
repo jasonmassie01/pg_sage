@@ -4,13 +4,16 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // Dogfood round 2: diagnostic and maintenance statements are not
 // workload. EXPLAIN ANALYZE of a query names its tables, and a CREATE INDEX
 // names its table too; neither may become evidence for an index.
 func TestGroupQueriesByTableSkipsDiagnosticStatements(t *testing.T) {
-	snap := &collector.Snapshot{Queries: []collector.QueryStats{
+	// The snapshot holds the table: statements resolve only to known tables.
+	snap := &collector.Snapshot{Tables: []collector.TableStats{{SchemaName: "public",
+		RelName: "orders"}}, Queries: []collector.QueryStats{
 		{QueryID: 1, Query: "EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM public.orders " +
 			"WHERE status = $1", Calls: 5000, MeanExecTime: 900, TotalExecTime: 4.5e6},
 		{QueryID: 2, Query: "VACUUM (ANALYZE) public.orders", Calls: 50, MeanExecTime: 900},
@@ -28,7 +31,8 @@ func TestGroupQueriesByTableSkipsDiagnosticStatements(t *testing.T) {
 			}
 		}
 	}
-	if got := groupQueriesByTable(snap)["public.orders"]; len(got) != 1 {
+	orders := workload.Relation{Schema: "public", Name: "orders"}
+	if got := groupQueriesByTable(snap)[orders]; len(got) != 1 {
 		t.Fatalf("public.orders queries = %+v, want only the application query", got)
 	}
 	if got := applicationQueries(snap.Queries); len(got) != 1 || got[0].QueryID != 5 {

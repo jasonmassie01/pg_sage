@@ -9,11 +9,21 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	planpkg "github.com/pg-sage/sidecar/internal/migration/plan"
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 type PostgresRehearsalRunner struct {
 	lockTimeout      time.Duration
 	statementTimeout time.Duration
+	// production identifies the server the clone must not be; without it
+	// Run refuses (migration-07).
+	production IdentitySource
+	// workload reads the statements to measure before and after the
+	// expand steps; analyzeTimeout bounds each executed one on the clone
+	// and inspect is the analyze guard's parser (nil: libpg_query).
+	workload       WorkloadSource
+	analyzeTimeout time.Duration
+	inspect        func(string) (sqlast.ReadQuery, error)
 }
 
 func NewPostgresRehearsalRunner(
@@ -24,20 +34,59 @@ func NewPostgresRehearsalRunner(
 	}
 }
 
+// WithProduction sets the production server a clone is checked against
+// before the first step.
+func (runner *PostgresRehearsalRunner) WithProduction(
+	source IdentitySource,
+) *PostgresRehearsalRunner {
+	runner.production = source
+	return runner
+}
+
+// WithWorkload measures source's statements on the clone before and after
+// the expand steps (lab-04b), each executed one bounded by timeout (0:
+// clone.rehearsal_statement_timeout_seconds' default).
+func (runner *PostgresRehearsalRunner) WithWorkload(
+	source WorkloadSource, timeout time.Duration,
+) *PostgresRehearsalRunner {
+	runner.workload, runner.analyzeTimeout = source, timeout
+	return runner
+}
+
 func (runner *PostgresRehearsalRunner) Run(
 	ctx context.Context, dsn string, planned planpkg.Plan,
 ) (rehearsalpkg.Measurement, error) {
 	if runner == nil || dsn == "" {
 		return rehearsalpkg.Measurement{}, fmt.Errorf("rehearsal clone DSN is unavailable")
 	}
-	pool, err := pgxpool.New(ctx, dsn)
+	pool, err := runner.connectClone(ctx, dsn)
 	if err != nil {
-		return rehearsalpkg.Measurement{}, fmt.Errorf("connect rehearsal clone: %w", err)
+		return rehearsalpkg.Measurement{}, err
 	}
 	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
-		return rehearsalpkg.Measurement{}, fmt.Errorf("ping rehearsal clone: %w", err)
+	stmts, note := runner.affected(ctx, planned.Table)
+	queriesBefore, err := runner.measureSide(ctx, pool, stmts, nil)
+	if err != nil {
+		return rehearsalpkg.Measurement{}, err
 	}
+	measurement, err := runner.applySteps(ctx, pool, planned)
+	if err != nil {
+		return rehearsalpkg.Measurement{}, err
+	}
+	queriesAfter, err := runner.measureSide(ctx, pool, stmts, queriesBefore)
+	if err != nil {
+		return rehearsalpkg.Measurement{}, err
+	}
+	measurement.AffectedQueries = pairAll(stmts, queriesBefore, queriesAfter)
+	measurement.WorkloadNote = note
+	return measurement, nil
+}
+
+// applySteps runs the expand steps on the clone, timing each, and the
+// database's growth over them.
+func (runner *PostgresRehearsalRunner) applySteps(
+	ctx context.Context, pool *pgxpool.Pool, planned planpkg.Plan,
+) (rehearsalpkg.Measurement, error) {
 	before, err := rehearsalDatabaseSize(ctx, pool)
 	if err != nil {
 		return rehearsalpkg.Measurement{}, err
@@ -50,9 +99,11 @@ func (runner *PostgresRehearsalRunner) Run(
 		}
 		duration := time.Since(started)
 		measurement.BackfillDuration += duration
-		if duration > measurement.MaxLockDuration {
-			measurement.MaxLockDuration = duration
-		}
+		measurement.MaxStepDuration = max(measurement.MaxStepDuration, duration)
+		measurement.Steps = append(measurement.Steps, rehearsalpkg.StepMeasurement{
+			Kind: step.Kind, Duration: duration, Concurrent: step.RequiresTopLevel,
+			LockLevel: planpkg.StepLock(ctx, step),
+		})
 	}
 	after, err := rehearsalDatabaseSize(ctx, pool)
 	if err != nil {

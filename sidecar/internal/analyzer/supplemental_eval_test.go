@@ -73,3 +73,33 @@ func TestSupplementalDetectors_SkippedRunEvaluatesNothing(t *testing.T) {
 		t.Fatalf("resolvable = %v, want none", res)
 	}
 }
+
+// incompleteDetector emitted findings of categories it read only in part
+// (a posture detector that hit its row limit).
+type incompleteDetector struct {
+	reportingDetector
+	incomplete []string
+}
+
+func (d *incompleteDetector) LastIncompleteCategories() []string { return d.incomplete }
+
+// A category whose run was incomplete is not resolvable even though it
+// emitted findings: an open finding on an object past the cut stays open.
+// The detector's other categories still resolve.
+func TestSupplementalDetectors_IncompleteCategoryDoesNotResolve(t *testing.T) {
+	a := &Analyzer{logFn: func(string, string, ...any) {}}
+	a.eval = newCycleEval()
+	d := &incompleteDetector{reportingDetector: reportingDetector{
+		evaluated: []string{"agent_posture:AP-01"},
+		findings:  []Finding{{Category: "agent_posture:AP-03", ObjectIdentifier: "s.t01"}}},
+		incomplete: []string{"agent_posture:AP-03"}}
+	a.WithSupplementalDetector(d)
+	out := a.runSupplementalDetectors(context.Background())
+	if len(out) != 1 || out[0].ObjectIdentifier != "s.t01" {
+		t.Fatalf("findings = %+v, want the incomplete run's finding kept", out)
+	}
+	res := a.eval.resolvable(out)
+	if res["agent_posture:AP-03"] || !res["agent_posture:AP-01"] {
+		t.Fatalf("resolvable = %v, want AP-01 and not AP-03", res)
+	}
+}

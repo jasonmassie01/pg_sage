@@ -72,7 +72,7 @@ describe('Recommendations tab', () => {
     render(<Actions database="all" user={{ role: 'viewer' }} />)
     fireEvent.click(screen.getByTestId('actions-tab-recommendations'))
     expect(screen.getByTestId('actions-scope'))
-      .toHaveTextContent('Stored recommendations require a single database')
+      .toHaveTextContent('Stored changes require a single database')
     expect(screen.queryByTestId('recommendations-table')).toBeNull()
   })
 

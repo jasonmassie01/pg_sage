@@ -1,7 +1,9 @@
 import { Server, AlertTriangle, CheckCircle } from 'lucide-react'
 import { StatusDot } from './StatusDot'
 import { TrustBadge } from './TrustBadge'
-import { formatTrustLevel } from '../pages/Dashboard'
+import { formatTrustLevel } from '../lib/trustLevel'
+import { rowAutoFamilies } from '../lib/autonomy'
+import { instanceOwnerLabel } from '../lib/instanceOwner'
 
 function healthColor(score) {
   if (score === undefined || score === null) return 'var(--text-secondary)'
@@ -24,6 +26,9 @@ export function DatabaseTile({ db, selected, onSelect }) {
   const blocker = (caps.blockers || [])[0]
   const ready = caps.ready_for_auto_safe
   const readiness = ready === true ? 'ready' : ready === false ? 'blocked' : 'unknown'
+  const instanceOwner = instanceOwnerLabel(caps)
+  const reasons = Array.isArray(s.health_reasons) ? s.health_reasons : []
+  const haRole = typeof s.ha_role === 'string' && s.ha_role ? s.ha_role : null
 
   return (
     <button
@@ -53,6 +58,7 @@ export function DatabaseTile({ db, selected, onSelect }) {
             Health
           </div>
           <div className="text-2xl font-bold"
+            title={reasons.length > 0 ? reasons.join('; ') : undefined}
             style={{ color: healthColor(s.health_score) }}>
             {s.health_score ?? '—'}
           </div>
@@ -99,6 +105,14 @@ export function DatabaseTile({ db, selected, onSelect }) {
           )}
         </div>
       </div>
+      {reasons.length > 0 && (
+        <ul data-testid="health-reasons" className="text-xs mb-2"
+          style={{ color: 'var(--text-secondary)' }}>
+          {reasons.map(reason => (
+            <li key={reason} className="truncate">{reason}</li>
+          ))}
+        </ul>
+      )}
       {trust && (
         <div className="flex items-center justify-between">
           <span className="text-[10px] uppercase tracking-wider"
@@ -106,7 +120,7 @@ export function DatabaseTile({ db, selected, onSelect }) {
             {formatTrustLevel(trust) || trust}
           </span>
           <TrustBadge level={trust} compact
-            autoFamilies={autoFamilies(caps)} />
+            autoFamilies={rowAutoFamilies(db)} />
         </div>
       )}
       <div className="mt-3 pt-2"
@@ -122,20 +136,50 @@ export function DatabaseTile({ db, selected, onSelect }) {
             Auto-safe {readiness}
           </span>
         </div>
+        {instanceOwner && (
+          <div data-testid="db-instance-owner" className="text-xs mt-1 truncate"
+            title={instanceOwner.title}
+            style={{ color: 'var(--text-secondary)' }}>
+            {instanceOwner.text}
+          </div>
+        )}
         {blocker && (
           <div className="text-xs mt-1 truncate"
             style={{ color: 'var(--text-secondary)' }}>
             {blocker}
           </div>
         )}
+        {haRole && (
+          <HAStatus role={haRole} safeMode={s.ha_safe_mode === true}
+            lastChange={s.ha_last_change} />
+        )}
       </div>
     </button>
   )
 }
 
-function autoFamilies(caps) {
-  if (!Array.isArray(caps.action_families)) return undefined
-  return caps.action_families
-    .filter(f => f?.decision === 'execute')
-    .map(f => f.action_type)
+// HAStatus shows the database's HA role and failover safe mode (fleet-04).
+// Only a confirmed primary outside safe mode allows autonomous actions.
+function HAStatus({ role, safeMode, lastChange }) {
+  const writable = role === 'primary' && !safeMode
+  return (
+    <div className="flex items-center justify-between gap-2 mt-1">
+      <span data-testid="ha-role" className="text-xs"
+        style={{ color: writable ? 'var(--text-secondary)' : 'var(--yellow)' }}>
+        HA {role}
+      </span>
+      {safeMode && (
+        <span data-testid="ha-safe-mode"
+          className="text-xs px-1.5 py-0.5 rounded"
+          title={lastChange ? `Last role change ${lastChange}` : undefined}
+          style={{
+            background: 'rgba(245,158,11,0.15)',
+            color: 'var(--yellow)',
+          }}>
+          HA safe mode
+        </span>
+      )}
+    </div>
+  )
 }
+

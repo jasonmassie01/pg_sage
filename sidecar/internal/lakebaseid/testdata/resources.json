@@ -1,0 +1,147 @@
+[
+  {
+    "name": "plain",
+    "resource": "projects/search/branches/test/endpoints/primary",
+    "valid": true
+  },
+  {
+    "name": "one character segments",
+    "resource": "projects/a/branches/b/endpoints/c",
+    "valid": true
+  },
+  {
+    "name": "leading digit project",
+    "resource": "projects/1abc/branches/br-1/endpoints/ep-1",
+    "valid": true
+  },
+  {
+    "name": "leading digit every segment",
+    "resource": "projects/123/branches/456/endpoints/789",
+    "valid": true
+  },
+  {
+    "name": "trailing hyphen",
+    "resource": "projects/abc-/branches/b-/endpoints/c-",
+    "valid": true
+  },
+  {
+    "name": "63 character project",
+    "resource": "projects/abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/branches/b/endpoints/c",
+    "valid": true
+  },
+  {
+    "name": "63 character branch",
+    "resource": "projects/a/branches/abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/endpoints/c",
+    "valid": true
+  },
+  {
+    "name": "63 character endpoint",
+    "resource": "projects/a/branches/b/endpoints/abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "valid": true
+  },
+  {
+    "name": "leading hyphen project",
+    "resource": "projects/-abc/branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "leading hyphen branch",
+    "resource": "projects/a/branches/-b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "leading hyphen endpoint",
+    "resource": "projects/a/branches/b/endpoints/-c",
+    "valid": false
+  },
+  {
+    "name": "64 character project",
+    "resource": "projects/abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "64 character branch",
+    "resource": "projects/a/branches/abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "64 character endpoint",
+    "resource": "projects/a/branches/b/endpoints/abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "valid": false
+  },
+  {
+    "name": "uppercase project",
+    "resource": "projects/Search/branches/test/endpoints/primary",
+    "valid": false
+  },
+  {
+    "name": "uppercase endpoint",
+    "resource": "projects/search/branches/test/endpoints/PRIMARY",
+    "valid": false
+  },
+  {
+    "name": "extra segment",
+    "resource": "projects/a/branches/b/endpoints/c/extra",
+    "valid": false
+  },
+  {
+    "name": "missing endpoint segment",
+    "resource": "projects/a/branches/b",
+    "valid": false
+  },
+  {
+    "name": "missing endpoint id",
+    "resource": "projects/a/branches/b/endpoints/",
+    "valid": false
+  },
+  {
+    "name": "empty project id",
+    "resource": "projects//branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "wrong collection name",
+    "resource": "project/a/branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "leading slash",
+    "resource": "/projects/a/branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "trailing slash",
+    "resource": "projects/a/branches/b/endpoints/c/",
+    "valid": false
+  },
+  {
+    "name": "trailing newline",
+    "resource": "projects/a/branches/b/endpoints/c\n",
+    "valid": false
+  },
+  {
+    "name": "underscore",
+    "resource": "projects/a_b/branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "dot",
+    "resource": "projects/a.b/branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "space",
+    "resource": "projects/a b/branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "non-ASCII letter",
+    "resource": "projects/caf\u00e9/branches/b/endpoints/c",
+    "valid": false
+  },
+  {
+    "name": "empty",
+    "resource": "",
+    "valid": false
+  }
+]

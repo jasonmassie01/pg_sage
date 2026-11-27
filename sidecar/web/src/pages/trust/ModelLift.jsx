@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatTime } from '../../lib/time'
 
 // Roadmap 2.4 (measure the model): "model lift over deterministic, per
 // family" from the newest held-out bench measurement (GET
@@ -127,18 +128,18 @@ export function ModelLift({ database }) {
       )}
       {report && (
         <div className="text-xs" style={muted}>
-          From {report.provenance}, generated {new Date(report.generated_at).toLocaleString()}.
+          From {report.provenance}, generated {formatTime(report.generated_at)}.
         </div>
       )}
       {measured.length > 0 && (
         <table className="w-full text-left">
           <thead>
             <tr style={muted}>
-              <th className="pr-3 font-normal">family</th>
-              <th className="pr-3 font-normal">Safe Pass (model vs graph)</th>
-              <th className="pr-3 font-normal">override precision</th>
-              <th className="pr-3 font-normal">inconclusive lift</th>
-              <th className="font-normal">root authority</th>
+              <th scope="col" className="pr-3 font-normal">family</th>
+              <th scope="col" className="pr-3 font-normal">Safe Pass (model vs graph)</th>
+              <th scope="col" className="pr-3 font-normal">override precision</th>
+              <th scope="col" className="pr-3 font-normal">inconclusive lift</th>
+              <th scope="col" className="font-normal">root authority</th>
             </tr>
           </thead>
           <tbody>

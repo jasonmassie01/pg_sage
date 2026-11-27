@@ -22,11 +22,15 @@ import (
 // release assets.
 
 const benchUsage = "usage: pg_sage bench verify [--commit SHA] <pgincidentbench.json>\n" +
+	"       " + benchInstallCommand + "\n" +
 	"       pg_sage bench export-replay --investigation ID [--keep-identifiers] [--out FILE]"
 
 func runBenchCommand(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "export-replay" {
 		return runExportReplay(context.Background(), args[1:], os.Getenv, stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "install" {
+		return runBenchInstall(args[1:], os.Getenv, stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "verify" {
 		_, _ = fmt.Fprintln(stderr, benchUsage)
@@ -54,7 +58,8 @@ func runBenchCommand(args []string, stdout, stderr io.Writer) int {
 }
 
 // checkReportCommit holds the report's pg_sage_commit and the
-// certificate's commit to each other and, when set, to want.
+// certificate's commit to each other (earned.ErrSignatureMismatch) and,
+// when set, to want (earned.ErrBuildMismatch).
 func checkReportCommit(raw []byte, sig benchsig.Signature, want string) error {
 	var stamp struct {
 		Commit string `json:"pg_sage_commit"`
@@ -65,7 +70,8 @@ func checkReportCommit(raw []byte, sig benchsig.Signature, want string) error {
 	report := earned.Build{Commit: stamp.Commit}.Normalized().Commit
 	signed := strings.ToLower(sig.Commit)
 	if signed != "" && report != "" && signed != report {
-		return fmt.Errorf("the signature names commit %s, the report %s", signed, report)
+		return fmt.Errorf("%w: the signature names commit %s, the report %s",
+			earned.ErrSignatureMismatch, signed, report)
 	}
 	want = earned.Build{Commit: want}.Normalized().Commit
 	if want == "" {
@@ -73,12 +79,13 @@ func checkReportCommit(raw []byte, sig benchsig.Signature, want string) error {
 	}
 	for _, got := range []string{signed, report} {
 		if got != "" && got != want {
-			return fmt.Errorf("built from commit %s, not %s", got, want)
+			return fmt.Errorf("%w: built from commit %s, not %s", earned.ErrBuildMismatch,
+				got, want)
 		}
 	}
 	if signed == "" && report == "" {
-		return fmt.Errorf("neither the signature nor the report names a commit (want %s)",
-			want)
+		return fmt.Errorf("%w: neither the signature nor the report names a commit "+
+			"(want %s)", earned.ErrBuildMismatch, want)
 	}
 	return nil
 }

@@ -51,8 +51,9 @@ func TestRuleUnusedIndexes_SkipsOnlyFKSupportingIndex(t *testing.T) {
 			RelName:    "orders",
 		}},
 		ForeignKeys: []collector.ForeignKey{{
+			Schema:          "public",
 			TableName:       "orders",
-			FKColumn:        "customer_id",
+			Columns:         []string{"customer_id"},
 			ReferencedTable: "customers",
 			ConstraintName:  "orders_customer_id_fkey",
 		}},
@@ -89,8 +90,9 @@ func TestRuleUnusedIndexes_DropsFKIndexWhenAlternateExists(t *testing.T) {
 			RelName:    "orders",
 		}},
 		ForeignKeys: []collector.ForeignKey{{
+			Schema:          "public",
 			TableName:       "orders",
-			FKColumn:        "customer_id",
+			Columns:         []string{"customer_id"},
 			ReferencedTable: "customers",
 			ConstraintName:  "orders_customer_id_fkey",
 		}},
@@ -410,9 +412,10 @@ func TestRuleMissingFK_UnloggedDowngrade(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
+				Schema:          "public",
 				TableName:       "tmp_orders",
 				ReferencedTable: "customers",
-				FKColumn:        "customer_id",
+				Columns:         []string{"customer_id"},
 				ConstraintName:  "fk_customer",
 			},
 		},

@@ -157,12 +157,19 @@ type Objective struct {
 	BadQuery      string
 	EligibleQuery string
 	ResetsQuery   string
+	// CoverageQuery, optional, returns the earliest sample time (Unix
+	// seconds) over $window; without it coverage is unverified.
+	CoverageQuery string
 	// MinEligible is the least eligible events a window needs to be known.
 	MinEligible float64
 	// StaleAfter is how old the newest stored sample may be (zero: 5m).
 	StaleAfter time.Duration
 	// Proxy names the database proxy of a proxy SLI.
 	Proxy string
+	// OwnerDatabase, for an SLO every database of a fleet evaluates, is
+	// the one database whose investigator opens its slo_burn
+	// investigations; empty: the evaluating database.
+	OwnerDatabase string
 }
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,63}$`)
@@ -181,8 +188,9 @@ func (o Objective) Validate() error {
 		{o.Window >= MinWindow && o.Window <= MaxWindow, "window must be 1h-90d"},
 		{o.MinEligible >= 1 && !math.IsInf(o.MinEligible, 0), "min eligible must be >= 1"},
 		{o.StaleAfter >= 0, "stale-after must not be negative"},
-		{textOK(o.Description) && textOK(o.Owner), "description and owner must be " +
-			"at most 300 characters without control characters"},
+		{textOK(o.Description) && textOK(o.Owner) && textOK(o.OwnerDatabase),
+			"description, owner and owner database must be at most 300 characters " +
+				"without control characters"},
 	}
 	for _, c := range checks {
 		if !c.ok {
@@ -193,7 +201,8 @@ func (o Objective) Validate() error {
 }
 
 func (o Objective) validateSource() error {
-	queries := o.BadQuery != "" || o.EligibleQuery != "" || o.ResetsQuery != ""
+	queries := o.BadQuery != "" || o.EligibleQuery != "" || o.ResetsQuery != "" ||
+		o.CoverageQuery != ""
 	var problem string
 	switch {
 	case o.Kind == KindApp && strings.HasPrefix(o.Name, ProxyPrefix):
@@ -226,6 +235,9 @@ func promQueryProblem(o Objective) string {
 	if o.ResetsQuery != "" && !strings.Contains(o.ResetsQuery, "$window") {
 		return "the resets query must use $window"
 	}
+	if o.CoverageQuery != "" && !strings.Contains(o.CoverageQuery, "$window") {
+		return "the coverage query must use $window"
+	}
 	return ""
 }
 
@@ -256,12 +268,25 @@ func FormatWindow(d time.Duration) string {
 	return fmt.Sprintf("%ds", d/time.Second)
 }
 
+// coverageUnverified reports a Prometheus SLI without a coverage query:
+// its windows are taken as fully covered and fresh.
+func (o Objective) coverageUnverified() bool {
+	return o.Source == SourcePrometheus && o.CoverageQuery == ""
+}
+
 // Hash identifies the definition: a changed target, window, source or
-// query is a new definition.
+// SLI query is a new definition, and so is a changed owner database. The
+// coverage query is left out: it changes how a window is measured, not
+// what the SLI counts. An objective without an owner hashes as it did
+// before owners existed, so its history survives an upgrade.
 func (o Objective) Hash() string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{o.Name, string(o.Kind),
+	fields := []string{o.Name, string(o.Kind),
 		string(o.Source), strconv.FormatFloat(o.Target, 'g', -1, 64), o.Window.String(),
 		o.BadQuery, o.EligibleQuery, o.ResetsQuery, o.Proxy,
-		strconv.FormatFloat(o.MinEligible, 'g', -1, 64)}, "\x00")))
+		strconv.FormatFloat(o.MinEligible, 'g', -1, 64)}
+	if o.OwnerDatabase != "" {
+		fields = append(fields, "owner="+o.OwnerDatabase)
+	}
+	sum := sha256.Sum256([]byte(strings.Join(fields, "\x00")))
 	return hex.EncodeToString(sum[:16])
 }

@@ -1,6 +1,8 @@
 package sre
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,3 +127,102 @@ func hasMissing(d causal.Diagnosis, id probes.ID, reason string) bool {
 	}
 	return false
 }
+
+// Stale resume (sre-02): staleness against now, not only within a run.
+// A run resumed after a restart or a pause judges its stored evidence by
+// the age of the newest dated row at the time it resumes.
+
+func dated(at time.Time) Evidence { return Evidence{ProbeID: "lock_graph", ObservedAt: at} }
+
+func TestEvidenceAge_SpreadBoundary(t *testing.T) {
+	now := staleT0
+	at := ageOfEvidence([]Evidence{dated(now.Add(-MaxEvidenceSpread))}, now)
+	if at.stale() || at.age != MaxEvidenceSpread ||
+		!at.newest.Equal(now.Add(-MaxEvidenceSpread)) {
+		t.Fatalf("evidence exactly %s old = %+v, stale %v; want usable", MaxEvidenceSpread,
+			at, at.stale())
+	}
+	past := ageOfEvidence([]Evidence{dated(now.Add(-MaxEvidenceSpread - time.Second))}, now)
+	if !past.stale() || past.age != MaxEvidenceSpread+time.Second {
+		t.Fatalf("evidence 1s past the spread = %+v, stale %v; want stale", past, past.stale())
+	}
+}
+
+func TestEvidenceAge_NewestRowDecides(t *testing.T) {
+	now := staleT0
+	ev := []Evidence{dated(now.Add(-2 * time.Hour)), dated(now.Add(-30 * time.Second)),
+		dated(now.Add(-time.Hour))}
+	a := ageOfEvidence(ev, now)
+	if a.stale() || a.age != 30*time.Second || !a.newest.Equal(now.Add(-30*time.Second)) {
+		t.Fatalf("age = %+v, stale %v; want the 30s-old row to decide", a, a.stale())
+	}
+}
+
+func TestEvidenceAge_UndatedRowsAreNotNewest(t *testing.T) {
+	now := staleT0
+	ev := []Evidence{{ProbeID: "long_transactions"}, dated(now.Add(-time.Hour))}
+	a := ageOfEvidence(ev, now)
+	if !a.stale() || a.age != time.Hour {
+		t.Fatalf("an undated row made hour-old evidence current: %+v", a)
+	}
+	none := ageOfEvidence([]Evidence{{ProbeID: "long_transactions"}}, now)
+	if none.stale() || !none.newest.IsZero() || none.age != 0 {
+		t.Fatalf("only undated evidence = %+v; want no age and not stale", none)
+	}
+}
+
+// Nil/empty: a fresh queued run has no evidence and is never stale.
+func TestEvidenceAge_NoEvidence(t *testing.T) {
+	for _, ev := range [][]Evidence{nil, {}} {
+		a := ageOfEvidence(ev, staleT0)
+		if a.stale() || !a.newest.IsZero() || a.age != 0 {
+			t.Fatalf("no evidence = %+v", a)
+		}
+		var s Summary
+		a.apply(&s)
+		if s.EvidenceNewestAt != nil || s.EvidenceAgeS != 0 {
+			t.Fatalf("no evidence set the summary: %+v", s)
+		}
+	}
+}
+
+// Boundary: evidence dated after now (sidecar and database clocks
+// disagree) is current, never a negative age.
+func TestEvidenceAge_FutureEvidenceIsCurrent(t *testing.T) {
+	a := ageOfEvidence([]Evidence{dated(staleT0.Add(90 * time.Second))}, staleT0)
+	if a.stale() || a.age != 0 {
+		t.Fatalf("future evidence = %+v, stale %v", a, a.stale())
+	}
+	var s Summary
+	a.apply(&s)
+	if s.EvidenceAgeS != 0 || s.EvidenceNewestAt == nil ||
+		!s.EvidenceNewestAt.Equal(staleT0.Add(90*time.Second)) {
+		t.Fatalf("summary = %+v", s)
+	}
+}
+
+func TestEvidenceAge_SetsTheSummary(t *testing.T) {
+	newest := staleT0.Add(-(61*time.Minute + 59*time.Second))
+	var s Summary
+	ageOfEvidence([]Evidence{dated(newest)}, staleT0).apply(&s)
+	if s.EvidenceNewestAt == nil || !s.EvidenceNewestAt.Equal(newest) ||
+		s.EvidenceAgeS != 3719 {
+		t.Fatalf("summary = newest %v age %d; want %v and 3719", s.EvidenceNewestAt,
+			s.EvidenceAgeS, newest)
+	}
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"evidence_newest_at":"2026-09-14T02:10:01Z"`) ||
+		!strings.Contains(string(raw), `"evidence_age_s":3719`) {
+		t.Fatalf("summary JSON %s lacks the evidence age", raw)
+	}
+	plain, _ := json.Marshal(Summary{})
+	if strings.Contains(string(plain), "evidence_") {
+		t.Fatalf("a summary without evidence carries an age: %s", plain)
+	}
+}
+
+// No concurrent access test here: ageOfEvidence is a pure function of
+// its arguments; the concurrent stale resume runs on the store.

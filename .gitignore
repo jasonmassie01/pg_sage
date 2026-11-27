@@ -26,10 +26,6 @@ sidecar/pg_sage_sidecar_linux
 /.local-test-results/
 /deploy/databricks-apps/settings.local.json
 /deploy/databricks-apps/settings.*.local.json
-cloudsqltests/config_test.yaml
-cloudsqltests/config_alloydb_test.yaml
-cloudsqltests/*.pid
-cloudsqltests/*.log
 sidecar/cloud_test/*.yaml
 sidecar/cloud_test/*.json
 .mcp.json
@@ -81,9 +77,6 @@ files_extracted/
 deep_test/
 sidecar/cloud_test/
 sidecar/deep_test/
-cloudsqltests/setup_cloudsql.sql
-cloudsqltests/config_fleet_test.yaml
-cloudsqltests/config_sage_test.yaml
 sidecar/cmd/create_admin_alloydb/
 
 # NOTE: sidecar/test/hint_verify/ and e2e/walkthrough.spec.ts are
@@ -109,3 +102,5 @@ sidecar/release-bench/*
 
 # Performance gate reports, profiles and test binaries (PG_SAGE_PERF_REPORT)
 /perfgate/
+# Logwatch classifier corpus: real PostgreSQL log records (scripts/capture_logwatch_corpus.py)
+!sidecar/internal/logwatch/testdata/pg*/*/*.log

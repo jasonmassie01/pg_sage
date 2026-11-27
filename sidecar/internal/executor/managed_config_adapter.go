@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
 var (
@@ -54,7 +56,7 @@ func (e *Executor) applyManagedCustodianConfig(
 	if err != nil {
 		return ManagedConfigResult{}, true, err
 	}
-	if provider == "neon" || provider == "lakebase" {
+	if provider == "neon" || provider == "lakebase" || prov.Canonical(provider) == prov.CNPG {
 		return ManagedConfigResult{}, true, fmt.Errorf("%w: %s",
 			ErrManagedConfigUnsupported, managedConfigGuidance(provider, change.Parameter))
 	}
@@ -121,12 +123,13 @@ func parseManagedConfigValue(raw string) (string, error) {
 }
 
 func managedConfigMechanism(provider string) ManagedConfigMechanism {
-	switch provider {
-	case "neon", "supabase", "lakebase":
+	profile, _ := prov.Lookup(provider)
+	switch profile.ConfigMechanism {
+	case prov.ConfigTenant, prov.ConfigClusterSpec:
 		return ManagedProviderConfig
-	case "cloud-sql", "cloudsql", "gcp", "alloydb":
+	case prov.ConfigCloudSQLFlags, prov.ConfigAlloyDBFlags:
 		return ManagedDatabaseFlag
-	case "azure", "azure-flexible", "azure-single", "azure-cosmos":
+	case prov.ConfigServerParameters, prov.ConfigGuidanceOnly:
 		return ManagedServerParameter
 	default:
 		return ManagedParameterGroup
@@ -134,26 +137,35 @@ func managedConfigMechanism(provider string) ManagedConfigMechanism {
 }
 
 func managedConfigGuidance(provider, parameter string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "lakebase":
+	switch prov.Canonical(provider) {
+	case prov.Lakebase:
 		return "Lakebase manages instance parameter " + parameter +
 			"; ALTER SYSTEM and instance parameter changes are unavailable. " +
 			"Only permitted session, database, or role settings can be changed through SQL"
-	case "neon":
+	case prov.Neon:
 		return "Neon controls instance parameter " + parameter +
 			"; only permitted session, database, or role settings can be changed through SQL"
-	case "supabase":
+	case prov.Supabase:
 		return "Supabase instance parameter " + parameter +
 			" requires a supported Postgres config control through the Supabase API/CLI; " +
 			"verify availability and effective state; ALTER SYSTEM is unavailable"
-	case "azure-cosmos":
+	case prov.AzureCosmos:
 		return "Azure Cosmos DB for PostgreSQL: set " + parameter + " with `az cosmosdb " +
 			"postgres configuration coordinator update --name " + parameter +
 			" --value <value>`; ALTER SYSTEM is unavailable"
-	case "azure", "azure-flexible", "azure-single":
+	case prov.CNPG:
+		return "CloudNativePG: set " + parameter + " in the Cluster's " +
+			"spec.postgresql.parameters (`kubectl patch cluster <cluster> -n <namespace> " +
+			"--type merge`, or the GitOps repository that owns the Cluster); the operator " +
+			"owns postgresql.conf and ALTER SYSTEM is disabled. pg_sage records it as a " +
+			"managed-change proposal an operator approves and applies; it never patches " +
+			"the Cluster"
+	case prov.Azure:
 		return "Azure Database for PostgreSQL: set " + parameter + " with `az postgres " +
-			"flexible-server parameter set --name " + parameter + " --value <value>` " +
-			"(or configure the azure: section so pg_sage applies it); ALTER SYSTEM is unavailable"
+			"flexible-server parameter set --resource-group <resource-group> --server-name " +
+			"<server> --name " + parameter + " --value <value>`; pg_sage records it as a " +
+			"managed-change proposal an operator approves and runs (it writes only the " +
+			"WAL-slot cap over ARM); ALTER SYSTEM is unavailable"
 	default:
 		return "managed provider (" + provider + "): apply " + parameter +
 			" via the provider parameter group / database flags; ALTER SYSTEM is unavailable"

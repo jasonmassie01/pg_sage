@@ -122,10 +122,9 @@ func TestBootstrapAdminSecretCreatesOnceWithoutLogging(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer capture.Close()
-			stderr := os.Stderr
-			os.Stderr = capture
+			stderr := swapStderr(capture)
 			err = tc.run(ctx, p)
-			os.Stderr = stderr
+			swapStderr(stderr)
 			if err != nil {
 				t.Fatal(err)
 			}

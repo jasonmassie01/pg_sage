@@ -9,8 +9,9 @@ import (
 )
 
 // maxTailerQueueSize bounds unread complete lines between the single
-// offset-owning pump and consumers. Raw lines have no severity yet, so
-// overflow evicts the oldest line.
+// offset-owning pump and consumers. Overflow evicts the oldest non-critical
+// lines first (isCriticalRecord), so a PANIC or disk-full line survives a
+// log storm; only a queue full of critical lines loses its oldest ones.
 const maxTailerQueueSize = 10000
 
 const tailerCheckpointBytes = 64
@@ -68,7 +69,18 @@ func (t *Tailer) ReadLines() [][]byte {
 	defer t.mu.Unlock()
 	lines := t.queue
 	t.queue = nil
+	t.criticalHead = 0
 	return lines
+}
+
+// TakeDropped returns how many queued lines overflow evicted since the
+// last call, and resets the count.
+func (t *Tailer) TakeDropped() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := t.dropped
+	t.dropped = 0
+	return n
 }
 
 func (t *Tailer) requestPump() bool {
@@ -195,9 +207,41 @@ func (t *Tailer) enqueue(lines [][]byte) {
 		return
 	}
 	t.queue = append(t.queue, lines...)
-	if overflow := len(t.queue) - maxTailerQueueSize; overflow > 0 {
-		copy(t.queue, t.queue[overflow:])
-		t.queue = t.queue[:maxTailerQueueSize]
-		t.log("warn", "log line queue overflow: dropped %d oldest lines", overflow)
+	overflow := len(t.queue) - maxTailerQueueSize
+	if overflow <= 0 {
+		return
 	}
+	critical := t.evictOverflow(overflow)
+	t.dropped += overflow
+	t.log("warn", "log line queue overflow: dropped %d lines (%d critical); "+
+		"critical lines are kept first", overflow, critical)
+}
+
+// evictOverflow removes overflow queued lines, oldest non-critical first,
+// preserving order. criticalHead counts the leading lines already known to
+// be critical, so each line is sniffed about once per storm. It returns how
+// many critical lines had to go because nothing else was left. Caller holds
+// t.mu.
+func (t *Tailer) evictOverflow(overflow int) int {
+	queued := len(t.queue)
+	kept := t.queue[:t.criticalHead]
+	i, evicted := t.criticalHead, 0
+	for ; i < queued && evicted < overflow; i++ {
+		if isCriticalRecord(t.format, t.queue[i]) {
+			kept = append(kept, t.queue[i])
+			continue
+		}
+		evicted++
+	}
+	t.criticalHead = len(kept)
+	kept = append(kept, t.queue[i:]...)
+	criticalEvicted := overflow - evicted
+	if criticalEvicted > 0 {
+		copy(kept, kept[criticalEvicted:])
+		kept = kept[:len(kept)-criticalEvicted]
+		t.criticalHead -= criticalEvicted
+	}
+	clear(t.queue[len(kept):queued])
+	t.queue = kept
+	return criticalEvicted
 }

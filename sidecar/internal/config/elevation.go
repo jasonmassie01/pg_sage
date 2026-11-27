@@ -15,6 +15,9 @@ import (
 const (
 	DefaultRampSafeHours     = 192 // 8 days
 	DefaultRampModerateHours = 744 // 31 days
+	// DefaultAskAfterApprovals is trust.ask_after_approvals (ux-07a).
+	DefaultAskAfterApprovals = 10
+	maxAskAfterApprovals     = 1000
 	maxElevationHours        = 8760
 	minAccuracyPct           = 50
 )
@@ -107,6 +110,10 @@ func (c *Config) validateElevation() error {
 	if t.RampModerateHours < t.RampSafeHours {
 		return fmt.Errorf("trust.ramp_moderate_hours (%d) must be at least "+
 			"trust.ramp_safe_hours (%d)", t.RampModerateHours, t.RampSafeHours)
+	}
+	if t.AskAfterApprovals < 0 || t.AskAfterApprovals > maxAskAfterApprovals {
+		return fmt.Errorf("trust.ask_after_approvals must be 0 (off) or 1-%d, got %d",
+			maxAskAfterApprovals, t.AskAfterApprovals)
 	}
 	if err := c.Verify.validateDropWindow(); err != nil {
 		return err

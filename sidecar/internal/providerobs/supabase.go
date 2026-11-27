@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 const maxResponseBytes = 4 << 20
@@ -29,10 +31,11 @@ func NewSupabase(project, token string) (*Supabase, error) {
 		strings.ContainsAny(token, "\r\n") {
 		return nil, errors.New("Supabase observability requires a project ref and analytics read token")
 	}
-	return &Supabase{project: project, token: token, http: &http.Client{
-		Timeout:       15 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}}, nil
+	client := egress.HTTPClient(15 * time.Second)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &Supabase{project: project, token: token, http: client}, nil
 }
 
 func (c *Supabase) get(ctx context.Context, endpoint string, query url.Values) ([]byte, error) {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -22,6 +23,12 @@ type ScriptGenerator struct {
 	pool      *pgxpool.Pool
 	pgVersion int
 	logFn     func(string, string, ...any)
+	timeouts  catalogread.Timeouts // bound each schema read
+	cache     *replyCache          // nil: every call asks the model
+
+	// schemaText describes a table for the prompt and the cache key; a
+	// seam for tests, fetchTableSchema in production.
+	schemaText func(ctx context.Context, schema, table string) string
 }
 
 // NewScriptGenerator creates a ScriptGenerator. If llmClient is nil,
@@ -32,203 +39,98 @@ func NewScriptGenerator(
 	pgVersion int,
 	logFn func(string, string, ...any),
 ) *ScriptGenerator {
-	return &ScriptGenerator{
+	g := &ScriptGenerator{
 		llmClient: llmClient,
 		pool:      pool,
 		pgVersion: pgVersion,
 		logFn:     logFn,
+		timeouts:  catalogread.Default(),
 	}
+	g.schemaText = g.fetchTableSchema
+	return g
 }
 
-// Generate produces a tailored migration script for the given risk.
-// Falls back to risk.SafeAlternative when the LLM is unavailable.
+// ScriptResult is a migration recommendation. SQL is always the
+// deterministic alternative: model text is never the recommendation
+// (migration-10). Script is the model's script once validated; ModelText
+// is the script pg_sage could not validate, and Reason says why. Both are
+// shown as model output (security-05).
+type ScriptResult struct {
+	SQL       string
+	Script    string
+	ModelText string
+	Reason    string
+}
+
+// Generate returns the recommended script for the given risk, which is
+// risk.SafeAlternative.
 func (g *ScriptGenerator) Generate(
 	ctx context.Context, risk *DDLRisk,
 ) (string, error) {
-	if g.llmClient == nil || !g.llmClient.IsEnabled() {
-		return risk.SafeAlternative, nil
-	}
+	return g.GenerateScript(ctx, risk).SQL, nil
+}
 
-	schema := g.fetchTableSchema(ctx, risk.SchemaName, risk.TableName)
+// GenerateScript asks the model for a tailored migration script, through
+// the reply cache, and keeps it as Script only when validateModelDDL
+// accepts it for the risk's table.
+func (g *ScriptGenerator) GenerateScript(
+	ctx context.Context, risk *DDLRisk,
+) ScriptResult {
+	out := ScriptResult{SQL: risk.SafeAlternative}
+	if g.llmClient == nil || !g.llmClient.IsEnabled() {
+		return out
+	}
+	schema := g.schemaText(ctx, risk.SchemaName, risk.TableName)
+	reply, ok := g.reply(ctx, risk, schema)
+	script := extractSQLFromResponse(reply)
+	if !ok || script == "" {
+		return out
+	}
+	target := modelTarget{Schema: risk.SchemaName, Table: risk.TableName}
+	if err := validateModelDDL(script, target); err != nil {
+		g.logFn("warn", "migration: model script for %s not validated: %v",
+			qualifiedName(risk.SchemaName, risk.TableName), err)
+		out.ModelText, out.Reason = script, err.Error()
+		return out
+	}
+	out.Script = script
+	return out
+}
+
+// reply is the model's answer for risk on this schema: cached for the
+// statement's identity, else asked. A failed call, and a reply with no
+// SQL in it, is not cached, so the next detection asks again.
+func (g *ScriptGenerator) reply(
+	ctx context.Context, risk *DDLRisk, schema string,
+) (string, bool) {
+	key := enrichKey(risk.RuleID, risk.Statement, schema)
+	if raw, ok := g.cache.get(key); ok {
+		return raw, true
+	}
+	raw, err := g.modelScript(ctx, risk, schema)
+	if err != nil {
+		g.logFn("warn", "migration: LLM script generation failed: %v", err)
+		return "", false
+	}
+	if extractSQLFromResponse(raw) != "" {
+		g.cache.put(key, raw)
+	}
+	return raw, true
+}
+
+// modelScript asks the model for a script for risk on the given schema.
+func (g *ScriptGenerator) modelScript(
+	ctx context.Context, risk *DDLRisk, schema string,
+) (string, error) {
 	system := scriptSystemPrompt()
 	user := scriptUserPrompt(risk, schema, g.pgVersion)
 
 	ctx, cancel := context.WithTimeout(ctx, scriptLLMTimeout)
 	defer cancel()
 
-	raw, _, err := g.llmClient.Chat(ctx, system, user, scriptMaxTokens)
-	if err != nil {
-		g.logFn("warn",
-			"migration: LLM script generation failed: %v", err)
-		return risk.SafeAlternative, nil
-	}
-
-	script := extractSQLFromResponse(raw)
-	if script == "" {
-		return risk.SafeAlternative, nil
-	}
-	return script, nil
-}
-
-// fetchTableSchema queries pg_attribute and pg_constraint for a
-// human-readable description of the table. Returns empty string on
-// any error (non-fatal).
-func (g *ScriptGenerator) fetchTableSchema(
-	ctx context.Context, schema, table string,
-) string {
-	if g.pool == nil || table == "" {
-		return ""
-	}
-	if schema == "" {
-		schema = "public"
-	}
-
-	result, err := queryTableSchema(ctx, g.pool, schema, table)
-	if err != nil {
-		g.logFn("warn",
-			"migration: schema query for %s.%s failed: %v",
-			schema, table, err)
-		return ""
-	}
-	return result
-}
-
-// queryTableSchema fetches column definitions and constraints from
-// the catalog for prompt context.
-func queryTableSchema(
-	ctx context.Context, pool *pgxpool.Pool,
-	schema, table string,
-) (string, error) {
-	cols, err := queryColumns(ctx, pool, schema, table)
-	if err != nil {
-		return "", fmt.Errorf("columns: %w", err)
-	}
-
-	constraints, err := queryConstraints(ctx, pool, schema, table)
-	if err != nil {
-		return "", fmt.Errorf("constraints: %w", err)
-	}
-
-	indexes, err := queryIndexes(ctx, pool, schema, table)
-	if err != nil {
-		return "", fmt.Errorf("indexes: %w", err)
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "-- Table: %s.%s\n", schema, table)
-	if cols != "" {
-		b.WriteString("-- Columns:\n")
-		b.WriteString(cols)
-	}
-	if constraints != "" {
-		b.WriteString("-- Constraints:\n")
-		b.WriteString(constraints)
-	}
-	if indexes != "" {
-		b.WriteString("-- Indexes:\n")
-		b.WriteString(indexes)
-	}
-	return b.String(), nil
-}
-
-const columnQuery = `
-SELECT a.attname,
-       pg_catalog.format_type(a.atttypid, a.atttypmod),
-       CASE WHEN a.attnotnull THEN 'NOT NULL' ELSE '' END,
-       COALESCE(pg_catalog.pg_get_expr(d.adbin, d.adrelid), '')
-FROM   pg_catalog.pg_attribute a
-LEFT JOIN pg_catalog.pg_attrdef d
-       ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-WHERE  a.attrelid = ($1 || '.' || $2)::regclass
-  AND  a.attnum > 0
-  AND  NOT a.attisdropped
-ORDER BY a.attnum`
-
-// queryColumns returns a formatted column listing.
-func queryColumns(
-	ctx context.Context, pool *pgxpool.Pool,
-	schema, table string,
-) (string, error) {
-	rows, err := pool.Query(ctx, columnQuery, schema, table)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-
-	var b strings.Builder
-	for rows.Next() {
-		var name, typ, notNull, defVal string
-		if err := rows.Scan(&name, &typ, &notNull, &defVal); err != nil {
-			return "", err
-		}
-		line := fmt.Sprintf("--   %s %s", name, typ)
-		if notNull != "" {
-			line += " " + notNull
-		}
-		if defVal != "" {
-			line += " DEFAULT " + defVal
-		}
-		b.WriteString(line + "\n")
-	}
-	return b.String(), rows.Err()
-}
-
-const constraintQuery = `
-SELECT conname,
-       pg_catalog.pg_get_constraintdef(c.oid, true)
-FROM   pg_catalog.pg_constraint c
-WHERE  c.conrelid = ($1 || '.' || $2)::regclass
-ORDER BY conname`
-
-// queryConstraints returns a formatted constraint listing.
-func queryConstraints(
-	ctx context.Context, pool *pgxpool.Pool,
-	schema, table string,
-) (string, error) {
-	rows, err := pool.Query(ctx, constraintQuery, schema, table)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-
-	var b strings.Builder
-	for rows.Next() {
-		var name, def string
-		if err := rows.Scan(&name, &def); err != nil {
-			return "", err
-		}
-		fmt.Fprintf(&b, "--   %s: %s\n", name, def)
-	}
-	return b.String(), rows.Err()
-}
-
-const indexQuery = `
-SELECT indexname, indexdef
-FROM   pg_indexes
-WHERE  schemaname = $1
-  AND  tablename  = $2
-ORDER BY indexname`
-
-// queryIndexes returns a formatted index listing.
-func queryIndexes(
-	ctx context.Context, pool *pgxpool.Pool,
-	schema, table string,
-) (string, error) {
-	rows, err := pool.Query(ctx, indexQuery, schema, table)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-
-	var b strings.Builder
-	for rows.Next() {
-		var name, def string
-		if err := rows.Scan(&name, &def); err != nil {
-			return "", err
-		}
-		fmt.Fprintf(&b, "--   %s\n", def)
-	}
-	return b.String(), rows.Err()
+	pctx := llm.WithPurpose(ctx, "migration_script") // llm-04: usage ledger label
+	raw, _, err := g.llmClient.Chat(pctx, system, user, scriptMaxTokens)
+	return raw, err
 }
 
 // scriptSystemPrompt returns the system message for migration script
@@ -245,7 +147,9 @@ Requirements:
 - Add NOT VALID + VALIDATE CONSTRAINT pattern for constraints
 - For type changes: new column, backfill in batches, swap columns
 - Include comments explaining each step
-- Return ONLY the SQL script, no explanations outside the SQL`
+- Return ONLY the SQL script, no explanations outside the SQL
+
+` + llm.UntrustedDataRule
 }
 
 // scriptUserPrompt builds the user prompt with risk context and
@@ -261,18 +165,18 @@ func scriptUserPrompt(
 	var b strings.Builder
 	fmt.Fprintf(&b, "PostgreSQL version: %s\n", formatPGVersion(pgVersion))
 	fmt.Fprintf(&b, "Original DDL (dangerous):\n%s\n\n",
-		sanitizeDDL(risk.Statement))
+		llm.UntrustedData("ddl", sanitizeDDL(risk.Statement)))
 	fmt.Fprintf(&b, "Risk: %s -- %s\n", risk.RuleID, risk.Description)
 	fmt.Fprintf(&b, "Lock level: %s\n", risk.LockLevel)
-	fmt.Fprintf(&b, "Table: %s.%s (%d rows, %d bytes)\n\n",
-		schemaName, risk.TableName,
-		risk.EstimatedRows, risk.TableSizeBytes)
+	fmt.Fprintf(&b, "Table (%d rows, %d bytes):\n%s\n\n",
+		risk.EstimatedRows, risk.TableSizeBytes,
+		llm.UntrustedData("table", schemaName+"."+risk.TableName))
 
 	if tableSchema != "" {
 		// Column defaults, CHECK bodies and index predicates can hold
 		// literals; redact them before egress (G7-B01).
 		fmt.Fprintf(&b, "Table schema:\n%s\n",
-			redactSchemaLiterals(tableSchema))
+			llm.UntrustedData("table_schema", redactSchemaLiterals(tableSchema)))
 	}
 
 	if risk.SafeAlternative != "" {

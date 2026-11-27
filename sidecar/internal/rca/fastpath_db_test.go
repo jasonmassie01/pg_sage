@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Integration tests for the M0 lock-chain fast path against a real
@@ -30,7 +30,7 @@ type blockingChain struct {
 
 func dialTest(t *testing.T, ctx context.Context) *pgx.Conn {
 	t.Helper()
-	conn, err := pgx.Connect(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	conn, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -135,7 +135,7 @@ func chainProbeConfig() *config.Config {
 
 func realProbe(pool *pgxpool.Pool, cfg *config.Config) LockChainProbe {
 	return func(ctx context.Context) ([]analyzer.Finding, error) {
-		return analyzer.ProbeLockChains(ctx, pool, cfg)
+		return analyzer.ProbeLockChains(ctx, pool, cfg, nil)
 	}
 }
 
@@ -299,7 +299,7 @@ func TestFastPathDB_ProbeDisabledByConfig(t *testing.T) {
 	cfg := chainProbeConfig()
 	cfg.Analyzer.LockChain.Enabled = false
 	startBlockingChain(t, ctx, pool)
-	got, err := analyzer.ProbeLockChains(ctx, pool, cfg)
+	got, err := analyzer.ProbeLockChains(ctx, pool, cfg, nil)
 	if err != nil || got != nil {
 		t.Fatalf("disabled probe = %v, %v; want nil, nil", got, err)
 	}

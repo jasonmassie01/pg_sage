@@ -1,17 +1,20 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { EmptyState } from '../components/EmptyState'
 import { canDecideFacts, factsListURL } from '../lib/facts'
 import { FactCard } from './facts/FactCard'
 import { DeclareFactForm } from './facts/DeclareFactForm'
+import { OwnerBriefForm } from './facts/OwnerBriefForm'
 
 // Binding facts (roadmap 2.3): what is true about a database that pg_sage
 // cannot see in the catalog (an index owned by the app's migrations, a
 // test-fixture schema, a slot's consumer, an append-only table, a
-// maintenance window). Proposed facts change nothing; confirmed facts only
-// narrow or redirect what pg_sage does on its own.
+// maintenance window, a table that must not be touched) and the owner
+// brief. Proposed facts change nothing; confirmed facts only narrow or
+// redirect what pg_sage does on its own.
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
@@ -31,6 +34,7 @@ export function FactsPage({ database, user }) {
   return (
     <section className="space-y-4" data-testid="facts-page">
       <FactsExplainer />
+      <OwnerBriefForm database={database} canDecide={canDecide} onDeclared={list.refetch} />
       <div className="flex flex-wrap gap-2" aria-label="Fact status filters">
         {TABS.map(t => (
           <button key={t.value} type="button" data-testid={`facts-tab-${t.value}`}
@@ -65,12 +69,13 @@ function FactsExplainer() {
 }
 
 function FactList({ list, empty, canDecide }) {
-  if (list.loading) return <LoadingSpinner />
-  if (list.error) return <ErrorBanner message={list.error} onRetry={list.refetch} />
+  if (queryBlocked(list)) {
+    return <QueryState query={list} skeleton={<LoadingSpinner />} />
+  }
   const facts = Array.isArray(list.data?.facts) ? list.data.facts : []
   const errors = Array.isArray(list.data?.errors) ? list.data.errors : []
   return (
-    <div className="space-y-2">
+    <QueryState query={list}><div className="space-y-2">
       {errors.length > 0 && (
         <div data-testid="facts-errors" className="text-xs" style={{ color: 'var(--red)' }}>
           {errors.map(e => <div key={e.database}>{e.database}: {e.error}</div>)}
@@ -82,6 +87,6 @@ function FactList({ list, empty, canDecide }) {
         <FactCard key={`${f.database}:${f.id}`} fact={f} canDecide={canDecide}
           onDecided={list.refetch} />
       ))}
-    </div>
+    </div></QueryState>
   )
 }

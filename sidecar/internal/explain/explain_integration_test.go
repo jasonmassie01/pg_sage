@@ -5,8 +5,8 @@ package explain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -14,16 +14,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ---------- test helpers ----------
-
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 var (
 	testPool     *pgxpool.Pool
@@ -34,8 +28,8 @@ var (
 func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	testPoolOnce.Do(func() {
-		dsn := testDSN()
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
@@ -191,9 +185,10 @@ func TestExplain_CacheExpiry(t *testing.T) {
 	pool, ctx := requireDB(t)
 	cleanExplainResults(t, pool, ctx)
 
-	// Insert an expired cache entry manually.
+	// Insert an expired cache entry manually, under the key an ANALYZE
+	// request for this body uses.
 	query := "SELECT 1"
-	hash := queryHash(query, nil)
+	hash := cacheKey(query, nil, false)
 	dbName := "" // pool connects to the same DB; databaseName() returns the DB name
 
 	// Determine what databaseName() will return for this pool.
@@ -312,21 +307,117 @@ func TestExplain_InvalidSQL(t *testing.T) {
 	}
 }
 
-func TestExplain_QueryIDNotImplemented_LivePool(t *testing.T) {
+// tuning-10: an id with no statement in this database is a client error
+// (HTTP 400), whether or not pg_stat_statements is installed.
+func TestExplain_UnknownQueryIDIsInvalid_LivePool(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	ex := New(pool, testExplainConfig(), noopLog)
-	_, err := ex.Explain(ctx, ExplainRequest{
-		Query:   "",
-		QueryID: 12345,
-	})
-	if err == nil {
-		t.Fatal("expected error for query_id lookup, got nil")
+	_, err := ex.Explain(ctx, ExplainRequest{QueryID: 12345})
+	if !errors.Is(err, ErrExplainInvalidRequest) {
+		t.Fatalf("err = %v, want ErrExplainInvalidRequest", err)
 	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf(
-			"error = %q, want it to contain %q",
-			err.Error(), "not yet implemented",
-		)
+	if strings.Contains(err.Error(), "not yet implemented") {
+		t.Errorf("err = %v, the lookup is implemented now", err)
+	}
+}
+
+// seedCacheKeyTable creates an analyzed table whose point lookup uses the
+// primary key and whose range scan reads every row.
+func seedCacheKeyTable(t *testing.T, pool *pgxpool.Pool, ctx context.Context) {
+	t.Helper()
+	stmts := []string{
+		"DROP TABLE IF EXISTS tuning07_cache",
+		"CREATE TABLE tuning07_cache (id int PRIMARY KEY, a text NOT NULL)",
+		"INSERT INTO tuning07_cache SELECT g, 'v' || g FROM generate_series(1, 20000) g",
+		"ANALYZE tuning07_cache",
+	}
+	for _, s := range stmts {
+		if _, err := pool.Exec(ctx, s); err != nil {
+			t.Fatalf("seed %q: %v", s, err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS tuning07_cache")
+	})
+}
+
+func explainOrFatal(
+	t *testing.T, ex *Explainer, ctx context.Context, q string, params ...string,
+) *ExplainResult {
+	t.Helper()
+	r, err := ex.Explain(ctx, ExplainRequest{Query: q, Params: params})
+	if err != nil {
+		t.Fatalf("Explain(%q): %v", q, err)
+	}
+	if len(r.NodeBreakdown) == 0 {
+		t.Fatalf("Explain(%q) returned no plan nodes", q)
+	}
+	return r
+}
+
+// tuning-07: a '--' inside a literal must not hide the rest of the
+// statement from the cache key, so a different predicate gets its own plan.
+func TestExplain_CacheKeyKeepsLiteralCommentMarkers(t *testing.T) {
+	pool, ctx := requireDB(t)
+	cleanExplainResults(t, pool, ctx)
+	seedCacheKeyTable(t, pool, ctx)
+	ex := New(pool, testExplainConfig(), noopLog)
+
+	point := "SELECT * FROM tuning07_cache WHERE a = '--x' AND id = 1"
+	scan := "SELECT * FROM tuning07_cache WHERE a = '--x' AND id < 100000"
+	first := explainOrFatal(t, ex, ctx, point)
+	if first.CachedAt != nil {
+		t.Fatalf("first point lookup served from cache at %v", *first.CachedAt)
+	}
+	second := explainOrFatal(t, ex, ctx, scan)
+	if second.CachedAt != nil {
+		t.Fatalf("range scan served the point lookup's cached plan (cached at %v)",
+			*second.CachedAt)
+	}
+	if string(first.PlanJSON) == string(second.PlanJSON) {
+		t.Fatalf("both statements returned the same PlanJSON: %s", first.PlanJSON)
+	}
+	if !strings.Contains(first.NodeBreakdown[0].NodeType, "Index") ||
+		second.NodeBreakdown[0].NodeType != "Seq Scan" {
+		t.Errorf("root nodes = %q and %q, want an index scan then Seq Scan",
+			first.NodeBreakdown[0].NodeType, second.NodeBreakdown[0].NodeType)
+	}
+	repeat := explainOrFatal(t, ex, ctx, point)
+	if repeat.CachedAt == nil {
+		t.Error("repeat of the point lookup missed the cache")
+	}
+	if repeat.NodeBreakdown[0].NodeType != first.NodeBreakdown[0].NodeType {
+		t.Errorf("cached repeat root = %q, want %q",
+			repeat.NodeBreakdown[0].NodeType, first.NodeBreakdown[0].NodeType)
+	}
+	hinted := explainOrFatal(t, ex, ctx, "/*+ SeqScan(tuning07_cache) */ "+point)
+	if hinted.CachedAt != nil {
+		t.Error("hinted statement served the unhinted statement's cached plan")
+	}
+}
+
+// tuning-07: "$N" inside a literal or dollar quote is not a bind parameter,
+// so the statement takes the plain EXPLAIN path, where ANALYZE is either
+// run or refused by the analyze guard (always refused in a build without
+// cgo). The PREPARE path never considers ANALYZE.
+func TestExplain_LiteralDollarIsNotAParameter(t *testing.T) {
+	pool, ctx := requireDB(t)
+	cleanExplainResults(t, pool, ctx)
+	ex := New(pool, testExplainConfig(), noopLog)
+
+	for _, q := range []string{"SELECT '$5'::text AS v", "SELECT $q$ $1 $q$ AS v"} {
+		r := explainOrFatal(t, ex, ctx, q)
+		analyzeConsidered := r.ActualTimeMs != nil || r.AnalyzeRefused != ""
+		if strings.Contains(r.Note, "query has parameters") || !analyzeConsidered {
+			t.Errorf("%q took the parameterized path: note=%q refused=%q",
+				q, r.Note, r.AnalyzeRefused)
+		}
+	}
+	mixed := explainOrFatal(t, ex, ctx, "SELECT $1::int AS a, '$2' AS b", "7")
+	if !strings.Contains(mixed.Note, "query has parameters") ||
+		mixed.ActualTimeMs != nil || mixed.AnalyzeRefused != "" {
+		t.Errorf("one-parameter query: note=%q refused=%q, want the parameter path",
+			mixed.Note, mixed.AnalyzeRefused)
 	}
 }

@@ -42,7 +42,7 @@ func TestCandidateShape_NonASCIIIdentifiers(t *testing.T) {
 func TestTableMemory_PromptLineTruncationKeepsUTF8(t *testing.T) {
 	long := `CREATE INDEX i ON public.ai_claims ("` + strings.Repeat("é", 400) + `")`
 	lines := testMemory(newMemStore(storedRejection(t, long, time.Minute)), nil).
-		view(context.Background(), memTable()).promptLines()
+		view(context.Background(), memTable()).promptLines(10)
 	if len(lines) != 1 || len(lines[0]) > maxRejectionPromptLine ||
 		!utf8.ValidString(lines[0]) || !strings.Contains(lines[0], "...") {
 		t.Fatalf("truncated line: len=%d valid=%t %q", len(lines[0]),

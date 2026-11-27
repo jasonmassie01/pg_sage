@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,7 +43,9 @@ func fakeLLMServer(t *testing.T, responseContent string, statusCode int) *httpte
 				},
 			},
 			Usage: struct {
-				TotalTokens int `json:"total_tokens"`
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
 			}{TotalTokens: 42},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -129,177 +130,6 @@ func TestCoverage_EnhanceWithLLM_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "400") {
 		t.Errorf("error should mention status 400, got: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// sendSlack — 0% coverage
-// ---------------------------------------------------------------------------
-
-func TestCoverage_SendSlack_Success(t *testing.T) {
-	var received atomic.Value
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Errorf("failed to decode slack payload: %v", err)
-		}
-		received.Store(payload["text"])
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			SlackWebhookURL: srv.URL,
-		},
-	}
-	w := &Worker{
-		cfg:   cfg,
-		logFn: noopLog,
-	}
-
-	w.sendSlack(context.Background(), "hello from pg_sage")
-
-	got, ok := received.Load().(string)
-	if !ok || got != "hello from pg_sage" {
-		t.Errorf("expected slack to receive 'hello from pg_sage', got %q", got)
-	}
-}
-
-func TestCoverage_SendSlack_ServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer srv.Close()
-
-	lc := &logCapture{}
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			SlackWebhookURL: srv.URL,
-		},
-	}
-	w := &Worker{
-		cfg:   cfg,
-		logFn: lc.logFn,
-	}
-
-	// Should not panic; just log.
-	w.sendSlack(context.Background(), "test message")
-}
-
-func TestCoverage_SendSlack_InvalidURL(t *testing.T) {
-	lc := &logCapture{}
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			SlackWebhookURL: "://invalid-url",
-		},
-	}
-	w := &Worker{
-		cfg:   cfg,
-		logFn: lc.logFn,
-	}
-
-	// Should not panic with malformed URL.
-	w.sendSlack(context.Background(), "test message")
-
-	found := false
-	for _, msg := range lc.messages {
-		if strings.Contains(msg, "slack") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("expected a warning log about slack error")
-	}
-}
-
-func TestCoverage_SendSlack_ConnectionRefused(t *testing.T) {
-	// Start a server and immediately close it to get a port that refuses.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	refusedURL := srv.URL
-	srv.Close()
-
-	lc := &logCapture{}
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			SlackWebhookURL: refusedURL,
-		},
-	}
-	w := &Worker{
-		cfg:   cfg,
-		logFn: lc.logFn,
-	}
-
-	// Should log error, not panic.
-	w.sendSlack(context.Background(), "test message")
-
-	found := false
-	for _, msg := range lc.messages {
-		if strings.Contains(msg, "slack send error") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("expected 'slack send error' warning in logs")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Dispatch — cover the slack-with-URL path (80% -> higher)
-// ---------------------------------------------------------------------------
-
-func TestCoverage_Dispatch_SlackWithURL(t *testing.T) {
-	var called atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called.Store(true)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			Channels:        []string{"slack"},
-			SlackWebhookURL: srv.URL,
-		},
-	}
-	w := &Worker{
-		cfg:   cfg,
-		logFn: noopLog,
-	}
-
-	w.Dispatch(context.Background(), "test dispatch to slack")
-
-	if !called.Load() {
-		t.Error("expected slack webhook to be called")
-	}
-}
-
-func TestCoverage_Dispatch_MultipleChannels(t *testing.T) {
-	var slackCalled atomic.Bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		slackCalled.Store(true)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfg := &config.Config{
-		Briefing: config.BriefingConfig{
-			Channels:        []string{"stdout", "slack", "unknown_channel"},
-			SlackWebhookURL: srv.URL,
-		},
-	}
-	w := &Worker{
-		cfg:   cfg,
-		logFn: noopLog,
-	}
-
-	// Should not panic; unknown channels are silently skipped.
-	w.Dispatch(context.Background(), "multi-channel test")
-
-	if !slackCalled.Load() {
-		t.Error("expected slack webhook to be called for multi-channel dispatch")
 	}
 }
 
@@ -393,7 +223,7 @@ func TestCoverage_StoreBriefing_InvalidTable_LivePG(t *testing.T) {
 	}
 
 	// Store without LLM — should succeed.
-	w.storeBriefing(ctx, "no-llm briefing test", false, 0)
+	w.storeBriefing(ctx, "no-llm briefing test", false, 0, Payload{})
 
 	// Verify the row was inserted.
 	var content string
@@ -428,7 +258,7 @@ func TestCoverage_StoreBriefing_WithLLMTokens_LivePG(t *testing.T) {
 	}
 
 	// Store with LLM used = true and token count.
-	w.storeBriefing(ctx, "llm-enhanced briefing content", true, 150)
+	w.storeBriefing(ctx, "llm-enhanced briefing content", true, 150, Payload{})
 
 	// Verify it was stored.
 	var content string

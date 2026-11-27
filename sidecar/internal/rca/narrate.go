@@ -151,7 +151,8 @@ func runNarration(
 		if turn == narrationMaxTurns {
 			choice = llm.ToolChoiceNone
 		}
-		res, err := client.ChatWithTools(ctx, msgs, narrationTools,
+		pctx := llm.WithPurpose(ctx, "rca_narration") // llm-04: usage ledger label
+		res, err := client.ChatWithTools(pctx, msgs, narrationTools,
 			llm.ToolOptions{MaxTokens: narrationMaxTokens,
 				Timeout: narrationTurnTimeout, ToolChoice: choice})
 		if err != nil {

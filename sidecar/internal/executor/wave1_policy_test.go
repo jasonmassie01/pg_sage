@@ -130,7 +130,7 @@ func TestWave1ApprovalDoesNotUseAutoEligibilityGate(t *testing.T) {
 func TestWave1TypedContractRiskGovernsFinding(t *testing.T) {
 	e := newWave1Executor("advisory", "auto")
 	finding := analyzer.Finding{
-		RecommendedSQL: "CREATE INDEX CONCURRENTLY idx_orders ON orders (id)",
+		RecommendedSQL: "CREATE INDEX CONCURRENTLY idx_orders ON public.orders (id)",
 		ActionRisk:     "safe",
 	}
 	got := e.evaluateFindingPolicy(context.Background(), finding, false)
@@ -191,7 +191,7 @@ func TestWave1ContractMappingAcceptsExactGuardrailedSQL(t *testing.T) {
 	const createIndexAction = "create_index_concurrently"
 	tests := map[string]string{
 		"ANALYZE public.orders":                                                   "analyze_table",
-		"CREATE UNIQUE INDEX CONCURRENTLY idx ON orders (id)":                     createIndexAction,
+		"CREATE UNIQUE INDEX CONCURRENTLY idx ON app.orders (id)":                 createIndexAction,
 		"DROP INDEX CONCURRENTLY public.idx_orders":                               "drop_unused_index",
 		"REINDEX INDEX CONCURRENTLY idx_orders":                                   "reindex_concurrently",
 		"VACUUM (ANALYZE) public.orders":                                          "vacuum_table",
@@ -324,15 +324,6 @@ func TestWave1ManualMutationsHonorHardGates(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
-	}
-}
-
-func TestWave1RollbackHonorsExecutorDisabled(t *testing.T) {
-	e := newWave1Executor("advisory", "manual")
-	e.SetExecutorEnabled(false)
-	err := e.RollbackAction(context.Background(), 1, "test")
-	if err == nil || err.Error() != "executor is disabled" {
-		t.Fatalf("error = %v, want executor is disabled", err)
 	}
 }
 

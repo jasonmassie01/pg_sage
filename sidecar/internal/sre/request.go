@@ -28,13 +28,18 @@ const (
 	TriggerTempFiles      TriggerKind = "temp_file_explosion"
 	TriggerReplicationLag TriggerKind = "replication_lag"
 	TriggerLWLock         TriggerKind = "lwlock_contention"
+	// TriggerAnomaly is a critical workload_anomaly finding (market-02): a
+	// workload metric far above its usual value for the hour of the week.
+	// It triages the lock, connection and plan mechanisms, one
+	// investigation per anomaly episode.
+	TriggerAnomaly TriggerKind = "workload_anomaly"
 )
 
 var triggerKinds = map[TriggerKind]bool{TriggerLock: true, TriggerConnections: true,
 	TriggerWAL: true, TriggerPlan: true, TriggerOperator: true, TriggerSLOBurn: true,
 	TriggerCheckpoint: true, TriggerTempFiles: true, TriggerReplicationLag: true,
 	TriggerLWLock: true, TriggerWraparound: true, TriggerDiskWAL: true,
-	TriggerSequence: true}
+	TriggerSequence: true, TriggerAnomaly: true}
 
 // StartRequest asks for an investigation of one scoped trigger.
 type StartRequest struct {
@@ -56,6 +61,12 @@ func (r StartRequest) Fingerprint() []byte {
 		string(r.Scope.DeploymentID), string(r.Scope.DatabaseID),
 		string(r.TriggerKind), r.Subject}, "\x00")))
 	return sum[:]
+}
+
+// automatic reports a request of the system: the trigger loop (empty, or
+// the coordinator's triggerActor), not an operator or an agent.
+func (r StartRequest) automatic() bool {
+	return r.Actor == "" || r.Actor == triggerActor
 }
 
 // actor is who started the investigation; "system" when unset.

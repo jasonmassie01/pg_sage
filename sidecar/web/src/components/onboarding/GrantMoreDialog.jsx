@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
+import { Dialog } from '../Dialog'
+import { LoadError } from './LoadError'
 
 // GrantMoreDialog is the guided "grant more" step: for each trust level it
 // shows what pg_sage may do, what it never does without approval, what it
@@ -81,8 +83,7 @@ async function applyTrust(grant, level) {
   }
 }
 
-function GrantAction({ guide, choice, onGranted }) {
-  const [busy, setBusy] = useState(false)
+function GrantAction({ guide, choice, onGranted, busy, setBusy }) {
   const [error, setError] = useState(null)
   if (!choice || choice === guide.current) return null
   if (guide.grant?.method !== 'api') {
@@ -111,41 +112,46 @@ function GrantAction({ guide, choice, onGranted }) {
         {error}</p>}
       <button type="button" onClick={grant} disabled={busy}
         className="rounded px-3 py-1.5 text-sm"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Grant {choice}
       </button>
     </div>
   )
 }
 
+// GrantMoreDialog renders in the shared modal Dialog (ux-05d), so focus
+// stays inside it, Escape closes it and focus returns to its opener.
 export function GrantMoreDialog({ database, onClose, onGranted }) {
-  const { data: guide } = useAPI(trustURL(database), 0)
+  const { data: guide, error, refetch } = useAPI(trustURL(database), 0)
   const [picked, setPicked] = useState(null)
+  // busy holds the dialog open while a grant is in flight (ux-05d review).
+  const [busy, setBusy] = useState(false)
   const choice = picked || guide?.current
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="grant-more-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.5)' }}>
-      <div className="max-h-full w-full max-w-3xl space-y-3 overflow-y-auto rounded p-4"
-        style={{ background: 'var(--bg-card)', color: 'var(--text-primary)' }}>
-        <div className="flex items-center justify-between">
-          <h2 id="grant-more-title" className="text-lg font-semibold">Grant more</h2>
-          <button type="button" onClick={onClose} className="text-sm">Close</button>
+    <Dialog open title="Grant more" onClose={onClose} width={768} busy={busy}
+      testId="grant-more-dialog">
+      <div className="max-h-[70vh] space-y-3 overflow-y-auto">
+        <div className="flex justify-end">
+          <button type="button" onClick={onClose} disabled={busy}
+            className="text-sm">Close</button>
         </div>
-        {!guide ? <p role="status">Loading trust levels…</p> : (
+        {!guide && error && <LoadError what="Autonomy levels" error={error} onRetry={refetch} />}
+        {!guide && !error && <p role="status">Loading autonomy…</p>}
+        {guide && (
           <>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Every action still passes the policy gate and is verified afterwards.
+              Every action still passes the policy check and is verified afterwards.
               A higher level only widens what pg_sage may do on its own.
             </p>
             {(guide.levels || []).map(level => (
               <LevelCard key={level.level} level={level}
                 selected={choice === level.level} onSelect={setPicked} />
             ))}
-            <GrantAction guide={guide} choice={choice} onGranted={onGranted} />
+            <GrantAction guide={guide} choice={choice} onGranted={onGranted}
+              busy={busy} setBusy={setBusy} />
           </>
         )}
       </div>
-    </div>
+    </Dialog>
   )
 }

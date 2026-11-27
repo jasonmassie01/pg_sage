@@ -1,0 +1,198 @@
+/* eslint-disable react-refresh/only-export-components */
+import { CasesPage } from './pages/CasesPage'
+import { Actions } from './pages/Actions'
+import { DatabasePage } from './pages/DatabasePage'
+import { SettingsPage } from './pages/SettingsPage'
+import { settingsTabFromRoute } from './pages/settings/useSettingsConfig'
+import { UsersPage } from './pages/UsersPage'
+import { ProfilePage } from './pages/ProfilePage'
+import { NotificationsPage } from './pages/NotificationsPage'
+import { DatabasesPage } from './pages/DatabasesPage'
+import { InboxPage } from './pages/InboxPage'
+import { LedgerPage } from './pages/LedgerPage'
+import { HomeSetup } from './components/setup/HomeSetup'
+import { FirstLookPanel } from './components/onboarding/FirstLookPanel'
+import { DigestCard } from './components/DigestCard'
+import { TokenBudgetBanner } from './components/TokenBudgetBanner'
+import { SLOsPage } from './pages/SLOsPage'
+import { RunbooksPage } from './pages/RunbooksPage'
+import { AutonomyHub } from './pages/autonomy/AutonomyHub'
+import { FactsPage } from './pages/FactsPage'
+import { AskPage } from './pages/AskPage'
+import { AgentsHub } from './pages/agents/AgentsHub'
+import { QueriesPage } from './pages/QueriesPage'
+import { QueryDetailPage } from './pages/QueryDetailPage'
+import { ReviewPage } from './pages/ReviewPage'
+import { allowsRole, findRoute, routeParam } from './routes'
+import { NeedsOneDatabase } from './components/NeedsOneDatabase'
+
+// TAG_SCOPED_ROUTES read a header tag scope (?tag=, ux-10b); every other
+// page asks for one database instead of showing the whole fleet as if it
+// were the tag.
+const TAG_SCOPED_ROUTES = new Set(['databases'])
+
+// routeRender.jsx renders the page for a route of the registry in routes.js
+// (dashboard-06). RENDERERS has one entry per signed-in route id.
+
+function AccessDenied() {
+  return (
+    <div data-testid="access-denied" className="rounded p-5"
+      style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+      }}>
+      <h2 className="text-lg font-semibold mb-2"
+        style={{ color: 'var(--text-primary)' }}>
+        Access denied
+      </h2>
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        You do not have permission to open this admin page.
+      </p>
+    </div>
+  )
+}
+
+function NotFound() {
+  return (
+    <div data-testid="not-found" className="rounded p-5"
+      style={{
+        background: 'var(--bg-card)',
+        border: '1px solid var(--border)',
+      }}>
+      <h2 className="text-lg font-semibold mb-2"
+        style={{ color: 'var(--text-primary)' }}>
+        Page not found
+      </h2>
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        This pg_sage route does not exist.
+      </p>
+      <a href="#/" className="inline-block mt-4 text-sm underline"
+        style={{ color: 'var(--accent)' }}>
+        Go to Inbox
+      </a>
+    </div>
+  )
+}
+
+function PlatformProtocolUnavailable({ agents = false }) {
+  return (
+    <div className="rounded p-5"
+      data-testid={agents ? 'databricks-agents-unavailable' : 'databricks-mcp-unavailable'}
+      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+      <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+        {agents ? 'Agent governance unavailable' : 'MCP tokens unavailable'}
+      </h2>
+      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        Agent governance, MCP connections and separate agent tokens are unavailable
+        in this Databricks-managed deployment. Use Databricks sign-in to access the
+        pg_sage dashboard and authenticated user APIs.
+      </p>
+      <a href="#/" className="inline-block mt-4 text-sm underline"
+        style={{ color: 'var(--accent)' }}>
+        Go to Inbox
+      </a>
+    </div>
+  )
+}
+
+// CASE_SOURCES are the issue sources a link may open Issues on; the old
+// Forecasts, Query hints, Schema health and Incidents views link here.
+const CASE_SOURCES = new Set(['forecast', 'query_hint', 'schema_health', 'incident'])
+
+const cases = ctx => {
+  const source = routeParam(ctx.route, 'source')
+  return <CasesPage key={ctx.route} database={ctx.database} user={ctx.user}
+    initialSource={CASE_SOURCES.has(source) ? source : undefined} />
+}
+const actions = ctx => (
+  <Actions database={ctx.database} user={ctx.user} fleetData={ctx.fleetData} />
+)
+const profile = ctx => <ProfilePage user={ctx.user} authMode={ctx.authMode} />
+
+// ctx: route (the full hash route), database (the effective scope), user,
+// authMode, fleetQuery, fleetData, databases, the Ask inventory fields,
+// selectDatabase, setSelectedDB, selectedDatabase and linkedCase.
+export const RENDERERS = Object.freeze({
+  // Setup (ux-04b): the wizard, or the checklist, above the first look and
+  // the Inbox; with zero databases the wizard is the only content.
+  inbox: ctx => (
+    <HomeSetup database={ctx.database} user={ctx.user} authMode={ctx.authMode}
+      fleet={ctx.fleetQuery} onSelectDatabase={ctx.selectDatabase}>
+      <FirstLookPanel database={ctx.database} user={ctx.user}
+        onSelectDatabase={ctx.selectDatabase} />
+      <DigestCard database={ctx.database} />
+      <TokenBudgetBanner canReset={ctx.user?.role === 'admin'} />
+      <InboxPage key={ctx.database} database={ctx.database} user={ctx.user} />
+    </HomeSetup>
+  ),
+  cases: ctx => cases(ctx),
+  actions,
+  ledger: ctx => (
+    <LedgerPage key={ctx.route} database={ctx.database} user={ctx.user} route={ctx.route} />
+  ),
+  review: ctx => <ReviewPage route={ctx.route} database={ctx.database} user={ctx.user} />,
+  queries: ctx => <QueriesPage database={ctx.database} />,
+  query: ctx => <QueryDetailPage route={ctx.route} database={ctx.database} />,
+  slos: ctx => <SLOsPage database={ctx.database} user={ctx.user} />,
+  facts: ctx => <FactsPage database={ctx.database} user={ctx.user} />,
+  ask: ctx => (
+    <AskPage database={ctx.database} user={ctx.user} caseId={ctx.linkedCase}
+      databases={ctx.databaseInventory} databaseLoading={ctx.fleetLoading}
+      databaseError={ctx.inventoryError} onRetryDatabase={ctx.refetchFleet}
+      onSelectDatabase={ctx.selectDatabase} />
+  ),
+  databases: ctx => (
+    <DatabasesPage onSelectDatabase={ctx.setSelectedDB} scopeTag={ctx.scopeTag}
+      database={ctx.database} fleet={ctx.fleetQuery}
+      initialTab={routeParam(ctx.route, 'tab')} />
+  ),
+  users: ctx => <UsersPage currentUser={ctx.user} authMode={ctx.authMode} />,
+  notifications: ctx => {
+    const params = new URLSearchParams(ctx.route.split('?')[1] || '')
+    const tab = params.get('tab') || ''
+    // ux-09b: ?mute=<db>&class=<class> opens the mute dialog filled in.
+    const muteLink = params.get('mute')
+      ? { database: params.get('mute'), class: params.get('class') || '' } : null
+    return <NotificationsPage key={`${tab}/${params.get('mute') || ''}`} user={ctx.user}
+      database={ctx.database} initialTab={tab} muteLink={muteLink} />
+  },
+  settings: ctx => (
+    <SettingsPage database={ctx.database} user={ctx.user}
+      linkedTab={settingsTabFromRoute(ctx.route)}
+      databaseId={ctx.selectedDatabase?.id || ctx.selectedDatabase?.database_id} />
+  ),
+  agents: ctx => (
+    <AgentsHub key={ctx.route} user={ctx.user} databases={ctx.databases.map(d => d.name)}
+      initialTab={routeParam(ctx.route, 'tab')} />
+  ),
+  runbooks: ctx => <RunbooksPage database={ctx.database} user={ctx.user} />,
+  autonomy: ctx => (
+    <AutonomyHub key={ctx.route} database={ctx.database} user={ctx.user} route={ctx.route}
+      onSelectDatabase={ctx.selectDatabase} />
+  ),
+  database: ctx => <DatabasePage database={ctx.database} user={ctx.user}
+    databaseId={ctx.selectedDatabase?.id || ctx.selectedDatabase?.database_id} />,
+  profile,
+  login: profile,
+})
+
+// renderRoute returns the header title and page for a hash path. Unknown
+// paths render Not found; a standalone-only page in a platform-managed
+// deployment explains why it is unavailable; a role the route does not
+// allow renders Access denied (the API enforces the same role).
+export function renderRoute(path, ctx) {
+  const route = findRoute(path)
+  if (!route) return { title: 'Not found', node: <NotFound /> }
+  if (route.standaloneOnly && ctx.authMode === 'databricks_app') {
+    return { title: route.title,
+      node: <PlatformProtocolUnavailable
+        agents={routeParam(ctx.route, 'tab') !== 'tokens'} /> }
+  }
+  if (!allowsRole(route, ctx.user)) return { title: 'Access denied', node: <AccessDenied /> }
+  if (ctx.scopeTag && !TAG_SCOPED_ROUTES.has(route.id)) {
+    return { title: route.title,
+      node: <NeedsOneDatabase tag={ctx.scopeTag} isAdmin={ctx.user?.role === 'admin'}
+        onShowAll={() => ctx.selectDatabase('all')} /> }
+  }
+  return { title: route.title, node: RENDERERS[route.id](ctx) }
+}

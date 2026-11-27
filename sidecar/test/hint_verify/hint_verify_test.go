@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -12,13 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
-
-// testDSN uses the package-isolated database on the designated test server.
-func testDSN() string {
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 func setupPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
@@ -26,7 +21,7 @@ func setupPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	// Bounded ConnectTimeout prevents TCP-reachable-but-unresponsive PG
 	// servers (e.g., port accepted but handshake never completes) from
 	// hanging the test process for the full go test timeout.
-	cfg, err := pgxpool.ParseConfig(testDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Skipf("database unavailable: %v", err)
 	}

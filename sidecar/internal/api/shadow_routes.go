@@ -14,9 +14,11 @@ import (
 
 // Shadow mode (roadmap 1.4): GET /api/v1/shadow-decisions serves, per
 // database (or ?database=), what pg_sage would have done below each
-// class's earned level and how it scored: a per-class summary and the
-// newest decisions (?class=, ?status=, ?score=, ?limit= 1-1000, default
-// 50). Every signed-in role reads it.
+// class's earned level and how it scored: a per-class summary (with each
+// class's potential toil minutes) and the newest decisions (?class=,
+// ?status=, ?score=, ?limit= 1-1000, default 50). ?class= narrows the
+// summary too. Every signed-in role reads it; the Shadow Mode page and
+// the Trust page are built on it.
 
 const shadowPath = "/api/v1/shadow-decisions"
 
@@ -30,8 +32,8 @@ const shadowMeaning = "Below a class's earned trust level pg_sage records every 
 	"admin still approves every promotion."
 
 func registerShadowRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	viewer := RequireRole("admin", "operator", "viewer")
-	mux.Handle("GET "+shadowPath, viewer(shadowDecisionsHandler(mgr)))
+	routeAggregate(mux, "GET "+shadowPath, gateViewer, mgr,
+		aggregateHandler(shadowDecisionsHandler))
 }
 
 // shadowDatabase is one database's shadow ledger as served.
@@ -59,7 +61,7 @@ func shadowDecisionsHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 		for _, np := range poolsForDatabaseSelection(mgr, database) {
 			s := shadow.NewStore(np.pool)
 			db := shadowDatabase{Database: np.name}
-			if db.Summary, err = s.Summary(r.Context()); err == nil {
+			if db.Summary, err = s.SummaryFor(r.Context(), filter.Class); err == nil {
 				db.Decisions, err = s.List(r.Context(), filter)
 			}
 			if err != nil {

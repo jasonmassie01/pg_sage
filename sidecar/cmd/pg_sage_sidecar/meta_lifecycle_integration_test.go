@@ -32,13 +32,17 @@ func metaLifecycleFixture(t *testing.T) (*metaDBState, store.DatabaseInput, int)
 	if err := schema.Bootstrap(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	count, err := auth.UserCount(ctx, p)
-	if err != nil {
-		t.Fatal(err)
+	// Another test may have created a different user first (sliced or
+	// shuffled runs), so check for this admin rather than for any user.
+	var exists bool
+	if err := p.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM sage.users WHERE email=$1)",
+		adminEmail).Scan(&exists); err != nil {
+		t.Fatalf("look up fixture admin: %v", err)
 	}
-	if count == 0 {
-		if err := auth.BootstrapAdmin(ctx, p, adminEmail, "fixture-admin-password"); err != nil {
-			t.Fatal(err)
+	if !exists {
+		if _, err := auth.CreateUser(ctx, p, adminEmail, "fixture-admin-password",
+			auth.RoleAdmin); err != nil {
+			t.Fatalf("create fixture admin: %v", err)
 		}
 	}
 	// These tests own the package database: start from no registered
@@ -53,6 +57,13 @@ func metaLifecycleFixture(t *testing.T) (*metaDBState, store.DatabaseInput, int)
 	var userID int
 	if err := p.QueryRow(ctx, "SELECT id FROM sage.users WHERE email=$1", adminEmail).
 		Scan(&userID); err != nil {
+		t.Fatal(err)
+	}
+	// An earlier test may have created this admin through the generated
+	// bootstrap path, which forces a password change (apiauth-03); these
+	// tests need an admin who has already changed it.
+	if _, err := p.Exec(ctx, "UPDATE sage.users SET must_change_password = false "+
+		"WHERE id = $1", userID); err != nil {
 		t.Fatal(err)
 	}
 	conn := p.Config().ConnConfig

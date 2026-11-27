@@ -87,7 +87,7 @@ export function CSVImport({ onClose, onError }) {
           <button onClick={handleImport} disabled={importing}
             className="px-4 py-1.5 rounded text-sm font-medium"
             style={{
-              background: 'var(--accent)', color: '#fff',
+              background: 'var(--accent-solid)', color: '#fff',
             }}>
             {importing ? 'Importing...' : 'Import'}
           </button>
@@ -110,7 +110,7 @@ function PreviewTable({ header, rows }) {
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
             {header.map(h => (
-              <th key={h} className="text-left px-2 py-1"
+              <th scope="col" key={h} className="text-left px-2 py-1"
                 style={{ color: 'var(--text-secondary)' }}>
                 {h}
               </th>

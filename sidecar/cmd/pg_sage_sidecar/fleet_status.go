@@ -44,6 +44,15 @@ func durationUntilNextUTCMidnight(now time.Time) time.Duration {
 	return next.Sub(utc)
 }
 
+// statusQueryTimeout bounds each status read on the monitored database.
+const statusQueryTimeout = 5 * time.Second
+
+// openIncidentsSQL counts unresolved incidents by severity (cases-11).
+const openIncidentsSQL = `SELECT severity, count(*)
+	   FROM sage.incidents
+	  WHERE resolved_at IS NULL
+	  GROUP BY severity`
+
 func updateInstanceFindings(
 	ctx context.Context,
 	inst *fleet.DatabaseInstance,
@@ -53,25 +62,29 @@ func updateInstanceFindings(
 	if dbPool == nil {
 		return
 	}
-	rows, err := dbPool.Query(ctx,
-		`SELECT severity, count(*)
-		   FROM sage.findings
-		  WHERE status = 'open'
-		  GROUP BY severity`)
+	queryCtx, cancel := context.WithTimeout(ctx, statusQueryTimeout)
+	defer cancel()
+	counts, err := readFindingCounts(queryCtx, dbPool)
 	if err != nil {
 		logWarn("fleet", "db %q: findings query: %v", inst.Name, err)
+		// Incidents were not refreshed either: never leave a stale zero.
+		inst.UpdateStatus(func(s *fleet.InstanceStatus) {
+			applyIncidentCounts(s, severityCounts{}, err)
+		})
 		markInstanceConnectivity(ctx, inst, dbPool)
 		return
 	}
-	defer rows.Close()
-
-	counts := scanSeverityCounts(rows)
+	incidents, incErr := readIncidentCounts(queryCtx, dbPool)
+	if incErr != nil {
+		logWarn("fleet", "db %q: incident counts unknown: %v", inst.Name, incErr)
+	}
 	now := time.Now()
 	inst.UpdateStatus(func(s *fleet.InstanceStatus) {
 		s.FindingsOpen = counts.open
 		s.FindingsCritical = counts.critical
 		s.FindingsWarning = counts.warning
 		s.FindingsInfo = counts.info
+		applyIncidentCounts(s, incidents, incErr)
 		s.AnalyzerLastRun = now
 		s.LastSeen = now
 		s.Connected = true
@@ -80,6 +93,54 @@ func updateInstanceFindings(
 			s.LLMTokensUsed = fleetLLMBudget.Used(inst.Name)
 		}
 	})
+}
+
+// statusQuerier is the part of a pool the status reads use.
+type statusQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func readFindingCounts(ctx context.Context, q statusQuerier) (severityCounts, error) {
+	rows, err := q.Query(ctx,
+		`SELECT severity, count(*)
+		   FROM sage.findings
+		  WHERE status = 'open'
+		  GROUP BY severity`)
+	if err != nil {
+		return severityCounts{}, err
+	}
+	defer rows.Close()
+	return scanSeverityCounts(rows), nil
+}
+
+// readIncidentCounts counts unresolved incidents by severity under the
+// status query timeout. Any error, including one that ends the rows
+// early, is returned so the caller records the counts as unknown.
+func readIncidentCounts(ctx context.Context, q statusQuerier) (severityCounts, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, statusQueryTimeout)
+	defer cancel()
+	rows, err := q.Query(queryCtx, openIncidentsSQL)
+	if err != nil {
+		return severityCounts{}, fmt.Errorf("open incidents query: %w", err)
+	}
+	defer rows.Close()
+	counts := scanSeverityCounts(rows)
+	if err := rows.Err(); err != nil {
+		return severityCounts{}, fmt.Errorf("reading open incidents: %w", err)
+	}
+	return counts, nil
+}
+
+// applyIncidentCounts records the read counts, or IncidentsUnknown for
+// both when the read failed.
+func applyIncidentCounts(s *fleet.InstanceStatus, c severityCounts, err error) {
+	if err != nil {
+		s.IncidentsCritical = fleet.IncidentsUnknown
+		s.IncidentsWarning = fleet.IncidentsUnknown
+		return
+	}
+	s.IncidentsCritical = c.critical
+	s.IncidentsWarning = c.warning
 }
 
 // severityCounts holds open findings by severity; open is the total.

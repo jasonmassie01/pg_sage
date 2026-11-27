@@ -50,8 +50,9 @@ var (
 		LLMToolReasoningEffortOmit}
 )
 
-// validateWire checks llm.token_parameter and llm.tool_reasoning_effort.
-// Empty means auto (a config built without defaults).
+// validateWire checks llm.token_parameter and llm.tool_reasoning_effort
+// (empty means auto: a config built without defaults) and that
+// llm.context_budget_tokens is not negative.
 func (l LLMConfig) validateWire() error {
 	if err := l.ValidateDatabricksApp(); err != nil {
 		return err
@@ -67,7 +68,11 @@ func (l LLMConfig) validateWire() error {
 		return fmt.Errorf("llm.tool_reasoning_effort %q must be one of %v",
 			l.ToolReasoningEffort, llmToolReasoningEfforts)
 	}
-	return nil
+	if l.ContextBudgetTokens < 0 {
+		return fmt.Errorf("llm.context_budget_tokens %d must be >= 0 "+
+			"(0 turns off the extra context trim)", l.ContextBudgetTokens)
+	}
+	return l.validatePricing()
 }
 
 func oneOf(value string, allowed []string) bool {

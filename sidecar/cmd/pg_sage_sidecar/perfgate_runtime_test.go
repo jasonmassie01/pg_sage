@@ -28,13 +28,16 @@ type perfCounters struct {
 
 // runPerfRuntime runs the standalone runtime through a warmup phase
 // (startup, first cycles, keyframes, baselines) and a steady phase, and
-// returns both phases' measurements with generic plans attached.
+// returns both phases' measurements with generic plans attached. The
+// steady phase carries the product meter's readings (gate H), and the
+// live derivation pass runs in it (compressSelfConfig).
 func runPerfRuntime(
 	t *testing.T, ctx context.Context, harness *pgxpool.Pool, dsn string,
 	scale perfgate.Scale, timing perfgate.Timing,
 ) []perfgate.Phase {
 	t.Helper()
 	preserveParityGlobals(t, perfConfig(t, dsn, timing))
+	compressSelfConfig(t, timing)
 	cfg.Mode = "standalone"
 	// pg_sage no longer silences pg_stat_statements on its own sessions
 	// (perf v1.8.3): the gate measures the shipped behaviour as is.
@@ -51,6 +54,7 @@ func runPerfRuntime(
 	setupPerfPosture(t, ctx, harness)
 	base := readPerfCounters(t, ctx, harness, logs, true)
 	initStandalone()
+	meter, stopMeter := startPerfMeter(t, timing)
 	router := perfRouter(t)
 	stopWorkload := startPerfWorkload(t, dsn, scale.HotTables())
 	stopShadowSeen := startPerfShadowSeen(t, dsn)
@@ -59,15 +63,10 @@ func runPerfRuntime(
 
 	steadyStart := time.Now()
 	triggerPerfPosture(t, ctx, harness)
-	cpuStart := perfProcessCPU(t)
-	time.Sleep(timing.Window / 2)
-	apiStart := perfProcessCPU(t)
-	endpoints := callPerfEndpoints(router, session, perfEndpointSamples(t))
-	apiCPU := perfProcessCPU(t) - apiStart
-	time.Sleep(time.Until(steadyStart.Add(timing.Window)))
-	cpu := perfProcessCPU(t) - cpuStart - apiCPU
+	endpoints, cpu, steadyEnd := perfSteadyWindow(t, router, session, steadyStart, timing)
 	stopWorkload()
 	stopShadowSeen()
+	stopMeter()
 	stopPerfRuntime(t, monitored)
 	end := readPerfCounters(t, ctx, harness, logs, false)
 
@@ -75,9 +74,11 @@ func runPerfRuntime(
 	steady := perfPhase("steady", true, timing.Window, timing.Cycles(), warm, end)
 	steady.Endpoints = endpoints
 	steady.ProcessCPU, steady.CPUKnown = cpu, true
+	meterPerfPhase(&steady, meter, steadyStart, steadyEnd)
 	explainPerfPhases(t, ctx, harness, &warmup, &steady)
 	requirePostureMeasured(t, warmup)
 	requirePostureMeasured(t, steady)
+	requireSteadyMeasured(t, steady)
 	return []perfgate.Phase{warmup, steady}
 }
 
@@ -98,7 +99,9 @@ func perfFakeModel(t *testing.T) string {
 
 // perfConfig is the shipped default configuration with the general LLM off and
 // every periodic component compressed to one interval, so each runs about
-// once per collector cycle in the window.
+// once per collector cycle in the window. Its one other change from the
+// default is a one-block self_budget.blocks_per_hour, which keeps pg_sage's
+// own budget finding open so gate F judges its refreshes.
 func perfConfig(t *testing.T, dsn string, timing perfgate.Timing) *config.Config {
 	t.Helper()
 	conn, err := pgx.ParseConfig(dsn)
@@ -118,6 +121,15 @@ func perfConfig(t *testing.T, dsn string, timing perfgate.Timing) *config.Config
 	c.Collector.IntervalSeconds, c.Analyzer.IntervalSeconds = secs, secs
 	c.SRE.Runways.IntervalSeconds, c.SRE.Runways.SequenceIntervalSeconds = secs, secs
 	c.SRE.TriggerIntervalSeconds = secs
+	// At these 15 s cycles (four a minute; the default is one) pg_sage's
+	// own block use per hour sits at the default self_budget.blocks_per_hour:
+	// its sage_self_budget finding opened and resolved every cycle or two,
+	// and a resolve moves status between indexes, so it is never HOT. The
+	// steady phase then held a few refreshes of an open finding, the
+	// recurring findings write gate F judges, among a timing-dependent
+	// number of resolves (CI: 3 of 7 HOT). A one-block budget keeps the
+	// finding open from the first measured cycle: every cycle refreshes it.
+	c.SelfBudget.BlocksPerHour = 1
 	c.Postgres = config.PostgresConfig{
 		Host: conn.Host, Port: int(conn.Port), User: conn.User,
 		Password: conn.Password, Database: conn.Database,

@@ -1,10 +1,18 @@
 # pg_sage
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Go](https://img.shields.io/badge/Go-1.25-00ADD8.svg)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8.svg)](https://go.dev)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791.svg)](https://www.postgresql.org)
 
 **Agentic Postgres DBA.** No extension required.
+
+**Verified and reversible.** Every change pg_sage makes is checked against what it predicted,
+and every change that can be undone keeps a rollback. `pg_sage publish outcomes` turns that
+record into a signed public bundle:
+changes verified improved, no change, inconclusive and reverted, and the verifier's own
+false-positive rate ([publishing outcomes](docs/publish-outcomes.md),
+[sample bundle](docs/outcomes-sample/outcomes.json)). Databases are graded against an open,
+versioned [rubric](docs/rubric.md).
 
 ## What It Does
 
@@ -35,19 +43,23 @@ curl -fsSL https://github.com/jasonmassie01/pg_sage/releases/latest/download/pg_
 # Docker
 docker run --name pg_sage \
   -e SAGE_DATABASE_URL="postgres://sage_agent:pw@host:5432/mydb" \
-  -p 8080:8080 -p 9187:9187 ghcr.io/jasonmassie01/pg_sage:latest
+  -e SAGE_PROMETHEUS_ADDR=0.0.0.0:8187 \
+  -p 8080:8080 -p 8187:8187 ghcr.io/jasonmassie01/pg_sage:latest
 ```
 
 From an empty install to the first finding in under a minute: see the
 [five-minute quickstart](docs/quickstart.md) (minimal role, read-only first, what you see
 in minute 1, minute 5 and hour 1).
 
-Dashboard at `http://localhost:8080` -- API and Prometheus metrics at `:8080/api/v1/` and `:9187/metrics`.
+Dashboard at `http://localhost:8080` -- API and Prometheus metrics at `:8080/api/v1/` and `:8187/metrics`.
 
 For bounded, read-only pgvector recall and latency experiments, run
 `pg_sage vector-lab --manifest workload.json` with `SAGE_VECTORLAB_DATABASE_URL`.
-See the [Vector Evidence Lab guide](research/2026-09-04-product/README.md) for
-the manifest, explicit budgets, report format, and supported query shapes.
+It measures `vector` and `halfvec` HNSW indexes (up to 4000 dimensions with
+halfvec), `ef_search`, all three iterative-scan modes, `max_scan_tuples` and
+`scan_mem_multiplier`, and scores ties at the k-th distance fairly. See the
+[Vector Evidence Lab guide](docs/vector-lab.md) for the manifest fields and ranges,
+the tie rule and the report format (pgvector 0.8.0 or later).
 
 Automatic index builds require verified host CPU and data/log I/O utilization.
 The catalog-only PostgreSQL adapter cannot supply those metrics, so it withholds
@@ -78,13 +90,13 @@ docker logs pg_sage 2>&1 | grep 'INITIAL ADMIN PASSWORD'
 | **Vacuum/Bloat/Freeze Autopilot** | Table bloat, dead tuples, XID runway, freeze blockers, and per-table autovacuum tuning produce guarded candidates with verification plans |
 | **Query Tuning Beyond Hints** | Query rewrites, broken-hint retirement, `CREATE STATISTICS`, parameterization, and repeated role-level work_mem patterns become reviewable actions with verification steps |
 | **Provider Capability Adapters** | Lakebase, Cloud SQL, AlloyDB, RDS, Aurora, and self-managed Postgres expose provider-specific extension paths, log access, limitations, and action readiness |
-| **DDL Safety + PR/CI Output** | Migration-risk cases include lock/rewrite/live-risk preflight, guarded migration SQL, rollback or forward-fix guidance, verification SQL, and PR-ready metadata |
+| **DDL Safety + PR/CI Output** | Review a migration before it merges: `pg_sage lint-migration` in CI (exit 0 safe, 1 review, 2 risky; GitHub annotations or SARIF), `POST /api/v1/migrations/lint` and MCP `lint_migration` share the advisor's lock/rewrite/live-size scoring and print a guarded rewrite ([Migration review in CI](docs/migration-ci.md)). DDL that already ran becomes a migration-risk case with forward-fix guidance |
 | **Rules Engine** | 20+ deterministic checks: duplicate/unused/missing indexes, slow queries, regressions, seq scans, vacuum & bloat, dead tuples, sequence exhaustion, replication lag, security audit, config drift |
 | **Index Optimizer** | LLM-powered recommendations validated through 8 checks + HypoPG cost estimation, confidence scored 0.0--1.0 |
 | **Config Advisors** | 6 LLM advisors: vacuum tuning, WAL/checkpoint, connections, memory, query rewrite, bloat remediation |
-| **Health Briefings** | Periodic LLM summaries of fleet health, findings, and actions. |
+| **Health Briefings** | Periodic LLM summaries of fleet health, findings, and actions. The LLM cites findings by id and cannot add SQL: any statement that is not one of pg_sage's own recommendations is removed. |
 | **Trust-Ramped Executor** | Observation -> Advisory -> Autonomous. Typed actions carry risk tier, guardrails, expiration, rollback/mitigation, and verification state. HIGH-risk actions always require approval. |
-| **Shadow Mode** | Shows avoided toil and proof rows for actions pg_sage would have handled under auto-safe policy before teams turn on autonomous execution |
+| **Shadow Mode** | Below each class's earned trust level, records what pg_sage would have done (SQL, prediction, the verdict had it been trusted) without running it, scores each decision from what happened, and shows the counts and potential toil minutes per class (Settings and Trust pages, `GET /api/v1/shadow-decisions`) |
 | **Fleet Mode** | Monitor N databases from one binary with per-database trust levels, token budgets, and health scores |
 | **Per-Query Tuner** | EXPLAIN plan analysis with `pg_hint_plan` directives for disk sorts, hash spills, bad joins, missed index scans |
 | **Workload Forecaster** | Predicts disk growth, connection saturation, cache pressure, sequence exhaustion, query volume spikes, checkpoint pressure |
@@ -114,7 +126,7 @@ See the [docs/](docs/) directory for guides and reference:
 
 ## Building from Source
 
-Requires Go 1.25+ and Node.js 20+. See [docs/installation.md](docs/installation.md) for details.
+Requires Go 1.26+ and Node.js 22+. See [docs/installation.md](docs/installation.md) for details.
 
 A C compiler (gcc or clang) is also needed: with cgo the binary links
 libpg_query, which checks every executor statement against its PostgreSQL

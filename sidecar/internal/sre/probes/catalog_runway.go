@@ -61,16 +61,14 @@ const reloptionSQL = `CASE WHEN %[1]s.reloptions IS NOT NULL THEN (
                SELECT x.option_value FROM pg_catalog.pg_options_to_table(%[1]s.reloptions) x
                WHERE x.option_name = '%[2]s' LIMIT 1) END`
 
-// wraparoundTablesSQL (v2) ranks tables by the share of their effective
-// freeze maximum (the table's reloption when it is lower than the
-// setting) that their XID or multixact age has used. It ranks from
-// pg_class alone and reads statistics, autovacuum_enabled and vacuum
-// progress only for the tables it returns: v1 joined the statistics view
-// for every relation of the catalog to return 50 (measured.md M8: 118 ms,
-// ~78 times an hour on lifeos). Reloption values are cast only when they
-// name the option read.
-var wraparoundTablesSQL = `/* pg_sage sre:wraparound_tables v2 */
-WITH g AS (
+// freezeRankCTE ranks the relations with storage of their own (tables,
+// matviews, TOAST; relfrozenxid <> 0 skips partitioned parents) by the
+// share of their effective freeze maximum (the reloption when it is lower
+// than the setting) their XID or multixact age has used, from pg_class
+// alone: top holds the $1 most advanced. wraparound_tables and the freeze
+// custodian's horizon reader (FreezeHorizonsSQL) share it, so the probe,
+// the custodian and the analyzer judge one horizon.
+var freezeRankCTE = `WITH g AS (
     SELECT pg_catalog.current_setting('autovacuum_freeze_max_age')::int8 AS xid_max,
            pg_catalog.current_setting('autovacuum_multixact_freeze_max_age')::int8
                AS mxid_max
@@ -89,7 +87,18 @@ WITH g AS (
     FROM t
     ORDER BY used DESC NULLS LAST, t.oid
     LIMIT $1
-)
+)`
+
+// wraparoundTablesSQL (v2) ranks tables by the share of their effective
+// freeze maximum (the table's reloption when it is lower than the
+// setting) that their XID or multixact age has used. It ranks from
+// pg_class alone and reads statistics, autovacuum_enabled and vacuum
+// progress only for the tables it returns: v1 joined the statistics view
+// for every relation of the catalog to return 50 (measured.md M8: 118 ms,
+// ~78 times an hour on lifeos). Reloption values are cast only when they
+// name the option read.
+var wraparoundTablesSQL = `/* pg_sage sre:wraparound_tables v2 */
+` + freezeRankCTE + `
 SELECT ` + fmt.Sprintf(relationName, "top.oid") + ` AS relation,
        top.xid_age, top.mxid_age, top.freeze_max_age, top.mxid_freeze_max_age,
        COALESCE(pg_catalog.lower(` + fmt.Sprintf(reloptionSQL, "top",
@@ -107,13 +116,18 @@ SELECT ` + fmt.Sprintf(relationName, "top.oid") + ` AS relation,
 FROM top
 ORDER BY top.used DESC NULLS LAST, top.oid`
 
-// xminHorizonSQL lists what holds back the xmin horizon of this
+// XminHorizonSQL lists what holds back the xmin horizon of this
 // database's tables: its client sessions (their snapshot or XID),
 // standbys' feedback through walsenders, its prepared transactions, and
 // replication slots (xmin, and catalog_xmin for the catalogs). Prepared
 // transactions are named by the hash of their gid. The probe's own
-// session is never listed.
-const xminHorizonSQL = `/* pg_sage sre:xmin_horizon v1 */
+// session is never listed, nor is a backend running a lazy VACUUM: it
+// shows a backend_xmin, but PROC_IN_VACUUM keeps that snapshot out of
+// every horizon (VACUUM FULL is not in pg_stat_progress_vacuum, and
+// holds). $1 is the row limit. It is exported for the
+// freeze custodian, which reads its holders (as XminHolder rows) once
+// per scan.
+const XminHorizonSQL = `/* pg_sage sre:xmin_horizon v1 */
 WITH h AS (
     SELECT CASE WHEN a.backend_type = 'walsender' THEN 'standby' ELSE 'session' END
                AS holder_kind,
@@ -128,6 +142,8 @@ WITH h AS (
     FROM pg_catalog.pg_stat_activity a
     WHERE (a.backend_xmin IS NOT NULL OR a.backend_xid IS NOT NULL)
       AND a.pid <> pg_catalog.pg_backend_pid()
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_progress_vacuum v
+                      WHERE v.pid = a.pid)
       AND ((a.backend_type = 'client backend'
             AND a.datname = pg_catalog.current_database())
            OR a.backend_type = 'walsender')
@@ -211,16 +227,19 @@ SELECT (SELECT COALESCE(sum(w.size), 0)::int8 FROM pg_catalog.pg_ls_waldir() w)
         WHERE a.name LIKE '%.ready') AS archive_ready_files
 LIMIT $1`
 
-// runwayTrendsSQL (v2) regresses each sampled series over the window:
+// runwayTrendsSQL (v3) regresses each sampled series over the window:
 // only its current epoch (a counter reset or a recreated object starts a
-// new one), by its monotonic counter when it has one, else by its value.
+// new one), by its monotonic counter when it has one, else by its value
+// (rate_per_s), and by its value alone (value_rate_per_s: for xid and
+// mxid the net age slope, which freezing bends, beside the consumption
+// rate; v3 added it to the same scan).
 // Series are walked in (kind, subject) order by a skip scan of
 // runway_samples_series_idx and each reads only its own window, so a call
 // reads the samples of the series it returns and nothing is sorted (v1
 // sorted every sample of every series to return 200: 108 ms at 150,000
 // samples). The recursion yields the series in index order, which is the
 // order returned.
-const runwayTrendsSQL = `/* pg_sage sre:runway_trends v2 */
+const runwayTrendsSQL = `/* pg_sage sre:runway_trends v3 */
 WITH RECURSIVE series AS (
     (SELECT r.kind, r.subject FROM sage.runway_samples r
      ORDER BY r.kind, r.subject LIMIT 1)
@@ -232,7 +251,7 @@ WITH RECURSIVE series AS (
         ORDER BY r.kind, r.subject LIMIT 1) n
 )
 SELECT s.kind, s.subject, a.samples, a.first_at, c.last_at, c.last_value, c.last_limit,
-       a.rate_per_s, a.r2
+       a.rate_per_s, a.r2, a.value_rate_per_s
 FROM series s
 CROSS JOIN LATERAL (
     SELECT r.epoch, r.sampled_at AS last_at, r.value AS last_value,
@@ -246,7 +265,9 @@ CROSS JOIN LATERAL (
            pg_catalog.regr_slope(COALESCE(r.counter, r.value),
                EXTRACT(EPOCH FROM r.sampled_at)::float8) AS rate_per_s,
            pg_catalog.regr_r2(COALESCE(r.counter, r.value),
-               EXTRACT(EPOCH FROM r.sampled_at)::float8) AS r2
+               EXTRACT(EPOCH FROM r.sampled_at)::float8) AS r2,
+           pg_catalog.regr_slope(r.value, EXTRACT(EPOCH FROM r.sampled_at)::float8)
+               AS value_rate_per_s
     FROM sage.runway_samples r
     WHERE r.kind = s.kind AND r.subject = s.subject AND r.epoch = c.epoch
       AND r.sampled_at >= pg_catalog.now() - pg_catalog.make_interval(secs => $2)) a
@@ -260,7 +281,7 @@ func runwaySpecs() []Spec {
 		background(versioned(capped(spec(WraparoundTablesProbe, FamilyVacuum, ArgsNone,
 			Variant{MinVersion: 140000, SQL: wraparoundTablesSQL}), 50), "v2")),
 		capped(needsStats(spec(XminHorizon, FamilyVacuum, ArgsNone,
-			Variant{MinVersion: 140000, SQL: xminHorizonSQL})), 100),
+			Variant{MinVersion: 140000, SQL: XminHorizonSQL})), 100),
 		spec(AutovacuumCancellations, FamilyVacuum, ArgsWindow,
 			Variant{MinVersion: 140000, SQL: autovacuumCancellationsSQL}),
 		versioned(spec(WALRunwayProbe, FamilyWAL, ArgsNone,
@@ -271,7 +292,7 @@ func runwaySpecs() []Spec {
 			Variant{MinVersion: 140000, SQL: walDirectorySQL}),
 		sequenceRunwaySpec(),
 		versioned(capped(spec(RunwayTrendsProbe, FamilyRunway, ArgsWindow,
-			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200), "v2"),
+			Variant{MinVersion: 140000, SQL: runwayTrendsSQL}), 200), "v3"),
 	}
 }
 

@@ -233,14 +233,16 @@ type gucEntry struct {
 // resolveGUCConflicts removes findings that target the same GUC
 // parameter with conflicting values. Per-table settings only conflict
 // with other settings on the same table (G2-B05); global settings of a
-// GUC conflict with each other and lose to any per-table setting of it.
-// Within a conflict group the higher severity wins.
+// GUC conflict with each other. Within a conflict group the higher
+// severity wins. A per-table setting no longer hides the global finding
+// of the same GUC (advisors-02): both are kept, and the global one names
+// the tables that keep their own setting (overridden_by_tables).
 func resolveGUCConflicts(
 	findings []Finding,
 	logFn func(string, string, ...any),
 ) []Finding {
 	groups := make(map[string][]gucEntry)
-	perTableGUCs := make(map[string]bool)
+	overrides := make(map[string][]string)
 	for i, f := range findings {
 		guc, pt := extractGUCTarget(f.RecommendedSQL)
 		if guc == "" {
@@ -249,22 +251,13 @@ func resolveGUCConflicts(
 		key := guc
 		if pt {
 			key = guc + "|" + f.ObjectIdentifier
-			perTableGUCs[guc] = true
+			overrides[guc] = append(overrides[guc], f.ObjectIdentifier)
 		}
 		groups[key] = append(groups[key], gucEntry{i, pt})
 	}
 
 	remove := make(map[int]bool)
 	for key, entries := range groups {
-		global := !entries[0].perTable
-		if global && perTableGUCs[key] {
-			for _, e := range entries {
-				logFn("DEBUG", "dedup: per-table %s beats global %q",
-					key, findings[e.index].Title)
-				remove[e.index] = true
-			}
-			continue
-		}
 		if len(entries) < 2 {
 			continue
 		}
@@ -277,7 +270,7 @@ func resolveGUCConflicts(
 			}
 		}
 	}
-	return dropIndexes(findings, remove)
+	return annotateGlobalOverrides(dropIndexes(findings, remove), overrides)
 }
 
 func dropIndexes(findings []Finding, remove map[int]bool) []Finding {

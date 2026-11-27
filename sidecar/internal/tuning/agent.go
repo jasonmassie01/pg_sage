@@ -38,7 +38,14 @@ type Settings struct {
 	HostMemoryBytes int64
 	// HostMemory is live host memory from managed-cloud telemetry (nil:
 	// none); an unknown reading falls back to HostMemoryBytes.
-	HostMemory      func() advisor.HostMemory
+	HostMemory func() advisor.HostMemory
+	// InstanceOwner says whether this database owns its instance's
+	// settings in fleet mode (advisors-08); nil: it does. On a non-owner
+	// an instance-wide setting (ALTER SYSTEM) is not admitted.
+	InstanceOwner advisor.InstanceOwner
+	// WorkMemMaxMB is tuner.work_mem_max_mb, which rule 8 of the prompt
+	// cites with the host cap (0 means the default).
+	WorkMemMaxMB    int
 	MaxOutputTokens int
 	Thresholds      Thresholds
 	// MaxNewPerTable bounds new index proposals per table per cycle
@@ -47,6 +54,15 @@ type Settings struct {
 	// DailyTokenLimit caps the model tokens per UTC day, charged durably
 	// to the database (0 = no daily cap; the spend is still recorded).
 	DailyTokenLimit int64
+	// HintAbsentCycles is tuner.hint_absent_cycles: the cycles an open
+	// query_tuning finding's statement must be absent, or below the tuner's
+	// admission, before it resolves (0 or less means 3).
+	HintAbsentCycles int
+	// HintAdmission is the query tuner's admission of a statement.
+	HintAdmission HintAdmission
+	// ContextBudgetBytes is llm.context_budget_tokens in bytes: the case
+	// packet trims to it when it is below maxPacketBytes (0: no trim).
+	ContextBudgetBytes int
 }
 
 // Deps are the agent's collaborators. Model may be nil (the agent then
@@ -152,8 +168,12 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 	if err != nil {
 		return analyzer.TuningOutput{Failed: cats}, err
 	}
-	kept, busy := a.keepOpen(ctx, open, cases)
-	out := analyzer.TuningOutput{Evaluated: cats, Findings: kept}
+	kept, busy := a.keepOpen(ctx, cur, prev, open, cases)
+	// Every open query_tuning finding was judged above: kept ones are
+	// re-emitted, so only the ones keepOpen let go resolve. Without the
+	// category the last of them could never resolve (tuning-06).
+	evaluated := append(append([]string{}, cats...), categoryQueryTuning)
+	out := analyzer.TuningOutput{Evaluated: evaluated, Findings: kept}
 	var ask []Case
 	for _, c := range cases {
 		if !busy[c.ID] {
@@ -164,8 +184,10 @@ func (a *Agent) Tune(ctx context.Context, cur, prev *collector.Snapshot) (
 		cy := &cycle{cur: cur, prev: prev, w: w, all: all, confirmed: confirmedOnly(all),
 			open: kept}
 		out.Findings = append(out.Findings, a.askCases(ctx, cy, ask)...)
+		out.ModelUnavailable = cy.modelUnavailable()
 	} else {
 		a.noteCycle(nil, 0, 0)
+		out.ModelUnavailable = len(ask) > 0
 	}
 	out.IndexTables = indexTables(out.Findings)
 	return out, nil

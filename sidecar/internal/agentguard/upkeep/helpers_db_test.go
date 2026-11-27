@@ -117,7 +117,7 @@ func retireAgo(t *testing.T, pool *pgxpool.Pool, p agentguard.Principal, admin i
 		require.NoError(t, RecordRetiringAdmin(ctx, pool, p.ID, admin))
 	}
 	_, err := agentguard.NewStore(pool).SetStatus(ctx, p.ID, agentguard.StatusRetired,
-		"no longer needed")
+		agentguard.Audit{Reason: "no longer needed"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE sage.guard_principals SET updated_at = now() - $2::interval
 		WHERE id = $1`, p.ID, age.String())

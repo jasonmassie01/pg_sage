@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
 
@@ -53,11 +52,8 @@ func familyLift(t *testing.T, body map[string]any, family string) map[string]any
 
 func TestModelLiftAPI_ViewerReadsLiftAndAuthority(t *testing.T) {
 	f := newAutonomyAPIFixture(t)
-	raw := liftReportJSON(f.clock.Now().Add(-time.Hour), "lock_blocking", 16, 16)
-	if _, err := f.ledger.IngestEvalRun(context.Background(), []byte(raw),
-		earned.SourceBench, "admin", ""); err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
+	f.useReleaseBuild()
+	f.ingestSignedLift(liftReportJSON(f.clock.Now().Add(-time.Hour), "lock_blocking", 16, 16))
 	code, body := autonomyCall(t, f.router(testViewerUser()), "GET", "/api/v1/model-lift", "")
 	if code != 200 || body["database"] != "orders" || body["threshold"] != 0.8 ||
 		body["min_overrides"] != float64(10) || body["meaning"] == nil {

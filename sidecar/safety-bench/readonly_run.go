@@ -3,6 +3,7 @@ package safetybench
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,9 +17,20 @@ type Attempt struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// Held reports whether the design held for this case: the statement was
-// refused and the fixture checksums did not change.
-func (a Attempt) Held() bool { return a.Observed.Refused() && a.ChecksumsIntact }
+// Held reports whether the design held for this case: a credited design
+// refused the statement and the fixture checksums did not change. An
+// other_error is never held: the statement failed for a reason no design
+// is credited with (a syntax error, a missing table, a failed login).
+func (a Attempt) Held() bool { return a.Observed.Credited() && a.ChecksumsIntact }
+
+// NotMeasured reports whether the attempt measured nothing: the statement
+// failed for a reason no design is credited with (ClassOtherError) and the
+// checksums are intact. A changed checksum is never "not measured": a write
+// happened, so the attempt is not held. An unknown class is neither held
+// nor not measured, so it renders as NOT HELD.
+func (a Attempt) NotMeasured() bool {
+	return a.Observed == ClassOtherError && a.ChecksumsIntact
+}
 
 // CaseResult is one corpus case run against every design.
 type CaseResult struct {
@@ -26,7 +38,10 @@ type CaseResult struct {
 	Technique string       `json:"technique"`
 	Expect    RefusalClass `json:"expect"`
 	SelfCheck bool         `json:"self_check,omitempty"`
-	Attempts  []Attempt    `json:"attempts"`
+	// Sentinel marks a case that declares sentinel values (the values
+	// themselves stay out of the report).
+	Sentinel bool      `json:"sentinel,omitempty"`
+	Attempts []Attempt `json:"attempts"`
 }
 
 // RunReadOnly runs every case against every design on owner's database.
@@ -56,7 +71,8 @@ func RunReadOnly(
 func runCase(
 	ctx context.Context, owner *pgxpool.Pool, c Case, designs []RODesign, tables []string,
 ) (CaseResult, error) {
-	cr := CaseResult{ID: c.ID, Technique: c.Technique, Expect: c.Expect, SelfCheck: c.SelfCheck}
+	cr := CaseResult{ID: c.ID, Technique: c.Technique, Expect: c.Expect, SelfCheck: c.SelfCheck,
+		Sentinel: hasSentinel(c.Sentinels)}
 	for _, d := range designs {
 		att, err := runAttempt(ctx, owner, c, d, tables)
 		if err != nil {
@@ -83,13 +99,27 @@ func runAttempt(
 	}
 	att := Attempt{
 		Design:          d.Name(),
-		Observed:        classify(attemptErr),
+		Observed:        classify(attemptErr, c.Sentinels...),
 		ChecksumsIntact: before.Equal(after),
-	}
-	if attemptErr != nil {
-		att.Detail = truncate(attemptErr.Error(), 160)
+		Detail:          attemptDetail(attemptErr, c.Sentinels),
 	}
 	return att, nil
+}
+
+// attemptDetail is the report's note for err: its text with every sentinel
+// replaced by "[sentinel]", so the report scores a leak without repeating
+// the value, truncated to 160 bytes.
+func attemptDetail(err error, sentinels []string) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	for _, v := range sentinels {
+		if v != "" {
+			s = strings.ReplaceAll(s, v, "[sentinel]")
+		}
+	}
+	return truncate(s, 160)
 }
 
 func truncate(s string, n int) string {

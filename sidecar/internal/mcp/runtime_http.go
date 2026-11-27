@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Streamable HTTP. Every JSON-RPC message is one POST; the server answers
@@ -15,11 +16,28 @@ import (
 // subscriptions/listen. Handshake-era clients (2025-03-26..2025-11-25) are
 // served as before; a request carrying a protocol version in _meta must
 // also carry the matching MCP-Protocol-Version, Mcp-Method and (for
-// tools/call) Mcp-Name headers.
+// tools/call, the tool name; for resources/read, the uri) Mcp-Name headers.
 
 const maxHTTPBody = 4 << 20
 
-// devOrigins are the dashboard's development origins (same as the API).
+// waitWriteDeadline bounds the response of a wait_for_decision call.
+const waitWriteDeadline = (MaxWaitSeconds + 15) * time.Second
+
+// waitCall reports whether body is a tools/call of wait_for_decision.
+func waitCall(body []byte) bool {
+	var call struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	return json.Unmarshal(body, &call) == nil && call.Method == "tools/call" &&
+		call.Params.Name == toolWaitForDecision
+}
+
+// devOrigins are the dashboard's development origins. The API's
+// cross-origin check runs first and refuses their cross-port writes, so in
+// practice they admit only requests proxied by the Vite dev server.
 var devOrigins = map[string]bool{"http://localhost:5173": true,
 	"http://localhost:8080": true, "http://127.0.0.1:5173": true,
 	"http://127.0.0.1:8080": true}
@@ -59,6 +77,12 @@ func (r *Runtime) serveHTTP(w http.ResponseWriter, request *http.Request) {
 }
 
 func (r *Runtime) answer(w http.ResponseWriter, request *http.Request, body []byte) {
+	if waitCall(body) {
+		// wait_for_decision may wait up to a minute; the API server's
+		// 60 s write timeout would cut the answer, so this response gets
+		// its own bounded deadline (never an unbounded one).
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(waitWriteDeadline))
+	}
 	response := r.server.Handle(request.Context(), body)
 	if response == nil {
 		w.WriteHeader(http.StatusAccepted) // notification: no body
@@ -104,16 +128,21 @@ func modernHeaderMismatch(request *http.Request, message envelope, meta requestM
 	if request.Header.Get("Mcp-Method") != message.Method {
 		return mismatch("Mcp-Method must equal the request method")
 	}
-	if message.Method != "tools/call" {
+	if message.Method != "tools/call" && message.Method != "resources/read" {
 		return nil
 	}
 	name, ok := decodeHeaderValue(request.Header.Get("Mcp-Name"))
 	var params struct {
 		Name string `json:"name"`
+		URI  string `json:"uri"`
 	}
 	_ = json.Unmarshal(message.Params, &params)
-	if !ok || name == "" || name != params.Name {
-		return mismatch("Mcp-Name must equal the tool name")
+	want, what := params.Name, "the tool name"
+	if message.Method == "resources/read" {
+		want, what = params.URI, "the resource uri"
+	}
+	if !ok || name == "" || name != want {
+		return mismatch("Mcp-Name must equal " + what)
 	}
 	return nil
 }

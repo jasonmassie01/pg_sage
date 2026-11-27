@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -149,6 +150,7 @@ llm:
 		"pg_sage_fleet_databases 1") {
 		t.Errorf("fleet metrics lack the database count:\n%s", body)
 	}
+	assertFleetHealthFamilies(t, prom)
 	if code := child.terminate(t); code != 0 {
 		t.Fatalf("SIGTERM exit = %d", code)
 	}
@@ -180,8 +182,31 @@ llm:
 		body != `{"status":"ok"}` {
 		t.Fatalf("/health = %d %q", code, body)
 	}
+	assertMetaHealthFamilies(t, prom)
 	if code := child.terminate(t); code != 0 {
 		t.Fatalf("SIGTERM exit = %d", code)
+	}
+}
+
+// assertFleetHealthFamilies: observability-02, the per-database health
+// families render in fleet mode too.
+func assertFleetHealthFamilies(t *testing.T, prom string) {
+	t.Helper()
+	if _, body := httpGet(t, "http://"+prom+"/metrics"); !strings.Contains(body,
+		`pg_sage_database_up{database="alpha"} 1`) {
+		t.Errorf("fleet metrics lack alpha's database_up:\n%s", body)
+	}
+}
+
+// assertMetaHealthFamilies: meta mode (no database registered yet) serves
+// the per-database health families with no sample for the meta database.
+func assertMetaHealthFamilies(t *testing.T, prom string) {
+	t.Helper()
+	waitForListeners(t, 10*time.Second, prom)
+	_, body := httpGet(t, "http://"+prom+"/metrics")
+	if !strings.Contains(body, "# TYPE pg_sage_database_up gauge") ||
+		strings.Contains(body, "pg_sage_database_up{") {
+		t.Errorf("meta metrics: want the database_up family without samples:\n%s", body)
 	}
 }
 
@@ -213,10 +238,43 @@ func adminSession(t *testing.T, api, password string) []*http.Cookie {
 		t.Fatalf("login: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) == 0 {
+	var me struct {
+		MustChange bool `json:"must_change_password"`
+	}
+	if resp.StatusCode != http.StatusOK || len(resp.Cookies()) == 0 ||
+		json.NewDecoder(resp.Body).Decode(&me) != nil {
 		t.Fatalf("login = %d with %d cookies", resp.StatusCode, len(resp.Cookies()))
 	}
+	// apiauth-03: the generated bootstrap password must be replaced before
+	// the session can do anything else; the calling session survives.
+	if !me.MustChange {
+		t.Fatal("the generated admin password is not flagged must_change_password")
+	}
+	changeGeneratedPassword(t, api, password, resp.Cookies())
 	return resp.Cookies()
+}
+
+func changeGeneratedPassword(t *testing.T, api, password string, cookies []*http.Cookie) {
+	t.Helper()
+	body := fmt.Sprintf(`{"current_password":%q,"new_password":"char-test-new-password"}`,
+		password)
+	req, err := http.NewRequest(http.MethodPut, "http://"+api+"/api/v1/auth/password",
+		bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("change generated password = %d, want 200", resp.StatusCode)
+	}
 }
 
 func postRestart(t *testing.T, api string, cookies []*http.Cookie) int {

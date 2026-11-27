@@ -191,3 +191,27 @@ func TestConcurrentSecondApprovalsActivateOnce(t *testing.T) {
 	require.Equal(t, current.Version+1, final.Version)
 	require.Equal(t, 2, other, "results: %v", results)
 }
+
+// agentgov-02 boundary: an unsponsored agent (SponsorID 0) stores no
+// sponsor, refuses nobody as the sponsor, and still needs two people.
+func TestUnsponsoredAgentWideningProposalNeedsTwoPeople(t *testing.T) {
+	store := newTestStore(t)
+	current := bootstrapPolicy(t, store, Scope{})
+	doc := UnattendedProfile()
+	doc.LockDurationCeilingMS = 60000
+	raw, err := MarshalDocument(doc)
+	require.NoError(t, err)
+	proposal, err := store.Propose(context.Background(), ProposalRequest{
+		ExpectedVersion: current.Version, Profile: "unattended", Document: raw,
+		Actor:     "mcp:principal:agp_aaaaaaaaaaaaaaaaaaaa",
+		Principal: &PrincipalRef{ID: "agp_aaaaaaaaaaaaaaaaaaaa", Tool: "propose_policy_change"},
+	})
+	require.NoError(t, err)
+	require.True(t, proposal.Widening)
+	require.Equal(t, 0, proposal.SponsorID)
+	_, err = ratifyAs(store, proposal, current.Version, "alice@test.com", 1, false, "")
+	require.True(t, errors.Is(err, ErrSecondApprovalRequired), "first approval: %v", err)
+	ratified, err := ratifyAs(store, proposal, current.Version, "bob@test.com", 2, false, "")
+	require.NoError(t, err)
+	require.Equal(t, current.Version+1, ratified.Version)
+}

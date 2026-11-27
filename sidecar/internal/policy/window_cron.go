@@ -63,23 +63,73 @@ func parseCronWidth(token string) (time.Duration, error) {
 // openedWithin reports whether a matching minute opened a window of width
 // that still covers at. Minutes are stepped in absolute time, so a local
 // time skipped by a DST change never matches and a repeated one matches
-// twice.
+// twice. Runs of minutes that cannot match (the rest of a day or an hour
+// the cron excludes) are skipped whole (previousCandidate), so a preview
+// over days of a 24 h width is not quadratic in minutes.
 func (cron cronWindow) openedWithin(at time.Time, width time.Duration) bool {
 	earliest := at.Add(-width)
 	for opened := at.Truncate(time.Minute); opened.After(earliest); {
-		if cron.matches(opened) {
+		local := wallClock(opened)
+		if cron.matchesWall(local) {
 			return true
 		}
-		opened = opened.Add(-time.Minute)
+		opened = cron.previousCandidate(opened, local)
 	}
 	return false
 }
 
-func (cron cronWindow) matches(at time.Time) bool {
-	if !cron.minute.values[at.Minute()] || !cron.hour.values[at.Hour()] ||
-		!cron.month.values[int(at.Month())] {
-		return false
+// wallClock is t's local date and time as a UTC instant: its fields read
+// without a zone lookup, which for dates past a zone's table evaluates the
+// zone's rule on every call.
+func wallClock(t time.Time) time.Time {
+	_, offset := t.Zone()
+	return t.Add(time.Duration(offset) * time.Second).UTC()
+}
+
+// previousCandidate is the latest minute before t (whose wall clock is
+// local) that could match: past the start of t's local day or hour when
+// the cron excludes it, or the previous allowed minute of the hour. A jump
+// is taken only when no offset change (DST) falls inside it, checked by the
+// wall clock moving exactly as far as the absolute time did; otherwise it
+// steps one minute.
+func (cron cronWindow) previousCandidate(t, local time.Time) time.Time {
+	back, exact := local.Minute(), false
+	switch {
+	case !cron.month.values[int(local.Month())] || !cron.dayMatches(local):
+		back = local.Hour()*60 + local.Minute()
+	case cron.hour.values[local.Hour()]:
+		for m := local.Minute() - 1; m >= 0; m-- {
+			if cron.minute.values[m] {
+				back, exact = local.Minute()-m, true
+				break
+			}
+		}
 	}
+	if back > 0 {
+		jump := time.Duration(back) * time.Minute
+		if start := t.Add(-jump); wallClock(start).Equal(local.Add(-jump)) {
+			if exact {
+				return start
+			}
+			t = start
+		}
+	}
+	return t.Add(-time.Minute)
+}
+
+func (cron cronWindow) matches(at time.Time) bool {
+	return cron.matchesWall(wallClock(at))
+}
+
+// matchesWall is matches for a wall clock from wallClock.
+func (cron cronWindow) matchesWall(local time.Time) bool {
+	return cron.minute.values[local.Minute()] && cron.hour.values[local.Hour()] &&
+		cron.month.values[int(local.Month())] && cron.dayMatches(local)
+}
+
+// dayMatches applies the day-of-month and weekday fields as cron does:
+// both must match when either is a wildcard, either may when both are set.
+func (cron cronWindow) dayMatches(at time.Time) bool {
 	dayMatch := cron.day.values[at.Day()]
 	weekDay := int(at.Weekday())
 	weekMatch := cron.week.values[weekDay] || (weekDay == 0 && cron.week.values[7])

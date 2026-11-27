@@ -40,7 +40,7 @@ func reject(format string, args ...any) error {
 func checkStatement(stmt *pg_query.Node, rules Rules) error {
 	switch {
 	case stmt.GetIndexStmt() != nil:
-		return nil
+		return checkIndexStmt(stmt.GetIndexStmt(), rules)
 	case stmt.GetCreateStatsStmt() != nil:
 		return checkCreateStats(stmt.GetCreateStatsStmt(), rules)
 	case stmt.GetDropStmt() != nil:
@@ -60,6 +60,12 @@ func checkStatement(stmt *pg_query.Node, rules Rules) error {
 	case stmt.GetAlterDatabaseSetStmt() != nil:
 		return checkSetting("ALTER DATABASE",
 			stmt.GetAlterDatabaseSetStmt().GetSetstmt(), rules.DatabaseParam)
+	case stmt.GetAlterRoleSetStmt() != nil:
+		return checkRoleSetting(stmt.GetAlterRoleSetStmt(), rules)
+	case stmt.GetAlterRoleStmt() != nil:
+		return checkRoleConnectionLimit(stmt.GetAlterRoleStmt(), rules)
+	case stmt.GetGrantStmt() != nil:
+		return checkPublicGrant(stmt.GetGrantStmt())
 	case stmt.GetSelectStmt() != nil:
 		return checkBackendSignal(stmt.GetSelectStmt())
 	case stmt.GetInsertStmt() != nil:

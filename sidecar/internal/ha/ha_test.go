@@ -3,24 +3,17 @@ package ha
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
-
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 func livePool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, testDSN())
+	pool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Skipf("database unavailable: %v", err)
 	}

@@ -19,10 +19,16 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 // ErrNotFound means the queue item does not exist.
 var ErrNotFound = errors.New("approvalcard: queue item not found")
+
+// ErrPlanStepItem: a plan step's queue item has no card; it is decided on
+// its plan (plan-02a), so no card, chat button or follow-up approves it.
+var ErrPlanStepItem = errors.New("approvalcard: a plan step is decided on its plan, " +
+	"not on a card")
 
 // Card is one queued action presented for a decision.
 type Card struct {
@@ -35,16 +41,19 @@ type Card struct {
 	Finding        *FindingRef        `json:"finding,omitempty"`
 	Recommendation *RecommendationRef `json:"recommendation,omitempty"`
 	Evidence       []Evidence         `json:"evidence"`
-	Rationale      *Rationale         `json:"rationale"`
-	Predicted      Predicted          `json:"predicted_effect"`
-	SQL            string             `json:"sql"`
-	Rollback       Rollback           `json:"rollback"`
-	Risk           Risk               `json:"risk"`
-	Why            []Reason           `json:"why_approval"`
-	ProposedAt     time.Time          `json:"proposed_at"`
-	ExpiresAt      time.Time          `json:"expires_at"`
-	SnoozedUntil   *time.Time         `json:"snoozed_until,omitempty"`
-	SnoozeReason   string             `json:"snooze_reason,omitempty"`
+	// HintEvidence is a query-hint action's plan comparison (tuning-05b);
+	// not part of the hash: it is read-only evidence, the action not.
+	HintEvidence *HintEvidence `json:"hint_evidence,omitempty"`
+	Rationale    *Rationale    `json:"rationale"`
+	Predicted    Predicted     `json:"predicted_effect"`
+	SQL          string        `json:"sql"`
+	Rollback     Rollback      `json:"rollback"`
+	Risk         Risk          `json:"risk"`
+	Why          []Reason      `json:"why_approval"`
+	ProposedAt   time.Time     `json:"proposed_at"`
+	ExpiresAt    time.Time     `json:"expires_at"`
+	SnoozedUntil *time.Time    `json:"snoozed_until,omitempty"`
+	SnoozeReason string        `json:"snooze_reason,omitempty"`
 	// Trust is the action class's trust on the database (roadmap 1.2);
 	// nil without a trust ledger.
 	Trust *Trust `json:"trust,omitempty"`
@@ -56,10 +65,29 @@ type Card struct {
 	// ShadowHistory is the action class's shadow record (roadmap 1.4);
 	// not part of the hash: it changes as decisions score, the action not.
 	ShadowHistory *shadow.History `json:"shadow_history,omitempty"`
+	// Ladder is what the change was tested on before production, in the
+	// order recorded (lab-03a); LadderNote says when nothing was. Not part
+	// of the hash: producers append to it while the item waits.
+	Ladder     []verify.LadderRecord `json:"ladder,omitempty"`
+	LadderNote string                `json:"ladder_note,omitempty"`
 	// VerificationWait is another change still being verified on this
 	// change's object (one change per object); approving overrides it. Not
 	// part of the hash: it ends when that verdict lands.
 	VerificationWait *VerificationWait `json:"verification_wait,omitempty"`
+	// ApprovalPR is the change's approval pull request, or why it has none
+	// (cli-02b); set by the API, not part of the hash.
+	ApprovalPR *PRNote `json:"approval_pr,omitempty"`
+}
+
+// PRNote is a change's approval pull request as the inbox shows it: its
+// state (an approval PR state, app_only above the remote approval cap, or
+// disabled when PR mode turned itself off) and why.
+type PRNote struct {
+	State    string `json:"state"`
+	Repo     string `json:"repo,omitempty"`
+	PRNumber int    `json:"pr_number,omitempty"`
+	PRURL    string `json:"pr_url,omitempty"`
+	Detail   string `json:"detail,omitempty"`
 }
 
 // Origin is how a queued item was proposed and by whom.
@@ -131,6 +159,11 @@ type Predicted struct {
 	QueryIDs           []int64  `json:"query_ids,omitempty"`
 	WhatIfVerdict      string   `json:"what_if_verdict,omitempty"`
 	WhatIfReason       string   `json:"what_if_reason,omitempty"`
+	// WhatIfMeasured and WhatIfUnplannedQueryIDs are a what-if's coverage:
+	// the statements planned with and without the index, and those it
+	// could not plan (a partial measurement stays unverified).
+	WhatIfMeasured          *int    `json:"what_if_measured,omitempty"`
+	WhatIfUnplannedQueryIDs []int64 `json:"what_if_unplanned_queryids,omitempty"`
 	// Method is how the effect was predicted: "hypopg" (what-if verified)
 	// or "llm_estimate".
 	Method string `json:"method,omitempty"`
@@ -176,24 +209,32 @@ type Reason struct {
 
 // Inputs is everything a card is assembled from.
 type Inputs struct {
-	Database   string
-	Action     store.QueuedAction
-	Finding    *FindingRow
-	Revision   *RevisionRow
-	Decision   *DecisionRow
-	Rejection  *RejectionRow
-	Snooze     *SnoozeRow
+	Database  string
+	Action    store.QueuedAction
+	Finding   *FindingRow
+	Revision  *RevisionRow
+	Decision  *DecisionRow
+	Rejection *RejectionRow
+	Snooze    *SnoozeRow
+	// Revert is the action a revert item reverts (nil for any other item).
+	Revert     *RevertRow
 	Contract   *executor.ActionContract
 	TrustLevel string
 	// Trust is the ledger row of the action's class (nil: no ledger, or
 	// a class the ledger does not judge); TrustErr an unreadable ledger.
 	Trust    *earned.TrustRow
 	TrustErr error
+	// Ceiling is the database's gate inputs (nil: no executor), against
+	// which the allow-always button is decided (ux-07a).
+	Ceiling *earned.Ceiling
 	// Waits are the changes in flight on the action's objects; WaitsErr an
 	// unreadable in-flight state.
 	Waits    []policy.PendingVerification
 	WaitsErr error
-	Now      time.Time
+	// Ladder is the queue row's stored verification ladder (JSON; nil for
+	// NULL).
+	Ladder []byte
+	Now    time.Time
 }
 
 // FindingRow is the finding of a queued action.

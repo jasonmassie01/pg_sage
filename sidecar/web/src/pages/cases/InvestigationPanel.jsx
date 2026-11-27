@@ -8,6 +8,10 @@ import { ActionProposals } from './ActionProposal'
 import { RunbookResult } from './RunbookResult'
 import { SimilarIncidents } from './SimilarIncidents'
 import { InvestigationReview } from './InvestigationReview'
+import { EvidenceAge } from './EvidenceAge'
+import { isStaleExpiry, STALE_EVIDENCE_TEXT } from './staleEvidence'
+import { AttemptNotice } from './AttemptNotice'
+import { formatTime } from '../../lib/time'
 
 // Sage SRE investigation of a case (AI-SRE-SPEC §9): impact and state,
 // observed facts, the likely explanation, other and ruled-out
@@ -29,6 +33,11 @@ const STATE_TONES = {
   expired: { label: 'Expired', tone: 'stopped', color: 'var(--text-secondary)' },
   paused: { label: 'Paused', tone: 'stopped', color: 'var(--text-secondary)' },
 }
+
+// A run in these states still changes: its open detail is fetched again
+// every LIVE_POLL_MS until it reaches a terminal state (sre-09).
+const LIVE_STATES = new Set(['queued', 'collecting', 'evaluating', 'needs_evidence'])
+const LIVE_POLL_MS = 5000
 
 function stateTone(state) {
   return STATE_TONES[state] ||
@@ -57,6 +66,11 @@ const boxStyle = { borderColor: 'var(--border)' }
 
 export function InvestigationPanel({ database, investigation, user }) {
   const [open, setOpen] = useState(false)
+  // The attempt opened from this one; a newer attempt of the case (a new
+  // investigation prop) replaces the choice.
+  const [chosen, setChosen] = useState(null)
+  const shownID = chosen?.from === investigation.id ? chosen.id : investigation.id
+  const openAttempt = id => setChosen({ from: investigation.id, id })
   const tone = stateTone(investigation.state)
   const summary = investigation.summary || {}
   return (
@@ -78,29 +92,49 @@ export function InvestigationPanel({ database, investigation, user }) {
         </button>
       </div>
       {open && (
-        <InvestigationDetail database={database} id={investigation.id} user={user} />
+        <InvestigationDetail database={database} id={shownID} user={user}
+          onOpenAttempt={openAttempt} liveHint={LIVE_STATES.has(investigation.state)} />
       )}
     </section>
   )
 }
 
-function InvestigationDetail({ database, id, user }) {
-  const { data, loading, error, refetch } = useAPI(basePath(database, id), 0)
+// useLiveDetail fetches an investigation's detail, again every
+// LIVE_POLL_MS while its latest answer (or, before one, the list's state)
+// is live, and never again once it is terminal.
+function useLiveDetail(database, id, liveHint) {
+  const [live, setLive] = useState(Boolean(liveHint))
+  const result = useAPI(basePath(database, id), live ? LIVE_POLL_MS : 0)
+  // The cadence follows the latest answer (state adjusted during render).
+  const nowLive = result.data ? LIVE_STATES.has(result.data.investigation?.state) : live
+  if (nowLive !== live) setLive(nowLive)
+  return result
+}
+
+function InvestigationDetail({ database, id, user, onOpenAttempt, liveHint }) {
+  const { data, loading, error, refetch } = useLiveDetail(database, id, liveHint)
   const [openEvidence, setOpenEvidence] = useState(null)
   if (loading) return <div style={muted}>Loading investigation...</div>
-  if (error) return <div style={muted}>Investigation unavailable: {error}</div>
+  if (error && !data) return <div style={muted}>Investigation unavailable: {error}</div>
   if (!data) return null
   const hs = data.hypotheses || []
   const byStatus = s => hs.filter(h => h.status === s)
   const likely = [...byStatus('root_cause'), ...byStatus('contributing')]
   const summary = data.investigation?.summary || {}
   const cite = evidenceID => setOpenEvidence(evidenceID)
+  const noExplanation = isStaleExpiry(data.investigation) ? `${STALE_EVIDENCE_TEXT}.`
+    : summary.reason || 'No supported explanation.'
   return (
     <div className="mt-2 space-y-2" data-testid="investigation-detail">
+      {error && <div data-testid="investigation-refresh-failed" style={muted}>
+        Refresh failed ({error}); showing the last answer.
+      </div>}
       <Warnings data={data} />
+      <AttemptNotice investigation={data.investigation} onOpen={onOpenAttempt} />
+      <EvidenceAge investigation={data.investigation} />
       <FactList title="Observed" facts={summary.observed || []} onCite={cite} />
       <HypothesisSection title="Likely explanation" testid="investigation-likely"
-        hypotheses={likely} empty={summary.reason || 'No supported explanation.'}
+        hypotheses={likely} empty={noExplanation}
         onCite={cite} />
       <HypothesisSection title="Other explanations" testid="investigation-other"
         hypotheses={byStatus('unproven')} empty="None." onCite={cite} />
@@ -133,7 +167,7 @@ function Warnings({ data }) {
       {!data.evidence_available && (
         <div data-testid="investigation-purged" style={strong}>
           Evidence deleted by retention
-          {purged ? ` on ${new Date(purged.deleted_at).toLocaleString()}` : ''}; the
+          {purged ? ` on ${formatTime(purged.deleted_at)}` : ''}; the
           conclusion below can no longer be re-checked.
         </div>
       )}
@@ -242,7 +276,7 @@ function EvidenceList({ evidence, openID }) {
           <summary style={muted}>
             {e.probe_id} - {e.capability_state}
             {e.reason_code ? ` (${e.reason_code})` : ''}
-            {e.observed_at ? `, observed ${new Date(e.observed_at).toLocaleString()}` : ''}
+            {e.observed_at ? `, observed ${formatTime(e.observed_at)}` : ''}
             {e.hash_verified ? '' : ', hash does not verify'}
           </summary>
           <pre className="overflow-x-auto whitespace-pre-wrap" style={muted}>
@@ -253,8 +287,6 @@ function EvidenceList({ evidence, openID }) {
     </div>
   )
 }
-
-const LIVE_STATES = new Set(['queued', 'collecting', 'evaluating', 'needs_evidence'])
 
 function OperatorControls({ database, investigation, onDone }) {
   const toast = useToast()

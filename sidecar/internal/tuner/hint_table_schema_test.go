@@ -66,6 +66,15 @@ func TestCheckHintTableRequiresQueryIDLayout(t *testing.T) {
 		"ALTER TABLE hint_plan.hints ADD COLUMN query_id bigint"); err != nil {
 		t.Fatal(err)
 	}
+	// tuning-02: the query_id layout also needs pg_hint_plan 1.7's unique
+	// index before the apply INSERT can be trusted to fail over a row.
+	if checkHintTable(ctx, pool) {
+		t.Fatal("query_id hint table without its unique index reported ready")
+	}
+	if _, err := pool.Exec(ctx, `CREATE UNIQUE INDEX hints_id_and_app
+		ON hint_plan.hints (query_id, application_name)`); err != nil {
+		t.Fatal(err)
+	}
 	if !checkHintTable(ctx, pool) {
 		t.Fatal("query_id hint table not reported ready")
 	}

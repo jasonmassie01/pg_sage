@@ -12,12 +12,14 @@ const TopN = 5
 // MaxStatementText bounds a statement's text in a finding or report.
 const MaxStatementText = 160
 
-// StatementCost is one statement's work between two readings.
+// StatementCost is one statement's work between two readings and the
+// component its tag names.
 type StatementCost struct {
-	Text   string
-	TimeMs float64
-	Calls  int64
-	Blocks int64
+	Text      string
+	Component string
+	TimeMs    float64
+	Calls     int64
+	Blocks    int64
 }
 
 // TopStatements are the n statements that used the most database time
@@ -30,16 +32,12 @@ func TopStatements(prev, cur map[StatementKey]StatementCounters, n int) []Statem
 	}
 	var out []StatementCost
 	for k, c := range cur {
-		p, ok := prev[k]
-		if !ok || c.Calls < p.Calls || c.TimeMs < p.TimeMs || c.Blocks < p.Blocks {
-			p = StatementCounters{}
-		}
-		calls := c.Calls - p.Calls
-		if calls <= 0 && c.TimeMs <= p.TimeMs {
+		d := entryDelta(prev, k, c)
+		if d.Calls <= 0 && d.TimeMs <= 0 {
 			continue
 		}
 		out = append(out, StatementCost{Text: StatementText(c.Text),
-			TimeMs: c.TimeMs - p.TimeMs, Calls: calls, Blocks: c.Blocks - p.Blocks})
+			Component: Component(c.Text), TimeMs: d.TimeMs, Calls: d.Calls, Blocks: d.Blocks})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].TimeMs != out[j].TimeMs {

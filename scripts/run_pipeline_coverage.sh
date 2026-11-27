@@ -35,12 +35,12 @@ docker run -d --name "$CONTAINER" -p "$PORT":5432 \
 
 echo "[runner] waiting for postgres ..."
 for i in $(seq 1 90); do
-  if docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; then
+  if docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
-docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1 \
+docker exec "$CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 \
   || { echo "postgres never became ready; container state + logs:";
        docker ps -a --filter "name=$CONTAINER" --format '{{.Status}}';
        docker logs "$CONTAINER" 2>&1 | tail -30;

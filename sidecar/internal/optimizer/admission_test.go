@@ -3,7 +3,6 @@ package optimizer
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -29,7 +28,7 @@ func admissionConfig() *config.OptimizerConfig {
 func admissionOptimizer(store *memStore, res WhatIfResult) (*Optimizer, *countingWhatIf,
 	*logRecorder) {
 	logs := &logRecorder{}
-	o := New(nil, admissionConfig(), 170000, logs.log)
+	o := New(nil, admissionConfig(), logs.log)
 	w := &countingWhatIf{result: res}
 	o.whatIf = w
 	o.memory = testMemory(store, logs)
@@ -59,6 +58,7 @@ func admitTable() TableContext {
 	tc.Queries[0].Text = "SELECT id FROM ai_claims WHERE status = $1"
 	tc.Queries[1].Text = "SELECT status FROM ai_claims WHERE id = $1"
 	tc.WriteRate, tc.IndexCount, tc.Workload = 5, 1, "oltp_read"
+	tc.ColumnsKnown = true
 	return tc
 }
 
@@ -120,10 +120,6 @@ func TestAdmit_RememberedIdeaIsNotRemeasured(t *testing.T) {
 	if o.MemoryStats().WhatIfSkipped != 1 {
 		t.Fatalf("skips = %+v", o.MemoryStats())
 	}
-	a = o.Admit(WithOperatorRequest(context.Background()), candidate(renamed), tc)
-	if a.Outcome != AdmitAccepted || w.calls.Load() != 1 {
-		t.Fatalf("an operator's request measures anyway: %+v", a)
-	}
 }
 
 func TestAdmit_WhatIfRejectionIsRemembered(t *testing.T) {
@@ -166,7 +162,7 @@ func TestOptimizer_ColdStartWithoutSnapshotsCheck(t *testing.T) {
 
 func TestTableContext_FromTheSnapshot(t *testing.T) {
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, os.Getenv(testdb.EnvName))
+	pool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err == nil {
 		err = pool.Ping(ctx)
 	}
@@ -197,7 +193,7 @@ func TestTableContext_FromTheSnapshot(t *testing.T) {
 			IndexRelName: "orders_pkey", IsUnique: true, IsValid: true,
 			IndexDef: "CREATE UNIQUE INDEX orders_pkey ON admit_ctx.orders USING btree (id)"}},
 	}
-	o := New(pool, admissionConfig(), 170000, admitNoLog)
+	o := New(pool, admissionConfig(), admitNoLog)
 	tc, ok, err := o.TableContext(ctx, snap, "admit_ctx.orders")
 	if err != nil || !ok {
 		t.Fatalf("context: ok %v err %v", ok, err)
@@ -218,5 +214,108 @@ func TestTableContext_FromTheSnapshot(t *testing.T) {
 	}
 	if _, ok, err := o.TableContext(ctx, snap, "admit_ctx.missing"); err != nil || ok {
 		t.Fatalf("a table outside the snapshot: ok %v err %v", ok, err)
+	}
+}
+
+// HypoPG cannot model every access method (indexes-06): a GIN, GiST, HNSW
+// or IVFFlat candidate is unverified with the method named, without a
+// hypothetical create (which would fail as "what-if evaluation failed").
+
+func ginTable() TableContext {
+	tc := admitTable()
+	tc.Columns = append(tc.Columns, ColumnInfo{Name: "payload", Type: "jsonb"})
+	return tc
+}
+
+const ginDDL = "CREATE INDEX CONCURRENTLY ai_claims_payload_idx ON public.ai_claims " +
+	"USING gin (payload)"
+
+func TestAdmit_GINGetsTheMethodReasonWithoutAWhatIf(t *testing.T) {
+	o, w, logs := admissionOptimizer(newMemStore(), WhatIfResult{Measured: 2,
+		Improvement: 50, SizeBytes: 8192})
+	a := o.Admit(context.Background(), candidate(ginDDL), ginTable())
+	if a.Outcome != AdmitAccepted || a.Rec.WhatIf != WhatIfUnverified || a.Rec.Validated {
+		t.Fatalf("admission = %+v: a GIN index is unverified, approval required", a)
+	}
+	want := "HypoPG cannot model gin indexes; operator approval required"
+	if a.Rec.WhatIfReason != want {
+		t.Fatalf("reason = %q, want %q", a.Rec.WhatIfReason, want)
+	}
+	if w.calls.Load() != 0 {
+		t.Fatalf("what-ifs = %d: a method HypoPG cannot model is never created", w.calls.Load())
+	}
+	if got := logs.matching("hypopg validation failed"); len(got) != 0 {
+		t.Fatalf("an unsupported method was logged as a failure: %q", got)
+	}
+}
+
+func TestAdmit_UnsupportedMethodOutranksUnavailableHypoPG(t *testing.T) {
+	o, _, _ := admissionOptimizer(newMemStore(), WhatIfResult{})
+	o.whatIf = unavailableWhatIf{}
+	a := o.Admit(context.Background(), candidate(ginDDL), ginTable())
+	if !strings.HasPrefix(a.Rec.WhatIfReason, "HypoPG cannot model gin indexes") {
+		t.Fatalf("reason = %q: installing HypoPG would not help, so name the method",
+			a.Rec.WhatIfReason)
+	}
+}
+
+func TestEnrich_MethodsHypoPGCannotModel(t *testing.T) {
+	cases := map[string]string{
+		"gist": "HypoPG cannot model gist indexes; operator approval required",
+		"hnsw": "HypoPG cannot model hnsw indexes; operator approval required; " +
+			"measure it with pg_sage vector-lab",
+		"ivfflat": "HypoPG cannot model ivfflat indexes; operator approval required; " +
+			"measure it with pg_sage vector-lab",
+		"spgist": "HypoPG cannot model spgist indexes; operator approval required",
+	}
+	for method, want := range cases {
+		o, w, _ := admissionOptimizer(newMemStore(), WhatIfResult{Measured: 2,
+			Improvement: 50, SizeBytes: 8192})
+		rec := candidate("CREATE INDEX CONCURRENTLY x ON public.ai_claims USING " +
+			strings.ToUpper(method) + " (status)")
+		got, rejected := o.enrichWithHypoPG(context.Background(), rec, admitTable())
+		if rejected || got.WhatIf != WhatIfUnverified || got.WhatIfReason != want ||
+			got.Validated || w.calls.Load() != 0 {
+			t.Fatalf("%s: rejected=%t rec=%+v what-ifs=%d", method, rejected, got,
+				w.calls.Load())
+		}
+	}
+}
+
+func TestEnrich_MethodsHypoPGModelsReachTheWhatIf(t *testing.T) {
+	for _, using := range []string{"", "USING btree", "USING brin", "USING hash",
+		"USING bloom"} {
+		o, w, _ := admissionOptimizer(newMemStore(), WhatIfResult{Measured: 2,
+			Improvement: 50, SizeBytes: 8192})
+		rec := candidate("CREATE INDEX CONCURRENTLY x ON public.ai_claims " + using +
+			" (status)")
+		got, _ := o.enrichWithHypoPG(context.Background(), rec, admitTable())
+		if w.calls.Load() != 1 || got.WhatIf != WhatIfVerified {
+			t.Fatalf("%q: what-ifs %d, verdict %q (%s)", using, w.calls.Load(), got.WhatIf,
+				got.WhatIfReason)
+		}
+	}
+}
+
+// A partial measurement stays unverified whatever the planned statements
+// show (an unplanned statement's regression is unknown), but the reason
+// says what was measured and which statements were not.
+func TestAdmit_PartialMeasurementNamesTheUnplannedStatements(t *testing.T) {
+	o, w, _ := admissionOptimizer(newMemStore(), WhatIfResult{Measured: 4, Failed: 1,
+		Improvement: 62, SizeBytes: 8192, UnplannedQueryIDs: []int64{123}})
+	a := o.Admit(context.Background(), candidate(statusDDL), admitTable())
+	if a.Outcome != AdmitAccepted || a.Rec.WhatIf != WhatIfUnverified || a.Rec.Validated ||
+		w.calls.Load() != 1 {
+		t.Fatalf("admission = %+v: a partial measurement is unverified", a)
+	}
+	want := "planned statements improved 62.0% (call-weighted, 4 of 5); " +
+		"not planned: queryid 123"
+	if a.Rec.WhatIfReason != want {
+		t.Fatalf("reason = %q, want %q", a.Rec.WhatIfReason, want)
+	}
+	if a.Rec.WhatIfMeasured != 4 || len(a.Rec.WhatIfUnplannedQueryIDs) != 1 ||
+		a.Rec.WhatIfUnplannedQueryIDs[0] != 123 {
+		t.Fatalf("evidence: measured %d, unplanned %v", a.Rec.WhatIfMeasured,
+			a.Rec.WhatIfUnplannedQueryIDs)
 	}
 }

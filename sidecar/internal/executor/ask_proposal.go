@@ -119,6 +119,7 @@ var approvalLifts = map[string]bool{
 	string(policy.ReasonRateLimitExceeded):        true,
 	string(policy.ReasonRefusedByPolicy):          true,
 	string(policy.ReasonOutsideMaintenanceWindow): true,
+	string(policy.ReasonWindowClosing):            true,
 	string(policy.ReasonAutonomyLevel):            true,
 	string(policy.ReasonAutonomyHandoff):          true,
 	string(policy.ReasonAutonomyDowngraded):       true,
@@ -159,7 +160,7 @@ func (e *Executor) proposableFinding(ctx context.Context, id int64) (proposableF
 	var f proposableFinding
 	var status string
 	var detail []byte
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT title, category,
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT title, category,
 		COALESCE(object_identifier, ''), COALESCE(recommended_sql, ''),
 		COALESCE(rollback_sql, ''), detail, status FROM sage.findings WHERE id = $1`,
 		id).Scan(&f.title, &f.category, &f.object, &f.sql, &f.rollback, &detail, &status)
@@ -182,7 +183,7 @@ func (e *Executor) proposableFinding(ctx context.Context, id int64) (proposableF
 // typedProposal requires a typed action contract and a rollback, unless
 // the contract needs none.
 func typedProposal(id int64, f proposableFinding) (FindingProposal, ActionContract, error) {
-	actionType := actionTypeForProposalSQL(f.sql)
+	actionType := ActionTypeForSQL(f.sql)
 	contract, ok := ContractForActionType(actionType)
 	if actionType == "" || !ok {
 		return FindingProposal{}, ActionContract{}, fmt.Errorf(
@@ -204,13 +205,13 @@ func (e *Executor) lockFindingProposal(ctx context.Context, id int64) (func(), e
 		return nil, fmt.Errorf("lock proposal of finding %d: %w", id, err)
 	}
 	key := fmt.Sprintf("pg_sage:ask_proposal:%d", id)
-	if _, err := conn.Exec(ctx, `/* pg_sage */ SELECT pg_advisory_lock(
+	if _, err := conn.Exec(ctx, `/* pg_sage executor */ SELECT pg_advisory_lock(
 		hashtextextended($1, 0))`, key); err != nil {
 		conn.Release()
 		return nil, fmt.Errorf("lock proposal of finding %d: %w", id, err)
 	}
 	return func() {
-		_, unlockErr := conn.Exec(context.WithoutCancel(ctx), `/* pg_sage */ SELECT
+		_, unlockErr := conn.Exec(context.WithoutCancel(ctx), `/* pg_sage executor */ SELECT
 			pg_advisory_unlock(hashtextextended($1, 0))`, key)
 		if unlockErr != nil {
 			e.logFn("executor", "unlock proposal of finding %d: %v", id, unlockErr)
@@ -222,7 +223,7 @@ func (e *Executor) lockFindingProposal(ctx context.Context, id int64) (func(), e
 // pendingProposal is the finding's item already waiting for approval.
 func (e *Executor) pendingProposal(ctx context.Context, id int64) (int, bool, error) {
 	var queueID int
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT id FROM sage.action_queue
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT id FROM sage.action_queue
 		WHERE finding_id = $1 AND status = 'pending'
 		  AND (expires_at IS NULL OR expires_at > now())
 		ORDER BY id DESC LIMIT 1`, id).Scan(&queueID)

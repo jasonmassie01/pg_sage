@@ -59,10 +59,6 @@ func coverageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			cbPool = nil
 			return
 		}
-		if err := schema.EnsureDatabasesTable(qctx, cbPool); err != nil {
-			cbPoolErr = fmt.Errorf("ensure databases: %w", err)
-			return
-		}
 		if err := schema.MigrateConfigSchema(qctx, cbPool); err != nil {
 			cbPoolErr = fmt.Errorf("migrate config: %w", err)
 			return
@@ -230,76 +226,70 @@ func TestCoverage_NotificationLogEntryZeroValue(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// validateByType branch coverage
+// validateSpec branch coverage (config-02b: the type switch validateByType
+// became registry specs, so each case now names a real key of that type)
 // ---------------------------------------------------------------------------
 
-func TestCoverage_ValidateByType_ExecMode(t *testing.T) {
-	// The "exec_mode" vtype uses validateEnum with
-	// validExecutionModes.
-	err := validateByType("exec_mode", "test.key", "auto")
-	if err != nil {
-		t.Errorf("exec_mode auto: unexpected error: %v", err)
+func TestCoverage_ExecutionModeIsAnInputEnumNotAConfigType(t *testing.T) {
+	// No Config field has the exec_mode type; execution modes are checked by
+	// validateInput against validExecutionModes.
+	for _, mode := range []string{"auto", "approval", "manual"} {
+		if !validExecutionModes[mode] {
+			t.Errorf("execution mode %q not accepted", mode)
+		}
 	}
-
-	err = validateByType("exec_mode", "test.key", "approval")
-	if err != nil {
-		t.Errorf("exec_mode approval: unexpected error: %v", err)
+	if validExecutionModes["bogus"] {
+		t.Error("execution mode bogus accepted")
 	}
-
-	err = validateByType("exec_mode", "test.key", "manual")
-	if err != nil {
-		t.Errorf("exec_mode manual: unexpected error: %v", err)
-	}
-
-	err = validateByType("exec_mode", "test.key", "bogus")
-	if err == nil {
-		t.Error("exec_mode bogus: expected error, got nil")
+	for key, vtype := range configKeyTypes() {
+		if vtype == "exec_mode" {
+			t.Errorf("%s has the retired exec_mode type", key)
+		}
 	}
 }
 
-func TestCoverage_ValidateByType_UnknownType(t *testing.T) {
-	// Unknown vtypes fall through to the default case, returning nil.
-	err := validateByType("unknown_vtype", "test.key", "anything")
-	if err != nil {
-		t.Errorf("unknown vtype: unexpected error: %v", err)
+func TestCoverage_ValidateSpec_UnknownKeyIsRefused(t *testing.T) {
+	if err := validateConfigValue("test.key", "anything"); err == nil {
+		t.Error("an unregistered key validated")
 	}
 }
 
-func TestCoverage_ValidateByType_AllBranches(t *testing.T) {
+func TestCoverage_ValidateSpec_AllBranches(t *testing.T) {
 	tests := []struct {
 		vtype   string
 		key     string
 		value   string
 		wantErr bool
 	}{
-		{"int_pos", "k", "10", false},
-		{"int_pos", "k", "0", true},
-		{"int_nonneg", "k", "0", false},
-		{"int_nonneg", "k", "-1", true},
-		{"int_min5", "k", "5", false},
-		{"int_min5", "k", "4", true},
-		{"pct", "k", "50", false},
-		{"pct", "k", "101", true},
-		{"pct1_100", "k", "1", false},
-		{"pct1_100", "k", "0", true},
-		{"float01", "k", "0.5", false},
-		{"float01", "k", "2.0", true},
-		{"bool", "k", "true", false},
-		{"bool", "k", "maybe", true},
-		{"trust_level", "k", "advisory", false},
-		{"trust_level", "k", "invalid", true},
-		{"exec_mode", "k", "auto", false},
-		{"exec_mode", "k", "invalid", true},
-		{"string", "k", "anything", false},
-		{"future_unknown_type", "k", "val", false},
+		{"int_pos", "collector.batch_size", "10", false},
+		{"int_pos", "collector.batch_size", "0", true},
+		{"int_nonneg", "analyzer.slow_query_threshold_ms", "0", false},
+		{"int_nonneg", "analyzer.slow_query_threshold_ms", "-1", true},
+		{"int_min5", "collector.interval_seconds", "5", false},
+		{"int_min5", "collector.interval_seconds", "4", true},
+		{"pct", "analyzer.regression_threshold_pct", "50", false},
+		{"pct", "analyzer.regression_threshold_pct", "101", true},
+		{"pct1_100", "safety.cpu_ceiling_pct", "1", false},
+		{"pct1_100", "safety.cpu_ceiling_pct", "0", true},
+		{"float01", "analyzer.cache_hit_ratio_warning", "0.5", false},
+		{"float01", "analyzer.cache_hit_ratio_warning", "2.0", true},
+		{"bool", "llm.enabled", "true", false},
+		{"bool", "llm.enabled", "maybe", true},
+		{"trust_level", "trust.level", "advisory", false},
+		{"trust_level", "trust.level", "invalid", true},
+		{"string", "llm.model", "anything", false},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("%s/%s", tt.vtype, tt.value)
 		t.Run(name, func(t *testing.T) {
-			err := validateByType(tt.vtype, tt.key, tt.value)
+			spec, ok := config.LookupKey(tt.key)
+			if !ok || spec.Type != tt.vtype {
+				t.Fatalf("%s: spec %+v, want type %s", tt.key, spec, tt.vtype)
+			}
+			err := validateSpec(spec, tt.value)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("validateByType(%q, %q, %q) err=%v, wantErr=%v",
-					tt.vtype, tt.key, tt.value, err, tt.wantErr)
+				t.Errorf("validateSpec(%s, %q) err=%v, wantErr=%v",
+					tt.key, tt.value, err, tt.wantErr)
 			}
 		})
 	}
@@ -1098,8 +1088,8 @@ func TestCoverage_ConfigStore_GetMergedConfig(t *testing.T) {
 		t.Fatal("missing collector.interval_seconds")
 	}
 	em := entry.(map[string]any)
-	if em["source"] != "yaml" {
-		t.Errorf("source = %v, want yaml", em["source"])
+	if em["source"] != SourceFileDefault {
+		t.Errorf("source = %v, want %s", em["source"], SourceFileDefault)
 	}
 
 	// Set global override.
@@ -1725,7 +1715,7 @@ func TestCoverage_NotificationStore_ListLog(t *testing.T) {
 	pool, ctx := coverageDB(t)
 	ns := NewNotificationStore(pool, nil)
 
-	entries, err := ns.ListLog(ctx, 10)
+	entries, err := ns.ListLogFor(ctx, "", 10)
 	if err != nil {
 		t.Fatalf("ListLog: %v", err)
 	}
@@ -1740,19 +1730,19 @@ func TestCoverage_NotificationStore_ListLog_DefaultLimit(
 	ns := NewNotificationStore(pool, nil)
 
 	// limit=0 should default to 100.
-	_, err := ns.ListLog(ctx, 0)
+	_, err := ns.ListLogFor(ctx, "", 0)
 	if err != nil {
 		t.Fatalf("ListLog(0): %v", err)
 	}
 
 	// limit=-1 should also default.
-	_, err = ns.ListLog(ctx, -1)
+	_, err = ns.ListLogFor(ctx, "", -1)
 	if err != nil {
 		t.Fatalf("ListLog(-1): %v", err)
 	}
 
 	// limit > 500 should default.
-	_, err = ns.ListLog(ctx, 600)
+	_, err = ns.ListLogFor(ctx, "", 600)
 	if err != nil {
 		t.Fatalf("ListLog(600): %v", err)
 	}

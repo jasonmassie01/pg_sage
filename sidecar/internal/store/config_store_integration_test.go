@@ -5,7 +5,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -13,14 +12,12 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func setupConfigTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		dsn = testDSN()
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(
 		context.Background(), 45*time.Second)
 	defer cancel()
@@ -113,7 +110,7 @@ func TestConfigStoreLLMAuthRoundTrip(t *testing.T) {
 	if err := cs.DeleteOverride(ctx, "llm.auth", 0); err != nil {
 		t.Fatalf("reset auth: %v", err)
 	}
-	assertAuth("api_key", "yaml")
+	assertAuth("api_key", SourceFileDefault)
 }
 
 func TestConfigStoreSameValueCASPersistsOverrideAndGeneration(t *testing.T) {
@@ -459,8 +456,8 @@ func TestConfigStoreMergedConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected entry type: %T", entry)
 	}
-	if em["source"] != "yaml" {
-		t.Errorf("source = %v, want yaml", em["source"])
+	if em["source"] != SourceFileDefault {
+		t.Errorf("source = %v, want %s", em["source"], SourceFileDefault)
 	}
 
 	// Set global override.

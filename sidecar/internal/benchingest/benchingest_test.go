@@ -212,12 +212,14 @@ func TestIngestASingleFileAndLedgerErrors(t *testing.T) {
 	if err != nil || res.Signed != 1 || ledger.calls[0].in.Origin != earned.OriginSignedRelease {
 		t.Fatalf("single signed file = %+v (%v)", res, err)
 	}
-	ledger.err = earned.ErrBuildMismatch
+	// A build mismatch is a refusal in Result.Refused, not an error
+	// (earned-10, refused_test.go); every other ledger refusal is.
+	ledger.err = earned.ErrSignatureMismatch
 	_, err = Ingest(context.Background(), ledger, &fakeVerifier{},
 		Source{Path: report, Actor: "bench_results_path"})
-	if !errors.Is(err, earned.ErrBuildMismatch) || !strings.Contains(err.Error(),
+	if !errors.Is(err, earned.ErrSignatureMismatch) || !strings.Contains(err.Error(),
 		"report.json") {
-		t.Fatalf("ledger refusal = %v, want ErrBuildMismatch naming the file", err)
+		t.Fatalf("ledger refusal = %v, want ErrSignatureMismatch naming the file", err)
 	}
 }
 

@@ -29,6 +29,18 @@ type BlockerIdentity struct {
 	ChainDepth     int       `json:"chain_depth"`
 	LockedRelation string    `json:"locked_relation,omitempty"`
 	LockMode       string    `json:"lock_mode,omitempty"`
+	// XminAge, XactStart, HolderKind and HolderName describe an xmin
+	// horizon holder (rca-01): its snapshot or XID age, when its
+	// transaction began (prepared, for a prepared transaction), its kind
+	// (probes.Holder*), and the slot name or prepared gid's md5.
+	XminAge    int64     `json:"xmin_age,omitempty"`
+	XactStart  time.Time `json:"xact_start,omitzero"`
+	HolderKind string    `json:"holder_kind,omitempty"`
+	HolderName string    `json:"holder_name,omitempty"`
+	// QueuedDDLPID is the in-flight DDL this root blocker's queue waits
+	// behind (migration-05): the remedy is that DDL's approval-only
+	// cancel, not a signal to this blocker. Zero when none.
+	QueuedDDLPID int `json:"queued_ddl_pid,omitempty"`
 }
 
 // blockersFromFindings extracts root-blocker identities from lock_chain
@@ -70,6 +82,7 @@ func blockerFromDetail(d map[string]any) (BlockerIdentity, bool) {
 	b.ChainDepth, _ = d["chain_depth"].(int)
 	b.LockedRelation, _ = d["locked_relation"].(string)
 	b.LockMode, _ = d["blocker_mode"].(string)
+	b.QueuedDDLPID, _ = d["queued_ddl_pid"].(int)
 	if q, ok := d["query"].(string); ok && q != "" {
 		sum := sha256.Sum256([]byte(q))
 		b.QuerySHA = hex.EncodeToString(sum[:8])
@@ -118,6 +131,10 @@ func blockerDescription(b BlockerIdentity) string {
 		b.ChainDepth)
 	if b.LockedRelation != "" {
 		desc += " on " + b.LockedRelation
+	}
+	if b.QueuedDDLPID > 0 {
+		desc += fmt.Sprintf("; the sessions queue behind in-flight DDL pid %d",
+			b.QueuedDDLPID)
 	}
 	return desc
 }

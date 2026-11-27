@@ -5,6 +5,9 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"strings"
+
+	"github.com/pg-sage/sidecar/internal/auditchain"
 )
 
 // AuditConfig is tamper-evident audit export and evidence (E2, spec
@@ -15,31 +18,48 @@ type AuditConfig struct {
 	Evidence            AuditEvidenceConfig `yaml:"evidence"`
 	PGAudit             AuditPGAuditConfig  `yaml:"pgaudit"`
 	VerifyIntervalHours int                 `yaml:"verify_interval_hours" doc:"Hours between verifications of the audit hash chains; a broken chain raises a critical finding. 0 disables. 0-168. Default: 24."`
+	// FullVerifyIntervalHours spaces the full passes; the verifications in
+	// between read only the links after the newest checkpoint.
+	FullVerifyIntervalHours int `yaml:"full_verify_interval_hours" doc:"Hours between full verifications of each audit chain; runs in between check only the links written since the last clean one. 0: always full. 0-8760. Default: 168."`
+	// PruneBelowSignedCheckpoint removes chain links already held by every
+	// SIEM sink (audit-03b); off by default.
+	PruneBelowSignedCheckpoint bool `yaml:"prune_below_signed_checkpoint" doc:"After a clean full verification, delete chain links below the newest signed checkpoint every SIEM sink received (live rows keep theirs). Needs the evidence key and a sink. Default: false."`
 }
 
 // AuditSIEMConfig ships every audit chain link to SIEM sinks as OCSF.
 type AuditSIEMConfig struct {
-	Sinks             []AuditSIEMSink `yaml:"sinks" doc:"SIEM destinations: [{name, type: http|syslog|otlp, url, address, network, token_env, timeout_seconds, chains}]. Each gets every audit event at least once, in order."`
+	Sinks             []AuditSIEMSink `yaml:"sinks" doc:"SIEM destinations: [{name, type: http|syslog|otlp, url, address, network, token_env, ca_file, client_cert_file, client_key_file, chains}]. At least once over http, otlp, tcp and tls; best effort over udp."`
 	BatchSize         int             `yaml:"batch_size" doc:"Events per delivery. 1-1000. Default: 200."`
 	IntervalSeconds   int             `yaml:"interval_seconds" doc:"Seconds between export passes when caught up. 1-3600. Default: 10."`
 	MaxBackoffSeconds int             `yaml:"max_backoff_seconds" doc:"Longest wait between retries of a failing sink; the cursor holds, so nothing is lost. 1-3600. Default: 300."`
 }
 
-// AuditSIEMSink is one SIEM destination.
+// AuditSIEMSink is one SIEM destination. CAFile pins the receiver's roots
+// to that bundle; ClientCertFile and ClientKeyFile are the client pair for
+// mutual TLS. AllowInsecureHTTP accepts a token over plain http.
 type AuditSIEMSink struct {
-	Name           string   `yaml:"name"`
-	Type           string   `yaml:"type"`
-	URL            string   `yaml:"url"`
-	Address        string   `yaml:"address"`
-	Network        string   `yaml:"network"`
-	TokenEnv       string   `yaml:"token_env"`
-	TimeoutSeconds int      `yaml:"timeout_seconds"`
-	Chains         []string `yaml:"chains"`
+	Name              string   `yaml:"name"`
+	Type              string   `yaml:"type"`
+	URL               string   `yaml:"url"`
+	Address           string   `yaml:"address"`
+	Network           string   `yaml:"network"`
+	TokenEnv          string   `yaml:"token_env"`
+	TimeoutSeconds    int      `yaml:"timeout_seconds"`
+	Chains            []string `yaml:"chains"`
+	CAFile            string   `yaml:"ca_file"`
+	ClientCertFile    string   `yaml:"client_cert_file"`
+	ClientKeyFile     string   `yaml:"client_key_file"`
+	AllowInsecureHTTP bool     `yaml:"allow_insecure_http"`
 }
+
+// SIEMWarningTokenOverHTTP marks a sink that sends its token over plain
+// http without allow_insecure_http. It warns in this release; the next
+// minor refuses it.
+const SIEMWarningTokenOverHTTP = "token_over_http"
 
 // AuditEvidenceConfig configures evidence packs.
 type AuditEvidenceConfig struct {
-	SigningKeyEnv string `yaml:"signing_key_env" doc:"Environment variable (or its _FILE twin) holding an Ed25519 private key (PKCS#8 PEM) that signs evidence-pack manifests. Empty: packs are hashed (SHA256SUMS), not signed."`
+	SigningKeyEnv string `yaml:"signing_key_env" doc:"Env variable (or _FILE twin) holding an Ed25519 PKCS#8 PEM key that signs evidence packs. Empty: a key the sidecar generates and seals under encryption_key; no encryption_key: unsigned."`
 }
 
 // AuditPGAuditConfig configures pgaudit correlation.
@@ -50,6 +70,7 @@ type AuditPGAuditConfig struct {
 // Audit defaults.
 const (
 	DefaultAuditVerifyIntervalHours = 24
+	DefaultAuditFullVerifyHours     = 168
 	DefaultSIEMBatchSize            = 200
 	DefaultSIEMIntervalSeconds      = 10
 	DefaultSIEMMaxBackoffSeconds    = 300
@@ -58,6 +79,7 @@ const (
 
 func defaultAuditConfig() AuditConfig {
 	return AuditConfig{VerifyIntervalHours: DefaultAuditVerifyIntervalHours,
+		FullVerifyIntervalHours: DefaultAuditFullVerifyHours,
 		SIEM: AuditSIEMConfig{BatchSize: DefaultSIEMBatchSize,
 			IntervalSeconds:   DefaultSIEMIntervalSeconds,
 			MaxBackoffSeconds: DefaultSIEMMaxBackoffSeconds},
@@ -75,6 +97,7 @@ func (a AuditConfig) validate() error {
 		v, lo, hi int
 	}{
 		{"audit.verify_interval_hours", a.VerifyIntervalHours, 0, 168},
+		{"audit.full_verify_interval_hours", a.FullVerifyIntervalHours, 0, 8760},
 		{"audit.siem.batch_size", a.SIEM.BatchSize, 1, 1000},
 		{"audit.siem.interval_seconds", a.SIEM.IntervalSeconds, 1, 3600},
 		{"audit.siem.max_backoff_seconds", a.SIEM.MaxBackoffSeconds, 1, 3600},
@@ -112,6 +135,16 @@ func (s AuditSIEMSink) validate() error {
 		return fmt.Errorf("audit.siem.sinks[%s].token_env %q is not an environment "+
 			"variable name", s.Name, s.TokenEnv)
 	}
+	if err := s.validateTransport(); err != nil {
+		return err
+	}
+	if err := s.validateTLSFiles(); err != nil {
+		return err
+	}
+	return s.validateChains()
+}
+
+func (s AuditSIEMSink) validateTransport() error {
 	switch s.Type {
 	case "http", "otlp":
 		u, err := url.Parse(s.URL)
@@ -133,6 +166,64 @@ func (s AuditSIEMSink) validate() error {
 	default:
 		return fmt.Errorf("audit.siem.sinks[%s].type must be http, syslog or otlp, "+
 			"got %q", s.Name, s.Type)
+	}
+	return nil
+}
+
+// validateTLSFiles refuses half a client pair, and TLS files on a
+// transport that has no TLS (they would be ignored silently).
+func (s AuditSIEMSink) validateTLSFiles() error {
+	if (s.ClientCertFile == "") != (s.ClientKeyFile == "") {
+		return fmt.Errorf("audit.siem.sinks[%s]: client_cert_file and client_key_file "+
+			"must be set together", s.Name)
+	}
+	if s.CAFile == "" && s.ClientCertFile == "" {
+		return nil
+	}
+	if s.Type == "syslog" && s.Network != "tls" {
+		network := s.Network
+		if network == "" {
+			network = "tcp"
+		}
+		return fmt.Errorf("audit.siem.sinks[%s]: ca_file, client_cert_file and "+
+			"client_key_file need network tls, not %s", s.Name, network)
+	}
+	if s.Type != "syslog" && s.plainHTTP() {
+		return fmt.Errorf("audit.siem.sinks[%s]: ca_file, client_cert_file and "+
+			"client_key_file need an https:// url, not http://", s.Name)
+	}
+	return nil
+}
+
+// validateChains refuses a chain the migration does not install: a typo
+// would otherwise export nothing while the sink reports no failure.
+func (s AuditSIEMSink) validateChains() error {
+	for _, c := range s.Chains {
+		if _, ok := auditchain.SpecFor(c); !ok {
+			names := make([]string, 0, len(auditchain.Specs()))
+			for _, spec := range auditchain.Specs() {
+				names = append(names, spec.Chain)
+			}
+			return fmt.Errorf("audit.siem.sinks[%s].chains: %q is not an audit chain; "+
+				"use %s", s.Name, c, strings.Join(names, ", "))
+		}
+	}
+	return nil
+}
+
+// plainHTTP reports whether the sink's URL is http:// (url.Parse lowers
+// the scheme).
+func (s AuditSIEMSink) plainHTTP() bool {
+	u, err := url.Parse(s.URL)
+	return err == nil && u.Scheme == "http"
+}
+
+// Warnings lists what is allowed today but unsafe: a token sent over plain
+// http (SIEMWarningTokenOverHTTP) unless allow_insecure_http is set.
+func (s AuditSIEMSink) Warnings() []string {
+	if (s.Type == "http" || s.Type == "otlp") && s.TokenEnv != "" && s.plainHTTP() &&
+		!s.AllowInsecureHTTP {
+		return []string{SIEMWarningTokenOverHTTP}
 	}
 	return nil
 }

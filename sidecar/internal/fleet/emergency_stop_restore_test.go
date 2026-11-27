@@ -19,10 +19,7 @@ import (
 // can never leak into other packages sharing SAGE_TEST_DATABASE_URL.
 func isolatedStopDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn, err := testdb.DesignatedDSN()
-	if err != nil {
-		t.Skipf("%v; restart restore needs PostgreSQL", err)
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -55,12 +52,16 @@ func isolatedStopDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// persistStopRow writes the row a previous sidecar process left behind.
+// persistStopRow writes the row a previous sidecar process left behind. It
+// upserts: bootstrap seeds emergency_stop='false' (fleet-09).
 func persistStopRow(t *testing.T, pool *pgxpool.Pool, by string, at time.Time) {
 	t.Helper()
 	_, err := pool.Exec(context.Background(),
 		`INSERT INTO sage.config (key, value, updated_at, updated_by)
-		 VALUES ('emergency_stop', 'true', $1, $2)`, at, by)
+		 VALUES ('emergency_stop', 'true', $1, $2)
+		 ON CONFLICT (key, COALESCE(database_id, 0)) DO UPDATE
+		 SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at,
+		     updated_by = EXCLUDED.updated_by`, at, by)
 	if err != nil {
 		t.Fatalf("seed emergency_stop: %v", err)
 	}
@@ -130,7 +131,9 @@ func TestStartupRestoreKeepsRunningDatabaseRunning(t *testing.T) {
 	pool := isolatedStopDB(t)
 	_, err := pool.Exec(context.Background(),
 		`INSERT INTO sage.config (key, value, updated_by)
-		 VALUES ('emergency_stop', 'false', 'admin@example.com')`)
+		 VALUES ('emergency_stop', 'false', 'admin@example.com')
+		 ON CONFLICT (key, COALESCE(database_id, 0)) DO UPDATE
+		 SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by`)
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -186,7 +189,8 @@ func TestEmergencyStopPersistsActorAndAuditRow(t *testing.T) {
 		t.Fatalf("updated_by = %q (%v), want admin@example.com", by, err)
 	}
 	assertAuditTrail(t, pool, []string{
-		"<nil>->true by op@example.com",
+		// The first stop replaces the bootstrap seed 'false' (fleet-09).
+		"false->true by op@example.com",
 		"true->false by admin@example.com",
 	})
 }
@@ -255,5 +259,6 @@ func TestStopDuringReconnectSwap_SavedFlagInPostgres(t *testing.T) {
 	if err != nil || !state.Stopped || state.UpdatedBy != "op@example.com" {
 		t.Fatalf("saved flag = %+v (%v), want stopped by op@example.com", state, err)
 	}
-	assertAuditTrail(t, pool, []string{"<nil>->true by op@example.com"})
+	// The stop replaces the bootstrap seed 'false' (fleet-09).
+	assertAuditTrail(t, pool, []string{"false->true by op@example.com"})
 }

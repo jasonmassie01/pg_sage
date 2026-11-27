@@ -28,13 +28,15 @@ func (f *fakeAPI) Metrics(context.Context) (string, error) {
 	return scrape(f.now, f.idle), nil
 }
 
-func (f *fakeAPI) Logs(context.Context, string, time.Time, time.Time) ([]logwatch.LogEntry, error) {
+func (f *fakeAPI) Logs(context.Context, string, time.Time, time.Time) (
+	[]logwatch.LogEntry, int, error,
+) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failed {
-		return nil, errors.New("provider down")
+		return nil, 0, errors.New("provider down")
 	}
-	return f.entries, nil
+	return f.entries, 0, nil
 }
 
 func TestRuntimePollDerivesTelemetryAndDeduplicatesLogs(t *testing.T) {

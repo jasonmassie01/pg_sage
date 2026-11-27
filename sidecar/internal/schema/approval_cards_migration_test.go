@@ -21,7 +21,8 @@ func TestApprovalCardsMigrationIsIdempotent(t *testing.T) {
 	for table, cols := range map[string][]string{
 		"approval_card_deliveries": {"token_sha256", "channel_id", "database_name",
 			"queue_id", "card_hash", "title", "summary", "expires_at", "used_at",
-			"used_by", "decision", "message_id", "followed_up_at", "followup_verdict"},
+			"used_by", "decision", "message_id", "followed_up_at", "followup_verdict",
+			"next_check_at"},
 		"action_queue": {"snoozed_until", "snoozed_by", "snooze_reason"},
 	} {
 		for _, col := range cols {
@@ -33,11 +34,17 @@ func TestApprovalCardsMigrationIsIdempotent(t *testing.T) {
 			}
 		}
 	}
-	for _, idx := range []string{"idx_approval_card_followup", "idx_action_queue_snoozed"} {
+	for _, idx := range []string{"idx_approval_card_next_check", "idx_action_queue_snoozed"} {
 		if err := pool.QueryRow(ctx, `SELECT to_regclass('sage.' || $1) IS NOT NULL`,
 			idx).Scan(&ok); err != nil || !ok {
 			t.Errorf("index sage.%s missing (%v)", idx, err)
 		}
+	}
+	// policy-06: the follow-up queue is read by (next_check_at, id); the
+	// (created_at, id) index it replaces is gone after every bootstrap.
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('sage.idx_approval_card_followup')
+		IS NULL`).Scan(&ok); err != nil || !ok {
+		t.Errorf("replaced index sage.idx_approval_card_followup still exists (%v)", err)
 	}
 	// The token hash is exactly 32 bytes and a decision is one of three.
 	if _, err := pool.Exec(ctx, `INSERT INTO sage.approval_card_deliveries

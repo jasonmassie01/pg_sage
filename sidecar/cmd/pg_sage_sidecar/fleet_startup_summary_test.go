@@ -45,15 +45,14 @@ func TestFleetStartupSummaryDoesNotCountFailedDatabases(t *testing.T) {
 
 func captureFleetStartupLog(t *testing.T) string {
 	t.Helper()
-	previous := os.Stderr
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer reader.Close()
 	defer writer.Close()
-	os.Stderr = writer
-	defer func() { os.Stderr = previous }()
+	previous := swapStderr(writer)
+	defer swapStderr(previous)
 	initFleetMultiDB()
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)

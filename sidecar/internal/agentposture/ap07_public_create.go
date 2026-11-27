@@ -3,6 +3,8 @@ package agentposture
 import (
 	"context"
 	"fmt"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap07{}) }
@@ -28,13 +30,14 @@ ORDER BY n.nspname
 LIMIT $1`)
 
 func (ap07) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap07SQL, maxRows)
+	lim := in.capRows("schemas", maxRows)
+	rows, err := in.Q.Query(ctx, ap07SQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read schema ACLs: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var schema string
 		if err := rows.Scan(&schema); err != nil {
 			return nil, fmt.Errorf("read schema ACLs: %w", err)
@@ -47,7 +50,7 @@ func (ap07) Detect(ctx context.Context, in Input) ([]Finding, error) {
 			Recommendation: "Revoke CREATE from PUBLIC and grant it only to the roles " +
 				"that own objects in the schema.",
 			FixScript: fmt.Sprintf("REVOKE CREATE ON SCHEMA %s FROM PUBLIC;",
-				QuoteIdent(schema)),
+				sqlident.Ident(schema)),
 			Caveat: "Grant CREATE to the roles that deploy into the schema first, or " +
 				"their migrations fail.",
 			Evidence: []Evidence{{Source: "pg_namespace.nspacl", Ref: schema,

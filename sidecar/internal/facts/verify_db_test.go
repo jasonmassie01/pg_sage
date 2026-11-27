@@ -23,7 +23,7 @@ func TestReverifyExpiresFactsWhoseObjectsAreGone(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP SCHEMA IF EXISTS "+schemaName+" CASCADE")
 	})
-	s := NewStore(pool).WithMissingGrace(time.Hour)
+	s := NewStore(pool).WithMissingGrace(time.Hour).WithConfirmedAbsence(time.Hour)
 	declare := func(typ Type, kind Kind, subject string, value map[string]string) Fact {
 		p := operatorProposal(typ, kind, subject)
 		p.Value = value
@@ -108,7 +108,7 @@ func TestCatalogResolverFindsIndexParents(t *testing.T) {
 		{Kind: KindRelation, Schema: schemaName, Name: "missing"},
 		{Kind: KindSlot, Name: "cdc"},
 	}
-	got, err := NewCatalogResolver(pool).ResolveIndexes(ctx, refs)
+	got, err := NewCatalogResolver(pool).ResolveCatalog(ctx, refs)
 	if err != nil || len(got) != len(refs) {
 		t.Fatalf("%+v %v", got, err)
 	}

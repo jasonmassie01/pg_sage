@@ -210,7 +210,7 @@ func TestRevokeLifecycle(t *testing.T) {
 	_, err := s.Validate(ctx, tok.Secret)
 	require.NoError(t, err)
 
-	revoked, err := s.Revoke(ctx, tok.ID, "admin@example.com")
+	revoked, err := s.Revoke(ctx, tok.ID, "admin@example.com", mcptoken.Audit{})
 	require.NoError(t, err)
 	require.Equal(t, tok.ID, revoked.ID)
 	require.NotNil(t, revoked.RevokedAt)
@@ -220,7 +220,7 @@ func TestRevokeLifecycle(t *testing.T) {
 	_, err = s.Validate(ctx, tok.Secret)
 	require.ErrorIs(t, err, mcptoken.ErrUnauthorized)
 
-	again, err := s.Revoke(ctx, tok.ID, "someone-else@example.com")
+	again, err := s.Revoke(ctx, tok.ID, "someone-else@example.com", mcptoken.Audit{})
 	require.NoError(t, err, "revoking a revoked token is idempotent")
 	require.NotNil(t, again.RevokedAt)
 	require.True(t, revoked.RevokedAt.Equal(*again.RevokedAt), "first revocation stands")
@@ -236,7 +236,7 @@ func TestRevokeUnknownIsNotFound(t *testing.T) {
 	s := mcptoken.NewStore(livePool(t))
 	for _, id := range []string{"does-not-exist", "", "00000000-0000-0000-0000-000000000000",
 		"999999999", "'; DROP TABLE sage.mcp_tokens; --"} {
-		tok, err := s.Revoke(context.Background(), id, "admin@example.com")
+		tok, err := s.Revoke(context.Background(), id, "admin@example.com", mcptoken.Audit{})
 		require.ErrorIs(t, err, mcptoken.ErrNotFound, "id %q", id)
 		require.False(t, errors.Is(err, mcptoken.ErrUnauthorized))
 		require.Equal(t, "", tok.ID)
@@ -430,7 +430,7 @@ func TestListNewestFirst(t *testing.T) {
 	for i := range ids {
 		ids[i] = mustCreate(t, s, agentReq(uniq(fmt.Sprintf("order-%d", i)))).ID
 	}
-	_, err := s.Revoke(context.Background(), ids[1], "admin@example.com")
+	_, err := s.Revoke(context.Background(), ids[1], "admin@example.com", mcptoken.Audit{})
 	require.NoError(t, err)
 
 	tokens, err := s.List(context.Background())

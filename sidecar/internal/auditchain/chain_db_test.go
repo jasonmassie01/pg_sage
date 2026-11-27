@@ -373,6 +373,103 @@ func TestVerifyPropagatesQueryErrors(t *testing.T) {
 	}
 }
 
+// A link whose payload version is not the spec's is reported, even when
+// its hash was recomputed so the walk alone accepts it: it was written
+// under rules the current spec does not describe, so its row is not
+// checked with the wrong one.
+func TestLinkOfUnknownVersionIsReported(t *testing.T) {
+	pool := freshDB(t, "chain_unknown_version")
+	id := insertAction(t, pool, "CREATE INDEX v1")
+	exec(t, pool, "UPDATE sage.action_log SET outcome = 'success' WHERE id = $1", id)
+	exec(t, pool, `UPDATE sage.audit_chain_link SET v = 2,
+		hash = encode(sha256(convert_to(concat_ws('|', prev_hash, seq::text, op,
+			row_id::text, '2', sealed_hash, state), 'UTF8')), 'hex')
+		WHERE chain = 'action_log' AND seq = 2`)
+	links, err := auditchain.LinksForRow(context.Background(), pool, "action_log", id)
+	if err != nil || len(links) != 2 || links[1].V != 2 ||
+		auditchain.LinkHash(links[1]) != links[1].Hash {
+		t.Fatalf("rewritten links = %+v (%v), want a self-consistent v=2 head", links, err)
+	}
+	rep := verify(t, pool, auditchain.ActionLog, auditchain.Window{})
+	if rep.OK() || len(rep.Problems) != 1 || rep.Problems[0].Kind != "unknown_version" ||
+		rep.Problems[0].Seq != 2 || rep.Problems[0].RowID != id ||
+		!strings.Contains(rep.Problems[0].Detail, "2") {
+		t.Fatalf("v=2 link: problems %+v, want one unknown_version at seq 2", rep.Problems)
+	}
+	if rep.Links != 2 || rep.HeadSeq != 2 {
+		t.Fatalf("v=2 link: report %+v, want both links walked", rep)
+	}
+}
+
+// Verified with a newer spec, every v1 row link is of an unknown version;
+// a truncate link carries no payload and is version-free.
+func TestUnknownVersionSparesTruncateLinks(t *testing.T) {
+	pool := freshDB(t, "chain_unknown_truncate")
+	insertAction(t, pool, "CREATE INDEX tv1")
+	exec(t, pool, "TRUNCATE sage.action_log CASCADE")
+	id := insertAction(t, pool, "CREATE INDEX tv2")
+	v2 := auditchain.ActionLog
+	v2.Version = 2
+	rep := verify(t, pool, v2, auditchain.Window{})
+	var seqs []int64
+	for _, p := range rep.Problems {
+		if p.Kind != "unknown_version" {
+			t.Fatalf("unexpected problem %+v: v1 rows must not be checked with v2", p)
+		}
+		seqs = append(seqs, p.Seq)
+	}
+	if len(seqs) != 2 || seqs[0] != 1 || seqs[1] != 3 || rep.Truncations != 1 ||
+		problemKinds(rep)[id] == nil {
+		t.Fatalf("v2 spec over I,T,I: unknown_version at %v (want [1 3]), report %+v",
+			seqs, rep)
+	}
+	if rep := verify(t, pool, auditchain.ActionLog, auditchain.Window{}); !rep.OK() {
+		t.Fatalf("the v1 spec still verifies the same chain: %+v", rep.Problems)
+	}
+}
+
+// A newer spec whose expressions differ never checks rows written under
+// the old version: comparing them would report every clean row as edited.
+func TestUnknownVersionRowsAreNotCheckedWithTheNewSpec(t *testing.T) {
+	pool := freshDB(t, "chain_unknown_rows")
+	id := insertAction(t, pool, "CREATE INDEX uv1")
+	exec(t, pool, "UPDATE sage.action_log SET outcome = 'success' WHERE id = $1", id)
+	v2 := auditchain.ActionLog
+	v2.Version = 2
+	v2.Sealed = append(append([]string(nil), v2.Sealed...), "%[1]s.id + 1")
+	v2.State = append(append([]string(nil), v2.State...), "%[1]s.id + 1")
+	rep := verify(t, pool, v2, auditchain.Window{})
+	if rep.RowsChecked != 0 || len(rep.Problems) != 2 {
+		t.Fatalf("v2 spec over two v1 links: rows checked %d, problems %+v, want 0 and "+
+			"two unknown_version", rep.RowsChecked, rep.Problems)
+	}
+	for i, p := range rep.Problems {
+		if p.Kind != "unknown_version" || p.RowID != id || p.Seq != int64(i+1) {
+			t.Fatalf("problem %d = %+v, want unknown_version for row %d at seq %d", i, p,
+				id, i+1)
+		}
+	}
+}
+
+// A row inserted under this version and updated under another (its state
+// rendered by the other version's rules) is not checked at all: neither
+// its own-version links nor the other version's state are compared.
+func TestRowWithALaterUnknownVersionLinkIsNotChecked(t *testing.T) {
+	pool := freshDB(t, "chain_unknown_mixed")
+	id := insertAction(t, pool, "CREATE INDEX uv2")
+	exec(t, pool, "UPDATE sage.action_log SET outcome = 'success' WHERE id = $1", id)
+	exec(t, pool, `UPDATE sage.audit_chain_link SET v = 2, state = '["v2 state"]',
+		hash = encode(sha256(convert_to(concat_ws('|', prev_hash, seq::text, op,
+			row_id::text, '2', sealed_hash, '["v2 state"]'), 'UTF8')), 'hex')
+		WHERE chain = 'action_log' AND seq = 2`)
+	rep := verify(t, pool, auditchain.ActionLog, auditchain.Window{})
+	if rep.RowsChecked != 0 || len(rep.Problems) != 1 ||
+		rep.Problems[0].Kind != "unknown_version" || rep.Problems[0].Seq != 2 {
+		t.Fatalf("v1 insert, v2 update: rows checked %d, problems %+v, want 0 and one "+
+			"unknown_version at seq 2 (no state_edited)", rep.RowsChecked, rep.Problems)
+	}
+}
+
 func containsKind(kinds []string, kind string) bool {
 	for _, k := range kinds {
 		if k == kind {

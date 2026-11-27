@@ -46,52 +46,6 @@ func TestCoverage_SeverityByDays_LessThan30(t *testing.T) {
 
 // --- seqSeverity uncovered branches ---
 
-func TestCoverage_SeqSeverity_InfDays(t *testing.T) {
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	got := seqSeverity(math.Inf(1), cfg)
-	if got != "" {
-		t.Errorf("seqSeverity(+Inf) = %q, want empty", got)
-	}
-}
-
-func TestCoverage_SeqSeverity_Warning(t *testing.T) {
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	// days=60 is between critical(30) and warn(90) => "warning"
-	got := seqSeverity(60, cfg)
-	if got != "warning" {
-		t.Errorf("seqSeverity(60) = %q, want warning", got)
-	}
-}
-
-func TestCoverage_SeqSeverity_Critical(t *testing.T) {
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	got := seqSeverity(20, cfg)
-	if got != "critical" {
-		t.Errorf("seqSeverity(20) = %q, want critical", got)
-	}
-}
-
-func TestCoverage_SeqSeverity_BeyondWarnDays(t *testing.T) {
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	// days=120 is beyond warn threshold => "" (no finding)
-	got := seqSeverity(120, cfg)
-	if got != "" {
-		t.Errorf("seqSeverity(120) = %q, want empty", got)
-	}
-}
-
 // --- sysToDataPoints empty input ---
 
 func TestCoverage_SysToDataPoints_Empty(t *testing.T) {
@@ -114,20 +68,6 @@ func TestCoverage_SysToDataPoints_EmptySlice(t *testing.T) {
 
 // --- seqToDataPoints empty input ---
 
-func TestCoverage_SeqToDataPoints_Empty(t *testing.T) {
-	got := seqToDataPoints(nil)
-	if got != nil {
-		t.Errorf("seqToDataPoints(nil) = %v, want nil", got)
-	}
-}
-
-func TestCoverage_SeqToDataPoints_EmptySlice(t *testing.T) {
-	got := seqToDataPoints([]DaySeqAgg{})
-	if got != nil {
-		t.Errorf("seqToDataPoints([]) = %v, want nil", got)
-	}
-}
-
 // --- forecastConnectionSaturation: maxConns == 0 ---
 
 func TestCoverage_ConnectionSaturation_ZeroMaxConns(t *testing.T) {
@@ -145,27 +85,6 @@ func TestCoverage_ConnectionSaturation_ZeroMaxConns(t *testing.T) {
 			len(findings),
 		)
 	}
-}
-
-// --- forecastCheckpointPressure: stats reset (delta < 0) ---
-
-func TestCoverage_CheckpointPressure_StatsReset(t *testing.T) {
-	// Create data where total checkpoints drop mid-series
-	// to exercise the delta < 0 branch (stats reset).
-	aggs := makeSysAggs(10, func(i int) DaySystemAgg {
-		checkpoints := float64(i) * 400
-		// Simulate a stats reset at day 5
-		if i >= 5 {
-			checkpoints = float64(i-5) * 400
-		}
-		return DaySystemAgg{
-			TotalCheckpoints: checkpoints,
-		}
-	})
-	cfg := ForecasterConfig{}
-	// We just need this to exercise the delta < 0 branch;
-	// the result depends on the actual EWMA smoothed rate.
-	_ = forecastCheckpointPressure(aggs, cfg)
 }
 
 // --- LinearRegression: denom == 0 (all same X) ---
@@ -253,33 +172,6 @@ func TestCoverage_Forecast_NilPool(t *testing.T) {
 
 // --- seqToDataPoints with valid data ---
 
-func TestCoverage_SeqToDataPoints_ValidData(t *testing.T) {
-	now := time.Now()
-	aggs := []DaySeqAgg{
-		{Day: now, SeqName: "s1", PctUsed: 10},
-		{Day: now.AddDate(0, 0, 1), SeqName: "s1", PctUsed: 20},
-		{Day: now.AddDate(0, 0, 2), SeqName: "s1", PctUsed: 30},
-	}
-	points := seqToDataPoints(aggs)
-	if len(points) != 3 {
-		t.Fatalf("len = %d, want 3", len(points))
-	}
-	// First point should have X=0 (origin)
-	if points[0].X != 0 {
-		t.Errorf("points[0].X = %f, want 0", points[0].X)
-	}
-	if points[0].Y != 10 {
-		t.Errorf("points[0].Y = %f, want 10", points[0].Y)
-	}
-	// Second point should be ~1 day offset
-	if points[1].X < 0.9 || points[1].X > 1.1 {
-		t.Errorf("points[1].X = %f, want ~1.0", points[1].X)
-	}
-	if points[1].Y != 20 {
-		t.Errorf("points[1].Y = %f, want 20", points[1].Y)
-	}
-}
-
 // --- sysToDataPoints with valid data ---
 
 func TestCoverage_SysToDataPoints_ValidData(t *testing.T) {
@@ -300,37 +192,5 @@ func TestCoverage_SysToDataPoints_ValidData(t *testing.T) {
 	}
 	if points[0].Y != 100 {
 		t.Errorf("points[0].Y = %f, want 100", points[0].Y)
-	}
-}
-
-// --- groupSeqAggs edge cases ---
-
-func TestCoverage_GroupSeqAggs_MultipleSequences(t *testing.T) {
-	aggs := []DaySeqAgg{
-		{SeqName: "s1", PctUsed: 10},
-		{SeqName: "s2", PctUsed: 20},
-		{SeqName: "s1", PctUsed: 30},
-		{SeqName: "s2", PctUsed: 40},
-		{SeqName: "s3", PctUsed: 50},
-	}
-	grouped := groupSeqAggs(aggs)
-	if len(grouped) != 3 {
-		t.Errorf("len = %d, want 3", len(grouped))
-	}
-	if len(grouped["s1"]) != 2 {
-		t.Errorf("s1 count = %d, want 2", len(grouped["s1"]))
-	}
-	if len(grouped["s2"]) != 2 {
-		t.Errorf("s2 count = %d, want 2", len(grouped["s2"]))
-	}
-	if len(grouped["s3"]) != 1 {
-		t.Errorf("s3 count = %d, want 1", len(grouped["s3"]))
-	}
-}
-
-func TestCoverage_GroupSeqAggs_Empty(t *testing.T) {
-	grouped := groupSeqAggs(nil)
-	if len(grouped) != 0 {
-		t.Errorf("len = %d, want 0", len(grouped))
 	}
 }

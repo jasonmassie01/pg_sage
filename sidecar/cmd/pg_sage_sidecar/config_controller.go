@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -16,6 +17,7 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 		return nil
 	}
 	generation := uint64(1)
+	var durable config.DurableSource
 	if controlPool != nil {
 		// Before any ConfigStore exists: they capture the keyring (CG-01).
 		if err := initConfigSecrets(context.Background(), controlPool); err != nil {
@@ -31,13 +33,37 @@ func initializeConfigController(controlPool *pgxpool.Pool) error {
 			return err
 		}
 		warnInvalidStoredWindows(context.Background(), configStore, logWarn)
+		// Replicas sharing this database converge on its generation.
+		durable = api.GlobalDurableSource{Store: configStore, Base: loadFileConfigBase}
 	}
-	// After persisted overrides: the notice describes the effective window.
+	// Load checked the file; a dashboard override may have supplied the
+	// Slack URL or PagerDuty key, so the full alerting check runs on the
+	// effective config (alerting-08).
+	if err := cfg.ValidateAlerting(); err != nil {
+		return fmt.Errorf("config validation: %w", err)
+	}
+	if err := validateAlertTargets(cfg); err != nil {
+		return fmt.Errorf("config validation: %w", err)
+	}
+	// After persisted overrides: the notices describe the effective values.
 	noticeWindowMeaningChange(cfg.Trust.MaintenanceWindow, logWarn)
+	warnFastElevation(cfg, logWarn)
+	logTrustMeaning(cfg, logInfo, logWarn)
 	noticeLLMSetup(cfg, logInfo)
+	var owners []config.ReconfigurationOwner
+	if modeRegistersOwner(config.TrustPolicyOwner) {
+		owners = append(owners, newTrustPolicyOwner())
+	}
 	configController = config.NewConfigControllerAtGeneration(
-		cfg, generation, nil, newTrustPolicyOwner(),
+		cfg, generation, nil, owners...,
 	)
+	// Logs the startup masks now, and each later mask once (config-03).
+	configController.SetMaskedOverrideLogger(func(msg string) {
+		logWarn("config", "%s", msg)
+	})
+	if durable != nil {
+		configController.SetDurableSource(durable)
+	}
 	return nil
 }
 
@@ -53,6 +79,10 @@ func ensureConfigController() error {
 // applyWatchedConfig publishes a reloaded config.yaml candidate through the
 // controller, persisting the generation when a control database exists.
 func applyWatchedConfig(updated *config.Config) error {
+	// The reloaded file may aim a channel somewhere the policy refuses.
+	if err := validateAlertTargets(updated); err != nil {
+		return fmt.Errorf("config validation: %w", err)
+	}
 	desired := configController.Desired()
 	var result config.ApplyResult
 	var applyErr error
@@ -78,11 +108,21 @@ func applyWatchedConfig(updated *config.Config) error {
 		)
 	}
 	if applyErr != nil {
+		// Another replica saved first. The resync re-reads this file with
+		// the durable overrides, so the reload takes effect (config-05).
+		if errors.Is(applyErr, store.ErrConfigGenerationConflict) &&
+			resyncConfigFromStore(shutdownCtx) {
+			logInfo("config", "hot-reload applied through a resync to generation %d",
+				configController.Desired().Generation)
+			requestCapabilityRefresh()
+			return nil
+		}
 		return applyErr
 	}
 	logInfo("config", "hot-reload desired=%d active=%d pending_restart=%d",
 		result.DesiredGeneration, result.ActiveGeneration,
 		len(result.PendingRestart))
+	requestCapabilityRefresh()
 	return nil
 }
 
@@ -91,6 +131,7 @@ func loadConfigCandidate() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	applyGeneratedKey(candidate)
 	controlPool := configControlPool()
 	if err := applyPersistedGlobalOverrides(candidate, controlPool); err != nil {
 		return nil, err
@@ -110,6 +151,9 @@ func configControlPool() *pgxpool.Pool {
 	return nil
 }
 
+// applyPersistedGlobalOverrides replays the stored global overrides onto
+// candidate (config-02): rows the store would refuse today are skipped with
+// a warning naming the key and updated_at, never the value.
 func applyPersistedGlobalOverrides(
 	candidate *config.Config, controlPool *pgxpool.Pool,
 ) error {
@@ -122,10 +166,15 @@ func applyPersistedGlobalOverrides(
 	if err != nil {
 		return fmt.Errorf("load persisted global overrides: %w", err)
 	}
-	for _, override := range overrides {
-		api.ApplyConfigOverrideSnapshot(
-			candidate, override.Key, override.Value,
-		)
+	api.ReplayStoredOverrides(candidate, overrides, func(msg string) {
+		logWarn("config", "%s", msg)
+	})
+	// Rows valid one by one can still leave an invalid whole. Startup exits
+	// and a reload keeps the previous config, rather than every PUT failing.
+	if err := candidate.Validate(); err != nil {
+		return fmt.Errorf("config with the stored global overrides is invalid: %w "+
+			"(fix the key in Settings, or DELETE /api/v1/config/global/<key> "+
+			"removes a stored override)", err)
 	}
 	return nil
 }

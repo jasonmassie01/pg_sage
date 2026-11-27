@@ -48,7 +48,15 @@ type chatopsDeps struct {
 	ids       *chatops.Store
 	cards     *chatops.CardStore
 	factCards *chatops.FactCardStore
+	planCards *chatops.PlanCardStore
 	tolerance time.Duration
+	// pool records refusals in the auth audit; authz enforces database
+	// grants (apiauth-08), nil when they are off.
+	pool  *pgxpool.Pool
+	authz *databaseAuthz
+	// chatCap is notification_policy.chat_approval_max_tier (ux-09a, D7):
+	// the highest risk tier a chat card may approve ("" is moderate).
+	chatCap string
 }
 
 // registerChatOpsRoutes mounts the signed callbacks on the root mux and
@@ -56,17 +64,28 @@ type chatopsDeps struct {
 func registerChatOpsRoutes(root, apiMux *http.ServeMux, pool *pgxpool.Pool,
 	mgr *fleet.DatabaseManager, cfg *config.Config, rt RuntimeDeps) {
 	d := &chatopsDeps{mgr: mgr, ids: chatops.NewStore(pool), cards: chatops.NewCardStore(pool),
-		channels:  store.NewNotificationStore(pool, nil).WithSecretKey(rt.NotificationSecretKey),
-		tolerance: 5 * time.Minute, factCards: chatops.NewFactCardStore(pool)}
+		channels: store.NewNotificationStore(pool, nil).WithSecretKey(rt.NotificationSecretKey).
+			WithPreviousSecretKey(rt.NotificationPreviousSecretKey),
+		tolerance: 5 * time.Minute, factCards: chatops.NewFactCardStore(pool),
+		planCards: chatops.NewPlanCardStore(pool), pool: pool,
+		authz: newDatabaseAuthz(cfg, pool, rt.DatabaseGrants)}
 	if cfg != nil {
 		d.tolerance = cfg.SRE.Actions.ChatOpsTolerance()
+		d.chatCap = cfg.NotificationPolicy.ChatApprovalMaxTier
 	}
+	logOn := accessLogOn(cfg)
 	wrap := func(h http.HandlerFunc) http.Handler {
-		return securityHeadersMiddleware(timeoutMiddleware(h))
+		next := timeoutMiddleware(h)
+		if logOn {
+			// The callbacks decide actions, so they are access-logged like
+			// every mutating API request; the root mux set r.Pattern.
+			next = accessLogMiddleware(accessStampMiddleware(next))
+		}
+		return securityHeadersMiddleware(next)
 	}
-	root.Handle("POST /api/v1/chatops/slack/{channel}",
+	route(root, "POST /api/v1/chatops/slack/{channel}", gateSelfAuth,
 		wrap(d.callbackHandler(chatops.ProviderSlack)))
-	root.Handle("POST /api/v1/chatops/telegram/{channel}",
+	route(root, "POST /api/v1/chatops/telegram/{channel}", gateSelfAuth,
 		wrap(d.callbackHandler(chatops.ProviderTelegram)))
 	registerChatOpsIdentityRoutes(apiMux, d.ids)
 }
@@ -91,15 +110,19 @@ func (d *chatopsDeps) callbackHandler(provider string) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		if a.CardToken != "" {
+		switch {
+		case a.CardToken != "":
 			d.decideCard(w, r, ch, a, user)
-			return
-		}
-		if a.FactToken != "" {
+		case a.FactToken != "":
 			d.decideFactCard(w, r, ch, a, user)
-			return
+		case a.PlanToken != "":
+			d.decidePlanCard(w, r, ch, a, user)
+		case a.Outdated:
+			answerOutdated(w, ch, a)
+		default:
+			sreErrorCode(w, "the callback names no card", "invalid_request",
+				http.StatusBadRequest)
 		}
-		d.decide(w, r, ch, a, user)
 	}
 }
 

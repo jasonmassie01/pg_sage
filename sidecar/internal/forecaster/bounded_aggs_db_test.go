@@ -74,41 +74,6 @@ func insertSnapshot(t *testing.T, ctx context.Context, pool *pgxpool.Pool, at ti
 	}
 }
 
-func TestSeqAggs_LastNonEmptySnapshotPerDay(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-	seedSequenceSnapshots(t, ctx, pool)
-	start := time.Now()
-	got, err := QueryDailySeqAggs(ctx, pool, boundedDays+1)
-	if err != nil {
-		t.Fatalf("seq aggs: %v", err)
-	}
-	if el := time.Since(start); el > 5*time.Second {
-		t.Fatalf("seq aggs took %s", el)
-	}
-	byDay := map[string]map[string]float64{}
-	for _, a := range got {
-		k := a.Day.UTC().Format("2006-01-02")
-		if byDay[k] == nil {
-			byDay[k] = map[string]float64{}
-		}
-		byDay[k][a.SeqName] = a.PctUsed
-	}
-	if len(byDay) != boundedDays {
-		t.Fatalf("days = %d (%v), want %d", len(byDay), byDay, boundedDays)
-	}
-	for d := 0; d < boundedDays; d++ {
-		k := dayStart(d).Format("2006-01-02")
-		wantHot := float64(10*(boundedDays-d)) + float64(boundedPerDay-1)/10
-		if byDay[k]["public.hot_seq"] != wantHot || byDay[k]["public.reset_seq"] != 5 {
-			t.Fatalf("day %s = %v, want hot %v and reset 5 (the last reading)", k,
-				byDay[k], wantHot)
-		}
-		if _, ok := byDay[k]["public.cold_seq"]; ok {
-			t.Fatalf("day %s lists a sequence under 1%%", k)
-		}
-	}
-}
-
 // Bounded work: the jsonb of at most two snapshots per day is expanded,
 // however many were taken that day (each sample is decoded once by a
 // Forecaster; datasource_incremental_db_test.go covers the reuse).
@@ -117,10 +82,6 @@ func TestSeqAndQueryAggs_ExpandAFewSnapshotsPerDay(t *testing.T) {
 	seedSequenceSnapshots(t, ctx, pool)
 	seedBoundedQuerySnapshots(t, ctx, pool)
 	for name, read := range map[string]func(*Forecaster) error{
-		"seq": func(f *Forecaster) error {
-			_, err := f.dailySeqAggs(ctx)
-			return err
-		},
 		"query": func(f *Forecaster) error {
 			_, err := f.dailyQueryAggs(ctx)
 			return err

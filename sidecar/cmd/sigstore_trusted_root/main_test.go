@@ -13,8 +13,8 @@ import (
 
 // The release workflow refreshes the embedded Sigstore trusted root
 // before building; a fetched root that cannot verify keyless signatures
-// must never replace the embedded one. (The TUF fetch itself needs the
-// network and is exercised by the release workflow.)
+// must never replace the embedded one. (fetch_test.go runs the TUF
+// fetch against a local signed repository.)
 
 func TestRunWritesAUsableTrustedRoot(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "trusted_root.json")

@@ -23,7 +23,7 @@ func coverageTestConfig() *config.Config {
 			SlowQueryThresholdMs:         1000,
 			TableBloatDeadTuplePct:       20,
 			TableBloatMinRows:            1000,
-			SeqScanMinRows:              10000,
+			SeqScanMinRows:               10000,
 			UnusedIndexWindowDays:        7,
 			RegressionThresholdPct:       50,
 			RegressionLookbackDays:       7,
@@ -223,14 +223,6 @@ func TestCoverage_FilterSchemaExclusions_Empty(t *testing.T) {
 // ---------------------------------------------------------------------------
 // dispatchCriticalFindings
 // ---------------------------------------------------------------------------
-
-func TestCoverage_DispatchCriticalFindings_NoDispatcher(t *testing.T) {
-	a := New(nil, coverageTestConfig(), nil, nil, nil, nil, nil, noopLog)
-	// Should not panic with nil dispatcher.
-	a.dispatchCriticalFindings(context.Background(), []Finding{
-		{Severity: "critical", Title: "test"},
-	})
-}
 
 func TestCoverage_DispatchCriticalFindings_CriticalOnly(t *testing.T) {
 	d := &mockDispatcher{}
@@ -801,6 +793,9 @@ func TestCoverage_RuleCacheHitRatio_Warning(t *testing.T) {
 	snap := &collector.Snapshot{
 		System: collector.SystemStats{CacheHitRatio: 0.90},
 	}
+	// collection-06: the rule reads the interval ratio.
+	snap.System.Interval = &collector.SystemInterval{Seconds: 60,
+		CacheHitRatio: ivPtrF(0.90), BlksAccessed: ivPtrI(100_000)}
 	findings := ruleCacheHitRatio(snap, nil, cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -818,6 +813,9 @@ func TestCoverage_RuleCacheHitRatio_Critical(t *testing.T) {
 	snap := &collector.Snapshot{
 		System: collector.SystemStats{CacheHitRatio: 0.70},
 	}
+	// collection-06: the rule reads the interval ratio.
+	snap.System.Interval = &collector.SystemInterval{Seconds: 60,
+		CacheHitRatio: ivPtrF(0.70), BlksAccessed: ivPtrI(100_000)}
 	findings := ruleCacheHitRatio(snap, nil, cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
@@ -1114,11 +1112,14 @@ func TestCoverage_RuleInactiveSlots_NilReplication(t *testing.T) {
 }
 
 func TestCoverage_RuleInactiveSlots_HasInactive(t *testing.T) {
+	// rules-09: reported once idle past the threshold (inactive_since).
+	idleSince := time.Now().Add(-time.Hour)
 	snap := &collector.Snapshot{
 		Replication: &collector.ReplicationStats{
 			Slots: []collector.SlotInfo{
 				{SlotName: "active_slot", Active: true, SlotType: "physical", RetainedBytes: 1000},
-				{SlotName: "dead_slot", Active: false, SlotType: "logical", RetainedBytes: 5000000},
+				{SlotName: "dead_slot", Active: false, SlotType: "logical", RetainedBytes: 5000000,
+					InactiveSince: &idleSince},
 			},
 		},
 	}
@@ -1133,8 +1134,12 @@ func TestCoverage_RuleInactiveSlots_HasInactive(t *testing.T) {
 	if findings[0].ObjectIdentifier != "slot:dead_slot" {
 		t.Errorf("ObjectIdentifier = %q, want slot:dead_slot", findings[0].ObjectIdentifier)
 	}
-	if findings[0].RecommendedSQL == "" {
-		t.Error("expected RecommendedSQL to drop slot")
+	// rules-09: the irreversible drop is manual SQL, never executable.
+	if findings[0].RecommendedSQL != "" {
+		t.Errorf("RecommendedSQL = %q, want empty", findings[0].RecommendedSQL)
+	}
+	if sql, _ := findings[0].Detail["manual_sql"].(string); sql == "" {
+		t.Error("expected manual_sql to drop slot")
 	}
 }
 
@@ -1257,7 +1262,7 @@ func TestCoverage_RuleSeqScanWatchdog_HighSeqScans(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -1277,7 +1282,7 @@ func TestCoverage_RuleSeqScanWatchdog_SmallTable(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for small table, got %d", len(findings))
 	}
@@ -1294,7 +1299,7 @@ func TestCoverage_RuleSeqScanWatchdog_LowSeqScans(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for low seq scans, got %d", len(findings))
 	}
@@ -1312,7 +1317,7 @@ func TestCoverage_RuleSeqScanWatchdog_SkipTables(t *testing.T) {
 	}
 	skip := map[string]bool{"public.fk_table": true}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, skip)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, skip)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for skipped table, got %d", len(findings))
 	}
@@ -1329,7 +1334,7 @@ func TestCoverage_RuleSeqScanWatchdog_BalancedRatio(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for balanced ratio, got %d", len(findings))
 	}
@@ -1347,7 +1352,7 @@ func TestCoverage_RuleSeqScanWatchdog_UnloggedTable(t *testing.T) {
 		},
 	}
 
-	findings := ruleSeqScanWatchdog(snap, nil, cfg, nil)
+	findings := ruleSeqScanWatchdog(snap, zeroPrevious(snap), cfg, nil)
 	if len(findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(findings))
 	}
@@ -1410,78 +1415,6 @@ func TestCoverage_RuleXIDWraparound_ExactWarningThreshold(t *testing.T) {
 // ---------------------------------------------------------------------------
 // rules_query.go: edge cases
 // ---------------------------------------------------------------------------
-
-func TestCoverage_RuleQueryRegression_EmptyHistory(t *testing.T) {
-	cfg := coverageTestConfig()
-	snap := &collector.Snapshot{
-		Queries: []collector.QueryStats{{QueryID: 1, MeanExecTime: 100}},
-	}
-	findings := ruleQueryRegression(snap, nil, nil, cfg)
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings for nil history, got %d", len(findings))
-	}
-}
-
-func TestCoverage_RuleQueryRegression_EmptyHistoryMap(t *testing.T) {
-	cfg := coverageTestConfig()
-	snap := &collector.Snapshot{
-		Queries: []collector.QueryStats{{QueryID: 1, MeanExecTime: 100}},
-	}
-	findings := ruleQueryRegression(snap, nil, map[int64]float64{}, cfg)
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings for empty history map, got %d", len(findings))
-	}
-}
-
-func TestCoverage_RuleQueryRegression_CriticalRegression(t *testing.T) {
-	cfg := coverageTestConfig()
-	cur := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{QueryID: 1, Calls: 100, MeanExecTime: 400},
-		},
-	}
-	prev := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{QueryID: 1, Calls: 90, MeanExecTime: 10},
-		},
-	}
-	hist := map[int64]float64{1: 10.0}
-	findings := ruleQueryRegression(cur, prev, hist, cfg)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(findings))
-	}
-	if findings[0].Severity != "critical" {
-		t.Errorf("Severity = %q, want critical for 3900%% increase", findings[0].Severity)
-	}
-}
-
-func TestCoverage_RuleQueryRegression_NoPreviousSnapshot(t *testing.T) {
-	cfg := coverageTestConfig()
-	cur := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{QueryID: 1, Calls: 100, MeanExecTime: 200},
-		},
-	}
-	hist := map[int64]float64{1: 10.0}
-	findings := ruleQueryRegression(cur, nil, hist, cfg)
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding (no prev for reset check), got %d", len(findings))
-	}
-}
-
-func TestCoverage_RuleQueryRegression_ZeroHistoricalAvg(t *testing.T) {
-	cfg := coverageTestConfig()
-	cur := &collector.Snapshot{
-		Queries: []collector.QueryStats{
-			{QueryID: 1, Calls: 100, MeanExecTime: 200},
-		},
-	}
-	hist := map[int64]float64{1: 0.0}
-	findings := ruleQueryRegression(cur, nil, hist, cfg)
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings for zero avg, got %d", len(findings))
-	}
-}
 
 func TestCoverage_RuleHighPlanTime_CriticalRatio(t *testing.T) {
 	cfg := coverageTestConfig()
@@ -1899,7 +1832,7 @@ func TestCoverage_RuleMissingFKIndexes_Covered(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},
@@ -1918,7 +1851,7 @@ func TestCoverage_RuleMissingFKIndexes_NotCovered(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},
@@ -1943,7 +1876,7 @@ func TestCoverage_RuleMissingFKIndexes_UnloggedTable(t *testing.T) {
 		},
 		ForeignKeys: []collector.ForeignKey{
 			{
-				TableName: "orders", FKColumn: "customer_id",
+				Schema: "public", TableName: "orders", Columns: []string{"customer_id"},
 				ReferencedTable: "customers", ConstraintName: "fk_cust",
 			},
 		},

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/agentguard"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 )
 
@@ -65,10 +66,10 @@ func TestAttribute(t *testing.T) {
 		action              int64
 		ok                  bool
 	}{
-		{"pg_sage agent:ci-bot:42", "sage_agentb_k2m4q7x9ab", ByApplication, "ci-bot", "", 42,
+		{"pg_sage agent:" + nameA + ":42", agentguard.BrokerRoleName(idA), ByApplication,
+			idA, "", 42, true},
+		{"pg_sage agent:" + idA, agentguard.LoginRoleName(idA), ByApplication, idA, "", 0,
 			true},
-		{"pg_sage agent:agp_aaaaaaaaaaaaaaaaaaaa", "x", ByApplication,
-			"agp_aaaaaaaaaaaaaaaaaaaa", "", 0, true},
 		{"pg_sage", "sage", ByPGSage, "", "", 0, true},
 		{"psql", "sage_agentb_k2m4q7x7ab", ByRole, "", "sage_agentb_k2m4q7x7ab", 0, true},
 		{"psql", "sage_agent_k2m4q7x7ab", ByRole, "", "sage_agent_k2m4q7x7ab", 0, true},
@@ -83,7 +84,7 @@ func TestAttribute(t *testing.T) {
 		{"psql", "postgres", "", "", "", 0, false},
 	}
 	for _, c := range cases {
-		a, ok := Attribute(entry(c.app, c.user, ddl))
+		a, ok := Attribute(entry(c.app, c.user, ddl), "sage", twoPrincipals())
 		if ok != c.ok || a.By != c.by || a.Principal != c.principal || a.Role != c.role ||
 			a.ActionID != c.action {
 			t.Fatalf("app %q user %q: got %+v ok=%v", c.app, c.user, a, ok)

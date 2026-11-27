@@ -20,6 +20,9 @@ var legacyDatabaseIDTools = map[string]bool{"get_policy": true,
 
 func (s *Server) callIntentTool(ctx context.Context, name string,
 	arguments json.RawMessage) (any, *rpcError) {
+	if failed := validateIntentArguments(name, arguments); failed != nil {
+		return nil, failed
+	}
 	var result any
 	var err error
 	switch name {
@@ -50,7 +53,7 @@ func (s *Server) callIntentTool(ctx context.Context, name string,
 	default:
 		return s.callNamedIntent(ctx, name, arguments)
 	}
-	return toolResult(result, err)
+	return intentResult(ctx, name, result, err)
 }
 
 func (s *Server) callNamedIntent(ctx context.Context, name string,
@@ -59,12 +62,8 @@ func (s *Server) callNamedIntent(ctx context.Context, name string,
 	if !ok {
 		return nil, failure(codeInternal, "internal error")
 	}
-	if name == "apply_migration" {
-		if failed := validateMigrationArguments(arguments); failed != nil {
-			return nil, failed
-		}
-	}
-	return toolResult(backend.RequestIntent(ctx, name, arguments))
+	result, err := backend.RequestIntent(ctx, name, arguments)
+	return intentResult(ctx, name, result, err)
 }
 
 // migrationTable is a schema-qualified name of plain identifiers; the
@@ -108,30 +107,20 @@ func intentTools() []Tool {
 	dbID := `"database_id":{"type":"integer","description":"legacy numeric database id; ` +
 		`prefer database"}`
 	tools := []Tool{
-		{Name: "get_policy", Description: "Read standing policy",
-			InputSchema: object(`{`+dbID+`}`, `[]`)},
-		{Name: "propose_policy_change", Description: "Propose a policy delta (a dry-run " +
-			"proposal a person ratifies)",
-			InputSchema: object(`{`+dbID+`,"delta":{"type":"object"},`+
-				`"caller_claims":{"type":"object"}}`, `["delta"]`)},
-		{Name: "request_change", Description: "Request an intent-level database change; " +
-			"pg_sage's policy gate decides",
-			InputSchema: object(`{`+dbID+`,"intent":{"type":"object"},`+
-				`"caller_claims":{"type":"object"}}`, `["intent"]`)},
-		{Name: "optimize_query", Description: "Optimize a query under standing policy",
-			InputSchema: object(`{`+dbID+`,"query_id":{"type":"integer"},`+
-				`"query_text":{"type":"string"},"goal":{"const":"latency"},`+
-				`"constraints":{"type":"object"}}`, `["goal"]`)},
+		{Name: "get_policy", InputSchema: object(`{`+dbID+`}`, `[]`)},
+		{Name: "propose_policy_change", InputSchema: object(`{`+dbID+`,"delta":{"type":"object"},`+
+			`"caller_claims":{"type":"object"}}`, `["delta"]`)},
+		{Name: "request_change"}, // its typed intent: withRequestChangeSchema
+		{Name: "optimize_query", InputSchema: object(`{`+dbID+`,"query_id":{"type":"integer"},`+
+			`"query_text":{"type":"string"},"goal":{"const":"latency"},`+
+			`"constraints":{"type":"object"}}`, `["goal"]`)},
 	}
-	return append(tools, moreIntentTools(object, dbID)...)
+	return withRequestChangeSchema(append(tools, moreIntentTools(object, dbID)...), dbID)
 }
 
 func moreIntentTools(object func(string, string) json.RawMessage, dbID string) []Tool {
 	return []Tool{
-		{Name: "apply_migration", Description: "Plan and rehearse an online migration " +
-			"(ADD UNIQUE / SET NOT NULL rewritten into expand steps). The policy gate is " +
-			"consulted before any clone rehearsal and again before each expand step; " +
-			"contract steps are never run",
+		{Name: "apply_migration",
 			InputSchema: object(`{`+dbID+`,"table":{"type":"string","pattern":`+
 				`"^[A-Za-z_][A-Za-z0-9_$]{0,62}\\.[A-Za-z_][A-Za-z0-9_$]{0,62}$",`+
 				`"description":"schema-qualified table the migration changes"},`+
@@ -139,30 +128,22 @@ func moreIntentTools(object func(string, string) json.RawMessage, dbID string) [
 				`"description":"the migration statement"},"cycle":{"type":"integer",`+
 				`"minimum":0,"description":"deploy cycle of this migration"}}`,
 				`["table","sql"]`)},
-		{Name: "ensure_fk_indexes", Description: "Ensure foreign keys have supporting indexes",
+		{Name: "ensure_fk_indexes",
 			InputSchema: object(`{`+dbID+`,"schema":{"type":"string"}}`, `["schema"]`)},
-		{Name: "declare_table_contract", Description: "Declare table intent constraints " +
-			"(a person's declaration, imported as a confirmed fact). retention needs both " +
-			"interval and column (the timestamptz, timestamp or date column whose age " +
-			"defines retention); pg_sage never infers the column",
-			InputSchema: object(`{`+dbID+`,"table":{"type":"string"},`+
-				`"append_only":{"type":"boolean"},`+
-				`"retention":{"type":"object","properties":{"interval":{"type":"string"},`+
-				`"column":{"type":"string"}},"required":["interval","column"]},`+
-				`"expected_pk":{"type":"string"},`+
-				`"exemptions":{"type":"array","items":{"type":"string"}}}`, `["table"]`)},
-		{Name: "register_consumer", Description: "Protect a replication slot consumer " +
-			"(a person's declaration, imported as a confirmed fact)",
-			InputSchema: object(`{`+dbID+`,"slot_name":{"type":"string"},`+
-				`"owner":{"type":"string"}}`, `["slot_name","owner"]`)},
-		{Name: "set_maintenance_policy", Description: "Propose a maintenance policy patch",
+		{Name: "declare_table_contract", InputSchema: object(`{`+dbID+`,"table":{"type":"string"},`+
+			`"append_only":{"type":"boolean"},`+
+			`"retention":{"type":"object","properties":{"interval":{"type":"string"},`+
+			`"column":{"type":"string"}},"required":["interval","column"]},`+
+			`"expected_pk":{"type":"string"},`+
+			`"exemptions":{"type":"array","items":{"type":"string"}}}`, `["table"]`)},
+		{Name: "register_consumer", InputSchema: object(`{`+dbID+`,"slot_name":{"type":"string"},`+
+			`"owner":{"type":"string"},"consumer_identity":{"type":"string"}}`,
+			`["slot_name","owner"]`)},
+		{Name: "set_maintenance_policy",
 			InputSchema: object(`{`+dbID+`,"scope":{"type":"object"},"patch":{"type":"object"}}`,
 				`["scope","patch"]`)},
-		{Name: "get_guarantee_status", Description: "Read machine-readable invariant status",
-			InputSchema: object(`{`+dbID+`}`, `[]`)},
-		{Name: "get_value", Description: "Read verified DBA-hours saved",
-			InputSchema: object(`{`+dbID+`}`, `[]`)},
-		{Name: "get_ledger", Description: "Read evidence ledger",
-			InputSchema: object(`{`+dbID+`,"filter":{"type":"object"}}`, `[]`)},
+		{Name: "get_guarantee_status", InputSchema: object(`{`+dbID+`}`, `[]`)},
+		{Name: "get_value", InputSchema: object(`{`+dbID+`}`, `[]`)},
+		{Name: "get_ledger", InputSchema: object(`{`+dbID+`,"filter":{"type":"object"}}`, `[]`)},
 	}
 }

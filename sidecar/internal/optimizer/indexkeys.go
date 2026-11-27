@@ -7,11 +7,13 @@ import (
 )
 
 // indexKey is one entry of an index key or INCLUDE list: a plain column,
-// or an expression with the identifiers it references.
+// or an expression with the identifiers it references, and the collation,
+// operator class and ordering the key was declared with.
 type indexKey struct {
 	column string   // plain column (quotes removed); "" for an expression
 	expr   string   // normalized expression; "" for a plain column
 	refs   []string // identifiers an expression references
+	decor  keyDecor // as written; "" fields were not given
 }
 
 // parseIndexKeys parses the key list of a CREATE INDEX statement (or a
@@ -27,7 +29,9 @@ func parseIndexKeys(ddl string) ([]indexKey, error) {
 }
 
 // splitKeyList splits a normalized key or INCLUDE list at top-level
-// commas into keys, dropping sort order, NULLS, COLLATE and opclass.
+// commas into keys, keeping each key's COLLATE, operator class (with its
+// parameters), ASC/DESC and NULLS ordering. A decoration the scanner
+// cannot read is an error, so a malformed key never matches anything.
 func splitKeyList(list string) ([]indexKey, error) {
 	parts, err := splitTopLevel(list)
 	if err != nil {
@@ -35,19 +39,53 @@ func splitKeyList(list string) ([]indexKey, error) {
 	}
 	keys := make([]indexKey, 0, len(parts))
 	for _, part := range parts {
-		key := keyOf(stripKeyDecorations(part))
-		if key.column == "" && key.expr == "" {
-			return nil, fmt.Errorf("empty index key in %q", list)
+		key, err := parseKey(part)
+		if err != nil {
+			return nil, fmt.Errorf("index key %q in %q: %w", part, list, err)
 		}
 		keys = append(keys, key)
 	}
 	return keys, nil
 }
 
+// parseKey reads one key: its expression with the DDL scanner, then its
+// decorations in any order.
+func parseKey(part string) (indexKey, error) {
+	s := &ddlScanner{src: part}
+	expr, err := s.keyExpression()
+	if err != nil {
+		return indexKey{}, err
+	}
+	d, err := s.keyDecorations()
+	if err != nil {
+		return indexKey{}, err
+	}
+	key := keyOf(strings.TrimSpace(expr))
+	if key.column == "" && key.expr == "" {
+		return indexKey{}, errEmptyIndexKey
+	}
+	key.decor = d
+	return key, nil
+}
+
 // splitTopLevel splits s at commas outside parentheses, quoted
 // identifiers and string literals.
 func splitTopLevel(s string) ([]string, error) {
-	var parts []string
+	spans, err := topLevelSpans(s)
+	if err != nil {
+		return nil, err
+	}
+	parts := make([]string, len(spans))
+	for i, sp := range spans {
+		parts[i] = strings.TrimSpace(s[sp[0]:sp[1]])
+	}
+	return parts, nil
+}
+
+// topLevelSpans returns the [start, end) spans of s between the commas
+// outside parentheses, quoted identifiers and string literals.
+func topLevelSpans(s string) ([][2]int, error) {
+	var spans [][2]int
 	depth, start := 0, 0
 	var quote byte
 	for i := 0; i < len(s); i++ {
@@ -64,64 +102,14 @@ func splitTopLevel(s string) ([]string, error) {
 		case c == ')':
 			depth--
 		case c == ',' && depth == 0:
-			parts = append(parts, strings.TrimSpace(s[start:i]))
+			spans = append(spans, [2]int{start, i})
 			start = i + 1
 		}
 	}
 	if depth != 0 || quote != 0 {
 		return nil, fmt.Errorf("unbalanced key list %q", s)
 	}
-	return append(parts, strings.TrimSpace(s[start:])), nil
-}
-
-// keyDecoration matches trailing sort order and NULLS ordering.
-var keyDecoration = regexp.MustCompile(`(?i)\s+(asc|desc|nulls\s+(first|last))$`)
-
-// stripKeyDecorations removes ASC/DESC, NULLS FIRST/LAST, an operator
-// class (every opclass name ends in "_ops") and COLLATE from one key.
-func stripKeyDecorations(key string) string {
-	for {
-		stripped := keyDecoration.ReplaceAllString(key, "")
-		if stripped == key {
-			break
-		}
-		key = stripped
-	}
-	if i := topLevelIndex(key, " collate "); i >= 0 {
-		key = key[:i]
-	}
-	fields := strings.Fields(key)
-	if n := len(fields); n >= 2 && !strings.HasSuffix(fields[n-2], "(") &&
-		strings.HasSuffix(strings.ToLower(fields[n-1]), "_ops") &&
-		!strings.HasSuffix(key, ")") {
-		key = strings.TrimSpace(key[:strings.LastIndex(key, fields[n-1])])
-	}
-	return strings.TrimSpace(key)
-}
-
-// topLevelIndex finds sub (lower case) in s outside quotes and parens.
-func topLevelIndex(s, sub string) int {
-	lower := strings.ToLower(s)
-	depth := 0
-	var quote byte
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-		case c == '"' || c == '\'':
-			quote = c
-		case c == '(':
-			depth++
-		case c == ')':
-			depth--
-		case depth == 0 && strings.HasPrefix(lower[i:], sub):
-			return i
-		}
-	}
-	return -1
+	return append(spans, [2]int{start, len(s)}), nil
 }
 
 var plainIdent = regexp.MustCompile(`^(?:[a-z_][a-z0-9_$]*|"(?:[^"]|"")+")$`)

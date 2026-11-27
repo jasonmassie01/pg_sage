@@ -2,7 +2,7 @@ package safetybench
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,11 +32,11 @@ func (readOnlyTxnDesign) Name() string { return "read_only_txn" }
 func (readOnlyTxnDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql string) error {
 	conn, err := owner.Acquire(ctx)
 	if err != nil {
-		return fmt.Errorf("acquire: %w", err)
+		return setupError{step: "acquire", err: err}
 	}
 	defer conn.Release()
 	if _, err := conn.Exec(ctx, "BEGIN READ ONLY"); err != nil {
-		return fmt.Errorf("begin read only: %w", err)
+		return setupError{step: "begin read only", err: err}
 	}
 	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
 	_, execErr := conn.Exec(ctx, sql)
@@ -48,8 +48,9 @@ func (readOnlyTxnDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql s
 // and SELECT only, so a write fails with 42501 regardless of transaction
 // mode. It models the design the bypass taxonomy concludes is the one that
 // holds: privileges on the database role. A session of its own matters: in
-// the owner's session after SET LOCAL ROLE, a COMMIT or RESET ROLE inside
-// the statement would hand the write the owner's privileges.
+// the owner's session with the role only switched for the transaction, a
+// COMMIT or RESET ROLE inside the statement would hand the write the
+// owner's privileges.
 type privRoleDesign struct{ roleName string }
 
 func (d privRoleDesign) Name() string { return "privilege_role" }
@@ -59,12 +60,12 @@ func (d privRoleDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql st
 	cfg.User, cfg.Password = d.roleName, readOnlyPassword
 	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("log in as %s: %w", d.roleName, err)
+		return setupError{step: "log in as " + d.roleName, err: err}
 	}
 	defer func() { _ = conn.Close(context.Background()) }()
 	// Roll back whatever a refused statement left open.
 	if _, err := conn.Exec(ctx, "BEGIN"); err != nil {
-		return fmt.Errorf("begin: %w", err)
+		return setupError{step: "begin", err: err}
 	}
 	defer func() { _, _ = conn.Exec(ctx, "ROLLBACK") }()
 	_, execErr := conn.Exec(ctx, sql)
@@ -95,10 +96,18 @@ func (explainGuardDesign) Name() string { return "explain_guard" }
 func (d explainGuardDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sql string) error {
 	ex := explain.New(owner, d.cfg, d.logFn)
 	res, err := ex.Explain(ctx, explain.ExplainRequest{Query: sql})
-	if err != nil {
+	if errors.Is(err, explain.ErrExplainInvalidRequest) {
 		// The validator (and any invalid-request path) rejected the
 		// statement before execution.
 		return beforeExecutionError{reason: err.Error()}
+	}
+	if err != nil {
+		// The guard accepted the statement and the server then failed it
+		// (a missing relation, a cast error): classify scores the server
+		// error itself, so an uncredited failure is other_error, not held.
+		// As in the MCP explain tool, text that can quote a value is
+		// withheld and logged for the operator (security-10).
+		return d.withhold(err)
 	}
 	// The statement parsed as a read statement. If ANALYZE was refused, the
 	// query was planned only and never executed its effect; the guard held.
@@ -109,6 +118,16 @@ func (d explainGuardDesign) Attempt(ctx context.Context, owner *pgxpool.Pool, sq
 	// For a corpus write case this is a design failure (the write ran, or
 	// a side-effecting read was ANALYZEd); for a benign read it is correct.
 	return nil
+}
+
+// withhold is explain.SafeError(err), logging the full error at INFO when
+// text was withheld.
+func (d explainGuardDesign) withhold(err error) error {
+	safe := explain.SafeError(err)
+	if safe.Error() != err.Error() {
+		d.logFn("INFO", "explain_guard: explain failed (text withheld): %v", err)
+	}
+	return safe
 }
 
 // Designs returns the read-only designs in report order: the three v0

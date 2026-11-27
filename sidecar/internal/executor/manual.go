@@ -12,7 +12,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/store"
-	"github.com/pg-sage/sidecar/internal/value"
 )
 
 var (
@@ -40,10 +39,7 @@ func (e *Executor) ExecuteManual(
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return 0, fmt.Errorf("SQL validation: %w", err)
 	}
-	if err := checkIndexRollback(sql, rollbackSQL); err != nil {
-		return 0, err
-	}
-	rollbackSQL, err := statisticsRollback(sql, rollbackSQL)
+	rollbackSQL, err := e.manualRollbackSQL(ctx, sql, rollbackSQL)
 	if err != nil {
 		return 0, err
 	}
@@ -52,9 +48,9 @@ func (e *Executor) ExecuteManual(
 		return 0, err
 	}
 	defer release()
-	runCtx, cancel := e.detachedDDLContext(ctx)
+	runCtx, cancel := e.detachedDDLContext(ctx, sql)
 	defer cancel()
-	if err := e.checkLakebaseDatabaseSetting(runCtx, sql); err != nil {
+	if err := e.checkManagedDatabaseSetting(runCtx, sql); err != nil {
 		return 0, err
 	}
 	// Refuse early without a ledger row; record once the finding checks out.
@@ -82,9 +78,11 @@ func (e *Executor) ExecuteManual(
 }
 
 // detachedDDLContext outlives the caller (an HTTP request) but never the
-// execution deadline.
-func (e *Executor) detachedDDLContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), e.applyTimeout())
+// execution deadline of sql's timeout class.
+func (e *Executor) detachedDDLContext(
+	ctx context.Context, sql string,
+) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), e.applyTimeoutFor(sql))
 }
 
 // manualRun carries one operator-approved action from execution to its
@@ -103,6 +101,8 @@ type manualRun struct {
 	claim *recommendation.Claim
 	// config is the captured prior state of a config change (G-P0-1).
 	config *configChange
+	// exposureReaders are a revoke's reader calls at its run (fleetpol-02b).
+	exposureReaders map[int64]int64
 }
 
 // execute claims the recommendation the operator's SQL applies (the
@@ -142,12 +142,18 @@ func (r *manualRun) run(
 		return 0, err
 	}
 	e.predictAction(ctx, r.sql, detailMap(r.detail), beforeState)
-	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision)
+	execErr := e.runManualSQL(ctx, r.findingID, r.sql, r.detail, r.approvedBy, decision,
+		beforeState)
+	r.exposureReaders = takeExposureReaders(beforeState)
+	if rollback := exposureRollbackSQL(beforeState); rollback != "" {
+		r.rollbackSQL = rollback // the exact re-GRANT of what was revoked
+	}
 	actionID := e.logManualActionWithDecision(ctx, r.findingID, r.sql, r.rollbackSQL,
 		beforeState, execErr, r.approvedBy, decisionID, r.claim)
 	if execErr != nil {
 		return 0, fmt.Errorf("executing SQL: %w", execErr)
 	}
+	e.recordExposureRemediation(ctx, actionID, beforeState)
 	e.recordPrediction(ctx, actionID, beforeState)
 	return actionID, nil
 }
@@ -165,21 +171,24 @@ func (r *manualRun) verify(ctx context.Context, actionID int64) error {
 		r.executor.verifyImmediate(ctx, actionID) // no performance measurement: no value/autonomy credit
 		return nil
 	}
+	if r.watchExposureRevoke(ctx, actionID) {
+		return nil
+	}
 	if r.executor.settleConfigChange(ctx, actionID, r.config) {
 		r.executor.finishManualAction(ctx, actionID, r.sql, r.rollbackSQL)
 	}
 	return nil
 }
 
-// prepareManualCreateIndex removes a failed remnant of this exact index and
-// short-circuits when a valid index already covers the columns.
+// prepareManualCreateIndex refuses a build over an INVALID index of the
+// same name and short-circuits when a valid index already covers the
+// columns.
 func (e *Executor) prepareManualCreateIndex(
 	ctx context.Context, findingID int, sql, rollbackSQL string,
 	beforeState map[string]any, approvedBy *int, decisionID int64,
 ) (bool, int64, error) {
-	ddlTimeout, lockOpt := e.manualDDLOptions()
-	if err := e.dropFailedCreateIndexRemnant(ctx, sql, ddlTimeout, lockOpt); err != nil {
-		return true, 0, fmt.Errorf("dropping invalid index remnant: %w", err)
+	if err := e.refuseUnboundRemnant(ctx, sql); err != nil {
+		return true, 0, err
 	}
 	covering, err := e.coveringIndex(ctx, sql)
 	exists := covering != ""
@@ -200,15 +209,12 @@ func (e *Executor) prepareManualCreateIndex(
 	return true, actionID, nil
 }
 
-func (e *Executor) manualDDLOptions() (time.Duration, DDLOption) {
-	return e.ddlTimeout(), WithLockTimeout(e.cfg.Safety.LockTimeout())
-}
-
 // runManualSQL runs an operator-approved statement under the decision's
 // lock timeout (the policy lock ceiling caps in-transaction statements).
 func (e *Executor) runManualSQL(
 	ctx context.Context, findingID int, sql string,
 	findingDetail json.RawMessage, approvedBy *int, decision ActionPolicyDecision,
+	beforeState map[string]any,
 ) error {
 	if _, _, isSignal := parseBackendSignal(sql); isSignal {
 		return e.executeApprovedBackendSignal(ctx, sql, findingDetail, approvedBy)
@@ -217,16 +223,26 @@ func (e *Executor) runManualSQL(
 		return e.executeManualAnalyze(ctx, findingID, sql, e.lockTimeoutMS(sql, decision))
 	}
 	if categorizeAction(sql) == "create_statistics" {
-		return ExecStatistics(ctx, e.pool, sql, e.ddlTimeout(), e.lockOption(sql, decision))
+		return ExecStatistics(ctx, e.actionDB(), sql, e.ddlTimeoutFor(sql),
+			e.lockOption(sql, decision))
 	}
 	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
-	return e.execManualSQLWithRetry(ctx, sql, e.ddlTimeout(), e.lockOption(sql, decision))
+	if roleBudgetActionType(sql) != "" {
+		return e.execRoleBudget(ctx, sql, beforeState, e.ddlTimeoutFor(sql),
+			e.lockTimeoutMS(sql, decision))
+	}
+	if exposureActionType(sql) != "" {
+		return e.execExposureManual(ctx, findingID, sql, beforeState,
+			e.lockTimeoutMS(sql, decision))
+	}
+	return e.execManualSQLWithRetry(ctx, sql, beforeState, e.lockOption(sql, decision))
 }
 
-// finishManualAction starts the verification monitor (which re-authorizes
-// rollback against the live operator gates) or verifies the action at once.
+// finishManualAction starts the verification monitor (whose revert is a
+// recorded rollback decision of the standing gate) or verifies the action
+// at once.
 func (e *Executor) finishManualAction(ctx context.Context, actionID int64, sql,
 	rollbackSQL string) {
 	if actionID <= 0 {
@@ -236,106 +252,12 @@ func (e *Executor) finishManualAction(ctx context.Context, actionID int64, sql,
 		e.verifyImmediate(ctx, actionID)
 		return
 	}
-	monitorCfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
+	monitorCfg := e.actionRollbackConfig(actionID, sql)
+	rollbackSQL = storedRollbackSQL(sql, rollbackSQL) // a drop's restore, as recorded
 	e.startRollbackMonitor(func() {
 		MonitorAndRollback(context.WithoutCancel(ctx), e.pool, actionID, rollbackSQL,
 			monitorCfg, e.logFn, e.shutdownCh)
 	})
-}
-
-// RollbackAction executes the stored rollback SQL for an action log row.
-// The row is claimed with a compare-and-set so a concurrent monitor cannot
-// repeat or overwrite the rollback; index rollbacks run CONCURRENTLY under
-// the lock timeout, and GUC rollbacks are reloaded.
-func (e *Executor) RollbackAction(
-	ctx context.Context,
-	actionID int64,
-	reason string,
-) error {
-	if err := e.manualMutationBlock(ctx); err != nil {
-		return err
-	}
-	if e.isReplaceAction(ctx, actionID) {
-		return e.RollbackIndexReplace(ctx, actionID, reason)
-	}
-	rollbackSQL, err := e.loadRollbackSQL(ctx, actionID)
-	if err != nil {
-		return err
-	}
-	release, err := e.acquireDDLSlot(ctx)
-	if err != nil {
-		return err
-	}
-	defer release()
-	runCtx, cancel := e.detachedDDLContext(ctx)
-	defer cancel()
-	if err := e.manualMutationBlock(runCtx); err != nil {
-		return err
-	}
-	if !e.claimRollback(runCtx, actionID) {
-		return fmt.Errorf("action already rolled back or rollback in progress")
-	}
-	return e.runClaimedRollback(runCtx, actionID, rollbackSQL, reason)
-}
-
-func (e *Executor) runClaimedRollback(
-	ctx context.Context, actionID int64, rollbackSQL, reason string,
-) error {
-	cfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
-	cfg.Acquire = nil // the caller already holds the DDL slot
-	note, execErr := executeRollbackSQL(ctx, e.pool, rollbackSQL, cfg)
-	if execErr != nil {
-		updateActionOutcome(ctx, e.pool, actionID, "rollback_failed",
-			"manual rollback failed: "+execErr.Error())
-		return fmt.Errorf("executing rollback SQL: %w", execErr)
-	}
-	e.notifyPostDDL(ctx, rollbackSQL)
-	if strings.TrimSpace(reason) == "" {
-		reason = "manual rollback"
-	}
-	if isAlterSystem(rollbackSQL) {
-		reason += " (" + note + ")"
-	}
-	updateActionOutcome(ctx, e.pool, actionID, "rolled_back", reason)
-	_, _ = value.NewPostgresRepository(e.pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
-	return nil
-}
-
-func (e *Executor) loadRollbackSQL(ctx context.Context, actionID int64) (string, error) {
-	var rollbackSQL *string
-	var outcome string
-	var category string
-	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT a.rollback_sql, a.outcome, COALESCE(f.category,'')
- FROM sage.action_log a LEFT JOIN sage.findings f ON f.id=a.finding_id WHERE a.id = $1`,
-		actionID,
-	).Scan(&rollbackSQL, &outcome, &category)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", fmt.Errorf("action not found")
-		}
-		return "", fmt.Errorf("loading action %d: %w", actionID, err)
-	}
-	if category == "sre_maintenance" && statisticsRun(ctx) == nil {
-		return "", fmt.Errorf("SRE maintenance rollback requires its typed runner")
-	}
-	if outcome == "rolled_back" {
-		return "", fmt.Errorf("action already rolled back")
-	}
-	if rollbackSQL == nil || strings.TrimSpace(*rollbackSQL) == "" {
-		return "", fmt.Errorf("action has no rollback SQL")
-	}
-	if err := ValidateExecutorSQL(*rollbackSQL); err != nil {
-		return "", fmt.Errorf("rollback SQL validation: %w", err)
-	}
-	return *rollbackSQL, nil
-}
-
-func (e *Executor) claimRollback(ctx context.Context, actionID int64) bool {
-	tag, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
-		SET outcome = 'rolling_back', measured_at = now()
-		WHERE id = $1 AND outcome NOT IN ('rolled_back', 'rolling_back')`, actionID)
-	return err == nil && tag.RowsAffected() == 1
 }
 
 func (e *Executor) manualMutationBlock(ctx context.Context) error {
@@ -370,10 +292,14 @@ func (e *Executor) verifyManualFinding(
 	findingID int,
 	sql string,
 ) (manualFinding, error) {
+	if exposureActionType(sql) != "" {
+		f, _, err := e.exposureManualFinding(ctx, findingID, sql)
+		return f, err
+	}
 	var recommendedSQL *string
 	var f manualFinding
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT recommended_sql, detail, category, object_identifier
+		`/* pg_sage executor */ SELECT recommended_sql, detail, category, object_identifier
 		   FROM sage.findings
 		  WHERE id = $1
 		    AND status = 'open'
@@ -421,7 +347,7 @@ func (e *Executor) manualAnalyzeFinding(
 ) (analyzer.Finding, error) {
 	var objectIdentifier string
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT COALESCE(object_identifier, '')
+		`/* pg_sage executor */ SELECT COALESCE(object_identifier, '')
 		   FROM sage.findings
 		  WHERE id = $1`,
 		findingID,
@@ -437,10 +363,13 @@ func (e *Executor) manualAnalyzeFinding(
 	}, nil
 }
 
+// execManualSQLWithRetry runs an approved statement; a CREATE INDEX that
+// times out on a lock is retried, each failed build cleaned up by the
+// remnant handler, whose last cleanup is recorded in beforeState.
 func (e *Executor) execManualSQLWithRetry(
 	ctx context.Context,
 	sql string,
-	ddlTimeout time.Duration,
+	beforeState map[string]any,
 	lockOpt DDLOption,
 ) error {
 	isCreateIndex := categorizeAction(sql) == "create_index"
@@ -451,18 +380,13 @@ func (e *Executor) execManualSQLWithRetry(
 	var lastErr error
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
-			if err := e.dropFailedCreateIndexRemnant(
-				ctx, sql, ddlTimeout, lockOpt,
-			); err != nil {
-				return err
-			}
 			time.Sleep(time.Duration(i) * 500 * time.Millisecond)
 		}
 		var err error
-		if NeedsConcurrently(sql) || NeedsTopLevel(sql) {
-			err = ExecConcurrently(ctx, e.pool, sql, ddlTimeout, lockOpt)
+		if statementRunsTopLevel(sql) {
+			err = e.execConcurrentDDL(ctx, sql, beforeState, lockOpt)
 		} else {
-			err = ExecInTransaction(ctx, e.pool, sql, ddlTimeout, lockOpt)
+			err = ExecInTransaction(ctx, e.actionDB(), sql, e.ddlTimeoutFor(sql), lockOpt)
 		}
 		if err == nil {
 			return nil
@@ -498,11 +422,12 @@ func (e *Executor) logManualActionWithDecision(
 ) int64 {
 	beforeJSON, _ := json.Marshal(beforeState)
 	outcome := actionOutcome(execErr)
+	rollbackSQL = storedRollbackSQL(sql, rollbackSQL)
 	actionID, err := e.recordAction(ctx, claim, execErr,
 		func(q actionLogWriter) (int64, error) {
 			var id int64
 			err := q.QueryRow(ctx,
-				`/* pg_sage */ INSERT INTO sage.action_log
+				`/* pg_sage executor */ INSERT INTO sage.action_log
 				 (action_type, finding_id, sql_executed, rollback_sql,
 				  before_state, outcome, approved_by, approved_at, decision_id, database_id)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7::int,
@@ -519,6 +444,7 @@ func (e *Executor) logManualActionWithDecision(
 		e.logFn("executor", "failed to log manual action: %v", err)
 		return 0
 	}
+	RecordOutcome(e.databaseName, OutcomeClass(categorizeAction(sql), sql), outcome)
 	if outcome != "failed" {
 		e.markFindingActioned(ctx, int64(findingID), actionID)
 	}

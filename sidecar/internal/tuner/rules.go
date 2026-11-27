@@ -28,9 +28,13 @@ func Prescribe(
 	case SymptomSortLimit:
 		return prescribeSortLimit(symptom)
 	case SymptomStatTempSpill:
-		return prescribeStatTempSpill(symptom, cfg)
+		return prescribeStatTempSpill(symptom)
 	case SymptomStaleStats:
 		return prescribeStaleStats(symptom)
+	case SymptomIndexFilterInefficient:
+		return prescribeIndexFilter(symptom)
+	case SymptomORJoinFilter:
+		return prescribeORJoin(symptom)
 	default:
 		return nil
 	}
@@ -87,11 +91,15 @@ func prescribeHashSpill(
 	}
 }
 
+// prescribeHighPlanTime prescribes no hint (tuning-11): a forced generic
+// plan does nothing for simple-protocol statements and can be worse on
+// skewed data, so the statement gets query_parameterization advice. A
+// plan_cache_mode hint may return only when a hinted EXPLAIN shows it
+// changes the plan.
 func prescribeHighPlanTime() *Prescription {
 	return &Prescription{
-		Symptom:       SymptomHighPlanTime,
-		HintDirective: `Set(plan_cache_mode "force_generic_plan")`,
-		Rationale:     "planning time exceeds threshold",
+		Symptom:   SymptomHighPlanTime,
+		Rationale: "planning time exceeds threshold",
 	}
 }
 
@@ -102,9 +110,11 @@ var hintIdent = regexp.MustCompile(`^[a-z_][a-z0-9_$]*$`)
 // prescribeBadNestedLoop forces a hash join of the relations the nested
 // loop joins. pg_hint_plan join hints need two or more relation aliases,
 // so with fewer (or with an alias it cannot take unquoted) no hint is
-// prescribed; never HashJoin() or HashJoin(<one alias>).
+// prescribed; never HashJoin() or HashJoin(<one alias>). A join the
+// scanner found no equality for (hashable_join false: a pure OR, no join
+// condition) cannot be hash-joined, so no hint either (market-10b).
 func prescribeBadNestedLoop(s PlanSymptom) *Prescription {
-	if len(s.JoinAliases) < 2 {
+	if len(s.JoinAliases) < 2 || !joinMayHash(s) {
 		return nil
 	}
 	for _, a := range s.JoinAliases {
@@ -112,10 +122,14 @@ func prescribeBadNestedLoop(s PlanSymptom) *Prescription {
 			return nil
 		}
 	}
+	innerRows, _ := s.Detail["inner_rows_total"].(int64)
+	loops, _ := s.Detail["loops"].(int64)
 	return &Prescription{
 		Symptom:       SymptomBadNestedLoop,
 		HintDirective: "HashJoin(" + strings.Join(s.JoinAliases, " ") + ")",
-		Rationale:     "nested loop row estimate off by >10x",
+		Rationale: fmt.Sprintf(
+			"nested loop row estimate off by >10x; inner side read %d rows over %d loops",
+			innerRows, loops),
 	}
 }
 
@@ -158,19 +172,18 @@ func prescribeSortLimit(s PlanSymptom) *Prescription {
 	}
 }
 
-func prescribeStatTempSpill(
-	s PlanSymptom, cfg TunerConfig,
-) *Prescription {
-	blks, _ := s.Detail["temp_blks_written"].(int64)
-	kb := blks * 8 // PostgreSQL default block = 8 KB
-	mem := CalcWorkMem(kb, cfg.WorkMemMaxMB)
+// prescribeStatTempSpill emits the work_mem the tuner sized for the
+// symptom from the interval's per-call spill (tuning-03, see
+// sizeStatSpillWorkMem); a symptom without a sized hint prescribes nothing.
+func prescribeStatTempSpill(s PlanSymptom) *Prescription {
+	mb, _ := s.Detail["hint_mb"].(int)
+	if mb <= 0 {
+		return nil
+	}
 	return &Prescription{
 		Symptom:       SymptomStatTempSpill,
-		HintDirective: fmtSetWorkMem(mem),
-		Rationale: fmt.Sprintf(
-			"query wrote %d temp blocks (~%d MB) to disk",
-			blks, kb/1024,
-		),
+		HintDirective: fmtSetWorkMem(mb),
+		Rationale:     statSpillRationale(s.Detail),
 	}
 }
 

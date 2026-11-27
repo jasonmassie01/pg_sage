@@ -48,7 +48,7 @@ func tokenRouter(t *testing.T, pool *pgxpool.Pool, user *auth.User) http.Handler
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil,
+	return newTestRouter(nil, cfg, pool, nil, nil, nil,
 		&RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, inject)
 }
 

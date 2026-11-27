@@ -50,8 +50,7 @@ func capturePerfLogs(t *testing.T) *perfLogCapture {
 	if err != nil {
 		t.Fatalf("log pipe: %v", err)
 	}
-	real := os.Stderr
-	os.Stderr = w
+	real := swapStderr(w)
 	c := &perfLogCapture{}
 	done := make(chan struct{})
 	go func() {
@@ -65,7 +64,7 @@ func capturePerfLogs(t *testing.T) *perfLogCapture {
 		}
 	}()
 	t.Cleanup(func() {
-		os.Stderr = real
+		swapStderr(real)
 		_ = w.Close()
 		<-done
 		_ = r.Close()
@@ -123,7 +122,7 @@ func perfAPISession(t *testing.T, ctx context.Context, harness *pgxpool.Pool) st
 // live-update subscriber for the whole run: an open dashboard.
 func perfRouter(t *testing.T) http.Handler {
 	t.Helper()
-	router := wireRouter(WireParams{Cfg: cfg, Pool: pool, FleetMgr: fleetMgr,
+	router := testWireRouter(WireParams{Cfg: cfg, Pool: pool, FleetMgr: fleetMgr,
 		Actions: struct {
 			Store    *store.ActionStore
 			Executor *executor.Executor

@@ -9,7 +9,7 @@ import (
 // Set-based reads of bench reports and class records (see
 // store_evidence_set.go).
 
-const benchSetSQL = `/* pg_sage */ SELECT r.*, f.family FROM unnest($4::text[]) AS f(family)
+const benchSetSQL = `SELECT /* pg_sage */ r.*, f.family FROM unnest($4::text[]) AS f(family)
 CROSS JOIN LATERAL (` + evalRunSelect + `
 	 WHERE deployment_id = $1 AND source = 'bench'
 	   AND ((f.family = '' AND cells @? '$[*] ? (@.family != "all")')
@@ -74,7 +74,7 @@ func (s *PostgresStore) LatestBench(ctx context.Context, f Family) (*EvalRun, er
 // evidence (roadmap 1.4) is counted apart: by score, and since the last
 // demerit by distinct decision (fingerprint); an incorrect shadow
 // decision is a demerit for this count (it never demotes).
-const classRecordSetSQL = `/* pg_sage */ SELECT p.family, p.action_class,
+const classRecordSetSQL = `SELECT /* pg_sage */ p.family, p.action_class,
 	c.improved, c.neutral, c.regressed, c.rolled_back, c.rejected, c.insufficient,
 	c.unverifiable, c.successes, c.uncredited, s.correct, s.incorrect, s.neutral,
 	s.successes, s.uncredited, l.at, l.cause

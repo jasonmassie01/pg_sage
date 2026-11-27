@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -182,26 +181,6 @@ func phase2CleanFindings(t *testing.T, pool *pgxpool.Pool) {
 	}
 	if err != nil {
 		t.Fatalf("cleanup findings: %v", err)
-	}
-}
-
-// phase2CleanSnapshots removes test snapshots.
-func phase2CleanSnapshots(t *testing.T, pool *pgxpool.Pool) {
-	t.Helper()
-	ctx := context.Background()
-	_, err := pool.Exec(ctx,
-		`DELETE FROM sage.snapshots
-		 WHERE category = 'queries'
-		   AND data::text LIKE '%phase2_test%'`)
-	if err != nil && strings.Contains(err.Error(), "does not exist") {
-		ensurePhase2SageSchema(t, pool)
-		_, err = pool.Exec(ctx,
-			`DELETE FROM sage.snapshots
-			 WHERE category = 'queries'
-			   AND data::text LIKE '%phase2_test%'`)
-	}
-	if err != nil {
-		t.Fatalf("cleanup snapshots: %v", err)
 	}
 }
 
@@ -794,89 +773,6 @@ func TestPhase2_CheckConnectionLeaks_ZeroTimeout(t *testing.T) {
 	// We can't guarantee findings exist, but the function should not
 	// panic or error.
 	_ = findings
-}
-
-// ---------------------------------------------------------------------------
-// buildHistoricalAverages (DB integration)
-// ---------------------------------------------------------------------------
-
-func TestPhase2_BuildHistoricalAverages_Empty(t *testing.T) {
-	pool := phase2Pool(t)
-	phase2CleanSnapshots(t, pool)
-	cfg := phase2Config()
-
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
-	ctx := context.Background()
-
-	avgs := a.buildHistoricalAverages(ctx)
-	// With no snapshots, we get an empty (or nil) map.
-	if len(avgs) > 0 {
-		// May have pre-existing snapshots from other tests. That's OK.
-		t.Logf("found %d averages (may be from prior test data)", len(avgs))
-	}
-}
-
-func TestPhase2_BuildHistoricalAverages_WithData(t *testing.T) {
-	pool := phase2Pool(t)
-	phase2CleanSnapshots(t, pool)
-	ctx := context.Background()
-	cfg := phase2Config()
-
-	// Insert test snapshot data.
-	type queryEntry struct {
-		QueryID        int64   `json:"queryid"`
-		MeanExecTimeMs float64 `json:"mean_exec_time"` // collector.QueryStats field (G1-B06)
-		Phase2Test     string  `json:"phase2_test"`
-	}
-
-	snap1 := []queryEntry{
-		{QueryID: 111, MeanExecTimeMs: 10.0, Phase2Test: "phase2_test"},
-		{QueryID: 222, MeanExecTimeMs: 20.0, Phase2Test: "phase2_test"},
-	}
-	snap2 := []queryEntry{
-		{QueryID: 111, MeanExecTimeMs: 30.0, Phase2Test: "phase2_test"},
-		{QueryID: 222, MeanExecTimeMs: 40.0, Phase2Test: "phase2_test"},
-	}
-
-	for _, s := range [][]queryEntry{snap1, snap2} {
-		data, err := json.Marshal(s)
-		if err != nil {
-			t.Fatalf("marshal: %v", err)
-		}
-		_, err = pool.Exec(ctx,
-			`INSERT INTO sage.snapshots (category, data)
-			 VALUES ('queries', $1)`, data)
-		if err != nil {
-			t.Fatalf("insert snapshot: %v", err)
-		}
-	}
-
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
-	avgs := a.buildHistoricalAverages(ctx)
-
-	if avgs == nil {
-		t.Fatal("expected non-nil averages map")
-	}
-
-	// QueryID 111: avg of 10 and 30 = 20.0
-	if avg, ok := avgs[111]; !ok {
-		t.Error("missing average for queryid 111")
-	} else if avg < 19.9 || avg > 20.1 {
-		t.Errorf("expected ~20.0 for queryid 111, got %f", avg)
-	}
-
-	// QueryID 222: avg of 20 and 40 = 30.0
-	if avg, ok := avgs[222]; !ok {
-		t.Error("missing average for queryid 222")
-	} else if avg < 29.9 || avg > 30.1 {
-		t.Errorf("expected ~30.0 for queryid 222, got %f", avg)
-	}
-
-	// Cleanup.
-	_, _ = pool.Exec(ctx,
-		`DELETE FROM sage.snapshots
-		 WHERE category = 'queries'
-		   AND data::text LIKE '%phase2_test%'`)
 }
 
 // ---------------------------------------------------------------------------

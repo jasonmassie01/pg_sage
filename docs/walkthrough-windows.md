@@ -7,10 +7,11 @@ changing pg_sage setup.
 ## Prerequisites
 
 - Windows 11
-- Docker Desktop, or a local PostgreSQL 14-17 install
-- Go 1.24+
-- Node.js 20+ and npm
-- `psql` client
+- Docker Desktop, or a local PostgreSQL 14-18 install
+- Go 1.26+
+- Node.js 22+ and npm
+- `psql` client, only for a local PostgreSQL install (the Docker path runs `psql`
+  inside the container)
 
 ## 1. Start a Local Target
 
@@ -27,11 +28,37 @@ Wait for readiness:
 docker exec pg-test pg_isready -U postgres
 ```
 
-Create the monitoring user:
+Create pg_sage's role. This is the read-only block from the
+[quickstart](quickstart.md#1-create-a-role-for-pg_sage); on a managed database you run
+it as your provider's admin role (`rds_superuser`, `cloudsqlsuperuser`,
+`azure_pg_admin`) instead. Save it as `sage_role.sql`:
+
+```sql
+-- Log in with a password of your choice.
+CREATE ROLE sage_agent LOGIN PASSWORD 'YOUR_PASSWORD';
+-- Read statistics, settings and query text (pg_monitor includes pg_read_all_stats).
+GRANT pg_monitor TO sage_agent;
+-- pg_sage keeps its own state in the sage schema and writes nowhere else.
+CREATE SCHEMA IF NOT EXISTS sage AUTHORIZATION sage_agent;
+-- Sequence runway: lets pg_sage read each sequence's current value. List every
+-- schema holding sequences; "Grant more" names any it still cannot read.
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO sage_agent;
+-- Query statistics. Optional: without it the first look tells you how to enable it.
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+```
+
+Run it as the `postgres` superuser inside the container:
 
 ```powershell
-psql -h localhost -U postgres -d postgres -c "CREATE USER sage_agent WITH PASSWORD 'sagepw'; GRANT pg_monitor TO sage_agent; GRANT pg_read_all_stats TO sage_agent; GRANT CREATE ON SCHEMA public TO sage_agent; GRANT pg_signal_backend TO sage_agent; CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+Get-Content sage_role.sql | docker exec -i pg-test psql -U postgres -v ON_ERROR_STOP=1
 ```
+
+With a local PostgreSQL install instead of Docker, run
+`psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f sage_role.sql`.
+
+pg_sage starts read-only. The privileges that changes need (table ownership,
+CREATE on the schemas that hold your tables, `pg_signal_backend`, parameter changes) come
+later, from the **"Grant more"** step on the landing page.
 
 ## 2. Build and Run pg_sage
 
@@ -47,8 +74,11 @@ npm run build
 cd ..
 go build -o pg_sage.exe .\cmd\pg_sage_sidecar
 
-.\pg_sage.exe --pg-url "postgres://sage_agent:sagepw@localhost:5432/postgres?sslmode=disable"
+.\pg_sage.exe --pg-url "postgres://sage_agent:YOUR_PASSWORD@localhost:5432/postgres?sslmode=disable"
 ```
+
+If you chose another password in `sage_role.sql`, put the same one in place of
+`YOUR_PASSWORD` here.
 
 Leave pg_sage running. Copy the one-time `INITIAL ADMIN PASSWORD` printed to
 stderr.
@@ -62,11 +92,16 @@ Open `http://localhost:8080` and sign in:
 
 Verify:
 
-1. **Overview** -- database tiles and Provider Readiness.
-2. **Cases** -- ranked work queue. `#/findings` aliases to Cases.
-3. **Actions** -- pending approval and executed action tabs.
-4. **Fleet** -- database connection management.
-5. **Settings** -- emergency controls and Shadow Mode report.
+1. **Minute 1: Getting started and First look** -- the landing page opens with the
+   **"Getting started"** checklist and the **"First look"** panel: what a DBA would
+   flag on day one, each finding with its catalog evidence.
+2. **Overview** -- database tiles and Provider Readiness.
+3. **Cases** -- ranked work queue. `#/findings` aliases to Cases.
+4. **Workload** -- top statements by load and the wait-class load chart; each statement
+   opens its history, plan changes and related cases.
+5. **Actions** -- pending approval and executed action tabs.
+6. **Fleet** -- database connection management.
+7. **Settings** -- emergency controls and Shadow Mode (shadow decisions per class).
 
 ## 4. API and Metrics Checks
 
@@ -76,8 +111,9 @@ curl.exe -c cookies.txt -H "Content-Type: application/json" `
   --data "{\"email\":\"admin@pg-sage.local\",\"password\":\"INITIAL_PASSWORD\"}"
 
 curl.exe -b cookies.txt http://localhost:8080/api/v1/cases
-curl.exe -b cookies.txt http://localhost:8080/api/v1/shadow-report
-curl.exe http://localhost:9187/metrics
+curl.exe -b cookies.txt http://localhost:8080/api/v1/shadow-decisions
+curl.exe -b cookies.txt "http://localhost:8080/api/v1/queries/top?database=all&limit=5"
+curl.exe http://localhost:8187/metrics
 ```
 
 ## 5. Clean Up
@@ -93,6 +129,6 @@ docker rm -f pg-test
 - A local PostgreSQL install may already bind port `5432`; use it directly or
   map Docker to another port.
 - Windows Firewall may prompt when pg_sage starts listening on `8080` and
-  `9187`.
+  `8187`.
 - Use `curl.exe` in PowerShell when you need the real curl binary instead of
   PowerShell aliases.

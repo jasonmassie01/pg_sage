@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/ledger"
+	"github.com/pg-sage/sidecar/internal/policy"
 )
 
 // executorProposalRouter hands custodian proposals to the executor. Every
@@ -36,7 +38,7 @@ func (r executorProposalRouter) Route(
 	ctx context.Context, proposal autonomy.Proposal,
 ) error {
 	candidate := executor.CustodianProposal{
-		Feature: proposal.Feature, SQL: proposal.SQL,
+		Feature: proposal.Feature, SQL: proposal.SQL, ResponseKind: proposal.ResponseKind,
 		TargetObjects: append([]string(nil), proposal.TargetObjects...),
 		Deadline:      proposal.Deadline,
 		Evidence:      proposal.Evidence,
@@ -45,10 +47,31 @@ func (r executorProposalRouter) Route(
 		ObservedAt: time.Now(),
 	}
 	if strings.TrimSpace(proposal.SQL) == "" {
-		r.executor.EvaluateCustodianProposal(ctx, candidate)
-		return nil
+		return observedPolicyError(candidate,
+			r.executor.EvaluateCustodianProposal(ctx, candidate))
 	}
 	return r.parked(proposal.TargetObjects, r.executor.SubmitCustodianProposal(ctx, candidate))
+}
+
+// errCustodianPolicyUnavailable: the standing gate could not evaluate (or
+// record) a plan-only proposal, so no decision exists for it.
+var errCustodianPolicyUnavailable = errors.New(
+	"custodian proposal not evaluated: standing policy unavailable")
+
+// observedPolicyError reports a plan-only evaluation that produced no
+// recorded decision (policy_unavailable, or no standing gate at all), so
+// the autonomy loop logs it instead of losing the proposal silently.
+func observedPolicyError(
+	candidate executor.CustodianProposal, decision executor.ActionPolicyDecision,
+) error {
+	if decision.Decision != executor.PolicyDecisionBlocked ||
+		(decision.BlockedReason != string(policy.ReasonPolicyUnavailable) &&
+			decision.BlockedReason != executor.StandingGateUnavailable) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s %s on %s: %s", errCustodianPolicyUnavailable,
+		candidate.Feature, candidate.ResponseKind,
+		strings.Join(candidate.TargetObjects, ","), decision.Detail)
 }
 
 func (r executorProposalRouter) RouteVerifiedIndex(
@@ -97,14 +120,6 @@ func retentionDelete(batch autonomy.RetentionBatch) executor.RetentionDelete {
 	}
 }
 
-// haReplicaProbe reports replica or failover safe mode for one database.
-func haReplicaProbe(pool *pgxpool.Pool) func(context.Context) bool {
-	monitor := ha.New(pool, logStructuredWrapper)
-	return func(ctx context.Context) bool {
-		return monitor.Check(ctx) || monitor.InSafeMode()
-	}
-}
-
 type autonomyLogReporter struct{}
 
 func (autonomyLogReporter) Report(level, message string, fields map[string]any) {
@@ -115,34 +130,67 @@ func (autonomyLogReporter) Report(level, message string, fields map[string]any) 
 	logInfo("autonomy", "%s fields=%v", message, fields)
 }
 
+// newDatabaseAutonomy builds the database's continuous autonomy workers
+// around its one freeze custodian (shared with the runway advisor and the
+// analyzer); their proposals carry the HA state of monitor's snapshot.
 func newDatabaseAutonomy(
 	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
+	freezeWorker *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
+	disk autonomy.DiskCapacityProvider,
 ) (*autonomy.Supervisor, error) {
-	if pool == nil || cfg == nil || exec == nil {
-		return nil, fmt.Errorf("autonomy runtime dependencies are incomplete")
+	workers, err := databaseAutonomyWorkers(pool, cfg, database, exec, freezeWorker,
+		monitor, disk)
+	if err != nil {
+		return nil, err
 	}
-	freezeWorker := newFreezeCustodian(pool, cfg, database)
-	walWorker := newWALCustodian(pool, cfg, database)
+	return superviseDatabaseAutonomy(workers, exec)
+}
+
+// databaseAutonomyWorkers builds one database's autonomy workers: the
+// freeze custodian it is given (shared with the runway advisor and the
+// analyzer), the WAL custodian, the schema guard, the executor router and
+// the ledger self-audit. The router reads monitor's snapshot for the
+// replica gate; disk is the provider storage capacity the WAL custodian
+// judges retained WAL against (clouds-07; nil without cloud telemetry).
+func databaseAutonomyWorkers(
+	pool *pgxpool.Pool, cfg *config.Config, database string, exec *executor.Executor,
+	freezeWorker *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
+	disk autonomy.DiskCapacityProvider,
+) (autonomy.DatabaseWorkersConfig, error) {
+	if pool == nil || cfg == nil || exec == nil || freezeWorker == nil {
+		return autonomy.DatabaseWorkersConfig{},
+			fmt.Errorf("autonomy runtime dependencies are incomplete")
+	}
+	walWorker := newWALCustodian(pool, cfg, database, disk)
 	auditor := ledger.NewService(ledger.NewPostgresRepository(pool))
-	router := executorProposalRouter{executor: exec, isReplica: haReplicaProbe(pool),
+	router := executorProposalRouter{executor: exec, isReplica: haReplicaGate(monitor),
 		parkLog: newParkedLog(func(format string, args ...any) {
 			logInfo("autonomy", "db %q: "+format, append([]any{database}, args...)...)
 		})}
 	schemaGuard, err := autonomy.NewPostgresSchemaGuard(
 		pool, database, router, auditor, router.executeRetention, schemaGuardOptions(cfg))
 	if err != nil {
-		return nil, err
+		return autonomy.DatabaseWorkersConfig{}, err
 	}
-	supervisor, err := autonomy.NewSupervisor([]autonomy.DatabaseWorkersConfig{{
+	return autonomy.DatabaseWorkersConfig{
 		Database: database, Interval: autonomyInterval(cfg),
 		DDLDebounce: autonomyDDLDebounce(cfg),
-		Freeze: freezeWorker, WAL: walWorker, Schema: schemaGuard,
+		Freeze:      freezeWorker, WAL: walWorker, Schema: schemaGuard,
 		Router:  router,
 		Auditor: auditor, Reporter: autonomyLogReporter{},
-	}})
+	}, nil
+}
+
+// superviseDatabaseAutonomy puts one database's workers under a supervisor
+// and points the executor's post-DDL hook at its schema guard.
+func superviseDatabaseAutonomy(
+	workers autonomy.DatabaseWorkersConfig, exec *executor.Executor,
+) (*autonomy.Supervisor, error) {
+	supervisor, err := autonomy.NewSupervisor([]autonomy.DatabaseWorkersConfig{workers})
 	if err != nil {
 		return nil, err
 	}
+	database := workers.Database
 	exec.WithPostDDLHook(func(context.Context) error {
 		return supervisor.RequestSchemaGuard(database)
 	})
@@ -160,8 +208,11 @@ func autonomyInterval(cfg *config.Config) time.Duration {
 func startInstanceAutonomy(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
 	cfg *config.Config, database string, exec *executor.Executor,
+	freeze *autonomy.PostgresFreezeCustodian, monitor *ha.Monitor,
+	disk autonomy.DiskCapacityProvider,
 ) error {
-	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec)
+	supervisor, err := newDatabaseAutonomy(pool, cfg, database, exec, freeze,
+		monitor, disk)
 	if err != nil {
 		return err
 	}

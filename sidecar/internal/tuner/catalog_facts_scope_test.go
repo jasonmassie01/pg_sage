@@ -37,18 +37,18 @@ func TestPlanRelationNames(t *testing.T) {
 		{"Node Type": "Seq Scan", "Relation Name": "orders", "Schema": "app"},
 		{"Node Type": "Index Scan", "Relation Name": "users"},
 		{"Node Type": "Seq Scan", "Relation Name": "orders"}]}}]`
-	got, err := planRelationNames([]byte(plan))
+	got, err := PlanRelationNames([]byte(plan))
 	if err != nil {
 		t.Fatalf("names: %v", err)
 	}
 	if strings.Join(got, ",") != "orders,users" {
 		t.Fatalf("names = %v, want [orders users] (sorted, deduplicated)", got)
 	}
-	if names, err := planRelationNames([]byte(`[{"Plan": {"Node Type": "Result"}}]`)); err != nil ||
+	if names, err := PlanRelationNames([]byte(`[{"Plan": {"Node Type": "Result"}}]`)); err != nil ||
 		len(names) != 0 {
 		t.Fatalf("plan without relations = %v %v, want none", names, err)
 	}
-	if _, err := planRelationNames([]byte(`{not json`)); err == nil {
+	if _, err := PlanRelationNames([]byte(`{not json`)); err == nil {
 		t.Fatal("malformed plan gave no error")
 	}
 }

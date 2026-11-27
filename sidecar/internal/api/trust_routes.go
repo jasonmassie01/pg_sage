@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -32,9 +34,8 @@ func registerTrustRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	if deps == nil || deps.Ledgers == nil {
 		return
 	}
-	viewer := RequireRole("admin", "operator", "viewer")
 	h := autonomyHandlers{deps: deps, mgr: mgr}
-	mux.Handle("GET "+trustPath, viewer(http.HandlerFunc(h.trust)))
+	route(mux, "GET "+trustPath, gateViewer, http.HandlerFunc(h.trust))
 }
 
 // trust serves one view per database.
@@ -60,9 +61,25 @@ func (h autonomyHandlers) trust(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if ok { // else it left the fleet since it was listed
+			earned.AnnotateMode(&v, autonomyCeiling(r.Context(), h.mgr, name))
 			views = append(views, withShadow(r.Context(), h.mgr, v))
 		}
 	}
 	jsonResponse(w, map[string]any{"databases": views,
 		"enforced": h.deps.Ledgers.Enforced(), "meaning": trustMeaning})
+}
+
+// autonomyCeiling is the database's gate inputs for each row's mode
+// (ux-06b), read from its executor; without one, the zero ceiling
+// watches only.
+func autonomyCeiling(ctx context.Context, mgr *fleet.DatabaseManager,
+	name string) earned.Ceiling {
+	if mgr == nil {
+		return earned.Ceiling{}
+	}
+	inst := mgr.GetInstance(name)
+	if inst == nil || inst.Executor == nil {
+		return earned.Ceiling{}
+	}
+	return inst.Executor.AutonomyCeiling(ctx, inst.SnapshotStatus().Capabilities.IsReplica)
 }

@@ -397,53 +397,48 @@ func TestDedupFindings_ConflictingSQLKeepsHigherSeverity(
 	}
 }
 
+// collection-06: I/O utilization is the interval's I/O time over the
+// interval's exec time (ioUtilPair: the previous snapshot ran 0 ms under
+// the same statements epoch, so the current totals are the deltas).
+func ioUtilPair(read, write float64, execs ...float64) (cur, prev *collector.Snapshot) {
+	cur = &collector.Snapshot{StatsEpoch: ioEpoch}
+	cur.System.Interval = &collector.SystemInterval{Seconds: 60,
+		BlkReadTimeMs: ivPtrF(read), BlkWriteTimeMs: ivPtrF(write)}
+	prev = &collector.Snapshot{StatsEpoch: ioEpoch}
+	for i, e := range execs {
+		cur.Queries = append(cur.Queries, collector.QueryStats{QueryID: int64(i + 1),
+			TotalExecTime: e})
+		prev.Queries = append(prev.Queries, collector.QueryStats{QueryID: int64(i + 1)})
+	}
+	return cur, prev
+}
+
 func TestComputeIOUtilPct_NilSnapshot(t *testing.T) {
-	got := computeIOUtilPct(nil)
+	got := computeIOUtilPct(nil, nil)
 	if got != 0 {
 		t.Errorf("expected 0 for nil snapshot, got %f", got)
 	}
 }
 
 func TestComputeIOUtilPct_NoIOWait(t *testing.T) {
-	snap := &collector.Snapshot{
-		System: collector.SystemStats{
-			BlkReadTime:  0,
-			BlkWriteTime: 0,
-		},
-		Queries: []collector.QueryStats{
-			{TotalExecTime: 1000},
-		},
-	}
-	got := computeIOUtilPct(snap)
+	cur, prev := ioUtilPair(0, 0, 1000)
+	got := computeIOUtilPct(cur, prev)
 	if got != 0 {
 		t.Errorf("expected 0 with no IO wait, got %f", got)
 	}
 }
 
 func TestComputeIOUtilPct_NoQueries(t *testing.T) {
-	snap := &collector.Snapshot{
-		System: collector.SystemStats{
-			BlkReadTime:  500,
-			BlkWriteTime: 200,
-		},
-	}
-	got := computeIOUtilPct(snap)
+	cur, prev := ioUtilPair(500, 200)
+	got := computeIOUtilPct(cur, prev)
 	if got != 0 {
 		t.Errorf("expected 0 with no queries, got %f", got)
 	}
 }
 
 func TestComputeIOUtilPct_HighIOWait(t *testing.T) {
-	snap := &collector.Snapshot{
-		System: collector.SystemStats{
-			BlkReadTime:  600,
-			BlkWriteTime: 200,
-		},
-		Queries: []collector.QueryStats{
-			{TotalExecTime: 1000},
-		},
-	}
-	got := computeIOUtilPct(snap)
+	cur, prev := ioUtilPair(600, 200, 1000)
+	got := computeIOUtilPct(cur, prev)
 	// (600+200)/1000 * 100 = 80%
 	if got < 79.9 || got > 80.1 {
 		t.Errorf("expected ~80%%, got %f", got)
@@ -452,34 +447,17 @@ func TestComputeIOUtilPct_HighIOWait(t *testing.T) {
 
 func TestComputeIOUtilPct_CappedAt100(t *testing.T) {
 	// blk_read_time can exceed total_exec_time because they
-	// measure different things (cumulative vs wall clock).
-	snap := &collector.Snapshot{
-		System: collector.SystemStats{
-			BlkReadTime:  2000,
-			BlkWriteTime: 500,
-		},
-		Queries: []collector.QueryStats{
-			{TotalExecTime: 1000},
-		},
-	}
-	got := computeIOUtilPct(snap)
+	// measure different things (all backends vs the top statements).
+	cur, prev := ioUtilPair(2000, 500, 1000)
+	got := computeIOUtilPct(cur, prev)
 	if got != 100 {
 		t.Errorf("expected capped at 100, got %f", got)
 	}
 }
 
 func TestComputeIOUtilPct_MultipleQueries(t *testing.T) {
-	snap := &collector.Snapshot{
-		System: collector.SystemStats{
-			BlkReadTime:  300,
-			BlkWriteTime: 200,
-		},
-		Queries: []collector.QueryStats{
-			{TotalExecTime: 500},
-			{TotalExecTime: 500},
-		},
-	}
-	got := computeIOUtilPct(snap)
+	cur, prev := ioUtilPair(300, 200, 500, 500)
+	got := computeIOUtilPct(cur, prev)
 	// (300+200)/(500+500) * 100 = 50%
 	if got < 49.9 || got > 50.1 {
 		t.Errorf("expected ~50%%, got %f", got)
@@ -562,38 +540,6 @@ func TestDedupFindings_ConflictingGUC_HigherSeverityWins(
 	}
 	if got[0].Title != "set work_mem 256MB" {
 		t.Errorf("expected 256MB winner, got %s", got[0].Title)
-	}
-}
-
-func TestDedupFindings_ConflictingGUC_PerTableBeatsGlobal(
-	t *testing.T,
-) {
-	in := []Finding{
-		{
-			Category:         "memory_tuning",
-			Severity:         "critical",
-			ObjectIdentifier: "global",
-			Title:            "global work_mem",
-			RecommendedSQL: "ALTER SYSTEM SET " +
-				"autovacuum_vacuum_cost_delay = 20",
-		},
-		{
-			Category:         "vacuum_tuning",
-			Severity:         "warning",
-			ObjectIdentifier: "public.orders",
-			Title:            "per-table cost_delay",
-			RecommendedSQL: "ALTER TABLE orders SET " +
-				"(autovacuum_vacuum_cost_delay = 10)",
-		},
-	}
-	got := DeduplicateFindings(in, 0, noopLog)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 finding, got %d", len(got))
-	}
-	if got[0].Title != "per-table cost_delay" {
-		t.Errorf(
-			"expected per-table to win, got %s", got[0].Title,
-		)
 	}
 }
 

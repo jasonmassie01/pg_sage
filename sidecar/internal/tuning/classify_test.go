@@ -210,3 +210,27 @@ func TestClassifyWorkload_NilAndEmpty(t *testing.T) {
 
 // No concurrent-access test: ClassifyWorkload is a pure function of its
 // arguments and holds no state.
+
+// collection-10: utility and DDL statements are not tuner workload; a
+// procedure (CALL, DO) stays an application statement as before.
+func TestClassifyWorkload_UtilityAndDDLLeaveProceduresStay(t *testing.T) {
+	snap := classifySnap(
+		stmt(1, "COMMIT", 900, 9000),
+		stmt(2, "ALTER TABLE public.orders ADD COLUMN c int", 1, 500),
+		stmt(3, "SET work_mem = $1", 300, 10),
+		stmt(4, "CALL public.refresh_totals($1)", 10, 4000),
+	)
+	w := ClassifyWorkload(snap, nil, t0)
+	for id, want := range map[int64]StatementClass{1: ClassDiagnostic, 2: ClassDiagnostic,
+		3: ClassDiagnostic, 4: ClassApp} {
+		if got := w.Statements[id].Class; got != want {
+			t.Errorf("statement %d: class %q, want %q", id, got, want)
+		}
+		if w.IsWorkload(id) != (want == ClassApp) {
+			t.Errorf("statement %d: IsWorkload = %v", id, w.IsWorkload(id))
+		}
+	}
+	if r := w.Statements[1].Reason; !strings.Contains(r, "(utility)") {
+		t.Errorf("COMMIT reason = %q", r)
+	}
+}

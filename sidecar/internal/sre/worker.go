@@ -49,12 +49,19 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err := c.checkReadPolicy(ctx, inv); err != nil {
 		return c.fail(ctx, lease, "read_policy_changed", err.Error())
 	}
-	ctx = probes.WithReadPolicy(ctx, c.readPolicy)
+	ctx = probes.WithCaller(probes.WithReadPolicy(ctx, c.readPolicy), probes.CallerInvestigation)
 	plan, ok := c.plan(inv.TriggerKind)
 	plan = scopePlanQuery(plan, inv)
 	if !ok {
 		return c.fail(ctx, lease, "no_probe_plan",
 			fmt.Sprintf("no probe plan for trigger %q", inv.TriggerKind))
+	}
+	prior, err := c.store.Evidence(ctx, lease.Scope, inv.ID)
+	if err != nil {
+		return err
+	}
+	if age := ageOfEvidence(prior, c.now()); age.stale() {
+		return c.expireStale(ctx, lease, age)
 	}
 	if lease, err = c.collect(ctx, lease, inv, plan); err != nil {
 		return err
@@ -76,21 +83,29 @@ func (c *Coordinator) runClaimed(ctx context.Context, lease Lease) error {
 	if err != nil {
 		return err
 	}
+	proposals := c.advise(ctx, inv, d)
+	age, err := c.concludedAge(ctx, lease)
+	if err != nil {
+		return err
+	}
 	return c.conclude(ctx, lease, d, model, attachments{runbook: run,
-		proposals: c.advise(ctx, inv, d)})
+		proposals: proposals, evidence: age})
 }
 
 // attachments are what a conclusion carries beside the diagnosis and
-// the model output: the signed runbook that ran (M6 runbooks) and the
-// custodian proposals of a runway diagnosis (M6 runways).
+// the model output: the signed runbook that ran (M6 runbooks), the
+// custodian proposals of a runway diagnosis (M6 runways) and the age of
+// the evidence the diagnosis rests on (sre-02).
 type attachments struct {
 	runbook   *RunbookRun
 	proposals []ActionProposal
+	evidence  evidenceAge
 }
 
 // apply sets the attachments on a summary.
 func (a attachments) apply(s *Summary) {
 	s.Runbook, s.Proposals = a.runbook, a.proposals
+	a.evidence.apply(s)
 }
 
 // conclude persists the diagnosis with the runbook run, the custodian
@@ -130,7 +145,7 @@ func (c *Coordinator) conclude(ctx context.Context, lease Lease, d causal.Diagno
 // the steps already committed) and moves the investigation to evaluating.
 func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigation,
 	plan []planStep) (Lease, error) {
-	done, err := c.committedSteps(ctx, lease.Scope, inv.ID)
+	done, err := c.store.StepKeys(ctx, lease.Scope, inv.ID)
 	if err != nil {
 		return lease, err
 	}
@@ -156,8 +171,15 @@ func (c *Coordinator) collect(ctx context.Context, lease Lease, inv Investigatio
 		if i == len(plan)-1 {
 			next = StateEvaluating
 		}
+		var results []probes.Result
+		if results, lease, err = c.runStepHeld(ctx, lease, st); err != nil {
+			return lease, err
+		}
+		if i == 0 {
+			results = append(c.incidentSnapshot(ctx, inv), results...)
+		}
 		committed, err := c.store.CommitStep(ctx, lease, StepResult{IdempotencyKey: key,
-			Results: c.runStep(ctx, st), NextState: next})
+			Results: results, NextState: next})
 		if err != nil {
 			return lease, err
 		}
@@ -190,27 +212,50 @@ func (c *Coordinator) waitHeld(ctx context.Context, lease Lease,
 	return cur, err
 }
 
-func (c *Coordinator) committedSteps(ctx context.Context, scope Scope,
-	id UUID) (map[string]bool, error) {
-	evidence, err := c.store.Evidence(ctx, scope, id)
-	if err != nil {
-		return nil, err
-	}
-	done := map[string]bool{}
-	for _, e := range evidence {
-		done[e.StepKey] = true
-	}
-	return done, nil
-}
-
 func stepKey(i int) string { return fmt.Sprintf("step-%d", i+1) }
 
-func (c *Coordinator) runStep(ctx context.Context, st planStep) []probes.Result {
+// runStepHeld runs a step's probes while heartbeating the lease. A step
+// of several probes, each of which may wait for its slots twice
+// (runQueued), can outlast the lease TTL it was renewed for before it
+// began; its commit would then be refused as a stale worker's. A lost
+// lease is returned (its heartbeat cancelled the step's probes).
+func (c *Coordinator) runStepHeld(ctx context.Context, lease Lease,
+	st planStep) ([]probes.Result, Lease, error) {
+	stepCtx, stop := c.keepAlive(ctx, lease)
+	results := c.runStep(stepCtx, lease, st)
+	held, err := stop()
+	return results, held, err
+}
+
+// runStep runs a step's probes in order (runQueued).
+func (c *Coordinator) runStep(ctx context.Context, lease Lease, st planStep) []probes.Result {
 	out := make([]probes.Result, 0, len(st.calls))
 	for _, call := range st.calls {
-		out = append(out, c.runner.Run(ctx, call.id, call.args))
+		out = append(out, c.runQueued(ctx, lease, call.id, call.args))
 	}
 	return out
+}
+
+// runQueued runs one investigation probe: a plan step's, the model's or
+// a runbook's. A probe refused its slot is run once more when the lease
+// leaves time for it (retryQueued).
+func (c *Coordinator) runQueued(ctx context.Context, lease Lease, id probes.ID,
+	args probes.Args) probes.Result {
+	run := func() probes.Result { return c.runner.Run(ctx, id, args) }
+	return retryQueued(lease.SegmentDeadline, run(), run)
+}
+
+// retryQueued returns res, or a second read when res found no free probe
+// slot (background sampling held them) and deadline leaves a whole queue
+// wait and a step's margin. The second result stands whatever it is: an
+// investigation never inflicts a missing observation on itself by losing
+// one queue race, and never waits for slots more than twice (sre-06).
+func retryQueued(deadline time.Time, res probes.Result,
+	read func() probes.Result) probes.Result {
+	if !probes.QueueRefused(res) || time.Until(deadline) < probes.QueueWait+stepMargin {
+		return res
+	}
+	return read()
 }
 
 // fail ends the run as failed with a code and a bounded reason.

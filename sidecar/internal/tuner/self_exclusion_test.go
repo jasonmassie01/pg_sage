@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
@@ -61,7 +62,7 @@ func TestFetchCandidatesNeverOffersPgSageStatements(t *testing.T) {
 // application connection; both close when the test ends.
 func selfProbeSessions(t *testing.T, ctx context.Context) (*pgxpool.Pool, *pgx.Conn) {
 	t.Helper()
-	cfg, err := pgxpool.ParseConfig(tunerTestDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}
@@ -71,7 +72,7 @@ func selfProbeSessions(t *testing.T, ctx context.Context) (*pgxpool.Pool, *pgx.C
 		t.Fatalf("pg_sage pool: %v", err)
 	}
 	t.Cleanup(sage.Close)
-	app, err := pgx.Connect(ctx, tunerTestDSN())
+	app, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("app connection: %v", err)
 	}

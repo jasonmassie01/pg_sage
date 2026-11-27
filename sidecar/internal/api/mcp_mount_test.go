@@ -25,7 +25,7 @@ func TestHTTPMCPTransportMountsBehindAPIAuthentication(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}`))
 	})
-	router := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil,
+	router := newTestRouter(nil, cfg, pool, nil, nil, nil,
 		&RuntimeDeps{MCPHandler: mcpHandler}, SessionAuthMiddleware(pool))
 
 	unauthenticated := postMCPRequest(router, "")
@@ -59,7 +59,7 @@ func TestHTTPMCPTransportIsNotMountedWhenDisabledOrUsingStdio(t *testing.T) {
 			cfg.MCP.Enabled = testCase.enabled
 			cfg.MCP.Transport = testCase.transport
 			var calls atomic.Int32
-			router := NewRouterFullRuntime(
+			router := newTestRouter(
 				nil,
 				cfg,
 				nil,

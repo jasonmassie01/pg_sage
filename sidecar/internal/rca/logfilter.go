@@ -8,7 +8,8 @@ package rca
 //
 // Lines without a timestamp or without a database are kept: they cannot
 // be attributed, and cluster-wide events (PANIC, disk full, archiver)
-// concern every database. Caller holds e.mu.
+// concern every database. In a fleet the log fanout hands such events to
+// the cluster owner only (rca-08). Caller holds e.mu.
 func (e *Engine) filterLogSignals(signals []*Signal) []*Signal {
 	out := make([]*Signal, 0, len(signals))
 	replayed, foreign := 0, 0

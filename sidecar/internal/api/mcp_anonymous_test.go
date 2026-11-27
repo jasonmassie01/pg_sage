@@ -43,7 +43,7 @@ func defaultMCPRouter(t *testing.T, withSession bool) (http.Handler, *bearerBack
 	if withSession {
 		middlewares = append(middlewares, SessionAuthMiddleware(pool))
 	}
-	h := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil,
+	h := newTestRouter(nil, cfg, pool, nil, nil, nil,
 		&RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, middlewares...)
 	return h, backend, &bearerFixture{pool: pool, store: mcptoken.NewStore(pool),
 		backend: backend, h: h}

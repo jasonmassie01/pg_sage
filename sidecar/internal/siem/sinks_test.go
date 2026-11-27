@@ -42,7 +42,7 @@ func TestHTTPSinkPostsBatch(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&got)
 	}))
 	defer srv.Close()
-	s := NewHTTPSink("soc", srv.URL, "tok123", time.Second)
+	s := NewHTTPSink("soc", srv.URL, "tok123", time.Second, nil)
 	if err := s.Send(context.Background(), sampleEvents(3)); err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestHTTPSinkErrors(t *testing.T) {
 			_ *http.Request) {
 			w.WriteHeader(status)
 		}))
-		err := NewHTTPSink("soc", srv.URL, "secret-token", time.Second).
+		err := NewHTTPSink("soc", srv.URL, "secret-token", time.Second, nil).
 			Send(context.Background(), sampleEvents(1))
 		srv.Close()
 		if err == nil || !strings.Contains(err.Error(), strconv.Itoa(status)) ||
@@ -69,12 +69,12 @@ func TestHTTPSinkErrors(t *testing.T) {
 			t.Fatalf("status %d: err = %v", status, err)
 		}
 	}
-	err := NewHTTPSink("soc", "http://127.0.0.1:1", "", time.Second).
+	err := NewHTTPSink("soc", "http://127.0.0.1:1", "", time.Second, nil).
 		Send(context.Background(), sampleEvents(1))
 	if err == nil {
 		t.Fatalf("unreachable receiver: no error")
 	}
-	if err := NewHTTPSink("soc", "http://127.0.0.1:1", "", time.Second).
+	if err := NewHTTPSink("soc", "http://127.0.0.1:1", "", time.Second, nil).
 		Send(context.Background(), nil); err != nil {
 		t.Fatalf("empty batch must be a no-op: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestHTTPSinkTimeout(t *testing.T) {
 	defer srv.Close()
 	defer close(release)
 	start := time.Now()
-	err := NewHTTPSink("soc", srv.URL, "", 200*time.Millisecond).
+	err := NewHTTPSink("soc", srv.URL, "", 200*time.Millisecond, nil).
 		Send(context.Background(), sampleEvents(1))
 	if err == nil || time.Since(start) > 3*time.Second {
 		t.Fatalf("hung receiver: err=%v after %v", err, time.Since(start))
@@ -107,7 +107,7 @@ func TestOTLPSinkBody(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()
-	if err := NewOTLPSink("otel", srv.URL, "", time.Second).Send(context.Background(),
+	if err := NewOTLPSink("otel", srv.URL, "", time.Second, nil).Send(context.Background(),
 		sampleEvents(2)); err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestOTLPPartialRejection(t *testing.T) {
 			`"errorMessage":"bad"}}`))
 	}))
 	defer srv.Close()
-	err := NewOTLPSink("otel", srv.URL+"/v1/logs", "", time.Second).
+	err := NewOTLPSink("otel", srv.URL+"/v1/logs", "", time.Second, nil).
 		Send(context.Background(), sampleEvents(2))
 	if err == nil || !strings.Contains(err.Error(), "rejected") {
 		t.Fatalf("partial rejection: err = %v", err)

@@ -12,7 +12,9 @@ import (
 // operator. None of these touch the monitored database.
 
 // Start creates (or coalesces into) an investigation on an operator's
-// request and queues it. t.Actor is required.
+// request and queues it. t.Actor is required and is never the trigger
+// loop's own actor: only the system's requests start a new attempt after
+// an expiry (sre-01), so an operator's request cannot pass for one.
 func (s *Service) Start(ctx context.Context, t Trigger) (Investigation, bool, error) {
 	if s == nil || s.coord == nil || s.store == nil {
 		return Investigation{}, false, fmt.Errorf("%w: investigations are not configured",
@@ -20,6 +22,10 @@ func (s *Service) Start(ctx context.Context, t Trigger) (Investigation, bool, er
 	}
 	if err := checkText("actor", t.Actor, true, 128); err != nil {
 		return Investigation{}, false, err
+	}
+	if t.Actor == triggerActor {
+		return Investigation{}, false, fmt.Errorf("%w: actor %q is reserved for the "+
+			"trigger loop", ErrInvalidRequest, t.Actor)
 	}
 	if _, err := s.scope(ctx); err != nil {
 		return Investigation{}, false, err

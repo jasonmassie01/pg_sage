@@ -2,11 +2,13 @@ package selfmonitor
 
 import (
 	"context"
-	"net"
+	"fmt"
+	"io"
 	"regexp"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -14,8 +16,11 @@ import (
 // application_name pg_sage (pg_stat_activity) and every statement tagged
 // with StatementTag (pg_stat_statements). pg_sage does not hide from
 // pg_stat_statements: its cost is visible to the DBA, and its own readers
-// exclude it with StatementExclusionSQL and ActivityExclusionSQL. An
-// AfterNetConnect hook already set (a proxy handshake) runs first.
+// exclude it with StatementExclusionSQL and ActivityExclusionSQL. Every
+// session is pinned to READ COMMITTED (pinReadCommitted), then to
+// search_path = pg_catalog, pg_temp (pinSearchPath), so no object a
+// database user creates resolves in pg_sage's own statements. A
+// BuildFrontend or AfterConnect hook already set runs first.
 func ConfigurePool(cfg *pgxpool.Config) {
 	if cfg == nil {
 		return
@@ -34,20 +39,72 @@ func ConfigureConn(cfg *pgx.ConnConfig) {
 		cfg.RuntimeParams = map[string]string{}
 	}
 	cfg.RuntimeParams["application_name"] = ApplicationName
-	inner := cfg.AfterNetConnect
-	cfg.AfterNetConnect = func(
-		ctx context.Context, pc *pgconn.Config, conn net.Conn,
-	) (net.Conn, error) {
+	tagFrontend(&cfg.Config)
+	pinReadCommitted(cfg)
+	pinSearchPath(cfg)
+}
+
+// tagFrontend makes cfg's protocol frontend send through TagWriter. A
+// BuildFrontend already set builds the frontend over the tagging writer;
+// none (a config not from ParseConfig) gets pgx's default frontend.
+func tagFrontend(cfg *pgconn.Config) {
+	inner := cfg.BuildFrontend
+	cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
 		if inner != nil {
-			var err error
-			if conn, err = inner(ctx, pc, conn); err != nil {
-				return nil, err
+			return inner(r, TagWriter(w))
+		}
+		return pgproto3.NewFrontend(r, TagWriter(w))
+	}
+}
+
+// pinReadCommittedSQL makes every transaction of the session READ
+// COMMITTED, whatever the role or database default is: the audit chain's
+// head probe needs a new snapshot per statement (audit-02). It is a SET,
+// not a startup parameter, because PgBouncer refuses startup parameters
+// it does not know; PgBouncer pools per user and database, so it reaches
+// only pg_sage's own server connections.
+const pinReadCommittedSQL = "SET SESSION default_transaction_isolation = 'read committed'"
+
+// pinReadCommitted chains the pin after any AfterConnect hook already set,
+// so an earlier hook cannot undo it. A pin that fails fails the connection:
+// pg_sage never runs on a session it could not pin.
+func pinReadCommitted(cfg *pgx.ConnConfig) {
+	inner := cfg.AfterConnect
+	cfg.AfterConnect = func(ctx context.Context, pc *pgconn.PgConn) error {
+		if inner != nil {
+			if err := inner(ctx, pc); err != nil {
+				return err
 			}
 		}
-		if conn == nil {
-			return nil, errNilConn
+		if err := pc.Exec(ctx, pinReadCommittedSQL).Close(); err != nil {
+			return fmt.Errorf("pin default_transaction_isolation to read committed: %w", err)
 		}
-		return TagConn(conn), nil
+		return nil
+	}
+}
+
+// PinSearchPathSQL is the observation sessions' search_path pin: only
+// pg_catalog and the session's own temporary schema, so no object a
+// database user creates resolves unless it is named with its schema
+// (security-01c). It is a SET, not a startup parameter, for PgBouncer, and
+// so pg_settings.reset_val (which apppath reads) keeps the server's value.
+const PinSearchPathSQL = "SET SESSION search_path = pg_catalog, pg_temp"
+
+// pinSearchPath chains the search_path pin after every other AfterConnect
+// hook (the READ COMMITTED pin first). A pin that fails fails the
+// connection, naming search_path.
+func pinSearchPath(cfg *pgx.ConnConfig) {
+	inner := cfg.AfterConnect
+	cfg.AfterConnect = func(ctx context.Context, pc *pgconn.PgConn) error {
+		if inner != nil {
+			if err := inner(ctx, pc); err != nil {
+				return err
+			}
+		}
+		if err := pc.Exec(ctx, PinSearchPathSQL).Close(); err != nil {
+			return fmt.Errorf("pin search_path to pg_catalog, pg_temp: %w", err)
+		}
+		return nil
 	}
 }
 
@@ -60,6 +117,17 @@ func StatementExclusionSQL(column string) string {
 	}
 	text := "COALESCE(" + column + ", '')"
 	return text + " NOT ILIKE '%pg_sage%' AND " + text + " !~* '" + QueryTextSQLRegex + "'"
+}
+
+// IsStatementText reports a statement text StatementExclusionSQL leaves
+// out (pg_sage's own), for readers that filter texts in Go: ILIKE
+// '%pg_sage%' (where _ is any one character) or a sage schema reference.
+// SQL NULL is the empty string there, which is not pg_sage's. Letters
+// outside ASCII count as separators here; PostgreSQL's [[:alnum:]] follows
+// the database's locale, so the two can differ only on such a letter right
+// before "sage.".
+func IsStatementText(text string) bool {
+	return applicationNamePattern.MatchString(text) || sageSchemaRef.MatchString(text)
 }
 
 // ActivityExclusionSQL is a predicate over pg_stat_activity, true for a

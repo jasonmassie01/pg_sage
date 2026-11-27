@@ -42,6 +42,10 @@ func Run(ctx context.Context, m Model, cfg Config) (Result, error) {
 	defer cancel()
 	err := r.loop(runCtx, ctx)
 	r.res.Transcript.Protocol = r.protocol
+	r.res.Evidence = make(map[string]Evidence, len(r.aliases))
+	for alias, ev := range r.aliases {
+		r.res.Evidence[alias] = ev
+	}
 	return r.res, err
 }
 
@@ -59,7 +63,7 @@ func newRun(m Model, cfg Config) *run {
 	r.deadline = now().Add(cfg.Budget.Wall)
 	r.res.Transcript.Rejected = map[string]int{}
 	for i, e := range cfg.Seed {
-		r.aliases[fmt.Sprintf("E%d", i+1)] = e
+		r.aliases[fmt.Sprintf("E%d", i+1)] = e.clone()
 	}
 	return r
 }
@@ -84,14 +88,15 @@ func (r *run) loop(ctx, parent context.Context) error {
 }
 
 // step makes one model call and handles its reply; true ends the run.
+//
+//llm:transport internal/agentloop.systemPrompt
 func (r *run) step(ctx, parent context.Context, step int) (bool, error) {
 	// The last step, the last tool call or a token budget that cannot pay
 	// for two more calls: only the final tool is offered. The notice text
 	// is added for the first two only, so it never makes a call that fits
 	// the token budget unaffordable.
 	full, _ := r.request(false)
-	tight := r.res.Transcript.Tokens+2*EstimateTokens(r.msgs, full,
-		r.cfg.Budget.StepTokens) > r.cfg.Budget.MaxTokens
+	tight := r.res.Transcript.Tokens+2*r.estimate(full) > r.cfg.Budget.MaxTokens
 	last := step == r.cfg.Budget.MaxSteps ||
 		r.res.Transcript.ToolCalls >= r.cfg.Budget.MaxCalls
 	finalOnly := last || tight
@@ -101,14 +106,15 @@ func (r *run) step(ctx, parent context.Context, step int) (bool, error) {
 		r.noticed = true
 	}
 	tools, opts := r.request(finalOnly)
-	est := EstimateTokens(r.msgs, tools, r.cfg.Budget.StepTokens)
+	est := r.estimate(tools)
 	if r.res.Transcript.Tokens+est > r.cfg.Budget.MaxTokens {
 		r.stop(StopTokens, fmt.Sprintf("%d tokens used; the next call needs about %d of "+
 			"the %d budget", r.res.Transcript.Tokens, est, r.cfg.Budget.MaxTokens))
 		return true, nil
 	}
 	r.res.Transcript.ModelCalls++
-	res, err := r.model.ChatWithTools(ctx, r.msgs, tools, opts)
+	pctx := llm.WithDefaultPurpose(ctx, "agent_loop") // llm-04: usage ledger label
+	res, err := r.model.ChatWithTools(pctx, r.msgs, tools, opts)
 	if res.Tokens > 0 {
 		r.res.Transcript.Tokens += res.Tokens
 	} else {
@@ -121,6 +127,13 @@ func (r *run) step(ctx, parent context.Context, step int) (bool, error) {
 		r.nativeOK = true
 	}
 	return r.handle(ctx, res, finalOnly)
+}
+
+// estimate is what the next call may cost with these tools: the request,
+// its completion cap and a thinking model's reasoning allowance.
+func (r *run) estimate(tools []llm.ToolSpec) int {
+	return EstimateTokens(r.msgs, tools, r.cfg.Budget.StepTokens) +
+		r.cfg.Budget.ReasoningPerCall
 }
 
 // request is the call's tools and options under the remaining budget.

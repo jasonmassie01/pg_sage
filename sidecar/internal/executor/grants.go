@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/rolegrants"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // missingGrant is one privilege the connected role lacks.
@@ -21,13 +22,19 @@ type missingGrant struct {
 // rolegrants, which the Grant more guide uses too.
 func schemaCreateGrant(user string, sc rolegrants.SchemaCreate) missingGrant {
 	return missingGrant{what: sc.What(), need: rolegrants.Need,
-		fix: sc.GrantSQL(rolegrants.QuoteRole(user))}
+		fix: sc.GrantSQL(sqlident.Role(user))}
 }
 
-func signalBackendGrant(user string) missingGrant {
-	return missingGrant{what: "pg_signal_backend",
-		need: "cancelling a runaway query when an action needs it",
-		fix:  "GRANT pg_signal_backend TO " + rolegrants.QuoteRole(user)}
+// signalBackendGrant: cancelling another role's query needs the privileges
+// of pg_signal_backend. A member that does not inherit them gets the SQL
+// that fixes the inheritance, the same the Grant more guide shows.
+func signalBackendGrant(user string, sig rolegrants.SignalBackend) missingGrant {
+	what := "pg_signal_backend"
+	if sig.MemberOnly {
+		what += " (a member that does not inherit its privileges)"
+	}
+	return missingGrant{what: what, need: rolegrants.SignalNeed,
+		fix: sig.GrantSQL(sqlident.Role(user))}
 }
 
 // executesActions reports whether a trust level runs actions; only those
@@ -58,10 +65,11 @@ func VerifyGrants(
 	if sc, lacking := checkSchemaCreate(ctx, pool, logFn); lacking {
 		missing = append(missing, schemaCreateGrant(user, sc))
 	}
-	if checkSignalBackend(ctx, pool, user, logFn) {
-		missing = append(missing, signalBackendGrant(user))
+	if sig, lacking := checkSignalBackend(ctx, pool, logFn); lacking {
+		missing = append(missing, signalBackendGrant(user, sig))
 	}
 	reportGrants(trustLevel, user, missing, logFn)
+	reportSequences(ctx, pool, user, logFn)
 	reportGuardRole(user, super, logFn)
 }
 
@@ -107,24 +115,40 @@ func checkSchemaCreate(
 	return sc, sc.Lacking()
 }
 
-// checkSignalBackend reports whether user is not a member of
-// pg_signal_backend; a failed check is logged and reported as not missing.
+// checkSignalBackend reports whether the connected role cannot use
+// pg_signal_backend (rolegrants, which the Grant more guide uses too); a
+// failed check is logged and reported as not missing.
 func checkSignalBackend(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	logFn func(string, string, ...any),
+) (rolegrants.SignalBackend, bool) {
+	sig, err := rolegrants.CheckSignalBackend(ctx, pool)
+	if err != nil {
+		logFn("grants", "could not check pg_signal_backend privileges: %v", err)
+		return rolegrants.SignalBackend{}, false
+	}
+	return sig, !sig.Usable
+}
+
+// reportSequences notes the schemas whose sequences the connected role
+// cannot read. The first look reads them at every trust level, so it is a
+// note at every level, never a warning: without it the sequence runway
+// check is degraded, not unsafe.
+func reportSequences(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	user string,
 	logFn func(string, string, ...any),
-) bool {
-	var hasMembership bool
-	err := pool.QueryRow(ctx,
-		"SELECT pg_has_role($1, 'pg_signal_backend', 'MEMBER')",
-		user,
-	).Scan(&hasMembership)
+) {
+	sq, err := rolegrants.CheckSequenceSelect(ctx, pool)
 	if err != nil {
-		logFn("grants",
-			"could not check pg_signal_backend membership: %v", err,
-		)
-		return false
+		logFn("grants", "could not check SELECT on sequences: %v", err)
+		return
 	}
-	return !hasMembership
+	if !sq.Lacking() {
+		return
+	}
+	logFn("grants", "user %q lacks %s, needed for %s; fix with: %s",
+		user, sq.What(), rolegrants.SequenceNeed, sq.GrantSQL(sqlident.Role(user)))
 }

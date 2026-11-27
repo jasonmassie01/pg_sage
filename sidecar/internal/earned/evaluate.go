@@ -44,30 +44,43 @@ func (s *Service) Evaluate(ctx context.Context) (Evaluation, error) {
 	if err := s.expire(ctx); err != nil {
 		return e, err
 	}
-	pending, err := s.store.listProposals(ctx, StatusPending, 200)
+	grid, b, now := gridPairs(), &readBatch{}, s.now()
+	in, err := s.queueLedger(ctx, b, grid,
+		evidenceNeeds{incident: true, records: true, approvals: true}, now)
 	if err != nil {
 		return e, err
 	}
-	waiting := map[pairKey]string{}
-	for _, p := range pending {
-		waiting[pairKey{p.Family, p.Class}] = p.ID
+	idx := evalIndex{waiting: map[pairKey]string{}, snoozed: map[pairKey]bool{}}
+	if err := s.store.readAskSnoozes(ctx, b, now.Add(-AskSnooze), idx.snoozed); err != nil {
+		return e, err
 	}
-	for _, f := range AllFamilies() {
-		for _, c := range ApplicableClasses(f) {
-			if err := s.evaluateOne(ctx, f, c, waiting, &e); err != nil {
-				return e, err
-			}
+	if err := s.store.runBatch(ctx, b); err != nil {
+		return e, err
+	}
+	for _, p := range in.pending {
+		idx.waiting[pairKey{p.Family, p.Class}] = p.ID
+	}
+	for _, key := range grid {
+		st := in.granted(key.family, key.class)
+		ev := s.evidenceOf(*in.e, key.family, key.class)
+		if err := s.evaluateOne(ctx, st, ev, idx, &e); err != nil {
+			return e, err
 		}
 	}
 	return e, nil
 }
 
-func (s *Service) evaluateOne(ctx context.Context, f Family, c ActionClass,
-	waiting map[pairKey]string, e *Evaluation) error {
-	st, err := s.Granted(ctx, f, c)
-	if err != nil {
-		return err
-	}
+// evalIndex is what Evaluate knows of each pair beyond its evidence: its
+// waiting proposal and whether a person put its approval ask off.
+type evalIndex struct {
+	waiting map[pairKey]string
+	snoozed map[pairKey]bool
+}
+
+// evaluateOne proposes the pair of st one level up, or explains why not.
+func (s *Service) evaluateOne(ctx context.Context, st State, ev Evidence, idx evalIndex,
+	e *Evaluation) error {
+	f, c := st.Family, st.Class
 	np := NotProposed{Family: f, Class: c, Granted: st.Level}
 	target := st.Level + 1
 	if target > CapForPair(f, c) || !target.Grantable() {
@@ -76,16 +89,17 @@ func (s *Service) evaluateOne(ctx context.Context, f Family, c ActionClass,
 		return nil
 	}
 	np.Target = &target
-	if id, ok := waiting[pairKey{f, c}]; ok {
+	if id, ok := idx.waiting[pairKey{f, c}]; ok {
 		np.Reason, np.Pending = NotProposedPending, id
 		e.NotProposed = append(e.NotProposed, np)
 		return nil
 	}
-	ev, err := s.Evidence(ctx, f, c)
-	if err != nil {
-		return err
+	a, kind := Assess(s.cfg.Thresholds, target, ev), ""
+	if !a.Met && st.Level == L2 && !idx.snoozed[pairKey{f, c}] {
+		if ask := AssessApprovalHistory(target, ev); ask.Met {
+			a, kind = ask, EvidenceKindApprovalHistory
+		}
 	}
-	a := Assess(s.cfg.Thresholds, target, ev)
 	if !a.Met {
 		np.Reason = NotProposedEvidence
 		for _, check := range a.Checks {
@@ -96,7 +110,7 @@ func (s *Service) evaluateOne(ctx context.Context, f Family, c ActionClass,
 		e.NotProposed = append(e.NotProposed, np)
 		return nil
 	}
-	p, created, err := s.createProposal(ctx, st, target, ev, a)
+	p, created, err := s.createProposal(ctx, st, target, ev, a, kind)
 	if err != nil {
 		return err
 	}

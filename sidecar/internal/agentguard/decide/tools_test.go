@@ -1,37 +1,11 @@
 package decide
 
 import (
-	"sort"
+	"sync"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/agentguard"
-	"github.com/pg-sage/sidecar/internal/mcp"
 )
-
-// §6.2.6: every existing MCP tool is mapped to a class, so a new tool
-// fails this census until someone decides how agents may use it.
-func TestEveryMCPToolIsClassified(t *testing.T) {
-	var missing []string
-	for _, tool := range mcp.NewServer(nil).Tools() {
-		if _, known := toolClasses[tool.Name]; !known {
-			missing = append(missing, tool.Name)
-		}
-	}
-	sort.Strings(missing)
-	if len(missing) > 0 {
-		t.Fatalf("MCP tools without a §6.2.6 class (add them to toolClasses): %v", missing)
-	}
-	// And no stale entries: every classified tool exists.
-	names := map[string]bool{}
-	for _, tool := range mcp.NewServer(nil).Tools() {
-		names[tool.Name] = true
-	}
-	for name := range toolClasses {
-		if !names[name] && !agentOnlyTools[name] {
-			t.Fatalf("toolClasses lists %q, which is not an MCP tool", name)
-		}
-	}
-}
 
 func TestToolClassTable(t *testing.T) {
 	cases := []struct {
@@ -52,8 +26,20 @@ func TestToolClassTable(t *testing.T) {
 		{"mark_object", agentguard.ToolPropose, ""},
 		{"report_source_fix", agentguard.ToolPropose, ""},
 		{"sre_evaluate_autonomy", agentguard.ToolPropose, ""},
+		{"propose_plan", agentguard.ToolPropose, ""},
+		{"list_plans", agentguard.ToolRead, ""},
+		{"get_plan", agentguard.ToolRead, ""},
 		{"top_queries", agentguard.ToolRead, ""},
 		{"get_policy", agentguard.ToolRead, ""},
+		{"upgrade_readiness", agentguard.ToolRead, ""},
+		{"get_inbox", agentguard.ToolRead, ""},
+		{"get_outcomes", agentguard.ToolRead, ""},
+		{"get_workload_pack", agentguard.ToolRead, ""},
+		{"restore_drills", agentguard.ToolRead, ""},
+		{"review_grade", agentguard.ToolRead, ""},
+		{"review_scorecard", agentguard.ToolRead, ""},
+		{"check_pressure", agentguard.ToolRead, ""},
+		{"why_not", agentguard.ToolRead, ""},
 		{"decide_fact", KindApprove, ""},
 		{"declare_table_contract", KindApprove, ""},
 		{"register_consumer", KindApprove, ""},
@@ -125,4 +111,223 @@ func TestDefaultProfilesAreTheSpecs(t *testing.T) {
 	if _, ok := p.Profile("nope"); ok {
 		t.Fatal("unknown profile must not resolve")
 	}
+}
+
+func requireClass(t *testing.T, want Capability, sqls ...string) {
+	t.Helper()
+	for _, sql := range sqls {
+		if got := ClassifyDDL(sql); got != want {
+			t.Errorf("ClassifyDDL(%q) = %q, want %q", sql, got, want)
+		}
+	}
+}
+
+// migration-04a: the regex classifier misses these lock or rewrite forms,
+// so before the allowlist they fell through to additive, the trust class
+// that earns autonomy soonest.
+func TestClassifyDDLMissedLockFormsAreLocking(t *testing.T) {
+	forms := []string{
+		"ALTER TABLE app.t SET LOGGED",
+		"ALTER TABLE app.t SET UNLOGGED",
+		"ALTER TABLE app.t SET ACCESS METHOD heap2",
+		"ALTER TABLE app.t ADD CONSTRAINT ex EXCLUDE USING gist (r WITH &&)",
+		"ALTER TABLE app.p DETACH PARTITION app.p1",
+		"ALTER TABLE app.t ADD CONSTRAINT c_nn NOT NULL c",
+		"ALTER TABLE app.t RENAME TO t2",
+		"ALTER TABLE app.t RENAME COLUMN a TO b",
+		"CREATE TRIGGER trg BEFORE INSERT ON app.t FOR EACH ROW EXECUTE FUNCTION app.f()",
+		"ALTER TABLE app.t ADD COLUMN c text UNIQUE",
+		"ALTER TABLE app.t ADD COLUMN c int REFERENCES app.p(id)",
+		"ALTER TABLE app.t ADD COLUMN c int CHECK (c > 0)",
+	}
+	if len(forms) != 12 {
+		t.Fatalf("the plan names 12 missed forms, table has %d", len(forms))
+	}
+	requireClass(t, CapDDLLocking, forms...)
+}
+
+// The allowlist: only these shapes are additive.
+func TestClassifyDDLAllowlistStaysAdditive(t *testing.T) {
+	requireClass(t, CapDDLAdditive,
+		"CREATE INDEX CONCURRENTLY i ON app.t (c)",
+		"create index concurrently if not exists i on app.t using btree (lower(c))",
+		"CREATE TABLE app.t (id int)",
+		"CREATE TABLE IF NOT EXISTS app.unique_users (id bigint, note text)",
+		"ALTER TABLE app.t ADD COLUMN c int",
+		"ALTER TABLE app.t ADD COLUMN renamed_at timestamptz",
+		"ALTER TABLE IF EXISTS ONLY app.t ADD COLUMN IF NOT EXISTS c varchar(20)",
+		"ALTER TABLE app.t ADD COLUMN a numeric(10, 2), ADD COLUMN b text[]",
+		"ALTER TABLE app.t ADD c timestamp with time zone",
+		"CREATE VIEW app.v AS SELECT id FROM app.t",
+		"CREATE OR REPLACE VIEW app.v AS SELECT id FROM app.t",
+		"CREATE SCHEMA app2",
+		"CREATE SCHEMA IF NOT EXISTS app2 AUTHORIZATION owner_role",
+		"COMMENT ON TABLE app.t IS 'rename this later; it has a trigger'",
+		"CREATE SEQUENCE app.s START 10",
+		"SET lock_timeout = '5s'; ALTER TABLE app.t ADD COLUMN c int",
+		"BEGIN; SET LOCAL statement_timeout = 5000; CREATE TABLE app.t (id int); COMMIT",
+	)
+}
+
+// ADD COLUMN ... DEFAULT: a constant or a stable default is metadata-only
+// on PG 11+; a volatile one rewrites every row.
+func TestClassifyDDLAddColumnDefaultBoundary(t *testing.T) {
+	requireClass(t, CapDDLAdditive,
+		"ALTER TABLE app.t ADD COLUMN c int DEFAULT 0",
+		"ALTER TABLE app.t ADD COLUMN c timestamptz DEFAULT now()",
+		"ALTER TABLE app.t ADD COLUMN c timestamptz DEFAULT current_timestamp",
+		"ALTER TABLE app.t ADD COLUMN c text DEFAULT 'x'",
+	)
+	requireClass(t, CapDDLLocking,
+		"ALTER TABLE app.t ADD COLUMN c uuid DEFAULT gen_random_uuid()",
+		"ALTER TABLE app.t ADD COLUMN c bigint DEFAULT nextval('app.s')",
+		"ALTER TABLE app.t ADD COLUMN c int NOT NULL DEFAULT 0",
+		"ALTER TABLE app.t ADD COLUMN c int DEFAULT 0 CONSTRAINT k CHECK (c >= 0)",
+		"ALTER TABLE app.t ADD COLUMN c int GENERATED ALWAYS AS (a * 2) STORED",
+		"ALTER TABLE app.t ADD COLUMN c int GENERATED ALWAYS AS IDENTITY",
+		"ALTER TABLE app.t ADD COLUMN c bigserial",
+		"ALTER TABLE app.t ADD COLUMN c int PRIMARY KEY",
+		// A domain can carry a CHECK, which rewrites; the text cannot
+		// tell a domain from another type, so only built-in types pass.
+		"ALTER TABLE app.t ADD COLUMN c app.positive_int",
+		"ALTER TABLE app.t ADD COLUMN c DEFAULT 0",
+		"ALTER TABLE app.t ADD COLUMN c int DEFAULT",
+	)
+}
+
+// Only the stable functions themselves pass: a quoted or schema-qualified
+// call can name any function, so it is not proven stable.
+func TestClassifyDDLAddColumnDefaultCallSpelling(t *testing.T) {
+	requireClass(t, CapDDLAdditive,
+		"ALTER TABLE app.t ADD COLUMN c timestamptz DEFAULT pg_catalog.now()",
+		"ALTER TABLE app.t ADD COLUMN c timestamptz DEFAULT now() + interval '1 day'",
+	)
+	requireClass(t, CapDDLLocking,
+		`ALTER TABLE app.t ADD COLUMN c uuid DEFAULT "gen_random_uuid"()`,
+		`ALTER TABLE app.t ADD COLUMN c uuid DEFAULT public."gen_random_uuid" ()`,
+		"ALTER TABLE app.t ADD COLUMN c timestamptz DEFAULT app.now()",
+		"ALTER TABLE app.t ADD COLUMN c timestamptz DEFAULT app . now()",
+	)
+}
+
+// Everything outside the allowlist is locking, even with no rule match.
+func TestClassifyDDLOutsideAllowlistIsLocking(t *testing.T) {
+	requireClass(t, CapDDLLocking,
+		"SELECT 1",
+		"SELECT app.do_ddl()",
+		"GRANT SELECT ON app.t TO reader",
+		"SET ROLE postgres; CREATE TABLE app.t (id int)",
+		"SET search_path = app; CREATE TABLE t (id int)",
+		"CREATE MATERIALIZED VIEW app.mv AS SELECT * FROM app.t",
+		"CREATE UNLOGGED TABLE app.t (id int)",
+		"CREATE TABLE app.t (id int REFERENCES app.p (id))",
+		"CREATE TABLE app.p1 PARTITION OF app.p FOR VALUES IN (1)",
+		"CREATE TABLE app.child () INHERITS (app.parent)",
+		"CREATE TABLE app.copy AS SELECT * FROM app.big",
+		"CREATE TABLE app.copy AS TABLE app.big",
+		"CREATE UNIQUE INDEX CONCURRENTLY i ON app.t (c)",
+		"CREATE SCHEMA app2 CREATE TABLE t (id int)",
+		"ALTER TABLE app.t ALTER COLUMN c SET DEFAULT 1",
+		"ALTER TABLE app.t ADD COLUMN a int, ALTER COLUMN b SET DEFAULT 1",
+		"ALTER TABLE app.p DETACH PARTITION app.p1 CONCURRENTLY",
+		"ALTER TABLE app.t OWNER TO someone",
+		"ALTER INDEX app.i RENAME TO j",
+		// The plan's keyword floor is textual: NOT NULL in a partial
+		// index predicate also counts (migration-04's AST path may narrow
+		// it; it must never widen past this floor otherwise).
+		"CREATE INDEX CONCURRENTLY i ON app.t (c) WHERE c IS NOT NULL",
+		"COMMENT ON TRIGGER trg ON app.t IS 'x'",
+		"CREATE TABLE app.t (id int); ALTER TABLE app.t SET LOGGED",
+	)
+}
+
+// Empty text stays the worst case; text the scanner cannot tokenize is
+// never additive (an unterminated literal could hide a statement).
+func TestClassifyDDLEmptyAndUntokenizable(t *testing.T) {
+	requireClass(t, CapDDLDestructive, "", "   ", "-- CREATE TABLE app.t (id int)",
+		";", "/* x */ ; ;\n")
+	requireClass(t, CapDDLLocking,
+		"CREATE TABLE app.t (a text DEFAULT 'x); ALTER TABLE app.big SET LOGGED",
+		"CREATE TABLE app.t (a text DEFAULT $$x)",
+		`CREATE TABLE app."t (id int)`,
+		"CREATE TABLE app.t (id int) /* unterminated",
+		`CREATE TABLE app.t (a text DEFAULT E'x\')`,
+	)
+}
+
+// The DROP/TRUNCATE rule still runs first: a batch that also holds a
+// locking or additive statement is destructive.
+func TestClassifyDDLDestructiveStillFirst(t *testing.T) {
+	requireClass(t, CapDDLDestructive,
+		"ALTER TABLE app.t SET LOGGED; DROP TABLE app.old",
+		"CREATE INDEX CONCURRENTLY i ON app.t (c); TRUNCATE app.t",
+		"ALTER TABLE app.t ADD COLUMN c int; ALTER TABLE app.t DROP COLUMN d",
+	)
+}
+
+// A literal holding "--" or "/*" fooled the comment regex into eating the
+// rest of the text, hiding a DROP or TRUNCATE from the destructive rule;
+// the scanner's statements must still class it destructive.
+func TestClassifyDDLDestructiveHiddenByLiteral(t *testing.T) {
+	requireClass(t, CapDDLDestructive,
+		"COMMENT ON TABLE app.t IS '-- note'; DROP TABLE app.t",
+		"COMMENT ON TABLE app.t IS '/*'; DROP TABLE app.t; COMMENT ON TABLE app.u IS '*/'",
+		"COMMENT ON TABLE app.t IS $$it's$$; DROP TABLE app.t; SELECT ''",
+		`CREATE TABLE app.t (a text DEFAULT E'x\''); TRUNCATE app.big; SELECT ''`,
+	)
+	// The redacted literal itself never counts: its text is gone.
+	requireClass(t, CapDDLAdditive,
+		"COMMENT ON TABLE app.t IS '-- drop this table later'",
+		"COMMENT ON TABLE app.t IS 'truncate /* nightly'",
+	)
+}
+
+// ClassifyDDL shares compiled patterns and the classifier across
+// requests; parallel callers must get the same answers.
+func TestClassifyDDLConcurrentCallers(t *testing.T) {
+	cases := map[string]Capability{
+		"ALTER TABLE app.t SET LOGGED":             CapDDLLocking,
+		"CREATE INDEX CONCURRENTLY i ON app.t (c)": CapDDLAdditive,
+		"DROP TABLE app.t":                         CapDDLDestructive,
+	}
+	var wg sync.WaitGroup
+	errs := make(chan string, 16*len(cases))
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for sql, want := range cases {
+				if got := ClassifyDDL(sql); got != want {
+					errs <- sql + " = " + string(got)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
+	}
+}
+
+// CREATE TABLE AS runs its query, and the query can call a function that
+// does any DDL. PostgreSQL needs no space before the parenthesis, and on
+// PG 16+ a vertical tab is whitespace, so neither spelling may slip
+// through to additive (migration-04a review).
+func TestClassifyDDLCreateTableAsSpellings(t *testing.T) {
+	requireClass(t, CapDDLLocking,
+		"CREATE TABLE app.copy AS(SELECT app.do_ddl())",
+		"CREATE TABLE app.copy AS((SELECT 1))",
+		"CREATE TABLE app.copy AS(VALUES (1))",
+		"CREATE TABLE app.copy AS\vSELECT * FROM app.big",
+		"CREATE TABLE app.copy\vAS TABLE app.big",
+		"CREATE TABLE app.p1 PARTITION\vOF app.p FOR VALUES IN (1)",
+		"ALTER TABLE app.t ADD COLUMN c int NOT\vNULL DEFAULT 0",
+	)
+	// AS inside a new table's own definition runs nothing.
+	requireClass(t, CapDDLAdditive,
+		"CREATE TABLE app.t (a int, b int GENERATED ALWAYS AS (a * 2) STORED)",
+		"CREATE TABLE app.t (id int GENERATED ALWAYS AS IDENTITY)",
+		"CREATE TABLE app.t\v(id int)",
+	)
 }

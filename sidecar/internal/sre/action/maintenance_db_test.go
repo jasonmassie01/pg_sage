@@ -27,6 +27,22 @@ type maintenanceHarness struct {
 
 func newMaintenanceHarness(t *testing.T, mutate ...func(*probes.Result)) *maintenanceHarness {
 	t.Helper()
+	return newMaintenanceHarnessWith(t, concludeObserved, mutate...)
+}
+
+// maintenanceFinish ends the harness run: it concludes, or otherwise
+// finishes, the investigation whose one stat_tables step is ev.
+type maintenanceFinish func(h *actionHarness, lease sre.Lease, inv sre.Investigation,
+	ev []sre.Evidence) (sre.Investigation, error)
+
+func concludeObserved(h *actionHarness, lease sre.Lease, _ sre.Investigation,
+	ev []sre.Evidence) (sre.Investigation, error) {
+	return h.st.Conclude(h.ctx, lease, sre.Conclusion{State: sre.StateConcluded, Summary: sre.Summary{Family: "stat_views", Root: "table_observed", Conclusive: true}, Hypotheses: []sre.HypothesisRecord{{GraphVersion: "maintenance-test-v1", Family: "stat_views", Node: "table_observed", Label: "Table observed for operator statistics experiment", RefutationProbe: "stat_tables", Status: sre.HypothesisRoot, Support: []sre.Fact{{EvidenceID: ev[0].ID, Text: "table counters observed; correlation remains an operator hypothesis"}}}}})
+}
+
+func newMaintenanceHarnessWith(t *testing.T, finish maintenanceFinish,
+	mutate ...func(*probes.Result)) *maintenanceHarness {
+	t.Helper()
 	h := newActionHarness(t, nil)
 	table := "maintenance_" + strings.ReplaceAll(string(sre.NewUUID()), "-", "")[:12]
 	for _, sql := range []string{"CREATE TABLE public." + table + "(a int,b int)", "INSERT INTO public." + table + " SELECT g%10,g%10 FROM generate_series(1,1000)g", "ANALYZE public." + table} {
@@ -60,14 +76,17 @@ func newMaintenanceHarness(t *testing.T, mutate ...func(*probes.Result)) *mainte
 	for _, fn := range mutate {
 		fn(&res)
 	}
-	if _, err = h.st.CommitStep(h.ctx, lease, sre.StepResult{IdempotencyKey: "maintenance-table-observation", Results: []probes.Result{res}, NextState: sre.StateEvaluating}); err != nil {
+	stepped, err := h.st.CommitStep(h.ctx, lease, sre.StepResult{
+		IdempotencyKey: "maintenance-table-observation", Results: []probes.Result{res},
+		NextState: sre.StateEvaluating})
+	if err != nil {
 		t.Fatal(err)
 	}
 	ev, err := h.st.Evidence(h.ctx, scope, inv.ID)
 	if err != nil || len(ev) != 1 {
 		t.Fatalf("evidence: %v %v", ev, err)
 	}
-	inv, err = h.st.Conclude(h.ctx, lease, sre.Conclusion{State: sre.StateConcluded, Summary: sre.Summary{Family: "stat_views", Root: "table_observed", Conclusive: true}, Hypotheses: []sre.HypothesisRecord{{GraphVersion: "maintenance-test-v1", Family: "stat_views", Node: "table_observed", Label: "Table observed for operator statistics experiment", RefutationProbe: "stat_tables", Status: sre.HypothesisRoot, Support: []sre.Fact{{EvidenceID: ev[0].ID, Text: "table counters observed; correlation remains an operator hypothesis"}}}}})
+	inv, err = finish(h, lease, stepped, ev)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +105,10 @@ func newMaintenanceHarness(t *testing.T, mutate ...func(*probes.Result)) *mainte
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.SetApprovedActionRunner(m)
+	if err := e.AddApprovedActionRunner("maintenance", []string{MaintenanceIdentityPrefix},
+		m); err != nil {
+		t.Fatal(err)
+	}
 	req := StatisticsRequest{Schema: "public", Table: table, Columns: []string{"a", "b"}, Kinds: []string{"dependencies", "ndistinct"}, EvidenceID: ev[0].ID, EvidenceSHA256: hex.EncodeToString(ev[0].SHA256), Rationale: "Operator hypothesis: fixture columns a and b are correlated"}
 	return &maintenanceHarness{actionHarness: h, m: m, exec: e, cfg: cfg, req: req, table: table}
 }
@@ -288,7 +310,8 @@ func TestMaintenanceEvidenceAndApprovalRefusals(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "runner missing":
-				h.exec.SetApprovedActionRunner(nil)
+				// An executor with no runner registered.
+				h.exec = executor.New(h.pool, h.cfg, time.Time{}, func(string, string, ...any) {})
 			case "changed table":
 				_, err := h.pool.Exec(h.ctx, "DROP TABLE public."+h.table+"; CREATE TABLE public."+h.table+"(a int,b int)")
 				if err != nil {

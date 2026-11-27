@@ -37,7 +37,7 @@ func budgetRouter(
 			next.ServeHTTP(w, withUser(r, testAdminUser()))
 		})
 	}
-	return NewRouterFullRuntime(nil, config.DefaultConfig(), nil, nil, nil,
+	return newTestRouter(nil, config.DefaultConfig(), nil, nil, nil,
 		mgr, &RuntimeDeps{LLMBudgets: budgets}, inject)
 }
 

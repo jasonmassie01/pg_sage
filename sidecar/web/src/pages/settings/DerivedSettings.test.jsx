@@ -108,6 +108,28 @@ describe('DerivedSettings', () => {
     expect(pinned).toHaveTextContent('admin@x.com')
   })
 
+  // footprint-05: cost evidence names its source (probe or collector) and
+  // the collector step; a deadline raised after timeouts is flagged.
+  it('shows the source of cost evidence and flags timeouts_seen', () => {
+    const qt = payload().databases[0].settings[0]
+    qt.evidence = [
+      { name: 'slowest_catalog_ms', value: 700, unit: 'ms', source: 'collector',
+        detail: 'indexes' },
+      { name: 'timeouts_seen', value: 2, unit: 'timeouts', source: 'collector' },
+      { name: 'relations', value: 9000, unit: 'relations' },
+    ]
+    apiState = { data: { meaning: 'm', databases: [{ database: 'orders', settings: [qt] }] },
+      loading: false, error: null }
+    render(<DerivedSettings database="orders" />)
+    const row = screen.getByTestId('derived-safety.query_timeout_ms')
+    expect(row).toHaveTextContent('slowest_catalog_ms 700 ms (collector, indexes)')
+    expect(row).toHaveTextContent('timeouts_seen 2 timeouts (collector)')
+    expect(row).toHaveTextContent('relations 9000 relations')
+    expect(row).not.toHaveTextContent('relations 9000 relations (')
+    expect(screen.getByTestId('timeouts-seen-safety.query_timeout_ms'))
+      .toHaveTextContent('timeouts seen')
+  })
+
   it('offers pin current for derived keys, unpin for pinned keys, neither for operator keys',
     () => {
       render(<DerivedSettings database="orders" />)

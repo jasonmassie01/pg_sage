@@ -240,3 +240,33 @@ func TestLiveWorkflowNamesNoModel(t *testing.T) {
 		}
 	}
 }
+
+// benches-09: after attaching the signed live report, the same job lists
+// both asset URLs and the "pg_sage bench install" command in the release
+// notes, once (a rerun of the job does not repeat the section).
+func TestReleaseNotesListTheSignedLiveReportAndItsInstall(t *testing.T) {
+	name, job := liveAssetJob(t)
+	var notes *liveCIStep
+	for i, st := range job.Steps {
+		if strings.Contains(st.Run, "gh release edit") {
+			notes = &job.Steps[i]
+		}
+	}
+	if notes == nil {
+		t.Fatalf("%s does not edit the release notes", name)
+	}
+	for _, want := range []string{"/releases/download/$GITHUB_REF_NAME",
+		`pgincidentbench-live.json\n'`, "pgincidentbench-live.json.sigstore.json",
+		"pg_sage bench install", "bench_results_path", "--notes-file",
+		"grep -q '^### Signed live-model report'"} {
+		if !strings.Contains(notes.Run, want) {
+			t.Errorf("the release-notes step does not contain %q", want)
+		}
+	}
+	if notes.Env["GH_TOKEN"] != "${{ secrets.GITHUB_TOKEN }}" {
+		t.Fatalf("release-notes step env = %v", notes.Env)
+	}
+	if strings.Contains(ciWorkflowText(t), "sidecar is a follow-up") {
+		t.Fatal("ci.yml still calls ingesting the live assets a follow-up")
+	}
+}

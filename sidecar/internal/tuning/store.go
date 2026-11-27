@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/planfresh"
 	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
@@ -23,6 +24,10 @@ type IndexTools interface {
 		optimizer.TableContext, bool, error)
 	Admit(ctx context.Context, rec optimizer.Recommendation,
 		tc optimizer.TableContext) optimizer.Admission
+	// MeasureDrop measures dropping an existing index of tc's table by
+	// planning its workload with the index hidden (HypoPG 1.4+).
+	MeasureDrop(ctx context.Context, ix optimizer.IndexRef,
+		tc optimizer.TableContext) optimizer.DropMeasurement
 	MeasuredRejections(ctx context.Context, tc optimizer.TableContext) []string
 	MemoryStats() optimizer.MemoryStats
 }
@@ -62,6 +67,11 @@ type Store interface {
 	// Relations reports which of the tables and indexes exist and the valid
 	// index definitions of the existing tables, in one catalog read.
 	Relations(ctx context.Context, tables, indexes []string) (CatalogState, error)
+	// QueryStates reports, for each queryid, whether pg_stat_statements
+	// holds it in this database, whether the query tuner would admit it now
+	// and its latest sage.query_hints status, in one bounded read.
+	QueryStates(ctx context.Context, ids []int64, adm HintAdmission) (
+		map[int64]QueryState, error)
 	// SettingActions are the setting and storage-parameter changes executed
 	// since then, oldest first, with their verification verdicts.
 	SettingActions(ctx context.Context, since time.Time) ([]SettingAction, error)
@@ -83,19 +93,31 @@ type CatalogState struct {
 	IndexDefs map[string][]string
 }
 
+// HintAdmission is the query tuner's admission of a statement
+// (tuner.min_query_calls, tuner.plan_time_ratio).
+type HintAdmission struct {
+	MinCalls      int
+	PlanTimeRatio float64
+}
+
+// QueryState is one statement's state for its open query_tuning finding.
+type QueryState struct {
+	Present    bool   // pg_stat_statements holds the queryid in this database
+	Admitted   bool   // the query tuner would admit it now (cumulative counters)
+	HintStatus string // the latest sage.query_hints status; "" when none
+}
+
 // Plan sources.
 const (
-	PlanSourceCache   = "explain_cache"
-	PlanSourceGeneric = "generic_plan"
-	PlanSourceExplain = "explain"
-	PlanSourceNone    = "none"
+	PlanSourceCache   = planfresh.SourceCache
+	PlanSourceGeneric = planfresh.SourceGeneric
+	PlanSourceExplain = planfresh.SourceExplain
+	PlanSourceNone    = planfresh.SourceNone
 )
 
-// Plan is a statement's plan as JSON.
-type Plan struct {
-	Source string
-	JSON   []byte
-}
+// Plan is a statement's plan as JSON with its source and capture time
+// (tuning-08).
+type Plan = planfresh.Plan
 
 // ExtStat is one extended statistics object.
 type ExtStat struct {

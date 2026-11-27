@@ -48,6 +48,9 @@ func TestJudge_GUCRefusals(t *testing.T) {
 		{"out of range", "work_mem", "64TB", -60, ReasonInvalid},
 		{"not allowlisted", "fsync", "off", -10, ReasonInvalid},
 		{"left to the config advisor", "max_wal_size", "4GB", -10, ReasonOutOfScope},
+		// The connection advisor owns the database-scope timeout (advisors-07).
+		{"left to the connection advisor", "idle_in_transaction_session_timeout", "5min", -10,
+			ReasonOutOfScope},
 		{"predicts a regression", "work_mem", "64MB", 30, ReasonInvalid},
 		{"impossible fall", "work_mem", "64MB", -150, ReasonInvalid},
 	} {

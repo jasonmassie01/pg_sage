@@ -9,56 +9,17 @@ import (
 	"github.com/pg-sage/sidecar/internal/sanitize"
 )
 
-// fkConstraint is one foreign key regrouped from the collector's
-// one-row-per-column output (G2-B08).
-type fkConstraint struct {
-	Name     string
-	Table    string
-	RefTable string
-	Columns  []string
-	// Schemas are the schemas holding a table with this name. The
-	// collector's FK rows carry no schema, so more than one candidate
-	// means the owning schema is unknown.
-	Schemas []string
-}
-
-// groupForeignKeys merges per-column FK rows into constraints. Column
-// order is not guaranteed by the collector, so coverage is checked with
-// set semantics (any index whose leading columns are a permutation of the
-// FK columns supports the FK).
-func groupForeignKeys(snap *collector.Snapshot) []fkConstraint {
-	schemasByTable := make(map[string][]string)
-	for _, t := range snap.Tables {
-		schemasByTable[t.RelName] = append(schemasByTable[t.RelName], t.SchemaName)
-	}
-	index := make(map[string]int)
-	var out []fkConstraint
-	for _, fk := range snap.ForeignKeys {
-		key := fk.TableName + "\x00" + fk.ConstraintName
-		i, ok := index[key]
-		if !ok {
-			schemas := schemasByTable[fk.TableName]
-			if len(schemas) == 0 {
-				schemas = []string{"public"}
-			}
-			i = len(out)
-			index[key] = i
-			out = append(out, fkConstraint{
-				Name: fk.ConstraintName, Table: fk.TableName,
-				RefTable: fk.ReferencedTable, Schemas: schemas,
-			})
-		}
-		if !containsString(out[i].Columns, fk.FKColumn) {
-			out[i].Columns = append(out[i].Columns, fk.FKColumn)
-		}
-	}
-	return out
-}
-
-// ruleMissingFKIndexes flags foreign keys without a supporting index.
-// FKs whose table name exists in several schemas are skipped: the
-// collector does not report the FK's schema, and guessing produced
-// CREATE INDEX on the wrong tenant's table (G2-B08).
+// ruleMissingFKIndexes flags foreign keys without a supporting index on
+// their own schema's table (rules-08). The collector reports each key's
+// schema and its columns in conkey order, so nothing is guessed: a key
+// whose schema is unknown (a row stored before collection-04) or whose
+// table is not in the snapshot gives no finding. Coverage uses set
+// semantics: an index whose leading columns are any permutation of the
+// key's columns supports it; the recommended index keeps conkey order.
+// A key on a partitioned table is covered by a usable partitioned index
+// on the parent (rules-03) or by an index on each leaf partition
+// (fkTables.leaves); partitionedFKFindings says what an uncovered one
+// gets. A partition's clone of its parent's key is left to the parent.
 func ruleMissingFKIndexes(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -67,24 +28,38 @@ func ruleMissingFKIndexes(
 ) []Finding {
 	unlogged := buildUnloggedSet(current)
 	indexed := indexedColumnsByTable(current)
+	tables := newFKTables(current)
+	parts := newPartitionLayout(current)
+	parts.addParentIndexColumns(indexed)
 	var findings []Finding
-	for _, fk := range groupForeignKeys(current) {
-		if len(fk.Schemas) != 1 || isSystemSchema(fk.Schemas[0]) {
+	for _, fk := range current.ForeignKeys {
+		if fk.Schema == "" || len(fk.Columns) == 0 || isSystemSchema(fk.Schema) {
 			continue
 		}
-		schema := fk.Schemas[0]
-		covered := false
-		for _, idxCols := range indexed[tableKey{schema, fk.Table}] {
-			if isLeadingSet(fk.Columns, idxCols) {
-				covered = true
-				break
-			}
+		key := tableKey{fk.Schema, fk.TableName}
+		if parts.inheritsKey(key, fk.Columns) || coveredBy(fk.Columns, indexed[key]) {
+			continue
 		}
-		if !covered {
-			findings = append(findings, missingFKFinding(fk, schema, unlogged))
+		if parts.relkind[key] == "p" {
+			findings = append(findings,
+				parts.partitionedFKFindings(fk, key, tables.leaves(key), indexed, unlogged)...)
+			continue
+		}
+		for _, leaf := range tables.leaves(key) {
+			findings = append(findings, missingFKFinding(fk, key, leaf, unlogged))
 		}
 	}
 	return findings
+}
+
+// coveredBy reports whether one of the index column lists supports cols.
+func coveredBy(cols []string, indexes [][]string) bool {
+	for _, idxCols := range indexes {
+		if isLeadingSet(cols, idxCols) {
+			return true
+		}
+	}
+	return false
 }
 
 func indexedColumnsByTable(snap *collector.Snapshot) map[tableKey][][]string {
@@ -107,11 +82,14 @@ func indexedColumnsByTable(snap *collector.Snapshot) map[tableKey][][]string {
 	return indexed
 }
 
+// missingFKFinding reports fk unsupported on table (its own table, or a
+// leaf partition of its partitioned table owner).
 func missingFKFinding(
-	fk fkConstraint, schema string, unlogged map[string]bool,
+	fk collector.ForeignKey, owner, table tableKey, unlogged map[string]bool,
 ) Finding {
+	schema := table.schema
 	colList := strings.Join(fk.Columns, ",")
-	ident := fmt.Sprintf("%s.%s(%s)", schema, fk.Table, colList)
+	ident := fmt.Sprintf("%s.%s(%s)", schema, table.table, colList)
 	quoted := make([]string, len(fk.Columns))
 	for i, c := range fk.Columns {
 		quoted[i] = sanitize.QuoteIdentifier(c)
@@ -119,12 +97,15 @@ func missingFKFinding(
 	severity := "warning"
 	rec := "Create index to speed up FK lookups and deletes."
 	detail := map[string]any{
-		"constraint":       fk.Name,
+		"constraint":       fk.ConstraintName,
 		"fk_column":        colList,
 		"fk_columns":       fk.Columns,
-		"referenced_table": fk.RefTable,
+		"referenced_table": fk.ReferencedTable,
 	}
-	if unlogged[schema+"."+fk.Table] {
+	if table != owner {
+		detail["partition_of"] = owner.schema + "." + owner.table
+	}
+	if unlogged[schema+"."+table.table] {
 		severity = "info"
 		detail["unlogged"] = true
 		rec += " (unlogged table — indexes lost on crash)"
@@ -138,25 +119,50 @@ func missingFKFinding(
 		Detail:           detail,
 		Recommendation:   rec,
 		RecommendedSQL: fmt.Sprintf("CREATE INDEX CONCURRENTLY ON %s (%s);",
-			sanitize.QuoteQualifiedName(schema, fk.Table),
+			sanitize.QuoteQualifiedName(schema, table.table),
 			strings.Join(quoted, ", ")),
 		ActionRisk: "safe",
 	}
 }
 
-// buildFKRequirements maps each table to the column sets its FKs need.
-// When the FK's schema is ambiguous the requirement is attributed to
-// every candidate schema, so an index that might be the only FK support
-// is protected from unused-index drops (fail closed).
+// buildFKRequirements maps each table to the column sets its FKs need,
+// on the key's own schema. A key whose schema is unknown (a row stored
+// before collection-04) is attributed to every schema holding a table of
+// that name, so an index that might be the only FK support is protected
+// from unused-index drops (fail closed). A key on a partitioned table is
+// also a requirement on each of its partitions (fkTables.supportTables).
 func buildFKRequirements(
 	snap *collector.Snapshot,
 ) map[tableKey][][]string {
+	var schemasByTable map[string][]string
+	tables := newFKTables(snap)
 	out := make(map[tableKey][][]string)
-	for _, fk := range groupForeignKeys(snap) {
-		for _, schema := range fk.Schemas {
-			key := tableKey{schema, fk.Table}
-			out[key] = append(out[key], fk.Columns)
+	for _, fk := range snap.ForeignKeys {
+		schemas := []string{fk.Schema}
+		if fk.Schema == "" {
+			if schemasByTable == nil {
+				schemasByTable = tableSchemas(snap)
+			}
+			schemas = schemasByTable[fk.TableName]
 		}
+		for _, schema := range schemas {
+			key := tableKey{schema, fk.TableName}
+			out[key] = append(out[key], fk.Columns)
+			for _, leaf := range tables.supportTables(key) {
+				if leaf != key {
+					out[leaf] = append(out[leaf], fk.Columns)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// tableSchemas lists, per table name, the schemas holding such a table.
+func tableSchemas(snap *collector.Snapshot) map[string][]string {
+	out := make(map[string][]string)
+	for _, t := range snap.Tables {
+		out[t.RelName] = append(out[t.RelName], t.SchemaName)
 	}
 	return out
 }

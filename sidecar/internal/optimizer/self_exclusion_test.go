@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // pg_sage is tracked by pg_stat_statements now (perf v1.8.3). Even if one
@@ -11,7 +12,9 @@ import (
 // pg_stat_statements kept from an untagged first call), the optimizer
 // must never build an index recommendation for it.
 func TestGroupQueriesByTableSkipsPgSageStatements(t *testing.T) {
-	snap := &collector.Snapshot{Queries: []collector.QueryStats{
+	// The snapshot holds the table: statements resolve only to known tables.
+	snap := &collector.Snapshot{Tables: []collector.TableStats{{SchemaName: "public",
+		RelName: "orders"}}, Queries: []collector.QueryStats{
 		{QueryID: 1, Query: "/* pg_sage */ SELECT * FROM public.orders WHERE status = $1",
 			Calls: 5000, MeanExecTime: 900, TotalExecTime: 4.5e6},
 		{QueryID: 2, Query: "/* pg_sage sre:lock_graph v1 */ SELECT * FROM public.orders o",
@@ -21,7 +24,7 @@ func TestGroupQueriesByTableSkipsPgSageStatements(t *testing.T) {
 			Calls: 10, MeanExecTime: 50},
 	}}
 	groups := groupQueriesByTable(snap)
-	orders := groups["public.orders"]
+	orders := groups[workload.Relation{Schema: "public", Name: "orders"}]
 	if len(orders) != 1 || orders[0].QueryID != 4 {
 		t.Fatalf("public.orders queries = %+v, want only the application query 4", orders)
 	}

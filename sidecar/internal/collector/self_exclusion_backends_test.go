@@ -2,9 +2,9 @@ package collector
 
 import (
 	"context"
-	"os"
 	"testing"
 
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
 
@@ -18,7 +18,7 @@ import (
 // active beside it.
 func TestSystemStatsCountClientSessionsNotTheirWorkers(t *testing.T) {
 	c, _ := sageCollector(t)
-	w := selfload.New(t, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	w := selfload.New(t, testdb.SkipUnlessLive(t))
 	leader := w.StartParallel(t)
 	s, err := c.collectSystem(context.Background())
 	if err != nil {

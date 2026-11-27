@@ -1,0 +1,9 @@
+{"card":{"queue_id":43,"database":"orders","title":"Refresh statistics on public.items",
+ "action_type":"analyze_table","status":"scheduled","targets":["public.items"],
+ "finding":{"id":901,"category":"stale_statistics","severity":"warning","object":"public.items",
+  "title":"Stale statistics on public.items"},
+ "sql":"ANALYZE public.items","risk":{"tier":"safe"},
+ "card_hash":"77aa0c7a9b8f6e4d3c2b1a0918273645f5e4d3c2b1a0918273645f5e4d3c2b1a"},
+ "eligible":false,
+ "schedule":{"run_after":"2026-11-19T02:00:00Z","run_after_label":"Thu 19 Nov 02:00 UTC",
+  "due":false}}

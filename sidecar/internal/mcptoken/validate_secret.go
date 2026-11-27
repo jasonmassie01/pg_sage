@@ -4,18 +4,45 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 )
 
 // Validate authenticates secret. Anything wrong with it (malformed,
-// unknown, revoked, expired, owner gone) is ErrUnauthorized; a storage
+// unknown, revoked, expired, owner gone or deactivated) is ErrUnauthorized; a storage
 // failure is a different, wrapped error. An operator token's scopes are
 // narrowed to the owner's current role. last_used_at is recorded at most
 // once a minute per token. An agent token authenticates only while it is
 // bound to a principal that is not retired; a legacy agent token without
-// one fails closed until the G1 migration binds it.
+// one fails closed until the G1 migration binds it. A metrics token is a
+// scrape credential, never an MCP one: Validate refuses it.
 func (s *Store) Validate(ctx context.Context, secret string) (Grant, error) {
+	g, err := s.validate(ctx, secret)
+	if err != nil {
+		return Grant{}, err
+	}
+	if slices.Contains(g.Scopes, ScopeMetrics) {
+		return Grant{}, ErrUnauthorized
+	}
+	return g, nil
+}
+
+// ValidateMetrics authenticates a scrape of /metrics: secret must be a
+// valid token holding the metrics scope (ErrUnauthorized otherwise, or
+// ErrScopeMissing for a valid token without it).
+func (s *Store) ValidateMetrics(ctx context.Context, secret string) (Grant, error) {
+	g, err := s.validate(ctx, secret)
+	if err != nil {
+		return Grant{}, err
+	}
+	if !slices.Contains(g.Scopes, ScopeMetrics) {
+		return Grant{}, ErrScopeMissing
+	}
+	return g, nil
+}
+
+func (s *Store) validate(ctx context.Context, secret string) (Grant, error) {
 	if !wellFormedSecret(secret) {
 		return Grant{}, ErrUnauthorized
 	}
@@ -31,7 +58,7 @@ func (s *Store) Validate(ctx context.Context, secret string) (Grant, error) {
 			SELECT t.id, t.name, t.kind, t.scopes, t.databases, t.owner_user_id,
 				t.last_used_at, u.role, COALESCE(t.principal_id, '') AS principal_id
 			FROM sage.mcp_tokens t
-			LEFT JOIN sage.users u ON u.id = t.owner_user_id
+			LEFT JOIN sage.users u ON u.id = t.owner_user_id AND u.disabled_at IS NULL
 			LEFT JOIN sage.guard_principals p ON p.id = t.principal_id
 			WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now()
 			  AND (t.kind <> 'agent' OR p.status IN ('active', 'frozen'))

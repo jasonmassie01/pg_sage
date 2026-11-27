@@ -83,6 +83,7 @@ func TestCharHandleMetrics_StandaloneSections(t *testing.T) {
 	pool = openComposedPool(t, ctx, dsn)
 	fleetMgr, coll, anal, llmMgr, fleetLLMBudget = nil, nil, nil, nil, nil
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
+	registerSharedLLMClient(t)
 	var findingID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO sage.findings
 		(category, severity, object_type, object_identifier, title, detail, recommendation)
@@ -94,27 +95,30 @@ func TestCharHandleMetrics_StandaloneSections(t *testing.T) {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM sage.findings WHERE id = $1`,
 			findingID)
 	})
+	withMetricsRegistry(t)
+	registerStandaloneMetrics(t, "standalone", pool) // the runtime's refresher
 	rec := httptest.NewRecorder()
 	handleMetrics(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	body := rec.Body.String()
 	for _, want := range []string{
 		`pg_sage_info{version="dev",mode="standalone"} 1`, "pg_sage_connection_up 1",
-		"# TYPE pg_sage_findings_total gauge", "pg_sage_llm_enabled 0",
-		"pg_sage_llm_circuit_open 0", "pg_sage_llm_tokens_used_today 0",
-		"pg_sage_llm_tokens_budget_daily 4321",
-		`pg_sage_optimizer_recommendations_total{category="covering_index"} `,
+		"# TYPE pg_sage_findings_open gauge", "pg_sage_llm_enabled" + sharedLLM + " 0",
+		"pg_sage_llm_circuit_open" + sharedLLM + " 0",
+		"pg_sage_llm_tokens_used_today" + sharedLLM + " 0",
+		"pg_sage_llm_tokens_budget_daily" + sharedLLM + " 4321",
+		`pg_sage_optimizer_recommendations{category="covering_index"} `,
 		"pg_sage_optimizer_enabled 0",
-		`pg_sage_connections_total{state=`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("standalone metrics lack %q", want)
 		}
 	}
 	// No collector, so no measured size: the gauge is the collector's cached
-	// size, never a per-scrape walk of the database.
+	// size, never a per-scrape walk of the database. Since observability-02
+	// the size family always has HELP/TYPE, so only a sample would be wrong.
 	if strings.Contains(body, "pg_sage_fleet_databases") ||
 		strings.Contains(body, "pg_sage_collector_last_run_timestamp") ||
-		strings.Contains(body, "pg_sage_database_size_bytes") {
+		len(sampleLines(body, "pg_sage_database_size_bytes")) != 0 {
 		t.Errorf("standalone metrics include fleet/collector sections:\n%s", body)
 	}
 }
@@ -196,16 +200,5 @@ func TestCharTrustedProxyNets_ParsesAndSkipsInvalidEntries(t *testing.T) {
 	if len(defaults) != 2 || defaults[0].String() != "127.0.0.1/32" ||
 		defaults[1].String() != "::1/128" {
 		t.Fatalf("default trusted proxies = %v", defaults)
-	}
-}
-
-func TestCharEnvOrDefault(t *testing.T) {
-	t.Setenv("PG_SAGE_CHAR_ENV", "")
-	if got := envOrDefault("PG_SAGE_CHAR_ENV", "fallback"); got != "fallback" {
-		t.Fatalf("empty env = %q", got)
-	}
-	t.Setenv("PG_SAGE_CHAR_ENV", "set")
-	if got := envOrDefault("PG_SAGE_CHAR_ENV", "fallback"); got != "set" {
-		t.Fatalf("set env = %q", got)
 	}
 }

@@ -9,6 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pg-sage/sidecar/internal/apppath"
+	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
@@ -61,8 +64,9 @@ func (t *Tools) reportStatus(ctx context.Context, findingID int64) (Report, erro
 	if err != nil {
 		return Report{}, err
 	}
+	reason := sqlast.ClipBytes(d.reason, 2000)
 	stored, err := scanReport(t.pool.QueryRow(ctx, decideSQL, findingID, d.verdict,
-		d.tolerance, observed, evidence, clipBytes(d.reason, 2000), t.now(), *row.DeployedAt))
+		d.tolerance, observed, evidence, reason, t.now(), *row.DeployedAt))
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Another caller decided first (or the deploy was re-reported).
 		return t.reportAfterRace(ctx, findingID)
@@ -150,15 +154,31 @@ func (t *Tools) unverifiableReason(ctx context.Context, row reportRow) (string, 
 		"after the deploy, so the deploy did not apply the packet", index), nil
 }
 
-const indexValidSQL = `/* pg_sage */ SELECT COALESCE((SELECT i.indisvalid FROM pg_index i
-    JOIN pg_class c ON c.oid = i.indexrelid
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE c.relname = $2 AND (n.nspname = $1 OR ($1 = '' AND
-        c.oid = to_regclass(quote_ident($2))))), false)`
+// indexValidSQL reads whether the relation named exactly (schema-qualified
+// and quoted) is a valid index.
+const indexValidSQL = `/* pg_sage */ SELECT COALESCE((SELECT i.indisvalid
+    FROM pg_catalog.pg_index i
+    WHERE i.indexrelid OPERATOR(pg_catalog.=) pg_catalog.to_regclass($1)), false)`
 
+// indexValid reports whether ref is a valid index. An index without a
+// schema is looked up on the application's search_path, where the deploy
+// created it (apppath.Resolve): pg_sage's own session is pinned to
+// pg_catalog, pg_temp (security-01c-r).
 func (t *Tools) indexValid(ctx context.Context, ref indexRef) (bool, error) {
+	name := pgx.Identifier{ref.Schema, ref.Name}.Sanitize()
+	if ref.Schema == "" {
+		resolved, err := apppath.Resolve(ctx, t.pool, catalogread.Default(),
+			pgx.Identifier{ref.Name}.Sanitize())
+		if err != nil {
+			return false, fmt.Errorf("check index %s: %w", ref, err)
+		}
+		if resolved == "" {
+			return false, nil
+		}
+		name = resolved
+	}
 	var valid bool
-	if err := t.pool.QueryRow(ctx, indexValidSQL, ref.Schema, ref.Name).Scan(&valid); err != nil {
+	if err := t.pool.QueryRow(ctx, indexValidSQL, name).Scan(&valid); err != nil {
 		return false, fmt.Errorf("check index %s: %w", ref, err)
 	}
 	return valid, nil

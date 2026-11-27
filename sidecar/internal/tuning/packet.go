@@ -9,6 +9,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/optimizer"
 )
 
 // The case packet: what the model sees about a case. It is bounded, its
@@ -74,13 +75,24 @@ func (p *packetBuilder) text() string {
 	return p.b.String()
 }
 
+// packetLimit is the packet's byte cap: maxPacketBytes, or the context
+// budget (llm.context_budget_tokens in bytes) when that is smaller. A
+// budget of 0 adds no trim (llm-05).
+func packetLimit(budgetBytes int) int {
+	if budgetBytes > 0 && budgetBytes < maxPacketBytes {
+		return budgetBytes
+	}
+	return maxPacketBytes
+}
+
 // packetFor builds the packet of case c on snapshot cur.
 func (a *Agent) packetFor(ctx context.Context, c Case, cur *collector.Snapshot, w Workload,
 	confirmed []facts.Fact, inflight map[string][]string) packet {
 	header := fmt.Sprintf("Case %s (%s): %s\n", c.ID, c.Kind, c.Reason)
 	instructions := answerInstructions(a.allowedTypes())
-	p := &packetBuilder{evidence: evidenceSet{},
-		limit: maxPacketBytes - len(header) - len(instructions) - 128}
+	limit := packetLimit(a.settings.ContextBudgetBytes) - len(header) -
+		len(instructions) - 128
+	p := &packetBuilder{evidence: evidenceSet{}, limit: max(limit, 0)}
 	p.line("Case %s, %s: %s", c.ID, c.Kind, c.Reason)
 	writeStatements(p, c)
 	a.writeTables(ctx, p, c, cur, w)
@@ -178,6 +190,9 @@ func (a *Agent) writeTableContext(ctx context.Context, p *packetBuilder,
 	if len(cols) > 0 {
 		p.line("   columns: %s", strings.Join(cols, ", "))
 	}
+	if note := optimizer.SkipScanNote(tc); note != "" {
+		p.line("   %s", note)
+	}
 	if a.deps.Indexes == nil {
 		return
 	}
@@ -211,10 +226,12 @@ func writeFacts(p *packetBuilder, confirmed []facts.Fact, now time.Time, tables 
 }
 
 // packetSettings are the configuration values the agent may tune or must
-// reason about.
+// reason about. The PostgreSQL 18 I/O settings are context only: absent
+// before 18 (io_method, io_workers) and never executable (market-15).
 var packetSettings = []string{"work_mem", "hash_mem_multiplier", "maintenance_work_mem",
 	"shared_buffers", "effective_cache_size", "random_page_cost", "max_connections",
-	"default_statistics_target", "effective_io_concurrency", "autovacuum_vacuum_scale_factor",
+	"default_statistics_target", "effective_io_concurrency", "maintenance_io_concurrency",
+	"io_method", "io_workers", "autovacuum_vacuum_scale_factor",
 	"autovacuum_vacuum_threshold", "autovacuum_vacuum_cost_delay",
 	"autovacuum_vacuum_cost_limit", "autovacuum_max_workers", "autovacuum_naptime"}
 

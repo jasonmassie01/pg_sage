@@ -108,6 +108,18 @@ func scanActionRows(rows pgx.Rows) ([]map[string]any, error) {
 		annotateOutcome(a, outcomeJSON)
 		results = append(results, a)
 	}
+	return scannedRows(rows, results, "actions")
+}
+
+// scannedRows ends a scan of map rows: the rows' deferred error (a read
+// that failed after Query returned, such as a missing table) or the rows,
+// never nil, so a failed read cannot pass for an empty one.
+func scannedRows(
+	rows pgx.Rows, results []map[string]any, what string,
+) ([]map[string]any, error) {
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read %s: %w", what, err)
+	}
 	if results == nil {
 		results = []map[string]any{}
 	}

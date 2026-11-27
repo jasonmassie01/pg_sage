@@ -1,42 +1,54 @@
 import { useEffect, useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
-import { SQLBlock } from '../components/SQLBlock'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { CaseControls, SuppressedFindings } from './cases/CaseControls'
 import { InvestigationPanel } from './cases/InvestigationPanel'
+import { CaseWhyNot } from './cases/CaseWhyNot'
+import {
+  caseChunks, investigationsByCase, investigationsURL,
+} from './cases/caseInvestigations'
+import { CasesHealthNotes } from './cases/CasesHealthNotes'
+import { CandidateArtifacts } from './cases/CandidateArtifacts'
 import { FactBadges } from '../components/FactBadges'
-import { FindingFactSections } from './facts/FindingFactSections'
+import { SourceFixReport } from './facts/FindingFactSections'
 import { caseFactTarget } from '../lib/caseFacts'
 import { canDecideFacts } from '../lib/facts'
-import { actionAvailability, caseID, caseLink, casePresentation } from './cases/casePresentation'
+import {
+  FINDING_SOURCES, actionAvailability, caseID, caseLink, casePresentation,
+} from './cases/casePresentation'
+import {
+  focusFromHash, focusedInvestigation, investigationCase, investigationDetailURL,
+  resolveFocus,
+} from './cases/caseFocus'
+import { FocusMissing } from './cases/FocusMissing'
+import { CaseTicket } from './cases/CaseTicket'
+import { EvidenceList } from './cases/CaseEvidence'
+import { FindingSourceSelect } from './cases/FindingSourceSelect'
+import { useFindingSource } from './cases/findingSource'
+import { CasePlans } from './cases/CasePlans'
+import { formatTime } from '../lib/time'
 
 const SOURCE_FILTERS = [
   { value: 'all', label: 'All' },
-  { value: 'finding', label: 'Findings' },
+  { value: 'finding', label: 'Rule checks' },
   { value: 'schema_health', label: 'Schema' },
   { value: 'query_hint', label: 'Query Hints' },
   { value: 'forecast', label: 'Forecasts' },
   { value: 'incident', label: 'Incidents' },
 ]
 
-function dbParam(database) {
-  return database && database !== 'all'
-    ? `?database=${encodeURIComponent(database)}`
-    : ''
-}
-
-// investigationsByCase keeps each case's newest investigation (the API
-// lists newest first), keyed by database and case id ("|" never appears
-// in a database name), so a same-named case of another database never
-// borrows it.
-function investigationsByCase(items) {
-  const out = new Map()
-  for (const inv of items || []) {
-    const key = `${inv.database}|${inv.case_id}`
-    if (!out.has(key)) out.set(key, inv)
-  }
-  return out
+// casesQuery selects the database and, for a focused case, asks the
+// server to load that case even when the capped list does not carry it.
+// A finding source (rules-12b) filters the list, never a focused case.
+function casesQuery(database, focusedID, findingSource) {
+  const params = new URLSearchParams()
+  if (database && database !== 'all') params.set('database', database)
+  if (focusedID) params.set('case', focusedID)
+  if (findingSource) params.set('finding_source', findingSource)
+  const query = params.toString()
+  return query ? `?${query}` : ''
 }
 
 function nextStep(caseRow) {
@@ -65,69 +77,90 @@ function formatDate(value) {
   if (Number.isNaN(date.getTime()) || date.getUTCFullYear() < 1971) {
     return null
   }
-  return date.toLocaleString()
+  return formatTime(date)
 }
 
-export function CasesPage({ database, initialSource = 'all', user }) {
-  const [sourceFilter, setSourceFilter] = useState(initialSource)
-  const [showSuppressed, setShowSuppressed] = useState(false)
-  const [focusedID, setFocusedID] = useState(() => focusedCaseID())
+export function CasesPage(props) {
+  const [focus, setFocus] = useState(() => focusFromHash())
   useEffect(() => {
-    const onHashChange = () => setFocusedID(focusedCaseID())
+    const onHashChange = () => setFocus(focusFromHash())
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [])
-  const { data, loading, error, refetch } = useAPI(
-    `/api/v1/cases${dbParam(database)}`,
-    30000,
-  )
-  const investigations = useAPI(
-    `/api/v1/investigations?database=${encodeURIComponent(database || 'all')}`,
-    30000,
-  )
-  const byCase = investigationsByCase(investigations.data?.items)
+  const view = { ...props, focus, setFocus }
+  return focus?.kind === 'investigation'
+    ? <InvestigationFocusCases {...view} /> : <CasesView {...view} />
+}
 
-  if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
+// A cited investigation resolves to its case through its own record, read
+// once by id (cases-12), never the database's newest 100. A 404 is the
+// not-found notice; any other failure an error with Retry.
+function InvestigationFocusCases(props) {
+  const url = investigationDetailURL(props.focus, props.database)
+  const detail = useAPI(url, 0)
+  if (url && detail.errorStatus !== 404 && queryBlocked(detail)) {
+    return <QueryState query={detail} skeleton={<LoadingSpinner />} />
+  }
+  const inv = detail.data?.investigation
+  const record = url && inv ? { ...inv, database: detail.data.database } : null
+  return <CasesView {...props} investigation={record} />
+}
+
+function CasesView({ database, initialSource = 'all', user, focus, setFocus, investigation }) {
+  const [sourceFilter, setSourceFilter] = useState(initialSource)
+  const [showSuppressed, setShowSuppressed] = useState(false)
+  const [findingSource, setFindingSource] = useFindingSource()
+  const serverFocus = focus?.kind === 'case' ? focus.id : investigationCase(focus, investigation)
+  const casesResult = useAPI(
+    `/api/v1/cases${casesQuery(database, serverFocus, focus ? '' : findingSource)}`, 30000)
+  const { data, refetch } = casesResult
+
+  if (queryBlocked(casesResult)) {
+    return <QueryState query={casesResult} skeleton={<LoadingSpinner />} />
+  }
 
   const cases = data?.cases || []
   const filteredCases = sourceFilter === 'all'
     ? cases
     : cases.filter(c => c.source_type === sourceFilter)
-  const focusedCase = cases.find(c => caseID(c) === focusedID)
-  const visibleCases = focusedID ? (focusedCase ? [focusedCase] : []) : filteredCases
+  const focusedID = resolveFocus(focus, cases, investigation)
+  const focusedCase = focusedID ? cases.find(c => caseID(c) === focusedID) : null
+  const visibleCases = focus ? (focusedCase ? [focusedCase] : []) : filteredCases
   const criticalCount = cases.filter(c => c.severity === 'critical').length
   const investigationCount = cases.filter(c => !c.action_candidates?.length).length
   const listQuery = database && database !== 'all'
     ? `?database=${encodeURIComponent(database)}` : ''
 
   return (
-    <div className="space-y-4" data-testid="cases-page">
+    <QueryState query={casesResult}><div className="space-y-4" data-testid="cases-page">
       <div>
         <h2 className="text-sm font-semibold"
           style={{ color: 'var(--text-primary)' }}>
-          Cases · Issues &amp; investigations
+          Issues &amp; investigations
         </h2>
         <p className="text-sm" data-testid="cases-page-description"
           style={{ color: 'var(--text-secondary)' }}>
-          Review what needs attention and what we know. Cases hold observations
+          Review what needs attention and what we know. Issues hold observations
           and evidence; Actions holds proposed changes, decisions and results.
-          Ask Sage can help explain a case.
-          {' '}{visibleCases.length} of {cases.length} cases are visible.
+          Ask Sage can help explain an issue.
+          {' '}{visibleCases.length} of {cases.length} issues are visible.
         </p>
         <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
           {criticalCount} reported critical · {investigationCount} without a proposed change.
           {' '}Ordered by reported severity, then latest observation. These counts
-          describe returned cases; they do not establish collection health or user impact.
+          describe returned issues; they do not establish collection health or user impact.
         </p>
       </div>
 
-      {focusedID ? (
+      <CasesHealthNotes unavailable={data?.unavailable}
+        truncated={data?.truncated} />
+
+      {focus ? (
         <a href={`#/cases${listQuery}`} className="inline-block text-sm underline"
-          style={{ color: 'var(--accent)' }} onClick={() => setFocusedID(null)}>
-          Back to all cases
+          style={{ color: 'var(--accent)' }} onClick={() => setFocus(null)}>
+          Back to all issues
         </a>
-      ) : <div className="flex flex-wrap gap-2" aria-label="Case source filters">
+      ) : <div className="flex flex-wrap gap-2" aria-label="Filter issues by source">
         {SOURCE_FILTERS.map(source => (
           <button
             key={source.value}
@@ -145,17 +178,19 @@ export function CasesPage({ database, initialSource = 'all', user }) {
             {source.label}
           </button>
         ))}
+        <FindingSourceSelect value={findingSource} sources={data?.finding_sources}
+          onChange={setFindingSource} />
       </div>}
 
-      {!focusedID && <div>
+      {!focus && <div>
         <button type="button" data-testid="cases-show-suppressed"
           aria-pressed={showSuppressed}
           onClick={() => setShowSuppressed(v => !v)}
           className="rounded px-2.5 py-1 text-xs"
           style={{ color: 'var(--text-secondary)',
             border: '1px solid var(--border)' }}>
-          {showSuppressed ? 'Hide suppressed findings'
-            : 'Show suppressed findings'}
+          {showSuppressed ? 'Hide suppressed issues'
+            : 'Show suppressed issues'}
         </button>
         {showSuppressed && (
           <div className="mt-2">
@@ -165,40 +200,71 @@ export function CasesPage({ database, initialSource = 'all', user }) {
         )}
       </div>}
 
-      {visibleCases.length === 0 && (
+      {visibleCases.length === 0 && focus && focus.kind !== 'case' && (
+        <FocusMissing focus={focus} database={database}
+          investigation={focusedInvestigation(focus, investigation)} />
+      )}
+      {visibleCases.length === 0 && (!focus || focus.kind === 'case') && (
         <div className="rounded border p-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-          {focusedID
-            ? 'This case is unavailable in the selected database. Return to the case list or check the database selection.'
-            : cases.length > 0 ? 'No cases match this filter.'
-              : 'No cases were returned for this database. This alone does not confirm a healthy database; check collection status.'}
-          {!focusedID && cases.length > 0 && <button type="button" className="ml-2 underline"
-            onClick={() => setSourceFilter('all')}>Show all cases</button>}
+          {focus
+            ? 'This issue is unavailable in the selected database. Return to the issue list or check the database selection.'
+            : cases.length > 0 ? 'No issues match this filter.'
+              : 'No issues were returned for this database. This alone does not confirm a healthy database; check collection status.'}
+          {!focus && cases.length > 0 && <button type="button" className="ml-2 underline"
+            onClick={() => setSourceFilter('all')}>Show all issues</button>}
         </div>
       )}
 
       <div className="space-y-2">
-        {visibleCases.map(c => (
-          <CaseCard key={caseID(c)} caseRow={c} user={user}
-            focused={Boolean(focusedID)} onReview={() => setFocusedID(caseID(c))}
-            investigation={byCase.get(`${c.database_name}|${caseID(c)}`)}
+        {caseChunks(visibleCases).map((chunk, i) => (
+          <CaseChunk key={i} chunk={chunk} database={database} user={user}
+            focused={Boolean(focus)}
+            onReview={c => setFocus({ kind: 'case', id: caseID(c), database: '' })}
             onDone={refetch} />
         ))}
       </div>
-    </div>
+    </div></QueryState>
   )
 }
 
-function focusedCaseID() {
-  const [path, query = ''] = window.location.hash.split('?')
-  return path === '#/cases' ? new URLSearchParams(query).get('case') : null
+// CaseChunk renders up to 100 cases with the newest investigation of each,
+// asked for by case id (sre-09): a list of the database's newest
+// investigations missed a case whose investigation was older. A changed
+// case set is a new request; until it answers, the last answer stays
+// (keyed by database and case), so an open panel does not unmount.
+function CaseChunk({ chunk, database, user, focused, onReview, onDone }) {
+  const investigations = useAPI(investigationsURL(database, chunk.ids), 30000)
+  const [kept, setKept] = useState({ at: null, items: null })
+  const { data, updatedAt } = investigations
+  if (data?.items && updatedAt !== kept.at) setKept({ at: updatedAt, items: data.items })
+  const byCase = investigationsByCase(data?.items || kept.items)
+  const tickets = useAPI(ticketsURL(database), 60000)
+  return chunk.cases.map(c => (
+    <CaseCard key={`${c.database_name}|${caseID(c)}`} caseRow={c} user={user}
+      focused={focused} onReview={() => onReview(c)}
+      investigation={byCase.get(`${c.database_name}|${caseID(c)}`)}
+      tickets={tickets.data} onTicket={tickets.refetch}
+      onDone={onDone} />
+  ))
 }
 
-function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
+// ticketsURL lists the Jira tickets of the database's cases (market-14).
+function ticketsURL(database) {
+  return database && database !== 'all'
+    ? `/api/v1/case-tickets?database=${encodeURIComponent(database)}`
+    : '/api/v1/case-tickets'
+}
+
+function CaseCard({
+  caseRow, user, investigation, onDone, focused, onReview, tickets, onTicket,
+}) {
   const candidate = caseRow.action_candidates?.[0]
   const candidateGuardrails = guardrails(candidate)
   const factTarget = caseFactTarget(caseRow)
   const summary = casePresentation(caseRow)
   const observedAt = formatDate(caseRow.observed_at)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const findingID = FINDING_SOURCES.has(caseRow.source_type) ? caseRow.source_ids?.[0] : null
 
   return (
     <article className="rounded border p-3"
@@ -224,7 +290,7 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs"
         style={{ color: 'var(--text-secondary)' }}>
-        <span>Case state: {caseRow.state || 'unknown'}</span>
+        <span>Issue state: {caseRow.state || 'unknown'}</span>
         {caseRow.database_name && (
           <span data-testid="case-database">DB: {caseRow.database_name}</span>
         )}
@@ -237,6 +303,10 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
       <p className="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
         <strong>Reason for attention: </strong>{summary.attention}
       </p>
+      {summary.recurrence && <p className="mt-2 text-xs" data-testid="case-recurrence"
+        style={{ color: 'var(--text-secondary)' }}>
+        <strong>Recurrence: </strong>{summary.recurrence}
+      </p>}
       <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
         <strong>Next step: </strong>{actionAvailability(caseRow)}
       </p>
@@ -245,11 +315,12 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
         <summary className="cursor-pointer">What {summary.glossary.term === 'table statistics' ? 'are' : 'is'} {summary.glossary.term}?</summary>
         <p className="mt-1">{summary.glossary.definition}</p>
       </details>}
+      <CasePlans plans={caseRow.plans} database={caseRow.database_name} />
       <CaseFacts target={factTarget} user={user} onDone={onDone} />
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
         {!focused && <a href={caseLink('cases', caseRow)} onClick={onReview}
           className="rounded border px-3 py-1.5 font-medium"
-          style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>Review case</a>}
+          style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>Review issue</a>}
         {focused && candidate && <a href={caseLink('actions', caseRow)}
           className="rounded border px-3 py-1.5 font-medium"
           style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>Review proposed changes</a>}
@@ -258,20 +329,28 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
       </div>
       {investigation && <InvestigationPanel database={investigation.database}
         investigation={investigation} user={user} />}
-      <details className="mt-3 text-xs" data-testid="case-technical-details">
+      <details className="mt-3 text-xs" data-testid="case-technical-details"
+        onToggle={e => setDetailsOpen(e.currentTarget.open)}>
         <summary className="cursor-pointer py-1" style={{ color: 'var(--text-secondary)' }}>
           Technical evidence and proposed changes
         </summary>
         <div className="mt-2 space-y-2" style={{ color: 'var(--text-secondary)' }}>
           <p className="font-mono break-all">Reported condition: {caseRow.title}</p>
-          <p className="font-mono break-all">Case ID: {caseID(caseRow)}</p>
+          <p className="font-mono break-all">Issue ID: {caseID(caseRow)}</p>
           <p>Source urgency note: {caseRow.why_now || 'not supplied'}</p>
           {factTarget?.object && <p className="font-mono break-all">Affected object: {factTarget.object}</p>}
           <p>Next: <span>{nextStep(caseRow)}</span></p>
+          {caseRow.actions_unavailable && <p data-testid="case-actions-unavailable">
+            The action history for this issue could not be read; it may have
+            actions that are not shown.</p>}
           {candidate && <p>Policy: {policyLabel(candidate)}</p>}
-          {caseRow.why && <div><strong>Source recommendation (review applicability before use): </strong>{caseRow.why}</div>}
+          <CaseWhyNot caseRow={caseRow} user={user} />
+          {caseRow.why && <div><strong>Source advice (review applicability before use): </strong>{caseRow.why}</div>}
         </div>
-      <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category} />
+      <EvidenceList evidence={caseRow.evidence || []} category={factTarget?.category}
+        database={caseRow.database_name} canExplain={canExplain(user)} />
+      {findingID && <div className="mt-3"><SourceFixReport findingID={findingID}
+        database={caseRow.database_name} enabled={detailsOpen} /></div>}
       {candidateGuardrails.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5"
           aria-label="Action guardrails">
@@ -302,6 +381,8 @@ function CaseCard({ caseRow, user, investigation, onDone, focused, onReview }) {
         </div>
       )}
       </details>
+      <CaseTicket caseRow={caseRow} user={user} tickets={tickets?.tickets}
+        jiraEnabled={Boolean(tickets?.jira_enabled)} onCreated={onTicket} />
       <CaseControls caseRow={caseRow} user={user} onDone={onDone} />
     </article>
   )
@@ -318,176 +399,10 @@ function CaseFacts({ target, user, onDone }) {
   )
 }
 
-function EvidenceList({ evidence, category }) {
-  const visibleEvidence = evidence.filter(item =>
-    item?.summary || Object.keys(item?.detail || {}).length > 0,
-  )
-  if (visibleEvidence.length === 0) return null
-  return (
-    <div className="mt-3 space-y-2" aria-label="Case evidence">
-      {visibleEvidence.map((item, index) => (
-        <EvidenceItem
-          key={`${item.type || 'evidence'}-${index}`}
-          evidence={item}
-          category={category}
-        />
-      ))}
-    </div>
-  )
-}
-
-// Keys rendered by their own section, not as key/value chips.
-const SECTION_KEYS = new Set(['query', 'normalized_query', 'sample_query', 'cleanup_sql'])
-
-function EvidenceItem({ evidence, category }) {
-  const detail = evidence.detail || {}
-  const query = detail.query || detail.normalized_query || detail.sample_query
-  const scalarEntries = Object.entries(detail)
-    .filter(([key, value]) =>
-      !SECTION_KEYS.has(key) &&
-      value !== null &&
-      value !== undefined &&
-      typeof value !== 'object',
-    )
-  return (
-    <section className="rounded border p-2 text-xs"
-      style={{ borderColor: 'var(--border)' }}>
-      <div className="flex flex-wrap gap-2"
-        style={{ color: 'var(--text-secondary)' }}>
-        {evidence.type && <span>{evidence.type}</span>}
-        {evidence.summary && <span>{evidence.summary}</span>}
-      </div>
-      {scalarEntries.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-2"
-          style={{ color: 'var(--text-secondary)' }}>
-          {scalarEntries.map(([key, value]) => (
-            <span key={key}>{key}: {String(value)}</span>
-          ))}
-        </div>
-      )}
-      {query && (
-        <div className="mt-2">
-          <div className="font-medium mb-1"
-            style={{ color: 'var(--text-primary)' }}>
-            Query
-          </div>
-          <SQLBlock sql={String(query)} />
-        </div>
-      )}
-      <FindingFactSections row={{ category, detail }} />
-      <details className="mt-2">
-        <summary className="cursor-pointer">Complete evidence payload</summary>
-        <pre className="mt-2 whitespace-pre-wrap break-all">{JSON.stringify(detail, null, 2)}</pre>
-      </details>
-    </section>
-  )
-}
-
-function CandidateArtifacts({ candidate }) {
-  const preflight = candidate.ddl_preflight
-  const script = candidate.script_output
-  return (
-    <div className="mt-3 space-y-2">
-      <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-        Proposed action: {candidate.action_type} · Risk: {candidate.risk_tier || 'unknown'}
-        {candidate.blocked_reason && <p>Recorded restriction: {candidate.blocked_reason}</p>}
-        <p>Recovery classification: {candidate.rollback_class || 'unknown'}</p>
-        {candidate.recovery_detail && <p>Recovery: {candidate.recovery_detail}</p>}
-      </div>
-      {candidate.proposed_sql && <SQLBlock sql={candidate.proposed_sql} />}
-      {preflight && <DDLPreflight preflight={preflight} />}
-      {script && <ScriptOutput script={script} />}
-    </div>
-  )
-}
-
-function DDLPreflight({ preflight }) {
-  const rewrite = preflight.checks?.find(check => check.name === 'rewrite')
-  return (
-    <section className="rounded border p-2 text-xs"
-      style={{ borderColor: 'var(--border)' }}>
-      <div className="font-medium mb-1"
-        style={{ color: 'var(--text-primary)' }}>
-        DDL preflight
-      </div>
-      <div className="mb-2" style={{ color: 'var(--text-secondary)' }}>
-        {preflight.summary}
-      </div>
-      <div className="flex flex-wrap gap-2 mb-2"
-        style={{ color: 'var(--text-secondary)' }}>
-        {preflight.lock_level && (
-          <span>Lock: {preflight.lock_level}</span>
-        )}
-        <span>Rewrite: {rewrite ? rewrite.detail || rewrite.status : 'not assessed'}</span>
-        {preflight.risk_score > 0 && (
-          <span>Risk: {preflight.risk_score}</span>
-        )}
-      </div>
-      {(preflight.checks || []).length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {preflight.checks.map(check => (
-            <span key={check.name}
-              className="rounded px-1.5 py-0.5"
-              style={{
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border)',
-              }}>
-              {check.name}: {check.status}
-              {check.detail ? ` (${check.detail})` : ''}
-            </span>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function ScriptOutput({ script }) {
-  return (
-    <section className="rounded border p-2 text-xs"
-      style={{ borderColor: 'var(--border)' }}>
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        <span className="font-medium"
-          style={{ color: 'var(--text-primary)' }}>
-          Migration script
-        </span>
-        <span style={{ color: 'var(--text-secondary)' }}>
-          {script.filename}
-        </span>
-      </div>
-      {script.migration_sql && <SQLBlock sql={script.migration_sql} />}
-      {script.rollback_sql && (
-        <div className="mt-2">
-          <div className="font-medium mb-1"
-            style={{ color: 'var(--text-primary)' }}>
-            Rollback script
-          </div>
-          <SQLBlock sql={script.rollback_sql} />
-        </div>
-      )}
-      {(script.verification_sql || []).length > 0 && (
-        <div className="mt-2">
-          <div className="font-medium mb-1"
-            style={{ color: 'var(--text-primary)' }}>
-            Verification SQL
-          </div>
-          {script.verification_sql.map(sql => (
-            <SQLBlock key={sql} sql={sql} />
-          ))}
-        </div>
-      )}
-      {(script.pr_title || script.pr_body) && (
-        <div className="mt-2" style={{ color: 'var(--text-secondary)' }}>
-          <div className="font-medium"
-            style={{ color: 'var(--text-primary)' }}>
-            PR / CI output
-          </div>
-          {script.pr_title && <div>{script.pr_title}</div>}
-          {script.pr_body && <div>{script.pr_body}</div>}
-        </div>
-      )}
-    </section>
-  )
+// canExplain: POST /api/v1/explain needs the operator or admin role, so a
+// viewer is not offered a button that can only fail.
+function canExplain(user) {
+  return user?.role === 'admin' || user?.role === 'operator'
 }
 
 function ActionTimelineItem({ action }) {

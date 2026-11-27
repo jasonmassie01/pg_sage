@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,9 @@ type ToolAnnotations struct {
 	OpenWorldHint   bool `json:"openWorldHint"`
 }
 
+const optionalDatabaseDescription = "Monitored database name (see list_databases); " +
+	"without it, every database you may read."
+
 const databaseDescription = "Monitored database name (see list_databases). Required " +
 	"when more than one database is monitored; defaults to the only one otherwise."
 
@@ -22,12 +26,20 @@ const databaseDescription = "Monitored database name (see list_databases). Requi
 // `database` argument and annotations applied.
 func toolDefinitions() []Tool {
 	tools := append(append(intentTools(), sreTools()...), sreActionTools()...)
+	tools = append(tools, sreMaintenanceTools()...)
 	tools = append(append(tools, signalTools()...), runbookTools()...)
 	tools = append(append(tools, autonomyTools()...), factTools()...)
 	tools = append(append(append(tools, agentTools()...), specialistTools()...),
 		askTools()...)
 	tools = append(append(append(tools, fleetTools()...), agentBrokerTools()...),
 		grantTools()...)
+	tools = append(append(tools, upgradeTools()...), inboxTools()...)
+	tools = append(append(append(tools, workloadPackTools()...), outcomesTools()...),
+		planTools()...)
+	tools = append(append(tools, drillTools()...), reviewTools()...)
+	tools = append(tools, pressureTools()...)
+	tools = append(tools, whyNotTools()...)
+	tools = append(tools, requestStatusTools()...)
 	for i := range tools {
 		tools[i] = finishTool(tools[i])
 	}
@@ -35,8 +47,11 @@ func toolDefinitions() []Tool {
 }
 
 func finishTool(tool Tool) Tool {
+	if description, ok := toolDescriptions[tool.Name]; ok {
+		tool.Description = description
+	}
 	if !fleetWideTool(tool.Name) {
-		tool.InputSchema = setDatabaseProperty(tool.InputSchema, nil)
+		tool.InputSchema = setDatabaseProperty(tool.Name, tool.InputSchema, nil)
 	}
 	readOnly := !approveScopeTools[tool.Name] && !proposeScopeTools[tool.Name] &&
 		!askToolNames[tool.Name] // ask_sage may queue a proposal
@@ -44,9 +59,10 @@ func finishTool(tool Tool) Tool {
 	return tool
 }
 
-// setDatabaseProperty gives a schema the standard `database` property,
-// with an enum of names when names is non-nil.
-func setDatabaseProperty(schema json.RawMessage, names []string) json.RawMessage {
+// setDatabaseProperty gives tool's schema the standard `database`
+// property, with an enum of names when names is non-nil.
+func setDatabaseProperty(tool string, schema json.RawMessage,
+	names []string) json.RawMessage {
 	var object map[string]any
 	if json.Unmarshal(schema, &object) != nil {
 		return schema
@@ -56,6 +72,9 @@ func setDatabaseProperty(schema json.RawMessage, names []string) json.RawMessage
 		properties = map[string]any{}
 	}
 	database := map[string]any{"type": "string", "description": databaseDescription}
+	if databaseOptionalTools[tool] {
+		database["description"] = optionalDatabaseDescription
+	}
 	if len(names) > 0 {
 		database["enum"] = names
 	}
@@ -74,13 +93,13 @@ func withDatabaseEnum(tool Tool, names []string) Tool {
 	if names == nil || fleetWideTool(tool.Name) {
 		return tool
 	}
-	tool.InputSchema = setDatabaseProperty(tool.InputSchema, names)
+	tool.InputSchema = setDatabaseProperty(tool.Name, tool.InputSchema, names)
 	return tool
 }
 
 // Fingerprint identifies the tool list as an unrestricted caller sees it;
-// it changes when tools or the monitored databases change, which is when
-// clients are told the list changed.
+// it changes when tools, the monitored databases or where each tool can be
+// served change, which is when clients are told the list changed.
 func (s *Server) Fingerprint() string {
 	var names []string
 	if s.directory != nil {
@@ -89,10 +108,7 @@ func (s *Server) Fingerprint() string {
 			names = append(names, ref.Name)
 		}
 	}
-	tools := make([]Tool, 0, len(s.tools))
-	for _, tool := range s.tools {
-		tools = append(tools, withDatabaseEnum(tool, sortedCopy(names)))
-	}
+	tools := s.listedTools(context.Background(), sortedCopy(names), nil)
 	raw, _ := json.Marshal(tools)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])

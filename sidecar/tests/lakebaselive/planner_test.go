@@ -35,20 +35,21 @@ func TestLakebasePlannerFeatures(t *testing.T) {
 		}
 		t.Logf("version=%d, query text visible, WAL columns=%v, plan columns=%v", result.PGVersionNum, result.HasWALColumns, result.HasPlanTimeColumns)
 	})
-	t.Run("GenericPlanAndOptimizerContext", func(t *testing.T) {
+	t.Run("OptimizerContext", func(t *testing.T) {
 		query := collector.QueryStats{QueryID: 1, Calls: 100, Query: "SELECT id FROM sage_live.planner_items WHERE category=$1"}
 		snap := &collector.Snapshot{Queries: []collector.QueryStats{query}, Tables: []collector.TableStats{{SchemaName: "sage_live", RelName: "planner_items", NLiveTup: 5000}}}
 		cfg := config.DefaultConfig()
-		cfg.LLM.Optimizer.PlanSource = "generic_plan"
-		o := optimizer.New(p, &cfg.LLM.Optimizer, 180000, func(string, string, ...any) {})
+		o := optimizer.New(p, &cfg.LLM.Optimizer, func(string, string, ...any) {})
 		tc, ok, err := o.TableContext(ctx, snap, "sage_live.planner_items")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !ok || tc.Schema != "sage_live" || len(tc.Columns) != 2 || len(tc.Plans) != 1 || tc.PlanSource != "generic_plan" {
-			t.Fatalf("real optimizer context missing: ok=%v columns=%d plans=%d source=%s", ok, len(tc.Columns), len(tc.Plans), tc.PlanSource)
+		// indexes-05: the context runs no EXPLAIN (the plan capture was removed).
+		if !ok || tc.Schema != "sage_live" || len(tc.Columns) != 2 || len(tc.Queries) != 1 {
+			t.Fatalf("real optimizer context missing: ok=%v columns=%d queries=%d",
+				ok, len(tc.Columns), len(tc.Queries))
 		}
-		t.Log("production optimizer read real columns/indexes/statistics and captured a generic parameterized EXPLAIN")
+		t.Log("production optimizer read real columns/indexes/statistics without an EXPLAIN")
 	})
 	t.Run("HintHookCorrectness", func(t *testing.T) {
 		conn, err := p.Acquire(ctx)

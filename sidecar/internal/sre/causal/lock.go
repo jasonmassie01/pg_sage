@@ -5,19 +5,25 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // BlockerEvidence is the root-blocker identity M0 records on a
 // lock_contention incident (rca.BlockerIdentity), cited by its evidence
-// id. It is used when the lock graph cannot be probed.
+// id. It is used when the lock graph cannot be probed. A blocker with a
+// DetectedAt is the detection-time snapshot an investigation committed
+// (sre-05): it also names the cleared chain of an empty live graph, and
+// it is never a conclusive root.
 type BlockerEvidence struct {
 	EvidenceID   string
 	PID          int
 	State        string
 	TotalBlocked int
 	ChainDepth   int
+	BackendStart time.Time
+	DetectedAt   time.Time
 }
 
 // Scoring thresholds (seconds).
@@ -39,6 +45,10 @@ type lockRoot struct {
 	rowWaits   int
 	anyDDL     bool
 	fromGraph  bool
+	// detectedAt and backendStart describe a detection-time root
+	// (BlockerEvidence.DetectedAt); detectedAt is zero for every other.
+	detectedAt   time.Time
+	backendStart time.Time
 }
 
 func (r lockRoot) subject() string {
@@ -70,6 +80,9 @@ func DiagnoseLock(obs []Observation, blockers []BlockerEvidence) Diagnosis {
 		return d
 	}
 	d.Subject = root.subject()
+	if !root.detectedAt.IsZero() {
+		return detectionOnly(d, root, obs)
+	}
 	return d
 }
 
@@ -81,6 +94,9 @@ func chooseLockRoot(obs []Observation, blockers []BlockerEvidence) (lockRoot, bo
 		case err != nil:
 			return lockRoot{}, false, "lock graph unreadable: " + err.Error()
 		case len(edges) == 0:
+			if root, found := rootFromBlockers(detectedBlockers(blockers)); found {
+				return root, true, ""
+			}
 			return lockRoot{}, false, "no lock waits at probe time"
 		}
 		root, found := rootFromGraph(edges, g.EvidenceID)
@@ -108,7 +124,8 @@ func rootFromBlockers(blockers []BlockerEvidence) (lockRoot, bool) {
 	}
 	b := blockers[best]
 	return lockRoot{evidenceID: b.EvidenceID, pid: b.PID, kind: "backend",
-		state: b.State, xactAgeS: math.NaN(), waiters: b.TotalBlocked}, true
+		state: b.State, xactAgeS: math.NaN(), waiters: b.TotalBlocked,
+		detectedAt: b.DetectedAt, backendStart: b.BackendStart}, true
 }
 
 // rootFromGraph picks the root blocker (a blocker that is not itself
@@ -194,7 +211,8 @@ func scoreIdle(r lockRoot) Hypothesis {
 	case r.kind == "prepared_xact":
 		h.contradict(r.evidenceID, "the root blocker is a prepared transaction, not a session")
 	case strings.HasPrefix(r.state, "idle in transaction"):
-		h.add(0.55, r.evidenceID, fmt.Sprintf("root blocker pid %d is %s", r.pid, r.state))
+		h.add(0.55, r.evidenceID, r.when()+fmt.Sprintf("root blocker pid %d is %s", r.pid,
+			r.state))
 		if r.waiters > 0 {
 			h.add(0.15, r.evidenceID, fmt.Sprintf("it blocks %d sessions", r.waiters))
 		}
@@ -202,7 +220,8 @@ func scoreIdle(r lockRoot) Hypothesis {
 			h.add(0.15, r.evidenceID, "its transaction has been open "+ageText(r.xactAgeS))
 		}
 	case r.state == "active":
-		h.contradict(r.evidenceID, fmt.Sprintf("root blocker pid %d is active, not idle", r.pid))
+		h.contradict(r.evidenceID, r.when()+fmt.Sprintf("root blocker pid %d is active, not idle",
+			r.pid))
 	}
 	return h
 }

@@ -9,14 +9,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
-
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 var (
 	testPool     *pgxpool.Pool
@@ -27,8 +21,8 @@ var (
 func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	testPoolOnce.Do(func() {
-		dsn := testDSN()
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
@@ -165,12 +159,14 @@ func TestRunChecks_LivePG(t *testing.T) {
 	if result.PGVersionNum < 140000 {
 		t.Errorf("PGVersionNum = %d, want >= 140000 (oldest supported)", result.PGVersionNum)
 	}
-	// HasPlanTimeColumns depends on whether pg_stat_statements columns
-	// appear in information_schema.columns, which varies by PG install.
-	// Cloud SQL may return false here; just log the value.
-	t.Logf("HasPlanTimeColumns = %v", result.HasPlanTimeColumns)
+	// pg_stat_statements 1.9+ ships both column sets on PostgreSQL 14+.
+	if !result.HasPlanTimeColumns || !result.HasWALColumns {
+		t.Errorf("HasPlanTimeColumns=%v HasWALColumns=%v, want both true",
+			result.HasPlanTimeColumns, result.HasWALColumns)
+	}
+	// The test server connects as a superuser, which sees every text.
 	if !result.QueryTextVisible {
-		t.Error("QueryTextVisible should be true")
+		t.Error("QueryTextVisible should be true for the superuser test role")
 	}
 }
 

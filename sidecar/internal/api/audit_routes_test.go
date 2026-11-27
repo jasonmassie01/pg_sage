@@ -161,3 +161,70 @@ func TestAuditSIEMStatusRoute(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"enabled":true`)
 	require.Contains(t, w.Body.String(), `"consecutive_failures":2`)
 }
+
+// GET /api/v1/audit/siem serves each sink's lanes with their lag, so a
+// stuck source or chain shows even while the others deliver (CHECK-25).
+func TestAuditSIEMStatusServesLanes(t *testing.T) {
+	pool := auditPool(t, "api_audit_siem_lanes")
+	mux := auditMux(pool, AuditDeps{SIEMStatus: func() []siem.SinkStatus {
+		return []siem.SinkStatus{{Name: "soc", Status: siem.StatusFailing, Undeliverable: 1,
+			Lanes: []siem.LaneStatus{
+				{Source: "billing", Chain: "", State: siem.LaneFailing,
+					LastError: "closed pool", ConsecutiveFailures: 3},
+				{Source: "orders", Chain: "action_log", Cursor: 5, Head: 9, Lag: 4,
+					State: siem.LaneOK}}}}
+	}})
+	w := auditGet(mux, "/api/v1/audit/siem", true)
+	require.Equal(t, http.StatusOK, w.Code)
+	var body struct {
+		Sinks []struct {
+			Undeliverable int64 `json:"undeliverable"`
+			Lanes         []map[string]any
+		} `json:"sinks"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, 1, len(body.Sinks))
+	require.Equal(t, int64(1), body.Sinks[0].Undeliverable)
+	lanes := body.Sinks[0].Lanes
+	require.Equal(t, 2, len(lanes))
+	require.Equal(t, "failing", lanes[0]["state"])
+	require.Equal(t, "closed pool", lanes[0]["last_error"])
+	require.Equal(t, float64(3), lanes[0]["consecutive_failures"])
+	require.Equal(t, "action_log", lanes[1]["chain"])
+	require.Equal(t, float64(4), lanes[1]["lag"])
+	require.Equal(t, float64(5), lanes[1]["cursor"])
+	require.Equal(t, float64(9), lanes[1]["head"])
+}
+
+// audit-07: a continuation names one window file and the id to page after;
+// anything else is refused with 400, and a valid one downloads, audited.
+func TestAuditEvidencePagingRefusals(t *testing.T) {
+	pool := auditPool(t, "api_audit_paging")
+	mux := auditMux(pool, AuditDeps{})
+	from := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+	to := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	win := "/api/v1/audit/evidence?database=orders&from=" + from + "&to=" + to
+	for _, q := range []string{"&after_id=10", "&file=actions.json&after_id=-1",
+		"&file=nope.json", "&file=actions.json&after_id=x",
+		"&file=manifest.json&after_id=1"} {
+		w := auditGet(mux, win+q, true)
+		require.Equal(t, http.StatusBadRequest, w.Code, q+": "+w.Body.String())
+	}
+	w := auditGet(mux, "/api/v1/audit/evidence?database=orders&action_id=1"+
+		"&file=actions.json", true)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+
+	w = auditGet(mux, win+"&file=actions.json&after_id=5", true)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Header().Get("Content-Disposition"), "actions-after-5")
+	m, err := evidence.Verify(bytes.NewReader(w.Body.Bytes()), nil)
+	require.NoError(t, err)
+	require.Equal(t, "actions.json", m.Scope.File)
+	require.Equal(t, int64(5), m.Scope.AfterID)
+	require.Equal(t, 2, len(m.Files))
+	var detail string
+	require.NoError(t, pool.QueryRow(context.Background(), `SELECT detail::text
+		FROM sage.auth_audit WHERE event = 'evidence_exported'`).Scan(&detail))
+	require.Contains(t, detail, `"file": "actions.json"`)
+	require.Contains(t, detail, `"after_id": 5`)
+}

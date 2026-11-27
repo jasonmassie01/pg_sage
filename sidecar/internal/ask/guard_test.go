@@ -141,3 +141,129 @@ func TestGuard_FullToolsetFitsTheLoop(t *testing.T) {
 		t.Fatalf("the full tool set does not fit the loop: %v", err)
 	}
 }
+
+// offeredTools is the tool names one recorded model request offered,
+// without the final answer tool.
+func offeredTools(t *testing.T, body string) []string {
+	t.Helper()
+	var out []string
+	for _, tool := range decodeRequest(t, body).Tools {
+		if tool.Function.Name != FinalTool {
+			out = append(out, tool.Function.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func notObservedReply() fakeReply {
+	return answer(func(string) answerArgs {
+		return answerArgs{NotObserved: []string{"Nothing about that was observed."}}
+	})
+}
+
+// Explain a case (mcp-01): a read-only request is answer-only whoever
+// asks. The write tools are not offered, the system prompt does not invite
+// a proposal, and the stored answer says it was read-only.
+func TestGuard_ReadOnlyRequestOffersOnlyReadTools(t *testing.T) {
+	for _, c := range []Caller{viewer, operator, agent} {
+		t.Run(c.Actor, func(t *testing.T) {
+			f := newFixture(t)
+			m := newFakeLLM(t, notObservedReply())
+			d := fullDeps(f)
+			d.Model = m.client()
+			s := f.service(d)
+			a, err := s.Ask(f.ctx, c, Request{Question: "Explain this case", ReadOnly: true})
+			if err != nil {
+				t.Fatalf("Ask: %v", err)
+			}
+			body := m.body(t, 0)
+			if got := offeredTools(t, body); strings.Join(got, ",") !=
+				strings.Join(readTools, ",") {
+				t.Fatalf("read-only %s was offered %v, want %v", c.Actor, got, readTools)
+			}
+			if strings.Contains(prompt(t, body), "you may open one investigation") {
+				t.Fatal("the read-only system prompt invites a proposal")
+			}
+			if !a.ReadOnly || len(a.Actions) != 0 {
+				t.Fatalf("answer read_only=%v actions=%+v", a.ReadOnly, a.Actions)
+			}
+			thread, err := s.Thread(f.ctx, c, a.ConversationID)
+			if err != nil || len(thread.Answers) != 1 || !thread.Answers[0].ReadOnly {
+				t.Fatalf("stored answer does not record read_only: %+v (%v)", thread, err)
+			}
+		})
+	}
+}
+
+// State transition: read_only is per question. The next question in the
+// same conversation without it is offered the operator's write tools
+// again, and its answer is not marked read-only.
+func TestGuard_ReadOnlyIsPerQuestion(t *testing.T) {
+	f := newFixture(t)
+	m := newFakeLLM(t, notObservedReply(), notObservedReply(), notObservedReply())
+	d := fullDeps(f)
+	d.Model = m.client()
+	s := f.service(d)
+	first := mustAsk(t, s, operator, "Why is it slow?", "")
+	second, err := s.Ask(f.ctx, operator, Request{Question: "Explain it only",
+		ConversationID: first.ConversationID, ReadOnly: true})
+	if err != nil {
+		t.Fatalf("read-only Ask: %v", err)
+	}
+	third := mustAsk(t, s, operator, "Now propose the fix", first.ConversationID)
+	want := append(append([]string{}, readTools...), "open_investigation", "propose_action",
+		"propose_fact")
+	sort.Strings(want)
+	for i, w := range [][]string{want, readTools, want} {
+		if got := offeredTools(t, m.body(t, i)); strings.Join(got, ",") !=
+			strings.Join(w, ",") {
+			t.Fatalf("question %d offered %v, want %v", i+1, got, w)
+		}
+	}
+	if first.ReadOnly || !second.ReadOnly || third.ReadOnly {
+		t.Fatalf("read_only flags = %v %v %v", first.ReadOnly, second.ReadOnly,
+			third.ReadOnly)
+	}
+}
+
+// No concurrent access test: read_only is a value of one request and
+// Caller.For returns a copy; no state is shared between questions.
+
+// Nil/zero: the zero Request is not read-only, so older clients that omit
+// the field keep today's behaviour (operators may propose).
+func TestGuard_CallerForKeepsTheCallerUnlessReadOnly(t *testing.T) {
+	if got := operator.For(Request{}); got != operator {
+		t.Fatalf("zero request changed the caller: %+v", got)
+	}
+	got := agent.For(Request{ReadOnly: true})
+	if got.MayPropose || got.Actor != agent.Actor {
+		t.Fatalf("read-only agent caller = %+v", got)
+	}
+	if got := viewer.For(Request{ReadOnly: true}); got != viewer {
+		t.Fatalf("read-only viewer = %+v", got)
+	}
+}
+
+// mcp-02: the loop tells the model to cite only by aliases, so every
+// tool that takes evidence says so, and none asks for durable ids.
+func TestGuard_CitingToolsAskForAliases(t *testing.T) {
+	s := &Service{d: Deps{Investigations: &fakeInvestigations{}, Trust: fakeTrust(`{}`),
+		Queries: fakeQueries{}, Proposer: &fakeProposer{}, Starter: &fakeStarter{}}}
+	citing := 0
+	for _, tl := range s.newSession(operator).tools() {
+		if strings.Contains(tl.Description, "evidence ids (e.g.") {
+			t.Errorf("%s asks for durable evidence ids: %q", tl.Name, tl.Description)
+		}
+		if strings.Contains(string(tl.Parameters), `"evidence_ids"`) {
+			citing++
+			if !strings.Contains(tl.Description, "aliases (E1, E2, ...)") {
+				t.Errorf("%s takes evidence_ids but does not ask for aliases: %q", tl.Name,
+					tl.Description)
+			}
+		}
+	}
+	if citing == 0 {
+		t.Fatal("no citing tool found; propose_fact takes evidence_ids")
+	}
+}

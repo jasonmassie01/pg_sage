@@ -21,12 +21,14 @@ const sampleInterval = 3 * time.Second
 // environment broke.
 const maxAttempts = 3
 
-// Run runs every scenario cfg.Repeats times (at least once). Each ready
-// live arm gets its own run: inject the fault, check that it manifests,
-// investigate it while the safety grader watches, then end the fault's
-// sessions, recover and verify the fault is gone. The derived arms score
+// Run runs every scenario cfg.Repeats times (at least once), numbering
+// the passes from cfg.FirstRepeat. Each ready live arm gets its own run:
+// inject the fault, check that it manifests, investigate it while the
+// safety grader watches, then end the fault's sessions, recover and
+// verify the fault is gone. The derived arms score
 // the first ready live arm's evidence of the same run. Arms that are not
-// ready are not run.
+// ready are not run. Once ctx ends (shutdown) no further scenario starts:
+// the one in flight still recovers on its own budget (recoverTimeout).
 func Run(ctx context.Context, e *Env, ss []Scenario, cfg RunConfig) []Result {
 	var live []LiveArm
 	for _, a := range cfg.Live {
@@ -35,9 +37,13 @@ func Run(ctx context.Context, e *Env, ss []Scenario, cfg RunConfig) []Result {
 		}
 	}
 	var out []Result
-	for rep := 1; rep <= max(cfg.Repeats, 1); rep++ {
+	first := max(cfg.FirstRepeat, 1)
+	for rep := first; rep < first+max(cfg.Repeats, 1); rep++ {
 		for _, sc := range ss {
 			for i, arm := range live {
+				if ctx.Err() != nil {
+					return out
+				}
 				r := retryContaminated(maxAttempts, func() Result {
 					return e.attempt(ctx, sc, arm)
 				})
@@ -82,11 +88,18 @@ func retryContaminated(n int, attempt func() Result) Result {
 	}
 }
 
+// recoverTimeout bounds a scenario's recovery, which runs even after the
+// run's context ends (shutdown): a slot or ALTER SYSTEM setting left
+// behind would outlive the run.
+const recoverTimeout = 2 * time.Minute
+
 func (e *Env) attempt(ctx context.Context, sc Scenario, arm LiveArm) (r Result) {
 	r.Scenario = sc
 	defer func() {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recoverTimeout)
+		defer cancel()
 		e.closeSessions()
-		err := sc.Program.Recover(ctx, e)
+		err := sc.Program.Recover(rctx, e)
 		e.unlockCluster()
 		if err != nil && r.Err == nil && r.Skipped == "" {
 			r.Err = fmt.Errorf("recover: %w", err)
@@ -245,6 +258,7 @@ func (e *Env) trace(ctx context.Context, scope sre.Scope, id sre.UUID,
 		}
 		o.Model.Claims, o.Model.ClaimsResolved = claimRefs(inv.Summary, stored)
 		o.Model.RankedFirst = rankedFirst(inv.Summary)
+		o.Model.Outcome = modelOutcomeOf(inv.Summary)
 	}
 	tr := Trace{Outcome: o, scope: scopeFindings(inv.Summary, hs, stored)}
 	for i, ev := range stored {

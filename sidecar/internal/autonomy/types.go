@@ -10,10 +10,14 @@ import (
 )
 
 type Proposal struct {
-	Database      string
-	Feature       string
-	SQL           string
-	Plan          string
+	Database string
+	Feature  string
+	SQL      string
+	Plan     string
+	// ResponseKind is the custodian response the proposal answers (for
+	// the freeze custodian a freeze.ResponseKind); the executor types
+	// plan-only proposals by it, never by their evidence.
+	ResponseKind  string
 	TargetObjects []string
 	Deadline      *policy.DeadlineContext
 	Evidence      map[string]any
@@ -29,10 +33,6 @@ type ProposalRouter interface {
 
 type VerifiedIndexRouter interface {
 	RouteVerifiedIndex(context.Context, Proposal, string, []int64) error
-}
-
-type StructuralRehearsalRouter interface {
-	RouteStructuralRehearsal(context.Context, Proposal) error
 }
 
 type SelfAuditor interface {

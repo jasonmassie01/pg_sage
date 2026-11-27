@@ -105,6 +105,8 @@ type validator struct {
 	history    map[string][]SettingAction
 	historyErr error
 	flight     inFlight
+	// tools is the cycle's tool state: the rehearsals its cases ran.
+	tools *cycleTools
 }
 
 func (a *Agent) newValidator(cur *collector.Snapshot, w Workload, confirmed []facts.Fact,
@@ -128,7 +130,7 @@ func (v *validator) judge(ctx context.Context, c Case, ev evidenceSet, p Proposa
 	case ProposeIndexCreate:
 		j = v.judgeIndexCreate(ctx, c, p)
 	case ProposeIndexDrop:
-		j = v.judgeIndexDrop(c, p)
+		j = v.judgeIndexDrop(ctx, c, p)
 	case ProposeGUC:
 		j = v.judgeGUC(c, p)
 	case ProposeReloption:
@@ -204,8 +206,17 @@ func (v *validator) targets(c Case, p Proposal) []int64 {
 	if len(out) > 0 {
 		return out
 	}
+	return caseStatementIDs(c)
+}
+
+// caseStatementIDs are the case's statement queryids, once each (0, an
+// unknown queryid, left out).
+func caseStatementIDs(c Case) []int64 {
+	var out []int64
 	for _, s := range c.Statements {
-		out = append(out, s.QueryID)
+		if s.QueryID != 0 && !slices.Contains(out, s.QueryID) {
+			out = append(out, s.QueryID)
+		}
 	}
 	return out
 }

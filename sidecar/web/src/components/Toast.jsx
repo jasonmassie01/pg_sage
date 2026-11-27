@@ -37,7 +37,9 @@ export function ToastProvider({ children }) {
 
   const push = useCallback((toast) => {
     const id = nextId++
-    const duration = toast.duration ?? 4000
+    // An error stays until dismissed: a failed approve or rollback must
+    // not vanish before the operator has read it.
+    const duration = toast.duration ?? (toast.variant === 'error' ? 0 : 4000)
     setToasts(t => [...t, { ...toast, id }])
     if (duration > 0) {
       setTimeout(() => dismiss(id), duration)
@@ -124,7 +126,7 @@ function ToastItem({ toast, onDismiss }) {
   }, [])
   return (
     <div
-      role="status"
+      role={toast.variant === 'error' ? 'alert' : 'status'}
       data-testid="toast"
       data-variant={toast.variant}
       className="flex items-start gap-3 rounded px-3 py-2"

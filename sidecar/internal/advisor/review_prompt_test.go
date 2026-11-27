@@ -71,7 +71,7 @@ func deadTupleSnapshot(names ...string) *collector.Snapshot {
 // a context (blank-line) boundary rather than mid-table.
 func TestTruncateAdvisorPrompt_UTF8AndBlockSafe(t *testing.T) {
 	long := "x" + strings.Repeat("é", maxAdvisorPromptChars) // odd byte offset
-	got := truncateAdvisorPrompt(long)
+	got := truncateAdvisorPrompt(long, 0)
 	if !utf8.ValidString(got) {
 		t.Fatal("truncated prompt is not valid UTF-8")
 	}
@@ -83,12 +83,12 @@ func TestTruncateAdvisorPrompt_UTF8AndBlockSafe(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		blocks = append(blocks, block)
 	}
-	got = truncateAdvisorPrompt(strings.Join(blocks, "\n\n"))
+	got = truncateAdvisorPrompt(strings.Join(blocks, "\n\n"), 0)
 	if !strings.HasSuffix(got, "(33.3%)") {
 		t.Errorf("cut mid-block: %q", got[len(got)-40:])
 	}
 	short := "small prompt"
-	if truncateAdvisorPrompt(short) != short {
+	if truncateAdvisorPrompt(short, 0) != short {
 		t.Error("short prompt modified")
 	}
 }
@@ -98,7 +98,7 @@ func TestTruncateAdvisorPrompt_UTF8AndBlockSafe(t *testing.T) {
 func TestAnalyzeBloat_DeadTuplesAreNotBloat(t *testing.T) {
 	mgr, prompts := capturingManager(t, "[]")
 	if _, err := analyzeBloat(context.Background(), mgr,
-		deadTupleSnapshot("orders"), nil, &config.Config{}, noopLog); err != nil {
+		deadTupleSnapshot("orders"), &config.Config{}, noopLog); err != nil {
 		t.Fatalf("analyzeBloat: %v", err)
 	}
 	p := prompts()

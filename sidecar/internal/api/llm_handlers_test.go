@@ -13,7 +13,7 @@ import (
 
 func TestListModelsHandler_NotConfigured(t *testing.T) {
 	cfg := &config.LLMConfig{}
-	handler := listModelsHandler(cfg)
+	handler := listModelsHandler(llmController(cfg))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm/models", nil)
 	w := httptest.NewRecorder()
 
@@ -34,7 +34,7 @@ func TestListModelsHandler_MissingAPIKey(t *testing.T) {
 	cfg := &config.LLMConfig{
 		Endpoint: "https://example.com/v1",
 	}
-	handler := listModelsHandler(cfg)
+	handler := listModelsHandler(llmController(cfg))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm/models", nil)
 	w := httptest.NewRecorder()
 
@@ -49,7 +49,7 @@ func TestListModelsHandler_MissingEndpoint(t *testing.T) {
 	cfg := &config.LLMConfig{
 		APIKey: "some-key",
 	}
-	handler := listModelsHandler(cfg)
+	handler := listModelsHandler(llmController(cfg))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm/models", nil)
 	w := httptest.NewRecorder()
 
@@ -79,7 +79,7 @@ func TestListModelsHandler_Success(t *testing.T) {
 		APIKey:   "test-key",
 		Model:    "gpt-4o",
 	}
-	handler := listModelsHandler(cfg)
+	handler := listModelsHandler(llmController(cfg))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm/models", nil)
 	w := httptest.NewRecorder()
 
@@ -121,7 +121,7 @@ func TestListModelsHandler_ProviderError(t *testing.T) {
 		APIKey:   "test-key",
 		Model:    "gpt-4o",
 	}
-	handler := listModelsHandler(cfg)
+	handler := listModelsHandler(llmController(cfg))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/llm/models", nil)
 	w := httptest.NewRecorder()
 
@@ -151,7 +151,7 @@ func TestDiscoverModelsHandler_UsesRequestPayload(t *testing.T) {
 	// credential/model for discovery, but must not redirect configured
 	// credentials to an arbitrary private host.
 	cfg := &config.LLMConfig{Endpoint: srv.URL}
-	handler := discoverModelsHandler(cfg)
+	handler := discoverModelsHandler(llmController(cfg))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/models",
 		strings.NewReader(`{"config":{
 			"llm.api_key":"payload-key",
@@ -174,7 +174,7 @@ func TestDiscoverModelsHandler_IgnoresMaskedAPIKey(t *testing.T) {
 		Endpoint: "https://example.com/v1",
 		APIKey:   "",
 	}
-	handler := discoverModelsHandler(cfg)
+	handler := discoverModelsHandler(llmController(cfg))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/llm/models",
 		strings.NewReader(`{"config":{"llm.api_key":"********1234"}}`))
 	w := httptest.NewRecorder()
@@ -430,4 +430,12 @@ func TestLLMStatusHandler_ResponseShape(t *testing.T) {
 			t.Errorf("general client missing field %q", field)
 		}
 	}
+}
+
+// llmController publishes cfg as the active LLM settings of a controller,
+// the only source the model handlers read (config-10).
+func llmController(cfg *config.LLMConfig) *config.ConfigController {
+	full := config.DefaultConfig()
+	full.LLM = *cfg
+	return config.NewConfigController(full, nil)
 }

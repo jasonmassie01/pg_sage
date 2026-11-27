@@ -31,23 +31,69 @@ nav:
   - Five-minute quickstart: quickstart.md
   - Walkthrough: walkthrough.md
   - Installation: installation.md
+  - Guides:
+      - Try it out locally: try-it-out.md
+      - "Walkthrough: Linux and macOS": walkthrough-linux.md
+      - "Walkthrough: Windows": walkthrough-windows.md
+      - "Walkthrough: fleet": walkthrough-fleet.md
+      - Neon and Supabase: neon-supabase.md
+      - "Managed clouds: RDS, Aurora and Cloud SQL": managed-clouds.md
+      - "Restore drills on self-managed servers": restore-drills.md
+      - LLM costing: llm-costing.md
   - Configuration: configuration.md
+  - HTTP API and inbox: api.md
+  - Command-line client: cli.md
+  - Glossary: glossary.md
   - Architecture: architecture.md
+  - Fleet Mode: fleet.md
   - SQL Reference: sql-reference.md
   - Findings Catalog: findings.md
+  - Owner Checks: custom-checks.md
+  - Workload Budgets: workload-budgets.md
   - Binding Facts: facts.md
   - MCP for Coding Agents: mcp.md
+  - Migration review in CI: migration-ci.md
+  - Migration safety: migration-safety.md
+  - "Backfill pressure: pace bulk writes": backfill-pressure.md
   - Ask Sage: ask-sage.md
+  - "Sage Review: rubric and grade": review.md
+  - "The rubric (generated)": rubric.md
+  - "Publishing outcomes": publish-outcomes.md
   - Postgres Specialist for Other Agents: specialist.md
   - Hint Verification: hint-verification.md
+  - "Verifying the verifier: the placebo back-test": verification.md
+  - Natural-language EXPLAIN: explain.md
+  - Vector Evidence Lab: vector-lab.md
   - Security: security.md
+  - Governance and safety:
+      - Agent governance: agent-governance.md
+      - Agent safety bench: agent-safety-bench.md
+      - Policy Gate: policy-gate.md
+      - Policy Sets: policy-sets.md
+      - GitOps directory: gitops.md
   - "Sage SRE: permissions and data flow": sage-sre-permissions-and-data-flow.md
   - Deployment: deployment.md
+  - Metrics reference: metrics.md
   - Azure: azure.md
   - Databricks:
       - Overview: databricks-native.md
       - Lakebase and Unity Gateway: lakebase.md
       - Databricks Apps: databricks-apps.md
+      - Lakebase evidence: lakebase-evidence.md
+
+# Reference pages generated from the config registry; configuration.md
+# links them, so they are published without a nav entry.
+not_in_nav: |
+  generated/*
+
+# `mkdocs build --strict` turns each of these warnings into a failure.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
 
 markdown_extensions:
   - admonition

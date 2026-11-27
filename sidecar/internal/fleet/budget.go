@@ -1,6 +1,9 @@
 package fleet
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // FleetBudget tracks per-database LLM token spending.
 type FleetBudget struct {
@@ -12,6 +15,13 @@ type FleetBudget struct {
 	split      string
 	floorPct   int
 	ceilingPct int
+	// epoch counts ResetDaily calls, so a hold taken before a reset is not
+	// subtracted from the new day's usage (Hold, Settle).
+	epoch uint64
+	// day is the UTC day the usage belongs to (SnapshotDay); pending holds
+	// restored usage of databases not registered yet (Restore).
+	day     time.Time
+	pending map[string]int
 }
 
 type dbBudget struct {
@@ -25,6 +35,7 @@ func NewBudget(totalDaily int, databases []string) *FleetBudget {
 	b := &FleetBudget{
 		TotalDaily: totalDaily,
 		perDB:      make(map[string]*dbBudget, len(databases)),
+		day:        utcDay(time.Now()),
 	}
 	alloc := 0
 	if len(databases) > 0 {
@@ -43,7 +54,8 @@ func (b *FleetBudget) Register(database string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.perDB[database] == nil {
-		b.perDB[database] = &dbBudget{weight: 1}
+		b.perDB[database] = &dbBudget{weight: 1, used: b.pending[database]}
+		delete(b.pending, database)
 	}
 	b.rebalanceLocked()
 }
@@ -87,15 +99,13 @@ type BudgetUsage struct {
 	Weight     float64 `json:"weight"`
 }
 
-// Snapshot returns every registered database's allocation and usage.
+// Snapshot returns every registered database's allocation and usage; a nil
+// budget (none configured) returns nil.
 func (b *FleetBudget) Snapshot() map[string]BudgetUsage {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	out := make(map[string]BudgetUsage, len(b.perDB))
-	for name, db := range b.perDB {
-		out[name] = BudgetUsage{Allocation: db.allocation, Used: db.used,
-			Weight: db.weight}
+	if b == nil {
+		return nil
 	}
+	_, out := b.SnapshotDay()
 	return out
 }
 
@@ -142,11 +152,55 @@ func (b *FleetBudget) Allocation(database string) int {
 	return 0
 }
 
-// ResetDaily resets all usage to zero.
+// ResetDaily resets all usage to zero, drops restores still held for
+// unregistered databases and starts a new hold epoch.
 func (b *FleetBudget) ResetDaily() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.epoch++
+	b.day, b.pending = utcDay(time.Now()), nil
 	for _, db := range b.perDB {
+		db.used = 0
+	}
+}
+
+// Epoch identifies the current reset period.
+func (b *FleetBudget) Epoch() uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.epoch
+}
+
+// Hold atomically checks and charges an in-flight estimate for a database
+// and returns the epoch it was charged in. An unregistered database or an
+// estimate past the allocation is refused and charges nothing.
+func (b *FleetBudget) Hold(database string, tokens int) (uint64, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	db := b.perDB[database]
+	if db == nil || db.used+tokens > db.allocation {
+		return b.epoch, false
+	}
+	db.used += tokens
+	return b.epoch, true
+}
+
+// Settle replaces a hold taken in epoch with actual usage (0 releases it).
+// After a ResetDaily the hold is already gone, so the full actual is
+// charged; otherwise actual-held.
+func (b *FleetBudget) Settle(database string, held, actual int, epoch uint64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	db := b.perDB[database]
+	if db == nil {
+		return
+	}
+	delta := actual
+	if epoch == b.epoch {
+		delta -= held
+	}
+	db.used += delta
+	if db.used < 0 {
 		db.used = 0
 	}
 }

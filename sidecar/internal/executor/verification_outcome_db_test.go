@@ -294,6 +294,42 @@ func TestOutcome_SoftDropRecreatesOnHintReference(t *testing.T) {
 	}
 }
 
+// A dormant hint (installed, its query quiet since the last revalidation;
+// tuning-01) still names the index: dropping it would break the hint the
+// moment the query runs again, so it is a plan miss like an active one.
+func TestOutcome_SoftDropRecreatesOnDormantHintReference(t *testing.T) {
+	pool, ctx := requireDB(t)
+	table, index := dropFixture(t, ctx, pool)
+	executedAt := time.Now().Add(-2 * time.Hour).UTC()
+	qid := int64(8_730_000_000) + time.Now().UnixNano()%1_000_000
+	id, rollback := dropAction(t, pool, table, index, qid, executedAt)
+	seedQuerySamples(t, ctx, pool, qid, executedAt.Add(time.Second), 110, 40,
+		fixtureBaselineMs)
+	var hintID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO sage.query_hints
+		(queryid, hint_text, symptom, status) VALUES ($1, $2, 'test', 'dormant')
+		RETURNING id`, qid, "IndexScan("+table+" "+index+")").Scan(&hintID); err != nil {
+		t.Fatalf("insert hint: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DELETE FROM sage.query_hints WHERE id=$1",
+			hintID)
+	})
+
+	MonitorAndRollback(ctx, pool, id, rollback, dropMonitorConfig(168*time.Hour), nopLog,
+		nil)
+
+	if def := indexDef(t, ctx, pool, index); def == "" {
+		t.Fatal("index referenced by a dormant hint was not re-created")
+	}
+	got := storedOutcome(t, pool, id)
+	soft, _ := got.Evidence["soft_drop"].(map[string]any)
+	if got.Verdict != verify.OutcomeRegressed || soft["trigger"] != "hint_reference" {
+		t.Fatalf("outcome = %s evidence = %+v, want regressed by hint_reference",
+			got.Verdict, got.Evidence)
+	}
+}
+
 // A drop whose reads held through the whole business cycle is improved:
 // its predicted effect (reads unchanged, index gone) was observed.
 func TestOutcome_DropHeldThroughBusinessCycleIsImproved(t *testing.T) {

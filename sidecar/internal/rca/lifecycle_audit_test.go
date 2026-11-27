@@ -119,14 +119,6 @@ func TestPlanTier2_LowConfidenceSignalsAreCandidates(t *testing.T) {
 	}
 }
 
-func TestNormalizeCacheHitRatio_Invalid(t *testing.T) {
-	for _, v := range []float64{-1, 0, 150} {
-		if _, ok := normalizeCacheHitRatio(v); ok {
-			t.Errorf("normalizeCacheHitRatio(%v) ok = true, want false", v)
-		}
-	}
-}
-
 func TestHydrateAndResolve_RejectBadInput(t *testing.T) {
 	if err := testEngine().Hydrate(context.Background(), nil); err == nil {
 		t.Error("Hydrate(nil pool) = nil, want error")

@@ -70,9 +70,9 @@ func invariantRow(item schemaguard.Invariant) string {
 }
 
 // The answer is ordered like the full scan's ORDER BY schema, table,
-// kind, column (name columns compare bytewise, C collation), every
-// tightening candidate carries its proposal, and a table needs three
-// columns, all text, to be everything_text.
+// kind, column (name columns compare bytewise, C collation), no invariant
+// proposes SQL (a type tightening's rewrite is evidence only, migration-09),
+// and a table needs three columns, all text, to be everything_text.
 func TestStructuralInvariants_OrderAndThresholds(t *testing.T) {
 	tables := map[uint32]structuralTable{
 		1: {schema: "b", name: "t", columns: 3, textColumns: 3,
@@ -101,12 +101,8 @@ func TestStructuralInvariants_OrderAndThresholds(t *testing.T) {
 		if got := invariantRow(item); got != want[i] {
 			t.Errorf("item %d = %s, want %s", i, got, want[i])
 		}
-		wantSQL := ""
-		if item.Kind == schemaguard.InvariantTypeTightening {
-			wantSQL = typeTighteningProposal(item.Schema, item.Table, item.Subject)
-		}
-		if item.ProposedSQL != wantSQL {
-			t.Errorf("item %d proposal = %q, want %q", i, item.ProposedSQL, wantSQL)
+		if item.ProposedSQL != "" {
+			t.Errorf("item %d proposes %q, want no SQL", i, item.ProposedSQL)
 		}
 	}
 }

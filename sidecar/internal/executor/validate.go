@@ -31,6 +31,9 @@ var allowedPrefixes = []string{
 	"DELETE FROM HINT_PLAN.HINTS",
 	"CREATE STATISTICS",
 	"DROP STATISTICS",
+	"ALTER ROLE ",
+	"REVOKE ",
+	"GRANT ",
 }
 
 var backendSignalPattern = regexp.MustCompile(
@@ -92,6 +95,9 @@ func ValidateExecutorSQL(sql string) error {
 		if err := checkProtectedSchemaUsage(normalized, prefix); err != nil {
 			return err
 		}
+		if err := checkIndexCallSchemas(trimmed, prefix); err != nil {
+			return err
+		}
 		return checkParseTree(trimmed)
 	}
 
@@ -122,7 +128,17 @@ func checkSecondary(upper, prefix string) error {
 	case "SELECT ":
 		return checkSelectPattern(upper)
 	case "ALTER TABLE":
+		if exposureActionType(upper) != "" {
+			return checkExposureSQL(upper)
+		}
+		if stmt, ok := ParseSetColumnStatistics(upper); ok {
+			return checkColumnStatisticsSQL(stmt)
+		}
 		return checkAlterTableSubcmd(upper)
+	case "REVOKE ", "GRANT ":
+		return checkExposureSQL(upper)
+	case "ALTER ROLE ":
+		return checkRoleBudgetSQL(upper)
 	}
 	return nil
 }
@@ -185,6 +201,10 @@ func checkAlterSystemParam(upper string) error {
 			"%w: ALTER SYSTEM parameter %q not in whitelist",
 			ErrDisallowedSQL, param,
 		)
+	}
+	if pgconf.DatabaseScopeApprovalOnly(param) {
+		return fmt.Errorf("%w: %s is changed only per database: use ALTER DATABASE "+
+			"<database> SET, never ALTER SYSTEM", ErrDisallowedSQL, strings.ToLower(param))
 	}
 	return nil
 }
@@ -337,7 +357,8 @@ func rejectMultiStatement(sql string) error {
 // search_path at run time, where "$user" may be sage and pg_catalog is
 // always searched, so the protected-schema check could not see it.
 var qualifiedTargetPrefixes = map[string]bool{"DROP INDEX": true, "ALTER TABLE": true,
-	"CREATE STATISTICS": true, "DROP STATISTICS": true}
+	"CREATE STATISTICS": true, "DROP STATISTICS": true,
+	"CREATE INDEX": true, "CREATE UNIQUE INDEX": true}
 
 func checkProtectedSchemaUsage(trimmed, prefix string) error {
 	ident := statementTarget(trimmed, prefix)

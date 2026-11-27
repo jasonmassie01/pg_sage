@@ -100,6 +100,10 @@ func authMapping(r Record) mapping {
 		m.activity, m.activityName = 6, "Delete"
 	case "user_role_changed":
 		m.activity, m.activityName = 99, "Role Change"
+	case "password_changed":
+		m.activity, m.activityName = 3, "Password Change"
+	case "password_reset":
+		m.activity, m.activityName = 4, "Password Reset"
 	default:
 		m.activity, m.activityName = 99, "Other"
 	}
@@ -231,4 +235,20 @@ func fit(e Event) {
 	if qi, ok := e["query_info"].(map[string]any); ok {
 		qi["query_string"] = "(truncated)"
 	}
+}
+
+// factMapping reports a fact history event (facts-07). Revoking or
+// expiring a confirmed fact lifts a guard on what pg_sage and operator
+// approvals may do, so it is raised to medium severity.
+func factMapping(r Record) mapping {
+	severity := SeverityInformational
+	from, to := str(r.Row, "from_status"), str(r.Row, "to_status")
+	if from == "confirmed" && (to == "rejected" || to == "expired") {
+		severity = SeverityMedium
+	}
+	return mapping{class: ClassEntityManagement, activity: 3, activityName: "Update",
+		status: statusSuccess, severity: severity,
+		message: fmt.Sprintf("pg_sage fact #%s %s by %s (%s -> %s)", str(r.Row, "fact_id"),
+			str(r.Row, "verb"), str(r.Row, "actor"), from, to),
+		extra: map[string]any{"database": databaseObject(r.Source)}}
 }

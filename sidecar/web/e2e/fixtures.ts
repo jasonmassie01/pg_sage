@@ -20,6 +20,13 @@ export const mockDatabases = {
     healthy: 2,
     degraded: 0,
     total_critical: 0,
+    // Consistent with the rows below: primary has one warning finding.
+    total_warning: 1,
+    incidents_critical: 0,
+    incidents_warning: 0,
+    incidents_unknown: 0,
+    stale_collection: 0,
+    freshness_unknown: 0,
     emergency_stopped: false,
   },
   databases: [
@@ -126,24 +133,21 @@ export const mockCases = {
   total: 1,
 }
 
-export const mockShadowReport = {
-  total_cases: 14,
-  would_auto_resolve: 12,
-  requires_approval: 2,
-  blocked: 1,
-  estimated_toil_minutes: 360,
-  blocked_reasons: ['requires approval'],
-  proof: [
+export const mockShadowDecisions = {
+  databases: [
     {
-      case_id: 'case-1',
-      title: 'Stats are stale',
-      action_type: 'analyze',
-      policy_decision: 'execute',
-      status: 'success',
-      verification_status: 'verified',
-      estimated_toil_minutes: 15,
+      database: 'primary',
+      summary: [
+        {
+          family: 'tuning', class: 'index_create', total: 5, pending: 0,
+          correct: 4, incorrect: 1, neutral: 0, unscored: 0, counted: 3,
+          potential_minutes: 135,
+        },
+      ],
+      decisions: [],
     },
   ],
+  meaning: 'What pg_sage would have done below each earned level.',
 }
 
 export const mockActions = {
@@ -381,8 +385,8 @@ export async function mockAllAPIs(page: Page) {
   await page.route('**/api/v1/cases**', route =>
     route.fulfill({ json: mockCases }),
   )
-  await page.route('**/api/v1/shadow-report**', route =>
-    route.fulfill({ json: mockShadowReport }),
+  await page.route('**/api/v1/shadow-decisions**', route =>
+    route.fulfill({ json: mockShadowDecisions }),
   )
 
   // Actions

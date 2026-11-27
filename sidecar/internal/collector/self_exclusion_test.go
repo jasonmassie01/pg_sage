@@ -3,7 +3,6 @@ package collector
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
@@ -65,7 +65,7 @@ func TestCollectQueriesExcludesStatementsFromPgSagePools(t *testing.T) {
 // plain application connection; both close when the test ends.
 func selfExclusionSessions(t *testing.T, ctx context.Context) (*pgxpool.Pool, *pgx.Conn) {
 	t.Helper()
-	cfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}
@@ -75,7 +75,7 @@ func selfExclusionSessions(t *testing.T, ctx context.Context) (*pgxpool.Pool, *p
 		t.Fatalf("pg_sage pool: %v", err)
 	}
 	t.Cleanup(sage.Close)
-	app, err := pgx.Connect(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	app, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("app connection: %v", err)
 	}

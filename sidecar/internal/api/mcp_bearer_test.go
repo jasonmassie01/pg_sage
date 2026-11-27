@@ -108,7 +108,7 @@ func newBearerFixture(t *testing.T) *bearerFixture {
 	server := mcp.NewServer(backend).WithDirectory(bearerDirectory{})
 	runtime, err := mcp.NewRuntime(cfg.MCP, server, nil, nil)
 	require.NoError(t, err)
-	h := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil,
+	h := newTestRouter(nil, cfg, pool, nil, nil, nil,
 		&RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, SessionAuthMiddleware(pool))
 	return &bearerFixture{pool: pool, store: mcptoken.NewStore(pool), backend: backend, h: h}
 }
@@ -268,7 +268,8 @@ func TestMCPBearerToolsListMatchesScopes(t *testing.T) {
 func TestMCPBearerRejectsBadCredentials(t *testing.T) {
 	f := newBearerFixture(t)
 	revoked := f.agentToken(t)
-	_, err := f.store.Revoke(context.Background(), revoked.ID, "admin@example.com")
+	_, err := f.store.Revoke(context.Background(), revoked.ID, "admin@example.com",
+		mcptoken.Audit{})
 	require.NoError(t, err)
 	expired := f.agentToken(t)
 	_, err = f.pool.Exec(context.Background(), `UPDATE sage.mcp_tokens

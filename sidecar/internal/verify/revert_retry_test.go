@@ -63,8 +63,8 @@ func TestResumedRevertReturnsStoredVerdictWithoutReobserving(t *testing.T) {
 
 func TestZeroWriteBaselineIsNotWriteRegression(t *testing.T) {
 	source := newFakeObservationSource()
-	source.writeBefore = Measurement{Samples: 60}
-	source.writeAfter = Measurement{Samples: 60, AverageLatency: 5 * time.Millisecond, Buckets: 12}
+	source.writeBefore = WriteCost{Intervals: 6, Tuples: 6000}
+	source.writeAfter = measuredCost(500)
 	engine := newTestEngine(t, source, newMemoryStateStore())
 
 	verdict, err := engine.Watch(context.Background(), successfulWatchRequest("write-0"))

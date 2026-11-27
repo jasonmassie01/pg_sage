@@ -22,17 +22,37 @@ safety_critical mode
 safety_critical meta_db
 safety_critical encryption_key
 safety_critical encryption_key_previous
+safety_critical data_dir
 safety_critical postgres.database
 safety_critical postgres.database_url
+safety_critical postgres.action_dsn
 safety_critical postgres.host
 safety_critical postgres.max_connections
 safety_critical postgres.password
 safety_critical postgres.port
 safety_critical postgres.sslmode
 safety_critical postgres.user
+safety_critical api.access_log
+safety_critical api.database_grants
+safety_critical postgres.provider
+safety_critical postgres.cloud_resource.aws.cluster_identifier
+safety_critical postgres.cloud_resource.aws.db_instance_identifier
+safety_critical postgres.cloud_resource.aws.region
+safety_critical postgres.cloud_resource.azure.resource_group
+safety_critical postgres.cloud_resource.azure.server
+safety_critical postgres.cloud_resource.azure.subscription
+safety_critical postgres.cloud_resource.gcp.cluster
+safety_critical postgres.cloud_resource.gcp.instance
+safety_critical postgres.cloud_resource.gcp.project
+safety_critical postgres.cnpg.cluster
+safety_critical postgres.cnpg.namespace
 safety_critical api.listen_addr
 safety_critical api.trusted_proxies
+safety_critical api.trusted_origins
+safety_critical api.migration_lint_rate_per_minute
 safety_critical prometheus.listen_addr
+safety_critical prometheus.serve_on_api
+operator_preference prometheus.refresh_interval_seconds
 safety_critical oauth.client_id
 safety_critical oauth.client_secret
 safety_critical oauth.default_role
@@ -42,6 +62,7 @@ safety_critical oauth.provider
 safety_critical oauth.redirect_url
 safety_critical oauth.groups_claim
 safety_critical oauth.role_mapping
+safety_critical oauth.database_grant_mapping
 safety_critical oauth.unmapped_users
 safety_critical oauth.break_glass.enabled
 safety_critical oauth.break_glass.password_hash
@@ -52,7 +73,19 @@ safety_critical mcp.oauth.issuers
 safety_critical mcp.oauth.resource
 safety_critical mcp.oauth.task_claim
 safety_critical mcp.stdio_principal
+safety_critical mcp.call_timeout_seconds
 safety_critical notification_policy.allow_private_targets
+safety_critical notification_policy.chat_approval_max_tier
+operator_preference notification_policy.ask_batch_minutes
+safety_critical policy.directory
+safety_critical policy.directory_mode
+safety_critical policy.approval_prs.provider
+safety_critical policy.approval_prs.base_url
+safety_critical policy.approval_prs.repo
+safety_critical policy.approval_prs.base_branch
+safety_critical policy.approval_prs.path
+operator_preference policy.approval_prs.expiry_hours
+operator_preference policy.approval_prs.timeout_seconds
 safety_critical policy.profile
 safety_critical self_config.enabled
 safety_critical self_config.soak_hours
@@ -66,6 +99,7 @@ safety_critical defaults.max_connections
 safety_critical defaults.trust_level
 operator_preference databases[].analyzer_interval_seconds
 operator_preference databases[].collector_interval_seconds
+operator_preference databases[].disabled_rules
 safety_critical databases[].database
 safety_critical databases[].execution_mode
 safety_critical databases[].executor_enabled
@@ -74,11 +108,24 @@ safety_critical databases[].llm_enabled
 safety_critical databases[].max_connections
 safety_critical databases[].name
 safety_critical databases[].password
+safety_critical databases[].action_dsn
 safety_critical databases[].port
 safety_critical databases[].sslmode
 operator_preference databases[].tags
 safety_critical databases[].trust_level
 safety_critical databases[].user
+safety_critical databases[].provider
+safety_critical databases[].cloud_resource.aws.cluster_identifier
+safety_critical databases[].cloud_resource.aws.db_instance_identifier
+safety_critical databases[].cloud_resource.aws.region
+safety_critical databases[].cloud_resource.azure.resource_group
+safety_critical databases[].cloud_resource.azure.server
+safety_critical databases[].cloud_resource.azure.subscription
+safety_critical databases[].cloud_resource.gcp.cluster
+safety_critical databases[].cloud_resource.gcp.instance
+safety_critical databases[].cloud_resource.gcp.project
+safety_critical databases[].cnpg.cluster
+safety_critical databases[].cnpg.namespace
 operator_preference databases[].verify.io_capacity
 safety_critical databases[].replicas
 
@@ -87,6 +134,7 @@ safety_critical trust.cascade_cooldown_cycles
 safety_critical trust.level
 operator_preference trust.maintenance_window
 safety_critical trust.ramp_moderate_hours
+safety_critical trust.ask_after_approvals
 safety_critical trust.ramp_safe_hours
 safety_critical trust.ramp_start
 safety_critical trust.rollback_cooldown_days
@@ -98,19 +146,28 @@ safety_critical trust.tier3_safe
 safety_critical safety.backoff_consecutive_skips
 safety_critical safety.cpu_ceiling_pct
 safety_critical safety.data_io_ceiling_pct
+safety_critical safety.host_cpu_ceiling_pct
 safety_critical safety.ddl_timeout_seconds
 safety_critical safety.disk_pressure_threshold_pct
 safety_critical safety.dormant_interval_seconds
+safety_critical safety.index_build_timeout_seconds
 safety_critical safety.lock_timeout_ms
 derivable safety.query_timeout_ms
+safety_critical safety.reindex_timeout_seconds
+safety_critical safety.vacuum_stall_minutes
+safety_critical safety.vacuum_timeout_seconds
 safety_critical safety.wal_io_ceiling_pct
+operator_preference verify.backtest_max_runtime_minutes
+safety_critical verify.backtest_placebos
 safety_critical verify.drop_window_hours
 safety_critical verify.io_baseline_days
 safety_critical verify.io_baseline_hours
 operator_preference verify.io_capacity
 derivable verify.io_sample_retention_days
+safety_critical verify.method
 safety_critical verify.min_gain_pct
 safety_critical verify.min_samples
+safety_critical verify.on_expired
 safety_critical verify.regress_pct
 safety_critical verify.window_max_minutes
 safety_critical verify.window_minutes
@@ -118,6 +175,7 @@ safety_critical verify.write_impact_pct
 safety_critical runaway.enabled
 safety_critical runaway.policies
 safety_critical runaway.safe_patterns
+safety_critical budgets
 safety_critical custodian.freeze.red_buffer_pct
 safety_critical custodian.wal.abandon_after_minutes
 safety_critical custodian.wal.retained_wal_disk_pct_ceiling
@@ -127,6 +185,33 @@ safety_critical azure.subscription_id
 safety_critical clone.dle_endpoint
 safety_critical clone.dle_token
 operator_preference clone.max_clone_age_minutes
+operator_preference clone.rehearsals_per_hour
+operator_preference clone.rehearsal_statement_timeout_seconds
+safety_critical clone.allow_full_copy
+operator_preference clone.max_creates_per_hour
+safety_critical clone.lakebase.project
+safety_critical clone.lakebase.source_branch
+operator_preference clone.lakebase.ttl_minutes
+operator_preference clone.lakebase.endpoint_max_cu
+safety_critical clone.neon.project_id
+safety_critical clone.neon.parent_branch
+safety_critical clone.neon.api_key
+operator_preference clone.neon.endpoint_max_cu
+operator_preference clone.neon.ttl_minutes
+safety_critical clone.aurora.region
+operator_preference clone.aurora.instance_class
+operator_preference clone.aurora.ttl_minutes
+safety_critical clone.rds.region
+operator_preference clone.rds.instance_class
+operator_preference clone.restore_deadline_minutes
+safety_critical clone.cloudsql.project
+safety_critical clone.cloudsql.instance
+safety_critical clone.alloydb.project
+safety_critical clone.alloydb.location
+safety_critical clone.alloydb.cluster
+safety_critical clone.azure.subscription_id
+safety_critical clone.azure.resource_group
+safety_critical clone.azure.server
 safety_critical clone.provider
 operator_preference value.toil_model_version
 
@@ -138,8 +223,12 @@ derivable analyzer.analyze_stale_days
 derivable analyzer.analyze_stale_min_rows
 derivable analyzer.autovacuum_tune_min_rows
 derivable analyzer.cache_hit_ratio_warning
+derivable analyzer.cdc_stall_minutes
 derivable analyzer.checkpoint_frequency_warning_per_hour
+operator_preference analyzer.disabled_rules
 derivable analyzer.idle_in_transaction_timeout_minutes
+derivable analyzer.inactive_slot_min_minutes
+derivable analyzer.index_bloat_min_bytes
 derivable analyzer.index_bloat_threshold_pct
 derivable analyzer.interval_seconds
 safety_critical analyzer.lock_chain.active_query_cancel_minutes
@@ -153,16 +242,20 @@ derivable analyzer.regression_threshold_pct
 derivable analyzer.schema_guard_ddl_debounce_seconds
 derivable analyzer.self_cost_budget_ms
 derivable analyzer.seq_scan_min_rows
+derivable analyzer.slow_query_min_calls
 derivable analyzer.slow_query_threshold_ms
 derivable analyzer.slow_slot_retained_bytes
+derivable analyzer.subscription_lag_minutes
 derivable analyzer.table_bloat_dead_tuple_pct
+derivable analyzer.table_bloat_min_bytes
 derivable analyzer.table_bloat_min_rows
 derivable analyzer.unused_index_window_days
 derivable analyzer.work_mem_promotion_threshold
-derivable analyzer.wraparound_freeze_xid_age
+derivable analyzer.wraparound_freeze_share
 derivable analyzer.xid_wraparound_critical
 derivable analyzer.xid_wraparound_warning
 operator_preference advisor.bloat_enabled
+operator_preference advisor.budget_proposals
 operator_preference advisor.connection_enabled
 operator_preference advisor.enabled
 derivable advisor.interval_seconds
@@ -174,22 +267,19 @@ derivable auto_explain.collect_interval_seconds
 operator_preference auto_explain.enabled
 derivable auto_explain.log_min_duration_ms
 derivable auto_explain.max_plans_per_cycle
-operator_preference auto_explain.prefer_session_load
 derivable explain.cache_ttl_minutes
 operator_preference explain.enabled
 derivable explain.max_tokens
 derivable explain.timeout_ms
-derivable forecaster.alert_horizons
+derivable forecaster.cache_min_blocks_per_day
 derivable forecaster.cache_warn_threshold
+derivable forecaster.checkpoint_requested_per_hour
 derivable forecaster.connection_warn_pct
 operator_preference forecaster.disk_capacity_bytes
 derivable forecaster.disk_warn_growth_gb_day
 operator_preference forecaster.enabled
 derivable forecaster.lookback_days
-derivable forecaster.min_data_points
 derivable forecaster.min_r_squared
-derivable forecaster.sequence_critical_days
-derivable forecaster.sequence_warn_days
 derivable logwatch.dedup_window_seconds
 operator_preference logwatch.enabled
 operator_preference logwatch.exclude_applications
@@ -202,28 +292,38 @@ operator_preference logwatch.slow_query_enabled
 derivable logwatch.temp_file_min_bytes
 operator_preference migration.activity_polling
 derivable migration.ddl_row_threshold
+safety_critical migration.contract_delay_minutes
 safety_critical migration.enabled
 operator_preference migration.log_detection
-operator_preference migration.managed_service
+safety_critical migration.max_lock_ms
 safety_critical migration.mode
+operator_preference migration.queue_waiters_threshold
 derivable migration.poll_interval_seconds
+safety_critical rehearsal.plan_flip_pct
 derivable rca.connection_saturation_pct
 derivable rca.dedup_window_minutes
+safety_critical rca.deadlock_statement_text
 operator_preference rca.enabled
 derivable rca.escalation_cycles
 derivable rca.llm_correlation_threshold
 derivable rca.lock_chain_interval_seconds
+derivable rca.log_fast_path_interval_seconds
+derivable rca.log_quiet_minutes
 operator_preference rca.narration_enabled
+safety_critical rca.prepared_xact_min_age_minutes
+operator_preference rca.recurrence_renotify_hours
 derivable rca.replication_lag_threshold_seconds
 derivable rca.resolution_cycles
 derivable rca.stale_after_hours
 derivable rca.vacuum_min_dead_tuples
 derivable rca.vacuum_min_table_mb
 derivable rca.wal_spike_multiplier
+safety_critical rca.xmin_holder_min_minutes
 operator_preference schema_lint.disabled_rules
 operator_preference schema_lint.enabled
 operator_preference schema_lint.exclude_schemas
 operator_preference schema_lint.include_schemas
+safety_critical checks
 derivable schema_lint.min_table_rows
 derivable schema_lint.scan_interval_minutes
 
@@ -232,17 +332,18 @@ derivable tuner.analyze_cooldown_minutes
 safety_critical tuner.analyze_max_table_mb
 derivable tuner.analyze_timeout_ms
 safety_critical tuner.enabled
+derivable tuner.hint_absent_cycles
+safety_critical tuner.hint_cost_tolerance_pct
 derivable tuner.hint_retirement_days
 safety_critical tuner.llm_enabled
 safety_critical tuner.max_concurrent_analyze
 derivable tuner.min_query_calls
 derivable tuner.nested_loop_row_threshold
 derivable tuner.parallel_min_table_rows
+derivable tuner.param_shape_min_variants
+derivable tuner.plan_max_age_minutes
 derivable tuner.plan_time_ratio
-derivable tuner.revalidation_explain_timeout_ms
 derivable tuner.revalidation_interval_hours
-derivable tuner.revalidation_keep_ratio
-safety_critical tuner.revalidation_rollback_ratio
 derivable tuner.stale_stats_age_minutes
 derivable tuner.stale_stats_estimate_skew
 derivable tuner.stale_stats_mod_ratio
@@ -258,11 +359,12 @@ safety_critical llm.enabled
 safety_critical llm.endpoint
 safety_critical llm.auth
 operator_preference llm.fleet_token_budget_daily
+operator_preference llm.global_token_budget_daily
+operator_preference llm.pricing
 safety_critical llm.index_optimizer.enabled
 safety_critical llm.index_optimizer.max_include_columns
 safety_critical llm.index_optimizer.max_indexes_per_table
 derivable llm.index_optimizer.min_query_calls
-derivable llm.index_optimizer.over_indexed_ratio_pct
 derivable llm.index_optimizer.write_heavy_ratio_pct
 safety_critical llm.json_mode
 safety_critical llm.model
@@ -274,8 +376,6 @@ safety_critical llm.optimizer.max_indexes_per_table
 safety_critical llm.optimizer.max_new_per_table
 derivable llm.optimizer.min_query_calls
 derivable llm.optimizer.min_snapshots
-derivable llm.optimizer.over_indexed_ratio_pct
-operator_preference llm.optimizer.plan_source
 derivable llm.optimizer.rejection_memory.call_volume_ratio
 operator_preference llm.optimizer.rejection_memory.enabled
 derivable llm.optimizer.rejection_memory.max_age_days
@@ -294,6 +394,16 @@ derivable llm.optimizer_llm.max_output_tokens
 safety_critical llm.optimizer_llm.model
 derivable llm.optimizer_llm.timeout_seconds
 derivable llm.optimizer_llm.token_budget_daily
+safety_critical llm.review_llm.api_key
+derivable llm.review_llm.cooldown_seconds
+safety_critical llm.review_llm.enabled
+safety_critical llm.review_llm.endpoint
+safety_critical llm.review_llm.fallback_to_general
+derivable llm.review_llm.max_output_tokens
+safety_critical llm.review_llm.model
+derivable llm.review_llm.timeout_seconds
+derivable llm.review_llm.token_budget_daily
+safety_critical llm.redact_numeric_literals
 derivable llm.timeout_seconds
 derivable llm.token_budget_daily
 safety_critical llm.token_parameter
@@ -303,14 +413,19 @@ safety_critical llm.tool_reasoning_effort
 operator_preference alerting.check_interval_seconds
 operator_preference alerting.cooldown_minutes
 operator_preference alerting.enabled
+operator_preference alerting.engine
 safety_critical alerting.pagerduty_routing_key
 operator_preference alerting.quiet_hours_end
 operator_preference alerting.quiet_hours_start
+operator_preference alerting.repeat_minutes
 operator_preference alerting.routes
 safety_critical alerting.slack_webhook_url
 operator_preference alerting.timezone
 safety_critical alerting.webhooks
+operator_preference briefing.dba_hour_rate_usd
 operator_preference briefing.channels
+operator_preference briefing.fleet_mode
+operator_preference briefing.only_when_changed
 operator_preference briefing.schedule
 safety_critical briefing.slack_webhook_url
 
@@ -320,10 +435,13 @@ operator_preference retention.auth_audit_days
 operator_preference retention.decisions_days
 derivable retention.explains_days
 derivable retention.findings_days
+derivable retention.query_rollup_daily_days
+derivable retention.query_rollup_hourly_days
 derivable retention.query_store_days
 derivable retention.sage_size_warning_pct
 derivable retention.snapshots_days
 derivable retention.snapshots_max_pct
+derivable retention.workload_packs_days
 
 # Sage SRE: actions and autonomy are authority; detectors, runways, SLO
 # proxies and sampling are derivable thresholds and cadences.
@@ -341,7 +459,7 @@ operator_preference sre.automatic_start
 safety_critical sre.autonomy.bench_results_path
 safety_critical sre.autonomy.canary.canary_instances
 safety_critical sre.autonomy.canary.regression_limit_pct
-safety_critical sre.autonomy.canary.settle_seconds
+safety_critical sre.autonomy.canary.stage_wait_hours
 safety_critical sre.autonomy.class_promotion.min_success_rate_pct
 safety_critical sre.autonomy.class_promotion.min_successes_l2
 safety_critical sre.autonomy.class_promotion.min_successes_l3
@@ -350,6 +468,7 @@ safety_critical sre.autonomy.enforce
 safety_critical sre.autonomy.evaluate_interval_minutes
 safety_critical sre.autonomy.failover_cooldown_minutes
 safety_critical sre.autonomy.game_days.enabled
+safety_critical sre.autonomy.game_days.customer_programs
 safety_critical sre.autonomy.game_days.families
 safety_critical sre.autonomy.game_days.interval_hours
 safety_critical sre.autonomy.game_days.local_dsn
@@ -430,14 +549,22 @@ derivable tuning.max_requests_per_cycle
 derivable tuning.max_tokens_per_cycle
 derivable tuning.max_turns_per_case
 safety_critical sre.llm.mode
+safety_critical sre.investigator.require_support_citation
 
 # Specialist API (v2.1.0): who may call pg_sage, with what credentials and how
 # much, and what identifiers leave the database are authority; which PagerDuty
-# services map onto it is the operator's routing.
+# services, incident.io field values and Azure resources map onto it is the
+# operator's routing.
+safety_critical specialist.azure_monitor.shared_secret
+operator_preference specialist.azure_monitor.resources
 safety_critical specialist.enabled
+operator_preference specialist.incidentio.database_field
+operator_preference specialist.incidentio.routes
+safety_critical specialist.incidentio.signing_secret
 safety_critical specialist.keep_identifiers
 safety_critical specialist.max_open_per_identity
 safety_critical specialist.max_open_total
+safety_critical specialist.max_live_age_hours
 safety_critical specialist.pagerduty.api_token
 safety_critical specialist.pagerduty.api_url
 safety_critical specialist.pagerduty.from_email
@@ -456,7 +583,26 @@ derivable ask.daily_tokens_per_database
 operator_preference ask.daily_tokens_per_user
 safety_critical ask.enabled
 derivable ask.max_tokens_per_question
+operator_preference ask.max_concurrent_runs
+operator_preference ask.max_seconds_per_question
 operator_preference ask.retention_days
+operator_preference review.enabled
+operator_preference review.grade_interval_hours
+operator_preference review.window_days
+operator_preference review.large_table_bytes
+operator_preference review.calendar_days
+operator_preference review.min_interval_hours
+operator_preference review.model_pass
+operator_preference review.model_runs
+operator_preference review.consensus
+operator_preference review.triage_model
+operator_preference review.fleet_deep_max
+safety_critical review.hash_identifiers
+safety_critical review.gate.min_reviews
+safety_critical review.gate.max_gap_points
+safety_critical review.gate.max_revert_pct
+safety_critical review.gate.fixture_databases
+operator_preference facts.confirmed_absence_days
 
 # Managed-cloud telemetry (v2.2.0): the provider identity is an endpoint; the
 # guard floors gate builds and memory changes, so loosening one widens what
@@ -465,6 +611,10 @@ safety_critical cloud_telemetry.aws.db_cluster_identifier
 safety_critical cloud_telemetry.aws.db_instance_identifier
 safety_critical cloud_telemetry.aws.region
 operator_preference cloud_telemetry.enabled
+operator_preference provider_advice.enabled
+safety_critical cloud_telemetry.alloydb.cluster
+safety_critical cloud_telemetry.alloydb.instance
+safety_critical cloud_telemetry.alloydb.project
 safety_critical cloud_telemetry.gcp.instance
 safety_critical cloud_telemetry.gcp.project
 safety_critical cloud_telemetry.max_replica_lag_seconds
@@ -481,11 +631,29 @@ operator_preference self_budget.cpu_ms_per_cycle
 operator_preference self_budget.db_time_ms_per_hour
 operator_preference self_budget.storage_mb
 
+# Seasonal baselines (market-02): detection tuning the operator declares. A
+# critical anomaly opens a read-only investigation; no key widens what pg_sage
+# may do, and none is derived.
+operator_preference baseline.enabled
+operator_preference baseline.max_query_keys
+operator_preference baseline.min_delta_ms
+operator_preference baseline.timezone
+operator_preference baseline.weeks
+operator_preference baseline.z_critical
+operator_preference baseline.z_warning
+
 # Fleet learning (v2.3.0): evidence and coordination the operator declares;
 # none widens authority or spend (the split never exceeds the fleet cap).
+# market-06: discovery widens what pg_sage connects to and which credentials
+# it reuses, so its switches are never derived.
+safety_critical fleet.discovery.enabled
+safety_critical fleet.discovery.max_enrolled
+safety_critical fleet.discovery.sources
+operator_preference fleet.discovery.ttl_hours
 operator_preference fleet_learning.budget_ceiling_pct
 operator_preference fleet_learning.budget_floor_pct
 operator_preference fleet_learning.budget_split
+operator_preference fleet_learning.control_database
 operator_preference fleet_learning.enabled
 operator_preference fleet_learning.fleet_finding_min_databases
 operator_preference fleet_learning.include_names
@@ -493,6 +661,32 @@ operator_preference fleet_learning.interval_minutes
 operator_preference fleet_learning.leader_lease_seconds
 operator_preference fleet_learning.lookalike_min_similarity
 operator_preference fleet_learning.min_prior_outcomes
+operator_preference fleet_learning.orphan_scope_days
+
+# HA monitor cadence (fleet-04): how often each database's role is checked. A
+# longer interval never widens authority: a check older than three intervals
+# reads as an unknown role, which blocks autonomous actions.
+operator_preference ha.check_interval_seconds
+
+# Backup freshness policy (market-07): the age, archive gap and retention the
+# operator requires. They only open or close findings; they never widen what
+# pg_sage may do.
+operator_preference backup.max_age_hours
+operator_preference backup.max_archive_gap_minutes
+operator_preference backup.min_retention_days
+operator_preference backup.min_pitr_hours
+operator_preference backup.external_source
+
+# Restore drills (drill-01a): the fleet-wide cap on drills running at once.
+# Each drill's clone is still bounded by clone.max_creates_per_hour.
+operator_preference drill.max_concurrent_per_fleet
+
+# Self-managed restore drills (drill-01c): programs the sidecar runs on its own
+# host, with what they may read from its environment. Never derived, never
+# API-writable.
+safety_critical drill.command.restore_argv
+safety_critical drill.command.destroy_argv
+safety_critical drill.command.env_allow
 
 # History placement (v2.3.0): where pg_sage keeps its own telemetry history is
 # deployment topology the operator declares. It never widens what pg_sage may
@@ -508,17 +702,28 @@ safety_critical agents.control_database
 safety_critical agents.default_environment
 operator_preference agents.client_patterns
 operator_preference agents.posture.daily_at
+safety_critical agents.code_host.provider
+safety_critical agents.code_host.base_url
+safety_critical agents.code_host.repo
+operator_preference agents.code_host.timeout_seconds
+safety_critical agents.pr_mode.enabled
+safety_critical agents.pr_mode.repo
+safety_critical agents.pr_mode.migrations_path
+operator_preference agents.pr_mode.label
 operator_preference agents.posture.memory_growth_gb_day
+operator_preference agents.exposure.sweep_seconds
 
 # Audit export and evidence (E2). Sinks are endpoints and the signing key is
 # a credential; the cadence and correlation switches are the operator's.
 safety_critical audit.siem.sinks
 safety_critical audit.evidence.signing_key_env
+safety_critical audit.prune_below_signed_checkpoint
 operator_preference audit.siem.batch_size
 operator_preference audit.siem.interval_seconds
 operator_preference audit.siem.max_backoff_seconds
 operator_preference audit.pgaudit.correlate
 operator_preference audit.verify_interval_hours
+operator_preference audit.full_verify_interval_hours
 safety_critical agents.roles.connection_limit
 safety_critical agents.roles.statement_timeout_ms
 safety_critical agents.roles.lock_timeout_ms
@@ -550,7 +755,16 @@ safety_critical lakebase_observability.max_bytes
 safety_critical lakebase_observability.queries_per_poll
 safety_critical lakebase_observability.window_seconds
 safety_critical lakebase_observability.retention_hours
+safety_critical lakebase_observability.settle_lag_seconds
+safety_critical lakebase_observability.short_lookback_seconds
 safety_critical lakebase_observability.streams
 safety_critical lakebase_observability.bindings
 safety_critical sre.read_policy.scope
 safety_critical sre.read_policy.allowed_sources
+
+# Replication health (market-13): the operator declares which heartbeat
+# tables a CDC connector writes; pg_sage only reads them.
+operator_preference replication.cdc_heartbeats
+
+# Cost attribution (market-04): operator-declared prices
+operator_preference cost.rates

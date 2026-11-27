@@ -1,13 +1,15 @@
 // Agents (spec §8.4): the agent principals pg_sage governs, with
-// status, sponsor, environment ceiling and taint. Operators open an agent
-// to freeze it and to decide its grants; admins also create agents, issue
-// their tokens, unfreeze them and hold the fleet kill switch. App.jsx keeps
-// viewers out.
+// status, sponsor, environment ceiling and taint, and the open fleet and
+// database freezes. Operators open an agent to freeze it and to decide its
+// grants; admins also create, edit and retire agents, issue and revoke
+// their tokens, unfreeze them, hold the kill switch and release freezes
+// (agentgov-07). App.jsx keeps viewers out.
 import { useCallback, useEffect, useState } from 'react'
 import { AgentDetail } from './agents/AgentDetail'
 import { CreateAgentForm } from './agents/CreateAgentForm'
+import { FreezeBanner, useFreezes } from './agents/FreezeBanner'
 import { KillSwitch } from './agents/KillSwitch'
-import { listAgents, listUsers, sponsorLabel } from './agents/agentsApi'
+import { listAgents, listUsers, sponsorLabel, unknownProfile } from './agents/agentsApi'
 import { Button, ErrorBox, card, muted } from './agents/ui'
 
 function Explainer() {
@@ -21,20 +23,24 @@ function Explainer() {
         Each agent is a principal with an accountable sponsor and an environment ceiling.
         It reaches databases only through grants an operator approved, on roles pg_sage
         manages; every request passes the trust gate. A tainted agent&apos;s changes wait
-        for a person. Freeze one agent, or kill them all, at any trust level.
+        for a person. Freeze one agent, or kill them all, whatever their autonomy.
       </p>
     </div>
   )
 }
 
 function useAgentList() {
-  const [state, setState] = useState({ items: [], next: '', loaded: false, error: null })
+  const [state, setState] = useState({ items: [], next: '', loaded: false, error: null,
+    profiles: null, retireGraceDays: null })
   const load = useCallback(async (cursor = '') => {
     try {
       const page = await listAgents(cursor)
       const items = Array.isArray(page?.items) ? page.items : []
       setState(prev => ({ items: cursor ? [...prev.items, ...items] : items,
-        next: page?.next_cursor || '', loaded: true, error: null }))
+        next: page?.next_cursor || '', loaded: true, error: null,
+        profiles: Array.isArray(page?.profiles) ? page.profiles : prev.profiles,
+        retireGraceDays: Number.isInteger(page?.retire_grace_days)
+          ? page.retire_grace_days : prev.retireGraceDays }))
     } catch (err) {
       setState(prev => ({ ...prev, loaded: true, error: err }))
     }
@@ -53,7 +59,7 @@ function useUsers() {
   return users
 }
 
-function AgentRow({ agent, users, onOpen }) {
+function AgentRow({ agent, users, profiles, onOpen }) {
   const n = agent.name
   return (
     <tr data-testid={`agent-row-${n}`} style={{ borderTop: '1px solid var(--border)' }}>
@@ -71,7 +77,16 @@ function AgentRow({ agent, users, onOpen }) {
       <td data-testid={`agent-taint-${n}`} className="pr-3">
         {agent.tainted ? 'tainted' : '—'}
       </td>
-      <td className="pr-3" style={muted}>{agent.profile}</td>
+      <td className="pr-3" style={muted}>
+        {agent.profile}
+        {unknownProfile(agent, profiles) && (
+          <span data-testid={`agent-profile-warning-${n}`} className="ml-2 text-xs"
+            title="Every agent_* request is refused until an admin sets a shipped profile"
+            style={{ color: 'var(--yellow)' }}>
+            profile not recognised
+          </span>
+        )}
+      </td>
     </tr>
   )
 }
@@ -94,12 +109,16 @@ function AgentTable({ list, users, onOpen }) {
       <table data-testid="agents-table" className="w-full text-sm text-left"
         style={{ color: 'var(--text-primary)' }}>
         <thead style={muted}>
-          <tr><th>Name</th><th>Status</th><th>Sponsor</th><th>Ceiling</th><th>Taint</th>
-            <th>Profile</th></tr>
+          <tr><th scope="col">Name</th>
+            <th scope="col">Status</th>
+            <th scope="col">Sponsor</th>
+            <th scope="col">Ceiling</th>
+            <th scope="col">Taint</th>
+            <th scope="col">Profile</th></tr>
         </thead>
         <tbody>
           {list.items.map(a => <AgentRow key={a.id} agent={a} users={users}
-            onOpen={onOpen} />)}
+            profiles={list.profiles} onOpen={onOpen} />)}
         </tbody>
       </table>
       {list.next && (
@@ -115,16 +134,25 @@ export function AgentsPage({ user, databases = [] }) {
   const isAdmin = user?.role === 'admin'
   const list = useAgentList()
   const users = useUsers()
+  const freezes = useFreezes()
   const [open, setOpen] = useState(null)
+  const changed = () => {
+    list.reload()
+    freezes.reload()
+  }
   return (
     <div data-testid="agents-page">
       <Explainer />
-      {isAdmin && <KillSwitch onKilled={list.reload} />}
-      {isAdmin && <CreateAgentForm users={users} onCreated={list.reload} />}
+      <FreezeBanner freezes={freezes} isAdmin={isAdmin} onChanged={changed} />
+      {isAdmin && <KillSwitch agents={list.items} databases={databases}
+        onKilled={changed} />}
+      {isAdmin && <CreateAgentForm users={users} profiles={list.profiles}
+        onCreated={list.reload} />}
       <AgentTable list={list} users={users} onOpen={setOpen} />
       {open && (
         <AgentDetail key={open.id} agentId={open.id} user={user} databases={databases}
-          users={users} onChanged={list.reload} onClose={() => setOpen(null)} />
+          users={users} profiles={list.profiles} retireGraceDays={list.retireGraceDays}
+          onChanged={changed} onClose={() => setOpen(null)} />
       )}
     </div>
   )

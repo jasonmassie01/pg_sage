@@ -39,10 +39,12 @@ CREATE TABLE IF NOT EXISTS sage.migration_run (
     measurement             jsonb NOT NULL DEFAULT '{}'::jsonb,
     verdict                 text NOT NULL,
     contract_not_before     timestamptz,
+    reason                  text NOT NULL DEFAULT '',
     created_at              timestamptz NOT NULL DEFAULT now(),
     updated_at              timestamptz NOT NULL DEFAULT now(),
     CHECK (phase IN ('plan', 'rehearse', 'expand', 'verify', 'contract')),
-    CHECK (verdict IN ('pending', 'recommend_only', 'parked', 'promote', 'failed'))
+    CHECK (verdict IN ('pending', 'recommend_only', 'parked', 'promote', 'failed',
+                       'blocked'))
 );
 
 CREATE TABLE IF NOT EXISTS sage.retention_run (

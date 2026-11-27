@@ -17,11 +17,14 @@ test.describe('Sidebar navigation', () => {
     await expect(page.locator('nav')).toBeVisible()
 
     // Layout now contracts around autonomous DBA operation.
-    for (const heading of ['Operate']) {
+    // ux-11: Operate and Admin headings; Evidence is a collapsible button.
+    for (const heading of ['Operate', 'Admin']) {
       await expect(
         page.locator('nav').getByText(heading, { exact: true }),
       ).toBeVisible()
     }
+    await expect(page.locator('nav').getByRole('button', { name: 'Evidence' }).first())
+      .toBeVisible()
   })
 
   test('all non-admin nav links are visible', async ({ page }) => {
@@ -29,9 +32,10 @@ test.describe('Sidebar navigation', () => {
 
     // These nav items are always visible (no admin gate).
     const navItems = [
-      { testid: 'nav-value', label: 'Value' },
-      { testid: 'nav-cases', label: 'Cases' },
-      { testid: 'nav-actions', label: 'Actions' },
+      { testid: 'nav-inbox', label: 'Inbox' },
+      { testid: 'nav-cases', label: 'Issues' },
+      { testid: 'nav-actions', label: 'Changes' },
+      { testid: 'nav-ask', label: 'Ask Sage' },
     ]
 
     for (const item of navItems) {
@@ -61,10 +65,10 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
 
     const routes = [
-      { testid: 'nav-cases', hash: '#/cases' },
-      { testid: 'nav-actions', hash: '#/actions' },
+      { testid: 'nav-cases', hash: '#/issues' },
+      { testid: 'nav-actions', hash: '#/changes' },
       { testid: 'nav-settings', hash: '#/settings' },
-      { testid: 'nav-value', hash: '#/' },
+      { testid: 'nav-inbox', hash: '#/' },
     ]
 
     for (const route of routes) {
@@ -77,13 +81,13 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
 
     const header = page.locator('header h1')
-    await expect(header).toContainText('Value')
+    await expect(header).toContainText('Inbox')
 
     await page.locator('[data-testid="nav-settings"]').click()
     await expect(header).toContainText('Settings')
 
     await page.locator('[data-testid="nav-cases"]').click()
-    await expect(header).toContainText('Cases')
+    await expect(header).toContainText('Issues')
   })
 
   test('user email and sign-out button render', async ({ page }) => {
@@ -109,7 +113,7 @@ test.describe('Sidebar navigation', () => {
     await page.goto('/')
     await page.locator('[data-testid="nav-cases"]').click()
     await page.locator('[data-testid="nav-settings"]').click()
-    await page.locator('[data-testid="nav-value"]').click()
+    await page.locator('[data-testid="nav-inbox"]').click()
 
     // Filter out known benign errors (e.g. favicon 404).
     const real = errors.filter(
@@ -117,5 +121,78 @@ test.describe('Sidebar navigation', () => {
         && !e.includes('EventSource'),
     )
     expect(real).toHaveLength(0)
+  })
+})
+
+// dashboard-03: a page whose payload has the wrong shape throws during
+// render. The page boundary keeps the header emergency stop and the
+// navigation mounted, and the next route renders normally.
+test.describe('Page render error', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllAPIs(page)
+    // Registered last, so it wins over the catch-all: a string where the
+    // SLOs page expects a list.
+    await page.route('**/api/v1/sre/slos**', route =>
+      route.fulfill({ json: { slos: 'not-a-list' } }),
+    )
+  })
+
+  test('emergency stop stays visible and clickable', async ({ page }) => {
+    await page.goto('/#/slos')
+
+    await expect(page.getByTestId('page-error'))
+      .toContainText('This page failed to render')
+    await expect(page.getByTestId('sidebar-desktop')).toBeVisible()
+    const stop = page.getByTestId('header-emergency-stop')
+    await expect(stop).toBeVisible()
+    await stop.click()
+    await expect(page.getByTestId('header-emergency-stop-dialog')).toBeVisible()
+  })
+
+  test('navigating away renders the next page', async ({ page }) => {
+    await page.goto('/#/slos')
+    await expect(page.getByTestId('page-error')).toBeVisible()
+
+    await page.getByTestId('nav-actions').click()
+
+    await expect(page).toHaveURL(/#\/changes$/)
+    await expect(page.getByTestId('page-error')).toHaveCount(0)
+    await expect(page.locator('header h1')).toContainText('Changes')
+  })
+})
+
+// ux-11: every old path still opens its page, at the new address, with
+// ?database= and ?case= kept.
+test.describe('Moved pages', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAllAPIs(page)
+  })
+
+  const MOVED = [
+    ['/#/cases?database=orders&case=7', /#\/issues\?database=orders&case=7$/, 'Issues'],
+    ['/#/forecasts?database=orders', /#\/issues\?source=forecast&database=orders$/, 'Issues'],
+    ['/#/actions?database=orders', /#\/changes\?database=orders$/, 'Changes'],
+    ['/#/value', /#\/ledger\?section=value$/, 'Outcome ledger'],
+    ['/#/trust', /#\/autonomy$/, 'Autonomy'],
+    ['/#/advanced', /#\/manage-databases\?tab=readiness$/, 'Databases'],
+    ['/#/alerts?database=orders', /#\/notifications\?tab=log&database=orders$/,
+      'Notifications'],
+    ['/#/mcp-tokens', /#\/agents\?tab=tokens$/, 'Agents'],
+  ] as const
+
+  for (const [from, to, title] of MOVED) {
+    test(`${from} redirects to its new home`, async ({ page }) => {
+      await page.goto(from)
+      await expect(page).toHaveURL(to)
+      await expect(page.locator('header h1')).toContainText(title)
+      await expect(page.getByTestId('not-found')).toHaveCount(0)
+    })
+  }
+
+  test('an unknown hash renders Not found with a way to the Inbox', async ({ page }) => {
+    await page.goto('/#/no-such-page')
+    await expect(page.getByTestId('not-found')).toBeVisible()
+    await page.getByRole('link', { name: 'Go to Inbox' }).click()
+    await expect(page.locator('header h1')).toContainText('Inbox')
   })
 })

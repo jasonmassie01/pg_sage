@@ -7,8 +7,11 @@ var auditChainExemptions = map[string]string{
 	"audit_chain_link": "tamper-evidence chain of the audit tables; kept whole " +
 		"so every link stays verifiable",
 	"audit_chain_meta": "one row per chained table: its install boundary",
+	"audit_chain_checkpoint": "bounded by auditchain.StoreCheckpoint: the newest 100 " +
+		"verified heads per chain plus the newest full one",
 	"guard_identity_bindings": "external identity to principal bindings, current " +
 		"state (deleted with the principal)",
-	"guard_principal_files": "one row per file-managed principal, current state",
-	"siem_cursor":           "one row per SIEM sink, source and chain: its export position",
+	"siem_cursor": "one row per SIEM sink, source and chain: its export position",
+	"evidence_signing_key": "one row: the sealed key that signs evidence packs; " +
+		"deleting it would stop packs from verifying under the published key",
 }

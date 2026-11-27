@@ -124,7 +124,7 @@ func rebaseRouter(
 			next.ServeHTTP(w, withUser(r, user))
 		})
 	}
-	return NewRouterFullRuntime(nil, config.Clone(startup), pool, nil, nil, nil,
+	return newTestRouter(nil, config.Clone(startup), pool, nil, nil, nil,
 		&RuntimeDeps{
 			ConfigController: controller,
 			ConfigBase:       startup,

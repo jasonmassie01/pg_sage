@@ -99,13 +99,26 @@ var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // ChatWithTools sends one tool-calling chat turn. It never retries a
 // failure: a rate limit returns ErrRateLimited at once so callers can fall
 // back inside their own deadline. Only a request-shape rejection in auto
-// mode is re-sent, once per kind (wire_compat.go).
+// mode is re-sent, once per kind (wire_compat.go). Each call reports one
+// Outcome to the client's observer.
 func (c *Client) ChatWithTools(
 	ctx context.Context, msgs []Message, tools []ToolSpec, opts ToolOptions,
 ) (ToolResult, error) {
 	if c == nil {
 		return ToolResult{}, ErrLLMDisabled
 	}
+	start := time.Now()
+	defer recordWait(ctx, start)
+	res, err := c.chatWithTools(ctx, msgs, tools, opts)
+	c.observe(ctx, start, err, callUsage{prompt: res.PromptTokens,
+		completion: res.CompletionTokens, reasoning: res.ReasoningTokens,
+		tokens: res.Tokens, estimatedPrompt: estimateMessages(msgs)})
+	return res, err
+}
+
+func (c *Client) chatWithTools(
+	ctx context.Context, msgs []Message, tools []ToolSpec, opts ToolOptions,
+) (ToolResult, error) {
 	if err := validateToolRequest(msgs, tools, opts); err != nil {
 		return ToolResult{}, err
 	}
@@ -114,9 +127,11 @@ func (c *Client) ChatWithTools(
 	if !configEnabled(cfg) {
 		return ToolResult{}, ErrLLMDisabled
 	}
-	if err := c.checkAvailable(cfg); err != nil {
+	probe, err := c.checkAvailable(ctx, cfg)
+	if err != nil {
 		return ToolResult{}, err
 	}
+	defer c.endProbe(probe)
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
 		requestCtx, cancel = context.WithTimeout(requestCtx, opts.Timeout)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -24,44 +25,78 @@ type llmDDLResponse struct {
 // ddlLLMTimeout is the context deadline for a single DDL LLM call.
 const ddlLLMTimeout = 30 * time.Second
 
-// llmFallback asks the LLM to assess DDL that no deterministic rule
-// matched. Returns nil on low-risk or any error (graceful degradation).
-func (a *Advisor) llmFallback(
+// fallbackRuleID is the rule ID of a finding the LLM fallback raised.
+const fallbackRuleID = "llm_ddl_fallback"
+
+// fallbackResult assesses DDL that no deterministic rule matched, on the
+// enrichment worker. It returns the incident to persist and the model's
+// alternative, or nil when the statement may not be sent, the model
+// failed, or the risk is at or below the threshold (graceful degradation).
+func (a *Advisor) fallbackResult(
 	ctx context.Context, sql string,
-) (*rca.Incident, error) {
+) (*rca.Incident, ScriptResult) {
+	clean := sanitizeDDL(sql)
+	if !a.fallbackEligible(clean) {
+		return nil, ScriptResult{}
+	}
+	resp := a.fallbackResponse(ctx, clean)
+	if resp == nil {
+		return nil, ScriptResult{}
+	}
+	resp.RiskScore = math.Min(1, math.Max(0, resp.RiskScore))
+	if resp.RiskScore <= incidentThreshold {
+		return nil, ScriptResult{}
+	}
+	return a.buildLLMIncident(resp, clean)
+}
+
+// fallbackResponse is the model's parsed assessment of clean, cached for
+// the statement and its table's schema. A failed call, and a reply that
+// does not parse, is not cached, so the next detection asks again.
+func (a *Advisor) fallbackResponse(ctx context.Context, clean string) *llmDDLResponse {
+	schema := ""
+	if target := statementTarget(clean); target.Table != "" && a.scriptGen != nil {
+		schema = a.scriptGen.schemaText(ctx, target.Schema, target.Table)
+	}
+	key := enrichKey(fallbackRuleID, clean, schema)
+	raw, cached := a.cache.get(key)
+	if !cached {
+		var err error
+		if raw, err = a.llmFallback(ctx, clean); err != nil {
+			a.logFn("warn", "migration: LLM DDL fallback failed: %v", err)
+			return nil
+		}
+	}
+	resp, err := parseDDLLLMResponse(raw)
+	if err != nil {
+		a.logFn("warn", "migration: LLM DDL parse failed: %v", err)
+		return nil
+	}
+	if !cached {
+		a.cache.put(key, raw)
+	}
+	return resp
+}
+
+// llmFallback asks the model to assess sanitized DDL.
+func (a *Advisor) llmFallback(ctx context.Context, sql string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, ddlLLMTimeout)
 	defer cancel()
 
 	system := buildDDLSystemPrompt()
 	user := buildDDLUserPrompt(sql, a.pgVersion, a.dbName)
-
-	raw, _, err := a.llmClient.Chat(ctx, system, user, 2048)
-	if err != nil {
-		a.logFn("warn",
-			"migration: LLM DDL fallback failed: %v", err)
-		return nil, nil
-	}
-
-	resp, err := parseDDLLLMResponse(raw)
-	if err != nil {
-		a.logFn("warn",
-			"migration: LLM DDL parse failed: %v", err)
-		return nil, nil
-	}
-
-	resp.RiskScore = math.Min(1, math.Max(0, resp.RiskScore))
-	if resp.RiskScore <= incidentThreshold {
-		return nil, nil
-	}
-
-	return a.buildLLMIncident(resp, sql), nil
+	pctx := llm.WithPurpose(ctx, "migration_advice") // llm-04: usage ledger label
+	raw, _, err := a.llmClient.Chat(pctx, system, user, 2048)
+	return raw, err
 }
 
-// buildLLMIncident converts an llmDDLResponse into an rca.Incident
-// with source "schema_advisor_llm".
+// buildLLMIncident converts an llmDDLResponse into an rca.Incident with
+// source "schema_advisor_llm" and no recommended SQL: the model's
+// alternative is returned beside it, validated or labelled, for the
+// llm_ detail keys (migration-10).
 func (a *Advisor) buildLLMIncident(
 	resp *llmDDLResponse, sql string,
-) *rca.Incident {
+) (*rca.Incident, ScriptResult) {
 	severity := "warning"
 	if resp.RiskScore > 0.7 {
 		severity = "critical"
@@ -83,26 +118,45 @@ func (a *Advisor) buildLLMIncident(
 				resp.RequiresRewrite, resp.EstDurationSec),
 		},
 	}
-	if resp.SafeAlternative != "" {
+	alt := a.validatedAlternative(resp.SafeAlternative, sql)
+	switch {
+	case alt.Script != "":
 		chain = append(chain, rca.ChainLink{
 			Order:       3,
-			Signal:      "safe_alternative",
-			Description: resp.SafeAlternative,
+			Signal:      detailLLMSafeAlternative,
+			Description: validatedLabel,
+			Evidence:    alt.Script,
 		})
+	case alt.ModelText != "":
+		chain = append(chain, unvalidatedLink(3, alt.ModelText, alt.Reason))
 	}
 
 	return &rca.Incident{
-		DetectedAt:     time.Now(),
-		Severity:       severity,
-		Source:         "schema_advisor_llm",
-		RootCause:      fmt.Sprintf("LLM-detected risky DDL: %s", resp.Explanation),
-		CausalChain:    chain,
-		SignalIDs:      []string{"llm_ddl_fallback"},
-		RecommendedSQL: resp.SafeAlternative,
-		ActionRisk:     fmt.Sprintf("risk_score=%.2f", resp.RiskScore),
-		Confidence:     resp.RiskScore,
-		DatabaseName:   a.dbName,
+		DetectedAt:   time.Now(),
+		Severity:     severity,
+		Source:       "schema_advisor_llm",
+		RootCause:    fmt.Sprintf("LLM-detected risky DDL: %s", resp.Explanation),
+		CausalChain:  chain,
+		SignalIDs:    []string{fallbackRuleID},
+		ActionRisk:   fmt.Sprintf("risk_score=%.2f", resp.RiskScore),
+		Confidence:   resp.RiskScore,
+		DatabaseName: a.dbName,
+	}, alt
+}
+
+// validatedAlternative keeps the model's safe_alternative as Script only
+// when it validates against the one table the original statement names
+// (security-05).
+func (a *Advisor) validatedAlternative(alt, original string) ScriptResult {
+	alt = strings.TrimSpace(alt)
+	if alt == "" {
+		return ScriptResult{}
 	}
+	if err := validateModelDDL(alt, statementTarget(original)); err != nil {
+		a.logFn("warn", "migration: LLM safe_alternative not validated: %v", err)
+		return ScriptResult{ModelText: alt, Reason: err.Error()}
+	}
+	return ScriptResult{Script: alt}
 }
 
 // buildDDLSystemPrompt returns the system message for DDL analysis.
@@ -118,14 +172,16 @@ func buildDDLSystemPrompt() string {
 		"if already safe), " +
 		"explanation (one sentence explaining the risk), " +
 		"estimated_duration_seconds (rough estimate for a 1M row table). " +
-		"No markdown fences. No extra text."
+		"No markdown fences. No extra text.\n\n" + llm.UntrustedDataRule
 }
 
-// buildDDLUserPrompt formats the DDL statement for the LLM.
+// buildDDLUserPrompt formats the DDL statement for the LLM; the observed
+// statement is untrusted, so it is fenced as data.
 func buildDDLUserPrompt(sql string, pgVersion int, dbName string) string {
 	return fmt.Sprintf(
 		"PostgreSQL version: %s\nDatabase: %s\nDDL statement:\n%s",
-		formatPGVersion(pgVersion), dbName, sanitizeDDL(sql),
+		formatPGVersion(pgVersion), dbName,
+		llm.UntrustedData("ddl", sanitizeDDL(sql)),
 	)
 }
 

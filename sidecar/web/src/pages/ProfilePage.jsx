@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { fetchSSOStatus, hashParam, redirectTo, startSSOLink } from './users/ssoApi'
 import { hashPath, replaceHash, ssoErrorMessage } from './users/ssoErrors'
+import { ChangePasswordForm } from './users/ChangePasswordForm'
 
 // D7: the signed-in user's account page. "Link SSO" binds an identity from
 // the configured provider to this account after a provider sign-in; the
-// provider's verified email must match the account email.
+// provider's verified email must match the account email. A password
+// account can change its password here (apiauth-03).
 
 const cardStyle = {
   background: 'var(--bg-card)',
@@ -37,7 +39,7 @@ function SSOSection({ status, busy, onLink }) {
       </p>
       <button data-testid="link-sso-button" onClick={onLink} disabled={busy}
         className="px-4 py-1.5 rounded text-sm font-medium"
-        style={{ background: 'var(--accent)', color: '#fff',
+        style={{ background: 'var(--accent-solid)', color: '#fff',
           opacity: busy ? 0.6 : 1 }}>
         {busy ? 'Redirecting...' : 'Link SSO'}
       </button>
@@ -108,6 +110,9 @@ export function ProfilePage({ user, navigate = redirectTo, authMode = user?.auth
         </div>
       )}
       {!platformManaged && <SSOSection status={status} busy={busy} onLink={handleLink} />}
+      {!platformManaged && user?.password_login !== false && (
+        <ChangePasswordForm user={user} />
+      )}
     </div>
   )
 }

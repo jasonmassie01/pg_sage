@@ -14,7 +14,25 @@ type llmClientRole int
 const (
 	llmRoleGeneral llmClientRole = iota
 	llmRoleOptimizer
+	// llmRoleReview is Sage Review's dedicated model (review-03a).
+	llmRoleReview
+	// llmRoleTriage is the fleet triage's model (review-04b): the general
+	// config with review.triage_model as its model. It is charged to the
+	// usage ledger as general; its purpose names the tier.
+	llmRoleTriage
 )
+
+// String is the role's client label on /metrics, the status key and the
+// usage ledger's role.
+func (r llmClientRole) String() string {
+	switch r {
+	case llmRoleOptimizer:
+		return "optimizer"
+	case llmRoleReview:
+		return "review"
+	}
+	return "general"
+}
 
 type llmRegistryEntry struct {
 	client   *llm.Client
@@ -32,11 +50,18 @@ type llmClientRegistry struct {
 	bound   bool // true once registered as the controller's owner
 	parent  config.LLMConfig
 	entries []llmRegistryEntry
+	// global is the process-wide ceiling every tracked client is charged
+	// to (llm-03); globalLogged marks that its first value was logged.
+	global       *llm.Budget
+	globalLogged bool
+	// restore adds today's persisted usage to a client as it registers
+	// (fleet-10, attachUsageRestore); nil until the ledger restored.
+	restore func(llmRegistryEntry)
 }
 
 var llmClients = &llmClientRegistry{}
 
-func (*llmClientRegistry) Name() string { return "llm" }
+func (*llmClientRegistry) Name() string { return config.LLMOwner }
 
 // bind makes the registry authoritative for the parent LLM config and
 // forgets clients from a previous runtime.
@@ -44,6 +69,8 @@ func (r *llmClientRegistry) bind(parent config.LLMConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.bound, r.parent, r.entries = true, parent, nil
+	r.global, r.globalLogged = llm.NewBudget(), false
+	r.restore = nil
 }
 
 func (r *llmClientRegistry) parentLocked() config.LLMConfig {
@@ -62,7 +89,7 @@ func (r *llmClientRegistry) add(
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.entries = append(r.entries, llmRegistryEntry{client, role, database, allowed})
+	r.trackLocked(llmRegistryEntry{client, role, database, allowed})
 }
 
 // newClient builds and tracks a client from the current parent config.
@@ -74,8 +101,46 @@ func (r *llmClientRegistry) newClient(
 	defer r.mu.Unlock()
 	derived := derivedLLMConfig(r.parentLocked(), role, allowed)
 	client := llm.New(&derived, logStructuredWrapper)
-	r.entries = append(r.entries, llmRegistryEntry{client, role, database, allowed})
+	r.trackLocked(llmRegistryEntry{client, role, database, allowed})
 	return client
+}
+
+// trackLocked registers a client with the global ceiling, its /metrics
+// health series (observability-05), the attributed usage ledger (llm-04)
+// and, once the usage ledger restored, today's persisted usage.
+func (r *llmClientRegistry) trackLocked(entry llmRegistryEntry) {
+	r.entries = append(r.entries, entry)
+	entry.client.SetObserver(llmClientObserver(entry.database, entry.role.String()))
+	r.attachGlobalLocked(entry.client)
+	r.refreshGlobalLocked()
+	if r.restore != nil {
+		r.restore(entry)
+	}
+}
+
+// attachUsageRestore applies a restore to every tracked client and the
+// global ceiling, and to each client registered afterwards.
+func (r *llmClientRegistry) attachUsageRestore(
+	entry func(llmRegistryEntry), global func(*llm.Budget),
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := make(map[*llm.Client]bool, len(r.entries))
+	for _, tracked := range r.entries {
+		if !seen[tracked.client] {
+			seen[tracked.client] = true
+			entry(tracked)
+		}
+	}
+	global(r.global)
+	r.restore = entry
+}
+
+// usageEntries snapshots the tracked clients and the global ceiling.
+func (r *llmClientRegistry) usageEntries() ([]llmRegistryEntry, *llm.Budget) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]llmRegistryEntry(nil), r.entries...), r.global
 }
 
 // remove stops tracking the given clients (a retired runtime generation).
@@ -93,20 +158,25 @@ func (r *llmClientRegistry) remove(clients ...*llm.Client) {
 		}
 	}
 	r.entries = kept
+	r.refreshGlobalLocked()
 }
 
 // releaseLLMClientsOnDone untracks a runtime's clients once its instance
 // context ends (removal, replacement or shutdown), so reconnect churn does
 // not grow the registry. The registry that tracked them is captured now.
-func releaseLLMClientsOnDone(ctx context.Context, manager *llm.Manager) {
+// The release is an instance worker: draining the runtime waits for it, so
+// nothing it reads is replaced under it (env-race).
+func releaseLLMClientsOnDone(
+	ctx context.Context, workers *sync.WaitGroup, manager *llm.Manager,
+) {
 	if manager == nil {
 		return
 	}
 	registry := llmClients
-	go func() {
+	startInstanceWorker(workers, func() {
 		<-ctx.Done()
 		registry.remove(manager.General, manager.Optimizer)
-	}()
+	})
 }
 
 func (r *llmClientRegistry) reconfigure(parent config.LLMConfig) {
@@ -117,6 +187,7 @@ func (r *llmClientRegistry) reconfigure(parent config.LLMConfig) {
 		derived := derivedLLMConfig(parent, entry.role, entry.allowed)
 		entry.client.Reconfigure(&derived)
 	}
+	r.refreshGlobalLocked()
 }
 
 func (r *llmClientRegistry) Prepare(
@@ -153,8 +224,13 @@ func derivedLLMConfig(
 	parent config.LLMConfig, role llmClientRole, allowed bool,
 ) config.LLMConfig {
 	derived := parent
-	if role == llmRoleOptimizer {
+	switch role {
+	case llmRoleOptimizer:
 		derived = optimizerLLMConfig(parent)
+	case llmRoleReview:
+		derived = reviewLLMConfig(parent)
+	case llmRoleTriage:
+		derived.Model = firstNonEmpty(reviewTriageModel(), parent.Model)
 	}
 	if !allowed {
 		derived.Enabled = false
@@ -170,7 +246,7 @@ func optimizerLLMConfig(parent config.LLMConfig) config.LLMConfig {
 		Auth:             parent.OptimizerAuth(),
 		Enabled:          opt.Enabled,
 		Endpoint:         firstNonEmpty(opt.Endpoint, parent.Endpoint),
-		APIKey:           firstNonEmpty(opt.APIKey, parent.APIKey),
+		APIKey:           llm.OptimizerAPIKey(parent),
 		Model:            firstNonEmpty(opt.Model, parent.Model),
 		TimeoutSeconds:   firstPositive(opt.TimeoutSeconds, parent.TimeoutSeconds),
 		TokenBudgetDaily: firstPositive(opt.TokenBudgetDaily, parent.TokenBudgetDaily),
@@ -201,4 +277,25 @@ func firstPositive(values ...int) int {
 		}
 	}
 	return 0
+}
+
+// reviewLLMConfig is optimizerLLMConfig's rule for llm.review_llm: its
+// fields win, empty ones inherit from the general llm config, the key is
+// never sent to another origin and the global switch still applies.
+func reviewLLMConfig(parent config.LLMConfig) config.LLMConfig {
+	rev := parent.ReviewLLM
+	merged := config.LLMConfig{
+		Auth:                parent.ReviewAuth(),
+		Enabled:             rev.Enabled && parent.Enabled,
+		Endpoint:            firstNonEmpty(rev.Endpoint, parent.Endpoint),
+		APIKey:              llm.ReviewAPIKey(parent),
+		Model:               firstNonEmpty(rev.Model, parent.Model),
+		TimeoutSeconds:      firstPositive(rev.TimeoutSeconds, parent.TimeoutSeconds),
+		TokenBudgetDaily:    firstPositive(rev.TokenBudgetDaily, parent.TokenBudgetDaily),
+		CooldownSeconds:     firstPositive(rev.CooldownSeconds, parent.CooldownSeconds),
+		JSONMode:            parent.JSONMode,
+		TokenParameter:      parent.TokenParameter,
+		ToolReasoningEffort: parent.ToolReasoningEffort,
+	}
+	return merged
 }

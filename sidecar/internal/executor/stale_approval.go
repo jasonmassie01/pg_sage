@@ -39,7 +39,7 @@ func (e *Executor) currentGateEvidence(
 ) analyzer.Finding {
 	var sql string
 	var raw []byte
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(recommended_sql, ''),
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT COALESCE(recommended_sql, ''),
 		detail FROM sage.findings WHERE id = $1 AND status = 'open'`,
 		findingID).Scan(&sql, &raw)
 	var live map[string]any

@@ -109,7 +109,8 @@ func insertStep(ctx context.Context, tx pgx.Tx, lease Lease, step StepResult) er
 		return err
 	}
 	for _, res := range step.Results {
-		if err := insertEvidence(ctx, tx, lease, stepID, res); err != nil {
+		if _, _, err := insertEvidence(ctx, tx, lease.Scope, lease.InvestigationID, stepID,
+			sourceProbe, res); err != nil {
 			return err
 		}
 	}
@@ -130,11 +131,20 @@ func capabilityState(st probes.Status) string {
 	}
 }
 
-func insertEvidence(ctx context.Context, tx pgx.Tx, lease Lease, stepID UUID,
-	res probes.Result) error {
+// Evidence source kinds: a lease-bound probe step, or an operator's
+// re-read of a finished investigation (AppendRefreshEvidence).
+const (
+	sourceProbe           = "probe"
+	SourceOperatorRefresh = "operator_refresh"
+)
+
+// insertEvidence writes one evidence row of a step and returns its id and
+// payload hash.
+func insertEvidence(ctx context.Context, tx pgx.Tx, sc Scope, invID, stepID UUID,
+	source string, res probes.Result) (UUID, []byte, error) {
 	payload, err := canonicalPayload(res)
 	if err != nil {
-		return fmt.Errorf("%w: evidence payload: %v", ErrInvalidRequest, err)
+		return "", nil, fmt.Errorf("%w: evidence payload: %v", ErrInvalidRequest, err)
 	}
 	sum := sha256.Sum256(payload)
 	reason := res.Reason
@@ -150,17 +160,17 @@ func insertEvidence(ctx context.Context, tx pgx.Tx, lease Lease, stepID UUID,
 	if version == "" {
 		version = "unknown"
 	}
-	sc := lease.Scope
+	id := NewUUID()
 	_, err = tx.Exec(ctx, `INSERT INTO sage.sre_evidence
 		(deployment_id, database_id, investigation_id, id, step_id, source_kind,
 		 probe_id, probe_version, observed_at, capability_state, reason_code,
 		 payload_version, classification, payload, sha256)
-		VALUES ($1, $2, $3, $4, $5, 'probe', $6, $7, $8, $9, NULLIF($10, ''), 1,
+		VALUES ($1, $2, $3, $4, $5, $13, $6, $7, $8, $9, NULLIF($10, ''), 1,
 		        'redacted', $11, $12)`,
-		string(sc.DeploymentID), string(sc.DatabaseID), string(lease.InvestigationID),
-		string(NewUUID()), string(stepID), string(res.ProbeID), version, observed,
-		capability, reason, payload, sum[:])
-	return err
+		string(sc.DeploymentID), string(sc.DatabaseID), string(invID),
+		string(id), string(stepID), string(res.ProbeID), version, observed,
+		capability, reason, payload, sum[:], source)
+	return id, sum[:], err
 }
 
 // Evidence lists an investigation's evidence in step order.
@@ -168,12 +178,65 @@ func (s *PostgresStore) Evidence(ctx context.Context, scope Scope, id UUID) ([]E
 	if err := validateIDs(scope, id); err != nil {
 		return nil, err
 	}
-	return s.evidence(ctx, scope, id, nil)
+	return s.evidence(ctx, scope, id, nil, nil)
 }
 
-// evidence reads an investigation's evidence, or one row of it.
+// StepEvidence lists the evidence one step stored, by its idempotency
+// key, in the order Evidence lists it: the investigator reads back the
+// read it just committed without re-reading every payload. A key with no
+// stored evidence is ErrNotFound.
+func (s *PostgresStore) StepEvidence(ctx context.Context, scope Scope, id UUID,
+	key string) ([]Evidence, error) {
+	if err := validateIDs(scope, id); err != nil {
+		return nil, err
+	}
+	if err := checkText("step key", key, true, 160); err != nil {
+		return nil, err
+	}
+	out, err := s.evidence(ctx, scope, id, nil, &key)
+	if err == nil && len(out) == 0 {
+		err = fmt.Errorf("%w: no evidence of step %s", ErrNotFound, key)
+	}
+	return out, err
+}
+
+// StepKeys lists the idempotency keys of the steps that stored evidence,
+// without reading any payload: a resumed run skips those steps.
+func (s *PostgresStore) StepKeys(ctx context.Context, scope Scope,
+	id UUID) (map[string]bool, error) {
+	if err := validateIDs(scope, id); err != nil {
+		return nil, err
+	}
+	rows, err := s.pool.Query(ctx, `SELECT st.idempotency_key FROM sage.sre_steps st
+		WHERE st.deployment_id = $1 AND st.database_id = $2 AND st.investigation_id = $3
+		  AND EXISTS (SELECT 1 FROM sage.sre_evidence e
+		              WHERE e.deployment_id = st.deployment_id
+		                AND e.database_id = st.database_id
+		                AND e.investigation_id = st.investigation_id
+		                AND e.step_id = st.id)`,
+		string(scope.DeploymentID), string(scope.DatabaseID), string(id))
+	if err != nil {
+		return nil, storeErr(ctx, "step keys", err)
+	}
+	defer rows.Close()
+	keys := map[string]bool{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, storeErr(ctx, "step keys", err)
+		}
+		keys[key] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, storeErr(ctx, "step keys", err)
+	}
+	return keys, nil
+}
+
+// evidence reads an investigation's evidence, one row of it (only) or
+// one step's rows (key).
 func (s *PostgresStore) evidence(ctx context.Context, scope Scope, id UUID,
-	only *UUID) ([]Evidence, error) {
+	only *UUID, key *string) ([]Evidence, error) {
 	var filter *string
 	if only != nil {
 		v := string(*only)
@@ -189,8 +252,9 @@ func (s *PostgresStore) evidence(ctx context.Context, scope Scope, id UUID,
 		 AND st.id = e.step_id
 		WHERE e.deployment_id = $1 AND e.database_id = $2 AND e.investigation_id = $3
 		  AND ($4::uuid IS NULL OR e.id = $4::uuid)
+		  AND ($5::text IS NULL OR st.idempotency_key = $5::text)
 		ORDER BY st.sequence, e.observed_at, e.id`,
-		string(scope.DeploymentID), string(scope.DatabaseID), string(id), filter)
+		string(scope.DeploymentID), string(scope.DatabaseID), string(id), filter, key)
 	if err != nil {
 		return nil, storeErr(ctx, "evidence", err)
 	}

@@ -136,6 +136,7 @@ func (r *grantRun) execute(ctx context.Context,
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("grants: committing grant: %w", err)
 	}
+	executor.RecordPoolOutcome(r.req.Target.Pool, executor.ActionTypeGuardGrant, "success")
 	return actionID, nil
 }
 

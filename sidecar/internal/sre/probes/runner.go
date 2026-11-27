@@ -58,6 +58,10 @@ type Runner struct {
 	local  *Limiter
 	// acquireWait bounds the pool wait of one attempt (tests shorten it).
 	acquireWait time.Duration
+	// queueWait bounds the wait for both slots (tests shorten it).
+	queueWait time.Duration
+	// name labels the queue metrics (SetDatabaseName).
+	name string
 	// afterAttempt, when set, sees every attempt's result (tests).
 	afterAttempt func(attempt int, res Result)
 
@@ -76,7 +80,7 @@ func NewRunner(pool *pgxpool.Pool, reg *Registry, global *Limiter, policy ...*Re
 		p = policy[0].Clone()
 	}
 	return &Runner{pool: pool, reg: reg, global: global, local: NewLimiter(1), policy: p,
-		acquireWait: acquireWait}
+		acquireWait: acquireWait, queueWait: QueueWait}
 }
 
 func (r *Runner) ReadPolicy() *ReadPolicy { return r.policy.Clone() }
@@ -155,15 +159,15 @@ func (r *Runner) attempts(ctx context.Context, spec Spec, args Args, res Result)
 
 // attempt takes a pool connection within acquireWait, then runs the
 // probe on it within the statement budget: the pool wait never spends
-// the statement's time.
+// the statement's time. A history probe whose store refuses statements
+// (histstore.ErrNotRegistered) fails before it takes a connection.
 func (r *Runner) attempt(ctx context.Context, spec Spec, args Args, res Result) Result {
-	wait := r.acquireWait
-	if wait <= 0 {
-		wait = acquireWait
-	}
-	actx, cancel := context.WithTimeout(ctx, wait)
-	began := time.Now()
 	pool, store := r.poolFor(spec)
+	if err := store.Err(); err != nil {
+		return failedAt(res, PhaseExecution, StatusError, ReasonHistoryNotRegistered, err)
+	}
+	actx, cancel := context.WithTimeout(ctx, r.AcquireWait())
+	began := time.Now()
 	conn, err := pool.Acquire(actx)
 	res.Timing.Acquire += time.Since(began)
 	cancel()
@@ -180,14 +184,14 @@ func (r *Runner) attempt(ctx context.Context, spec Spec, args Args, res Result) 
 }
 
 // acquire takes the per-database slot, then a sidecar slot, waiting at
-// most queueWait.
+// most QueueWait; each wait is recorded in the queue metrics.
 func (r *Runner) acquire(ctx context.Context) (func(), error) {
-	wctx, cancel := context.WithTimeout(ctx, queueWait)
+	wctx, cancel := context.WithTimeout(ctx, r.QueueWait())
 	defer cancel()
-	if err := r.local.acquire(wctx); err != nil {
+	if err := r.timedAcquire(wctx, r.local, LimiterDatabase); err != nil {
 		return nil, err
 	}
-	if err := r.global.acquire(wctx); err != nil {
+	if err := r.timedAcquire(wctx, r.global, LimiterSidecar); err != nil {
 		r.local.release()
 		return nil, err
 	}

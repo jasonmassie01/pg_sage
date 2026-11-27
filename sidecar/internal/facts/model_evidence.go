@@ -13,7 +13,7 @@ import (
 
 // schemaSummarySQL summarizes the largest user schemas: tables, activity
 // and size. pg_sage's own and the system schemas are never shown.
-const schemaSummarySQL = `/* pg_sage */
+const schemaSummarySQL = `/* pg_sage facts */
 SELECT n.nspname::text, count(c.oid)::int,
        COALESCE(sum(COALESCE(s.seq_scan, 0) + COALESCE(s.idx_scan, 0) +
                     COALESCE(s.n_tup_ins, 0) + COALESCE(s.n_tup_upd, 0) +
@@ -59,8 +59,13 @@ func CollectModelEvidence(ctx context.Context, pool *pgxpool.Pool) ([]EvidenceIt
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		add("action_log", "drop_index:"+k, fmt.Sprintf("dropped by pg_sage %d times, "+
-			"recreated with the same definition each time", managed[k].Drops))
+		index, table, ok := appManagedSubject(managed[k])
+		if !ok {
+			continue
+		}
+		add("action_log", "drop_index:"+index, fmt.Sprintf("dropped by pg_sage %d times, "+
+			"recreated on table %s with the same definition each time", managed[k].Drops,
+			table))
 	}
 	return out, nil
 }

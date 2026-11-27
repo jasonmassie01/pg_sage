@@ -27,16 +27,23 @@ var typeKinds = map[Type][]Kind{
 	TypeSlotConsumer:  {KindSlot},
 	TypeAppendOnly:    {KindTable},
 	TypeTableWindow:   {KindTable},
+	TypeOwnerBrief:    {KindDatabase},
+	TypeDoNotTouch:    {KindTable, KindIndex, KindSchema},
 }
 
 // valueKeys are the value fields each fact type accepts; required ones
-// are checked by validateValue.
+// are checked by validateValue. Only new proposals are checked: a stored
+// value with a key retired since (owned_by_app_migrations' repo and path,
+// facts-09) still loads and binds.
 var valueKeys = map[Type]map[string]bool{
-	TypeAppMigrations: {"repo": true, "path": true, "note": true},
+	TypeAppMigrations: {"note": true},
 	TypeTestFixture:   {"note": true},
 	TypeSlotConsumer:  {"consumer": true},
 	TypeAppendOnly:    {"note": true},
 	TypeTableWindow:   {"kind": true, "window": true},
+	TypeOwnerBrief: {"owner": true, "contact": true, "growth": true,
+		"growth_pct_month": true, "retention": true, "peak_windows": true, "note": true},
+	TypeDoNotTouch: {"note": true},
 }
 
 // Validate checks a proposal and returns it normalized: the subject in its
@@ -104,6 +111,8 @@ func validateValue(t Type, value map[string]string) (map[string]string, error) {
 		if _, err := policy.ParseWindow(out["window"]); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidValue, err)
 		}
+	case TypeOwnerBrief:
+		return validateBrief(out)
 	}
 	return out, nil
 }

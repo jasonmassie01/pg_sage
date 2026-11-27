@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/onboarding"
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 )
 
 // A role whose name needs quoting (upper case, spaces) must be quoted in
@@ -18,11 +19,12 @@ func TestGrantFixesQuoteTheRole(t *testing.T) {
 		`GRANT CREATE ON SCHEMA public TO "Sage Agent"` {
 		t.Fatalf("schema CREATE fix = %q, want the role quoted", got)
 	}
-	if got := signalBackendGrant("Sage Agent").fix; got !=
+	if got := signalBackendGrant("Sage Agent", rolegrants.SignalBackend{}).fix; got !=
 		`GRANT pg_signal_backend TO "Sage Agent"` {
 		t.Fatalf("pg_signal_backend fix = %q, want the role quoted", got)
 	}
-	if got := signalBackendGrant("sage_agent").fix; got != "GRANT pg_signal_backend TO sage_agent" {
+	if got := signalBackendGrant("sage_agent", rolegrants.SignalBackend{}).fix; got !=
+		"GRANT pg_signal_backend TO sage_agent" {
 		t.Fatalf("plain role fix = %q, want it unquoted", got)
 	}
 }

@@ -2,6 +2,7 @@ package ha
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -41,9 +42,19 @@ type Monitor struct {
 	identity func(context.Context) (Identity, error)
 	persist  persistence
 
+	// cadence is how often the database's HA loop checks; a snapshot
+	// older than staleCadences of it reads as unknown (snapshot.go).
+	cadence time.Duration
+	// cooldown is how long after a change consumers hold mutations.
+	cooldown time.Duration
+	// checkMu serializes checks, so a slow probe never records an older
+	// answer after a newer one.
+	checkMu sync.Mutex
+
 	mu          sync.Mutex
-	role        Role // current role; unknown before/after a failed probe
-	lastKnown   Role // last successfully observed role (flip detection)
+	checkedAt   time.Time // when the last check (successful or not) completed
+	role        Role      // current role; unknown before/after a failed probe
+	lastKnown   Role      // last successfully observed role (flip detection)
 	flips       []time.Time
 	stableCount int
 	safeMode    bool
@@ -54,21 +65,29 @@ type Monitor struct {
 
 // New creates a new HA Monitor probing pg_is_in_recovery() on pool.
 func New(pool *pgxpool.Pool, logFn func(string, string, ...any)) *Monitor {
-	m := &Monitor{
-		now:       time.Now,
-		logFn:     logFn,
-		role:      RoleUnknown,
-		lastKnown: RoleUnknown,
-	}
-	m.probe = func(ctx context.Context) (bool, error) {
+	m := NewFromProbe(func(ctx context.Context) (bool, error) {
 		var inRecovery bool
 		err := pool.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
 		return inRecovery, err
-	}
+	}, logFn)
 	if pool != nil {
 		m.identity = poolIdentity(pool)
 	}
 	return m
+}
+
+// errNoProbe fails a monitor built without a role probe closed.
+var errNoProbe = errors.New("no role probe")
+
+// NewFromProbe creates a monitor over probe, which reports whether the
+// node is in recovery. A nil probe fails every check closed.
+func NewFromProbe(probe func(context.Context) (bool, error),
+	logFn func(string, string, ...any)) *Monitor {
+	if probe == nil {
+		probe = func(context.Context) (bool, error) { return false, errNoProbe }
+	}
+	return &Monitor{probe: probe, now: time.Now, logFn: logFn,
+		role: RoleUnknown, lastKnown: RoleUnknown}
 }
 
 // Check probes the node's role and returns true when the node must NOT
@@ -76,10 +95,13 @@ func New(pool *pgxpool.Pool, logFn func(string, string, ...any)) *Monitor {
 // not be determined. Callers pass the result as "isReplica" to suppress
 // mutations, so a failed probe fails closed.
 func (m *Monitor) Check(ctx context.Context) bool {
+	m.checkMu.Lock()
+	defer m.checkMu.Unlock()
 	inRecovery, err := m.probe(ctx)
 	if err != nil {
 		m.mu.Lock()
 		defer m.mu.Unlock()
+		m.checkedAt = m.now()
 		m.role = RoleUnknown
 		m.stableCount = 0
 		m.logFn("WARN", "ha: pg_is_in_recovery() failed; role unknown, "+
@@ -116,6 +138,7 @@ func (m *Monitor) observeLocked(observed Role, id Identity) {
 	m.lastKnown = observed
 	m.role = observed
 	m.current = id
+	m.checkedAt = now
 }
 
 func (m *Monitor) recordFlipLocked(now time.Time, observed Role) {

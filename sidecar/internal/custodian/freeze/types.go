@@ -1,9 +1,6 @@
 package freeze
 
-import (
-	"context"
-	"time"
-)
+import "time"
 
 type Urgency string
 
@@ -24,6 +21,16 @@ type DeadlineKind string
 
 const DeadlineXID DeadlineKind = "xid"
 
+// WraparoundWarnAge is the XID (and multixact) age at which PostgreSQL
+// starts warning: 2^31 - 1 - 40,000,000. It is the hard deadline of a
+// freeze horizon (urgency stays relative to the freeze maximum).
+const WraparoundWarnAge = 2147483647 - 40000000
+
+// WraparoundStopAge is the age at which the server stops assigning XIDs
+// (and multixacts): 2^31 - 1 - 3,000,000 (PostgreSQL 14+). It is the hard
+// deadline of a horizon already past WraparoundWarnAge.
+const WraparoundStopAge = 2147483647 - 3000000
+
 type Intent string
 
 const IntentVacuumFreeze Intent = "vacuum_freeze"
@@ -38,6 +45,8 @@ type HorizonSample struct {
 	MultiXactAge        int64
 	MultiXactMaxAge     int64
 	MultiXactsPerSecond float64
+	// Aggressive are the ages at which a plain VACUUM is aggressive.
+	Aggressive AggressiveAges
 }
 type Thresholds struct{ RedBufferPct, AmberBufferPct float64 }
 type Horizon struct {
@@ -53,16 +62,13 @@ type Deadline struct {
 	Remaining int64
 }
 type Proposal struct {
-	Database              string
-	Schema                string
-	Table                 string
-	Threat                ThreatKind
-	Urgency               Urgency
-	Intent                Intent
-	SQL                   string
-	Deadline              Deadline
-	RequiresAuthorization bool
-	ExecuteDirectly       bool
+	Database string
+	Schema   string
+	Table    string
+	Threat   ThreatKind
+	Urgency  Urgency
+	Intent   Intent
+	Deadline Deadline
 }
 type Assessment struct {
 	XID       Horizon
@@ -70,28 +76,4 @@ type Assessment struct {
 	Urgency   Urgency
 	Deadline  Deadline
 	Proposal  Proposal
-}
-type DatabaseRef struct {
-	Name                         string
-	AllowConnections, IsTemplate bool
-}
-type DatabaseCatalog interface {
-	ListDatabases(context.Context) ([]DatabaseRef, error)
-}
-type HorizonReader interface {
-	ReadHorizons(context.Context, DatabaseRef) ([]HorizonSample, error)
-}
-type ProposalSink interface {
-	Publish(context.Context, []Proposal) error
-}
-type ScannerOptions struct {
-	Thresholds Thresholds
-	Now        func() time.Time
-}
-type ScanResult struct {
-	DatabasesDiscovered int
-	DatabasesScanned    int
-	DatabasesSkipped    int
-	ProposalsPublished  int
-	ExecutedActions     int
 }

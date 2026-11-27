@@ -52,8 +52,9 @@ func TestRunLogDecisionTrees_AllSignals(t *testing.T) {
 			wantSource:      "log_deterministic",
 		},
 		{
-			id:              "log_panic_server_crash",
-			metrics:         map[string]any{"message": "server process was terminated by signal 11"},
+			id: "log_panic_server_crash",
+			metrics: map[string]any{
+				"message": "server process (PID 42) was terminated by signal 9: Killed"},
 			wantSeverity:    "critical",
 			wantRootContain: "server crash",
 			wantSource:      "log_deterministic",
@@ -116,8 +117,9 @@ func TestRunLogDecisionTrees_AllSignals(t *testing.T) {
 			wantSource:      "log_deterministic",
 		},
 		{
-			id:              "log_wal_segment_removed",
-			metrics:         map[string]any{"message": "requested WAL segment has already been removed"},
+			id: "log_wal_segment_removed",
+			metrics: map[string]any{"message": "requested WAL segment " +
+				"000000010000000000000001 has already been removed"},
 			wantSeverity:    "critical",
 			wantRootContain: "WAL segment removed",
 			wantSource:      "log_deterministic",
@@ -130,8 +132,9 @@ func TestRunLogDecisionTrees_AllSignals(t *testing.T) {
 			wantSource:      "log_deterministic",
 		},
 		{
-			id:              "log_replication_slot_inactive",
-			metrics:         map[string]any{"message": "replication slot is inactive"},
+			id: "log_replication_slot_inactive",
+			metrics: map[string]any{
+				"message": `invalidating obsolete replication slot "s1"`},
 			wantSeverity:    "warning",
 			wantRootContain: "Replication slot accumulating WAL",
 			wantSource:      "log_deterministic",
@@ -245,9 +248,12 @@ func TestLogTreeDeadlock_WithPIDs(t *testing.T) {
 		ID:       "log_deadlock_detected",
 		FiredAt:  time.Now(),
 		Severity: "critical",
+		// rca-07: the classifier's affected_pids, not the "pids" string
+		// this test used to invent (no writer ever set it).
 		Metrics: map[string]any{
-			"database": "mydb",
-			"pids":     "1234,5678",
+			"database":         "mydb",
+			"occurrence_count": 1,
+			"affected_pids":    []int{1234, 5678},
 		},
 	}
 	inc := logTreeDeadlock(sig)

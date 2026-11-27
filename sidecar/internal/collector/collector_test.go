@@ -62,7 +62,10 @@ func TestQueryStatsSQL_SelectsCorrectVariant(t *testing.T) {
 		}
 	})
 
-	t.Run("all variants filter pg_sage self queries", func(t *testing.T) {
+	// collection-11: the variants read no text; pg_sage's own statements
+	// are left out in Go on the cached texts (statements_text_select_test.go,
+	// and the Go/SQL parity test in selfmonitor).
+	t.Run("all variants read counters only", func(t *testing.T) {
 		variants := map[string]string{
 			"queryStatsSQL":                   queryStatsSQL,
 			"queryStatsWithWALSQL":            queryStatsWithWALSQL,
@@ -70,14 +73,9 @@ func TestQueryStatsSQL_SelectsCorrectVariant(t *testing.T) {
 			"queryStatsWithWALAndPlanTimeSQL": queryStatsWithWALAndPlanTimeSQL,
 		}
 		for name, sql := range variants {
-			if !strings.Contains(sql, "NOT ILIKE '%%pg_sage%%'") {
-				t.Errorf(
-					"%s must escape pg_sage ILIKE in fmt template",
-					name,
-				)
-			}
-			if !strings.Contains(sql, `"?sage"?`) {
-				t.Errorf("%s must filter sage schema references", name)
+			// %[6]s is the qualified pg_stat_statements function (security-01c-q).
+			if !strings.Contains(sql, "FROM %[6]s(false)") || strings.Contains(sql, "%[6]s(true)") {
+				t.Errorf("%s must rank on counters without reading texts", name)
 			}
 		}
 	})

@@ -3,31 +3,8 @@ package firstlook
 import (
 	"fmt"
 	"math"
-	"strings"
 	"time"
 )
-
-// ident quotes a PostgreSQL identifier unless it is a plain lower-case
-// name, so suggested SQL stays readable and safe to paste.
-func ident(name string) string {
-	bare := name != "" && (name[0] < '0' || name[0] > '9')
-	for _, r := range name {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
-			bare = false
-			break
-		}
-	}
-	if bare && !reservedWords[name] {
-		return name
-	}
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
-
-// reservedWords are the reserved key words most likely as object names.
-var reservedWords = map[string]bool{"user": true, "order": true, "group": true,
-	"table": true, "select": true, "from": true, "where": true, "default": true,
-	"check": true, "column": true, "limit": true, "offset": true, "end": true,
-	"primary": true, "references": true, "all": true, "analyse": true, "analyze": true}
 
 // sizeText is a byte count for people.
 func sizeText(b int64) string {

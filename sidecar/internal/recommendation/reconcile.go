@@ -63,6 +63,9 @@ type effect struct {
 	outcome      *string
 	reason       string
 	verification *string
+	// verificationExpected: a verification row is linked or about to land
+	// (see verifyingEffectsSQL).
+	verificationExpected bool
 }
 
 // ReconcileVerifying records verification from durable facts (C15):
@@ -100,10 +103,17 @@ func (s *Store) ReconcileVerifying(ctx context.Context, database string) (int, e
 }
 
 // verifyingEffectsSQL reads the verifying recommendations of a database
-// with their action's outcome and latest verification verdict.
+// with their action's outcome and latest verification verdict, and
+// whether a verification row is expected: the action links one, or it is
+// a decided action measured within the last minute, the gap in which the
+// executor's post-check writes the outcome before its verification row
+// (settleOutcome). Past that gap a decided action with no row is one
+// whose own post-check is its evidence.
 const verifyingEffectsSQL = `/* pg_sage */ SELECT r.id, r.revision,
 		r.attempt_count, COALESCE(r.verdict, ''), al.outcome,
-		COALESCE(al.rollback_reason, ''), v.verdict
+		COALESCE(al.rollback_reason, ''), v.verdict,
+		(al.verification_id IS NOT NULL OR (al.decision_id IS NOT NULL
+		  AND al.measured_at > now() - interval '1 minute')) IS TRUE
 		FROM sage.recommendation r
 		LEFT JOIN sage.action_log al ON al.id = r.action_log_id
 		LEFT JOIN LATERAL (SELECT verdict FROM sage.verification
@@ -129,7 +139,7 @@ func (s *Store) verifyingEffectsOn(ctx context.Context, q rowQuerier,
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (effect, error) {
 		var e effect
 		err := row.Scan(&e.claim.ID, &e.claim.Revision, &e.claim.Attempt, &e.verdict,
-			&e.outcome, &e.reason, &e.verification)
+			&e.outcome, &e.reason, &e.verification, &e.verificationExpected)
 		return e, err
 	})
 }
@@ -142,12 +152,12 @@ func settlement(e effect) (verdict string, final State) {
 	}
 	switch outcome := *e.outcome; outcome {
 	case "success":
-		return "success", StateVerified
+		return successSettlement(e)
 	case "rolled_back":
 		return "regressed", StateReverted
 	case "unverifiable", "failed":
 		return outcome, StateInconclusive
-	case "rollback_failed", "rollback_skipped":
+	case "rollback_failed", "rollback_skipped", "rollback_withheld":
 		return "regressed", ""
 	}
 	if e.verification == nil {
@@ -161,6 +171,28 @@ func settlement(e effect) (verdict string, final State) {
 	default:
 		return e.verdict, ""
 	}
+}
+
+// successSettlement settles a kept action by its durable verification
+// verdict. The executor writes outcome success for a neutral verdict too,
+// so only a verifier success is verified (cases-03); an unknown verdict
+// keeps verifying (fail closed).
+func successSettlement(e effect) (verdict string, final State) {
+	if e.verification == nil {
+		if e.verificationExpected {
+			return e.verdict, ""
+		}
+		return "success", StateVerified
+	}
+	switch v := *e.verification; v {
+	case "success":
+		return "success", StateVerified
+	case "unverifiable", "failed":
+		return v, StateInconclusive
+	case "revert":
+		return "regressed", ""
+	}
+	return e.verdict, ""
 }
 
 // settle records e's verdict and, when complete, its terminal state.

@@ -23,7 +23,7 @@ import (
 func (d *chatopsDeps) decideFactCard(w http.ResponseWriter, r *http.Request,
 	ch notify.Channel, a chatops.Action, user auth.User) {
 	card, store, ok := d.checkFactCard(w, r, ch, a)
-	if !ok {
+	if !ok || !d.allowChatDatabase(w, r, ch, a, user, card.Database) {
 		return
 	}
 	if _, err := d.factCards.Consume(r.Context(), a.FactToken, user.ID, a.Decision,

@@ -64,8 +64,8 @@ func TestRecordDecisionRejectsIncompleteOrUnknownDecisions(t *testing.T) {
 			"verdict",
 		},
 		{
-			"missing policy version",
-			func(in *DecisionInput) { in.PolicyVersion = 0 },
+			"negative policy version",
+			func(in *DecisionInput) { in.PolicyVersion = -1 },
 			"policy_version",
 		},
 		{

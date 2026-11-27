@@ -66,6 +66,25 @@ func (r *Registry) Databases() []string {
 	return out
 }
 
+// Available reports whether database's service can answer a question;
+// with database "" whether any registered service can.
+func (r *Registry) Available(database string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if database != "" {
+		return r.services[database].Available()
+	}
+	for _, s := range r.services {
+		if s.Available() {
+			return true
+		}
+	}
+	return false
+}
+
 // AskSage asks database's service; an unknown database is ErrNotFound.
 func (r *Registry) AskSage(ctx context.Context, database string, c Caller,
 	req Request) (Answer, error) {

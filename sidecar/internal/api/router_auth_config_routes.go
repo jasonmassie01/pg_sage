@@ -3,6 +3,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
@@ -17,23 +18,21 @@ func registerAuthRoutes(
 	oauthProvider *auth.OAuthProvider,
 	cfg *config.Config,
 ) {
-	mux.HandleFunc(
-		"POST /api/v1/auth/login", loginHandler(pool))
-	mux.HandleFunc(
-		"POST /api/v1/auth/logout", logoutHandler(pool))
-	mux.HandleFunc(
-		"GET /api/v1/auth/me", meHandler())
+	route(mux, "POST /api/v1/auth/login", gatePublic, http.HandlerFunc(loginHandler(pool)))
+	route(mux, "POST /api/v1/auth/logout", gateViewerWrite, http.HandlerFunc(logoutHandler(pool)))
+	route(mux, "GET /api/v1/auth/me", gateViewer, http.HandlerFunc(meHandler()))
+	route(mux, "DELETE /api/v1/auth/sessions", gateViewerWrite,
+		http.HandlerFunc(signOutOtherSessionsHandler(pool)))
+	route(mux, "PUT /api/v1/auth/password", gateViewerWrite,
+		http.HandlerFunc(changePasswordHandler(pool)))
 
 	// OAuth routes (always registered; return disabled if not configured).
-	mux.HandleFunc(
-		"GET /api/v1/auth/oauth/config",
-		oauthConfigHandler(oauthProvider, cfg.OAuth.Provider))
-	mux.HandleFunc(
-		"GET /api/v1/auth/oauth/authorize",
-		oauthAuthorizeRouter(oauthProvider, pool))
-	mux.HandleFunc(
-		"GET /api/v1/auth/oauth/callback",
-		oauthCallbackHandler(oauthProvider, pool, oauthSnapshot(cfg)))
+	route(mux, "GET /api/v1/auth/oauth/config", gatePublic,
+		http.HandlerFunc(oauthConfigHandler(oauthProvider, cfg.OAuth.Provider)))
+	route(mux, "GET /api/v1/auth/oauth/authorize", gatePublic,
+		http.HandlerFunc(oauthAuthorizeRouter(oauthProvider, pool)))
+	route(mux, "GET /api/v1/auth/oauth/callback", gatePublic,
+		http.HandlerFunc(oauthCallbackHandler(oauthProvider, pool, oauthSnapshot(cfg))))
 	registerAccountLinkRoutes(mux, pool, oauthProvider, cfg.OAuth.Provider)
 }
 
@@ -42,29 +41,36 @@ func registerAuthRoutes(
 func oauthSnapshot(cfg *config.Config) *config.OAuthConfig {
 	snap := cfg.OAuth
 	snap.RoleMapping = append([]config.OAuthRoleMapping(nil), cfg.OAuth.RoleMapping...)
+	snap.DatabaseGrantMapping = append([]config.OAuthDatabaseGrant(nil),
+		cfg.OAuth.DatabaseGrantMapping...)
 	return &snap
 }
 
 func registerUserRoutes(
 	mux *http.ServeMux, pool *pgxpool.Pool,
 ) {
-	adminOnly := RequireRole("admin")
+	listH := http.HandlerFunc(
+		listUsersHandler(pool))
+	route(mux, "GET /api/v1/users", gateAdmin, listH)
 
-	listH := adminOnly(http.HandlerFunc(
-		listUsersHandler(pool)))
-	mux.Handle("GET /api/v1/users", listH)
+	createH := http.HandlerFunc(
+		createUserHandler(pool))
+	route(mux, "POST /api/v1/users", gateAdmin, createH)
 
-	createH := adminOnly(http.HandlerFunc(
-		createUserHandler(pool)))
-	mux.Handle("POST /api/v1/users", createH)
+	deleteH := http.HandlerFunc(
+		deleteUserHandler(pool))
+	route(mux, "DELETE /api/v1/users/{id}", gateAdmin, deleteH)
 
-	deleteH := adminOnly(http.HandlerFunc(
-		deleteUserHandler(pool)))
-	mux.Handle("DELETE /api/v1/users/{id}", deleteH)
+	roleH := http.HandlerFunc(
+		updateUserRoleHandler(pool))
+	route(mux, "PUT /api/v1/users/{id}/role", gateAdmin, roleH)
 
-	roleH := adminOnly(http.HandlerFunc(
-		updateUserRoleHandler(pool)))
-	mux.Handle("PUT /api/v1/users/{id}/role", roleH)
+	statusH := http.HandlerFunc(
+		setUserStatusHandler(pool))
+	route(mux, "PUT /api/v1/users/{id}/status", gateAdmin, statusH)
+
+	route(mux, "POST /api/v1/users/{id}/password-reset", gateAdmin,
+		http.HandlerFunc(resetPasswordHandler(pool)))
 }
 
 func registerConfigRoutesRuntime(
@@ -76,11 +82,14 @@ func registerConfigRoutesRuntime(
 	base configBaseSource,
 	disableWrites bool,
 ) {
+	// A window preview reads and writes nothing, so YAML fleet mode serves
+	// it too (config-09).
+	route(mux, "POST /api/v1/config/validate-window", gateAdmin,
+		validateWindowHandler(time.Now))
 	if disableWrites {
-		registerReadOnlyConfigRoutes(mux, cfg, fm, controller)
+		registerReadOnlyConfigRoutes(mux, fm, controller)
 		return
 	}
-	adminOnly := RequireRole("admin")
 	cs := store.NewConfigStore(pool)
 	baseCfg, err := base()
 	if err != nil {
@@ -88,25 +97,23 @@ func registerConfigRoutesRuntime(
 		baseCfg = config.Clone(cfg)
 	}
 
-	globalGet := adminOnly(http.HandlerFunc(
-		configGlobalGetHandler(cs, baseCfg, controller)))
-	mux.Handle("GET /api/v1/config/global", globalGet)
+	globalGet := http.HandlerFunc(configGlobalGetHandler(cs, controller))
+	route(mux, "GET /api/v1/config/global", gateAdmin, globalGet)
 
-	globalPutHandler := configGlobalPutHandler(cs, cfg, fm, controller)
-	globalPut := adminOnly(http.HandlerFunc(globalPutHandler))
-	mux.Handle("PUT /api/v1/config/global", globalPut)
+	globalPut := http.HandlerFunc(configGlobalPutHandler(cs, controller))
+	route(mux, "PUT /api/v1/config/global", gateAdmin, globalPut)
 
-	globalDeleteHandler := configGlobalDeleteHandler(
-		cs, cfg, base, fm, controller,
-	)
-	globalDelete := adminOnly(http.HandlerFunc(globalDeleteHandler))
-	mux.Handle("DELETE /api/v1/config/global/{key}", globalDelete)
+	globalDelete := http.HandlerFunc(configGlobalDeleteHandler(cs, base, controller))
+	route(mux, "DELETE /api/v1/config/global/{key}", gateAdmin, globalDelete)
+	// cli-01b: the settings as file YAML, secrets as placeholders.
+	route(mux, "GET /api/v1/config/yaml", gateAdmin,
+		http.HandlerFunc(configYAMLHandler(cs, controller)))
 
 	registerDatabaseConfigRoutes(mux, cs, baseCfg, cfg, pool, fm, controller)
 
-	audit := adminOnly(http.HandlerFunc(
-		configAuditHandler(cs)))
-	mux.Handle("GET /api/v1/config/audit", audit)
+	audit := http.HandlerFunc(
+		configAuditHandler(cs))
+	route(mux, "GET /api/v1/config/audit", gateAdmin, audit)
 }
 
 // registerDatabaseConfigRoutes covers the persistent per-database config
@@ -119,50 +126,40 @@ func registerDatabaseConfigRoutes(
 	fm *fleet.DatabaseManager,
 	controller *config.ConfigController,
 ) {
-	adminOnly := RequireRole("admin")
-
-	dbGet := adminOnly(http.HandlerFunc(
-		configDBGetHandler(cs, baseCfg, pool)))
-	mux.Handle(
-		"GET /api/v1/config/databases/{id}", dbGet)
+	dbGet := http.HandlerFunc(
+		configDBGetHandler(cs, baseCfg, pool))
+	route(mux, "GET /api/v1/config/databases/{id}", gateAdmin, dbGet)
 
 	dbPutHandler := configDBPutHandler(cs, cfg, pool, fm)
-	dbPut := adminOnly(http.HandlerFunc(dbPutHandler))
-	mux.Handle(
-		"PUT /api/v1/config/databases/{id}", dbPut)
+	dbPut := http.HandlerFunc(dbPutHandler)
+	route(mux, "PUT /api/v1/config/databases/{id}", gateAdmin, dbPut)
 
 	dbDeleteHandler := configDBDeleteHandler(cs, cfg, fm, controller)
-	dbDelete := adminOnly(http.HandlerFunc(dbDeleteHandler))
-	mux.Handle(
-		"DELETE /api/v1/config/databases/{id}/{key}",
-		dbDelete)
+	dbDelete := http.HandlerFunc(dbDeleteHandler)
+	route(mux, "DELETE /api/v1/config/databases/{id}/{key}", gateAdmin, dbDelete)
 }
 
 // registerReadOnlyConfigRoutes serves the config API in YAML fleet mode:
 // reads come from the running config, every write answers 503.
 func registerReadOnlyConfigRoutes(
 	mux *http.ServeMux,
-	cfg *config.Config,
 	fm *fleet.DatabaseManager,
 	controller *config.ConfigController,
 ) {
-	adminOnly := RequireRole("admin")
-	unavailable := adminOnly(http.HandlerFunc(
+	unavailable := http.HandlerFunc(
 		configPersistenceUnavailableHandler(),
-	))
-	globalGet := adminOnly(http.HandlerFunc(
-		configReadOnlyGlobalGetHandler(cfg, controller),
-	))
-	mux.Handle("GET /api/v1/config/global", globalGet)
-	mux.Handle("PUT /api/v1/config/global", unavailable)
-	mux.Handle("DELETE /api/v1/config/global/{key}", unavailable)
-	dbGet := adminOnly(http.HandlerFunc(
-		configReadOnlyDBGetHandler(cfg, fm, controller),
-	))
-	mux.Handle("GET /api/v1/config/databases/{id}", dbGet)
-	mux.Handle("PUT /api/v1/config/databases/{id}", unavailable)
-	mux.Handle("DELETE /api/v1/config/databases/{id}/{key}", unavailable)
-	mux.Handle("GET /api/v1/config/audit", unavailable)
+	)
+	globalGet := http.HandlerFunc(configReadOnlyGlobalGetHandler(controller))
+	route(mux, "GET /api/v1/config/global", gateAdmin, globalGet)
+	route(mux, "PUT /api/v1/config/global", gateAdmin, unavailable)
+	route(mux, "DELETE /api/v1/config/global/{key}", gateAdmin, unavailable)
+	route(mux, "GET /api/v1/config/yaml", gateAdmin,
+		http.HandlerFunc(configYAMLHandler(nil, controller)))
+	dbGet := http.HandlerFunc(configReadOnlyDBGetHandler(fm, controller))
+	route(mux, "GET /api/v1/config/databases/{id}", gateAdmin, dbGet)
+	route(mux, "PUT /api/v1/config/databases/{id}", gateAdmin, unavailable)
+	route(mux, "DELETE /api/v1/config/databases/{id}/{key}", gateAdmin, unavailable)
+	route(mux, "GET /api/v1/config/audit", gateAdmin, unavailable)
 }
 
 func configPersistenceUnavailableHandler() http.HandlerFunc {

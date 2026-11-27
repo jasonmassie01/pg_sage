@@ -24,16 +24,16 @@ func TestModelLift_SignedReportGrantsOnlyItsMeasuredFamily(t *testing.T) {
 	if run.ModelLift == nil || len(run.ModelLift.Records) != 2 {
 		t.Fatalf("ingested run lift = %+v", run.ModelLift)
 	}
-	lock, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	lock, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err != nil || !lock.Granted || lock.Report == nil || !lock.Report.Signed ||
 		lock.Report.ID != run.ID {
 		t.Fatalf("lock_blocking = %+v (%v)", lock, err)
 	}
-	wal, err := f.svc.ModelRootAuthority(f.ctx, FamilyWAL)
+	wal, err := f.svc.ModelRootAuthority(f.ctx, FamilyWAL, fixtureModel)
 	if err != nil || wal.Granted || !strings.Contains(wal.Reason, "lower bound") {
 		t.Fatalf("wal_retention = %+v (%v)", wal, err)
 	}
-	conn, err := f.svc.ModelRootAuthority(f.ctx, FamilyConnections)
+	conn, err := f.svc.ModelRootAuthority(f.ctx, FamilyConnections, fixtureModel)
 	if err != nil || conn.Granted || conn.Report != nil {
 		t.Fatalf("connection_pressure = %+v (%v)", conn, err)
 	}
@@ -50,7 +50,7 @@ func TestModelLift_NewestMeasurementWins(t *testing.T) {
 			t.Fatalf("ingest: %v", err)
 		}
 	}
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err != nil || got.Granted || got.Lift == nil || got.Lift.Overrides != (Metric{2, 20}) {
 		t.Fatalf("authority = %+v (%v)", got, err)
 	}
@@ -64,7 +64,7 @@ func TestModelLift_ReportForAnotherBuildNeverCounts(t *testing.T) {
 	if _, err := f.ingestSigned(raw, other.Commit); err == nil {
 		t.Fatal("a lift report for another build was accepted")
 	}
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err != nil || got.Granted {
 		t.Fatalf("authority = %+v (%v)", got, err)
 	}
@@ -77,7 +77,7 @@ func TestModelLift_V190ReportsStayReadable(t *testing.T) {
 		""); err != nil {
 		t.Fatalf("ingest a v1.9.0 report: %v", err)
 	}
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err != nil || got.Granted || !strings.Contains(got.Reason, "no held-out") {
 		t.Fatalf("authority without any lift = %+v (%v)", got, err)
 	}
@@ -94,11 +94,8 @@ func TestModelLift_LiftOnlyReportDoesNotDisplacePromotionEvidence(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.IngestEvalRun(f.ctx,
-		liftReport(fixtureEpoch.Add(-time.Hour), "live", false,
-			good("lock_blocking", 16, 16)), SourceBench, "admin", ""); err != nil {
-		t.Fatalf("ingest a lift-only report: %v", err)
-	}
+	f.ingestSignedLift(liftReport(fixtureEpoch.Add(-time.Hour), "live", false,
+		good("lock_blocking", 16, 16)))
 	v, err := f.svc.View(f.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -111,21 +108,18 @@ func TestModelLift_LiftOnlyReportDoesNotDisplacePromotionEvidence(t *testing.T) 
 			t.Fatalf("lock_blocking bench = %+v, want %s", fv.Bench, release.ID)
 		}
 	}
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
-	if err != nil || !got.Granted || got.Report == nil || got.Report.Signed ||
-		!strings.Contains(got.Report.Provenance, "unsigned") {
-		t.Fatalf("an operator lift report counts like operator promotion evidence, "+
-			"labelled unsigned: %+v (%v)", got, err)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
+	if err != nil || !got.Granted || got.Report == nil || !got.Report.Signed ||
+		!strings.Contains(got.Report.Provenance, "signed release") {
+		t.Fatalf("the signed lift-only report decides model-root authority: %+v (%v)",
+			got, err)
 	}
 }
 
 func TestModelLift_ViewListsEveryFamily(t *testing.T) {
 	f := newFixture(t)
-	if _, err := f.svc.IngestEvalRun(f.ctx,
-		liftReport(fixtureEpoch.Add(-time.Hour), "live", false,
-			good("lock_blocking", 16, 16)), SourceBench, "admin", ""); err != nil {
-		t.Fatal(err)
-	}
+	f.ingestSignedLift(liftReport(fixtureEpoch.Add(-time.Hour), "live", false,
+		good("lock_blocking", 16, 16)))
 	view, err := f.svc.ModelLiftView(f.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +168,22 @@ func TestModelLift_ConcurrentDuplicateIngestStoresOnce(t *testing.T) {
 	}
 }
 
+// ingestSignedLift ingests raw, stamped with the fixture's running build
+// (buildA when the fixture runs an unstamped one), as a signed release
+// report: since benches-09 only a signed or local-run, stamped lift counts.
+func (f *fixture) ingestSignedLift(raw []byte) EvalRun {
+	f.t.Helper()
+	if !f.svc.cfg.Build.Known() {
+		f.svc.cfg.Build = buildA
+	}
+	b := f.svc.cfg.Build
+	run, err := f.ingestSigned(stampLift(raw, b), b.Commit)
+	if err != nil {
+		f.t.Fatalf("ingest a signed lift report: %v", err)
+	}
+	return run
+}
+
 // stampLift names the build a lift report scored.
 func stampLift(raw []byte, b Build) []byte {
 	return []byte(strings.Replace(string(raw), `"generated_at"`,
@@ -188,9 +198,9 @@ func TestModelLift_ReportWithoutCellsKeepsTheLedgerReadable(t *testing.T) {
 	f := newFixture(t)
 	noCells := strings.Replace(string(liftReport(fixtureEpoch.Add(-time.Hour), "live", false,
 		good("lock_blocking", 16, 16))), `"cells": [{`, `"cells": [], "x": [{`, 1)
-	run, err := f.svc.IngestEvalRun(f.ctx, []byte(noCells), SourceBench, "admin", "")
-	if err != nil || run.Cells == nil {
-		t.Fatalf("ingest a report without cells: %+v (%v)", run.Cells, err)
+	run := f.ingestSignedLift([]byte(noCells))
+	if run.Cells == nil {
+		t.Fatalf("ingest a report without cells: %+v", run.Cells)
 	}
 	var kind string
 	if err := f.pool.QueryRow(f.ctx, `SELECT jsonb_typeof(cells) FROM sage.sre_eval_runs
@@ -205,7 +215,7 @@ func TestModelLift_ReportWithoutCellsKeepsTheLedgerReadable(t *testing.T) {
 	if v, err := f.svc.View(f.ctx); err != nil || v.Bench != nil {
 		t.Fatalf("view over a report with scalar cells = %+v (%v)", v.Bench, err)
 	}
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err != nil || !got.Granted {
 		t.Fatalf("authority = %+v (%v)", got, err)
 	}

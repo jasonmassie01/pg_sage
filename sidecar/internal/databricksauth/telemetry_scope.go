@@ -3,9 +3,10 @@ package databricksauth
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/databricks/databricks-sdk-go/service/postgres"
+
+	"github.com/pg-sage/sidecar/internal/lakebaseid"
 )
 
 // TelemetryResource binds the SQL reader to provider identities verified from
@@ -37,9 +38,9 @@ func ResolveTelemetryResource(ctx context.Context, host, endpoint string) (Telem
 
 func resolveTelemetryResource(ctx context.Context, api telemetryResourceAPI, origin, host, endpoint string) (TelemetryResource, error) {
 	var out TelemetryResource
-	parts := strings.Split(endpoint, "/")
-	if len(parts) != 6 || parts[0] != "projects" || parts[2] != "branches" || parts[4] != "endpoints" || parts[1] == "" || parts[3] == "" || parts[5] == "" {
-		return out, fmt.Errorf("lakebase telemetry requires an endpoint resource")
+	project, branch, _, err := lakebaseid.Parse(endpoint)
+	if err != nil {
+		return out, fmt.Errorf("lakebase telemetry requires an endpoint resource: %w", err)
 	}
 	ep, err := api.GetEndpoint(ctx, postgres.GetEndpointRequest{Name: endpoint})
 	if err != nil {
@@ -48,8 +49,8 @@ func resolveTelemetryResource(ctx context.Context, api telemetryResourceAPI, ori
 	if ep == nil || ep.Name != endpoint || ep.Uid == "" || ep.Status == nil || ep.Status.Hosts == nil || !allowedHost(host, []string{ep.Status.Hosts.Host}) {
 		return out, fmt.Errorf("lakebase telemetry binding does not match a direct endpoint")
 	}
-	branchName := strings.Join(parts[:4], "/")
-	projectName := strings.Join(parts[:2], "/")
+	projectName := "projects/" + project
+	branchName := projectName + "/branches/" + branch
 	if ep.Parent != "" && ep.Parent != branchName {
 		return out, fmt.Errorf("lakebase telemetry endpoint parent mismatch")
 	}
@@ -65,4 +66,14 @@ func resolveTelemetryResource(ctx context.Context, api telemetryResourceAPI, ori
 		return out, fmt.Errorf("lakebase telemetry resource identities unavailable")
 	}
 	return TelemetryResource{Workspace: origin, ProjectID: p.Uid, BranchID: b.Uid, EndpointID: ep.Uid}, nil
+}
+
+// PostgresAPI is the workspace's Lakebase Postgres API, for listing a
+// project's branches and endpoints (fleet discovery, market-06).
+func PostgresAPI() (postgres.PostgresInterface, error) {
+	w, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+	return w.Postgres, nil
 }

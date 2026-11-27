@@ -101,13 +101,13 @@ func decideWatch(in replaceJudgeInput) replaceDecision {
 }
 
 // oldIndexMiss is why the old index is needed ("" when it is not): its
-// users regressed, or an active pg_sage hint names it.
+// users regressed, or an installed (active or dormant) pg_sage hint names it.
 func oldIndexMiss(in replaceJudgeInput) string {
 	switch {
 	case regressed(in.Guarded):
 		return "queries that used the old index regressed: " + in.Guarded.Reason
 	case in.HintNamesOld:
-		return "an active pg_sage hint names the old index"
+		return "an installed pg_sage hint names the old index"
 	}
 	return ""
 }
@@ -143,7 +143,7 @@ func (e *Executor) watchIndexReplace(ctx context.Context, actionID int64) {
 	if actionID <= 0 || !e.replaceWatch.claim(actionID) {
 		return
 	}
-	cfg := e.rollbackMonitorConfig(e.manualRollbackAuthorizer())
+	cfg := e.rollbackMonitorConfig(e.replaceUndoAuthorizer(actionID))
 	if !e.startRollbackMonitor(func() {
 		defer e.replaceWatch.release(actionID)
 		e.runReplaceWatch(context.WithoutCancel(ctx), actionID, cfg)
@@ -167,7 +167,11 @@ func (e *Executor) runReplaceWatch(ctx context.Context, actionID int64,
 			return
 		case <-timer.C:
 		}
-		d, err := e.checkIndexReplace(ctx, actionID, cfg, time.Now())
+		now := readMonitorTime(ctx, cfg.databaseClock(e.pool))
+		if now.fallback != "" {
+			e.logFn("executor", "check replacement of action %d: %s", actionID, now.fallback)
+		}
+		d, err := e.checkIndexReplace(ctx, actionID, cfg, now.at)
 		if err != nil {
 			e.logFn("executor", "check replacement of action %d: %v", actionID, err)
 		}
@@ -209,7 +213,7 @@ func (e *Executor) replaceInput(ctx context.Context, rec indexReplaceRecord,
 	plan monitorPlan, cfg RollbackMonitorConfig, now time.Time) (replaceJudgeInput,
 	map[string]any, error) {
 	var raw []byte
-	if err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(before_state,
+	if err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT COALESCE(before_state,
 		'{}'::jsonb) FROM sage.action_log WHERE id = $1`, rec.ActionLogID).
 		Scan(&raw); err != nil {
 		return replaceJudgeInput{}, nil, fmt.Errorf("read action %d: %w", rec.ActionLogID, err)

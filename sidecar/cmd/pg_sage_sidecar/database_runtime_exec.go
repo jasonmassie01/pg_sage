@@ -4,7 +4,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pg-sage/sidecar/internal/briefing"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/retention"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -17,11 +16,17 @@ import (
 // retention cycles).
 func (rt *databaseRuntime) startExecution() {
 	rt.buildExecutor()
+	rt.startVerifierBacktest()
 	rt.startAutonomyLoops()
-	startProviderObservability(
+	obs, providerLogs := startProviderObservability(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.executor, rt.rca,
 	)
+	rt.attachProviderObservability(obs)
+	if providerLogs {
+		rt.providerLogs.Store(true)
+	}
 	rt.startCloudTelemetry()
+	rt.startProviderAdvice()
 	rt.startLakebaseTelemetry()
 	// Autonomous index builds earn load admission from pg-side IO (D6).
 	if startIOAdmission(rt.ctx, rt.workers, rt.spec.Pool, rt.cfg,
@@ -30,6 +35,7 @@ func (rt *databaseRuntime) startExecution() {
 	}
 	if err := startInstanceAutonomy(
 		rt.ctx, rt.workers, rt.spec.Pool, rt.cfg, rt.spec.Name, rt.executor,
+		rt.freezeCustodian(), rt.ha, rt.diskCapacity(),
 	); err != nil {
 		logError(rt.spec.Scope, "db %q: continuous autonomy unavailable: %v",
 			rt.spec.Name, err)
@@ -45,12 +51,14 @@ func (rt *databaseRuntime) startExecution() {
 	rt.start(func() {
 		store.StartActionExpiry(rt.ctx, rt.actions, logStructuredWrapper)
 	})
-	rt.brief = briefing.New(rt.spec.Pool, cfg, rt.generalLLM, logStructuredWrapper)
+	rt.brief = rt.newBriefingWorker()
+	briefingWorkers.track(rt.ctx, rt.brief) // live briefing.* changes (llm-06)
 	deps := fleetCycleDeps{
-		name: rt.spec.Name, pool: rt.spec.Pool, exec: rt.executor,
-		brief: rt.brief, cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper).
+		name: rt.spec.Name, ha: rt.ha, exec: rt.executor, plans: rt.buildPlanEngine(),
+		brief: cycleBriefing(cfg, rt.brief),
+		cleaner: retention.New(rt.spec.Pool, cfg, logStructuredWrapper).
 			WithControlPool(rt.spec.ControlPool),
-		interval: cfg.Analyzer.Interval() + 5*time.Second,
+		interval: orchestratorInterval(cfg),
 	}
 	rt.start(func() { fleetDBOrchestrator(rt.ctx, deps) })
 	rt.note("briefing+retention")
@@ -66,17 +74,17 @@ func (rt *databaseRuntime) buildExecutor() {
 		logWarn(rt.spec.Scope, "db %q: trust ramp start: %v", rt.spec.Name, err)
 		rampStart = time.Now()
 	}
-	ex := executor.New(rt.spec.Pool, rt.cfg, rampStart, logStructuredWrapper)
+	ex := executor.New(rt.spec.Pool, rt.cfg, rampStart, logStructuredWrapper).
+		WithActionPool(rt.spec.ActionPool)
 	ex.WithAnalyzeSemaphore(ensureAnalyzeSemaphore())
-	installAzureManagedConfig(ex, cfg, rt.provider,
+	// A role's connection limit is cluster-wide: only the fleet leader sets it.
+	ex.WithLeaderCheck(func() bool { return currentFleetLeader().IsLeader() })
+	rt.azureParams = installAzureManagedConfig(ex,
+		azureTargetConfig(cfg, rt.spec.Config.CloudResource.Azure), rt.provider,
 		rt.spec.Pool.Config().ConnConfig.Host, rt.spec.Scope)
 	rt.actions = store.NewActionStore(rt.spec.Pool)
 	ex.WithActionStore(rt.actions, rt.spec.ExecMode)
-	var policyDatabaseID *int
-	if rt.spec.DatabaseID > 0 {
-		id := rt.spec.DatabaseID
-		policyDatabaseID = &id
-	}
+	policyDatabaseID := rt.recordID()
 	if err := ex.SetTrustLevel(rt.spec.Config.TrustLevel); err != nil {
 		logWarn(rt.spec.Scope, "db %q: invalid trust level %q: %v",
 			rt.spec.Name, rt.spec.Config.TrustLevel, err)

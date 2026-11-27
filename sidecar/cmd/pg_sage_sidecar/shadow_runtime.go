@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/shadow"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -65,18 +65,15 @@ func (rt *databaseRuntime) startShadowScoring() {
 // writeShadowMetrics renders the shadow counters.
 func writeShadowMetrics(b *strings.Builder, decisions []shadow.DecisionCount,
 	scores []shadow.ScoreCount) {
-	b.WriteString("# HELP pg_sage_shadow_decisions_total Shadow decisions recorded below " +
-		"an action class's earned trust level, by the gate's verdict had it been trusted\n" +
-		"# TYPE pg_sage_shadow_decisions_total counter\n")
+	metricsreg.Header(b, "pg_sage_shadow_decisions_total")
 	for _, d := range decisions {
-		fmt.Fprintf(b, "pg_sage_shadow_decisions_total{database=%q,class=%q,verdict=%q} %d\n",
-			d.Database, d.Class, d.Verdict, d.Count)
+		writeSample(b, "pg_sage_shadow_decisions_total", []labelPair{{"database", d.Database},
+			{"class", d.Class}, {"verdict", d.Verdict}}, d.Count)
 	}
-	b.WriteString("# HELP pg_sage_shadow_scores_total Shadow decisions scored, by score " +
-		"and evidence source\n# TYPE pg_sage_shadow_scores_total counter\n")
+	metricsreg.Header(b, "pg_sage_shadow_scores_total")
 	for _, s := range scores {
-		fmt.Fprintf(b, "pg_sage_shadow_scores_total{database=%q,class=%q,score=%q,"+
-			"source=%q} %d\n", s.Database, s.Class, s.Score, s.Source, s.Count)
+		writeSample(b, "pg_sage_shadow_scores_total", []labelPair{{"database", s.Database},
+			{"class", s.Class}, {"score", s.Score}, {"source", s.Source}}, s.Count)
 	}
 	b.WriteString("\n")
 }

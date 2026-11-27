@@ -13,14 +13,18 @@ import (
 const persistTimeout = 3 * time.Second
 
 // Ask answers one question. The answer is stored in the caller's
-// conversation (created when ConversationID is empty) unless the caller
-// cancelled. Invalid questions, a conversation the caller does not own
+// conversation (created when ConversationID is empty). A run the caller
+// cancelled, or whose store failed, is stored only when it already took
+// an action: that partial answer (status incomplete, stop cancelled) is
+// returned together with the error. Invalid questions, a conversation the caller does not own
 // and a disabled Ask Sage are errors; everything the model or provider
-// does is a typed status of the answer.
+// does is a typed status of the answer. A read-only request is answered
+// without the write tools whoever asks.
 func (s *Service) Ask(ctx context.Context, c Caller, r Request) (Answer, error) {
 	if !s.d.Config.Enabled {
 		return Answer{}, ErrDisabled
 	}
+	c = c.For(r)
 	question, err := checkRequest(c, r)
 	if err != nil {
 		return Answer{}, err
@@ -39,14 +43,19 @@ func (s *Service) Ask(ctx context.Context, c Caller, r Request) (Answer, error) 
 			return Answer{}, err
 		}
 	}
-	a, err := s.answer(ctx, c, question, history)
-	if err != nil {
-		return Answer{}, err
+	a, runErr := s.answer(ctx, c, question, history)
+	if runErr != nil && len(a.Actions) == 0 {
+		return Answer{}, runErr
 	}
-	a.ConversationID, a.Question, a.CreatedAt = r.ConversationID, question, s.d.Now().UTC()
-	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
-	defer cancel()
-	return s.store.save(saveCtx, c.Actor, a)
+	saved, err := s.persistAnswer(ctx, c, r.ConversationID, question, r.ReadOnly, a)
+	if runErr == nil {
+		return saved, err
+	}
+	if err != nil {
+		s.d.Log("ERROR", "ask: the partial answer of a question %s cut off (%v) took %d "+
+			"actions and could not be stored: %v", c.Actor, runErr, len(a.Actions), err)
+	}
+	return saved, runErr
 }
 
 func checkRequest(c Caller, r Request) (string, error) {

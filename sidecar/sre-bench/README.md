@@ -12,6 +12,31 @@ The bench is an ordinary Go test. It needs a disposable PostgreSQL server
 (14 to 18) named by `SAGE_TEST_DATABASE_URL`. Without one, the bench test
 skips. The unit tests for scoring, gates and the report still run.
 
+The fault programs act on the whole server, not one database: `ALTER SYSTEM
+SET max_wal_size`, CHECKPOINT storms, a physical replication slot, XID burn
+and a pinned xmin horizon. Never point the bench at a server that holds data
+you care about. The sidecar's game days and local bench runs
+(`sre.autonomy.game_days.local_dsn`) enforce this: they refuse a target on the
+cluster of a monitored or the metadata database, a standby, a primary with
+standbys, and a database without the marker
+`COMMENT ON DATABASE <db> IS 'pg_sage:gameday_target'`.
+
+Game days also run customer programs (`scenarios_customer.go`, benches-12),
+which are not part of the CI set: the fixtures above create their own
+`bench_*` tables, so a customer program exercises the customer's own table on
+the clone instead. `lock_customer_hot_table` is bound by `internal/gameday`
+to the monitored database's hottest permanent table (the largest activity
+delta between the collector's two newest snapshots). It checks the table is
+on the clone, holds `ROW EXCLUSIVE` on it in a sleeping session, and queues a
+`SHARE ROW EXCLUSIVE` and two `ROW EXCLUSIVE` requests behind it (each with
+`lock_timeout`, each rolled back), so it reads and writes no row whatever the
+table's size; the gold root is `ddl_lock_queue`. Recovery ends only `bench_*`
+sessions. Without a binding (the `local` provider, no snapshot, a table the
+clone lacks) it is skipped with the reason. The report names the program and
+the binding's hash, never the table; the table name stays in the sidecar's
+`sage.sre_game_days.exercised`. Its integration tests are in
+`scenarios_customer_db_test.go` (a 1M-row customer table).
+
 ```sh
 cd sidecar
 SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' \
@@ -21,8 +46,11 @@ SAGE_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?ssl
 | Variable | Default | Meaning |
 |---|---|---|
 | `SAGE_BENCH_REPEATS` | `1` | How many times each scenario runs (1 to 10). Run-to-run consistency needs at least 2. With both live arms, one repeat of every family takes about 25 minutes (PostgreSQL 17, Docker); the bench budgets 30 s per scenario and repeat. Raise `go test -timeout` accordingly, or split the run with `SAGE_BENCH_FAMILIES` as CI does. |
+| `SAGE_BENCH_MIN_RUNS_PER_FAMILY` | unset | At least this many scored top-1 runs per family on every ready gated arm. The bench sizes the repeats from the smallest family, then reruns the scored scenarios of any family that skips left short, numbering the passes on, up to 10 repeats. A family still short fails the test, and the report lists each family's n against the bar. It conflicts with `SAGE_BENCH_REPEATS`. CI sets `10`, the promotion bar, on tags. |
+| `SAGE_BENCH_EXPECTED` | unset | Path of the expected-scenario manifest, `testdata/ci-expected.json` in CI on tags. For the server's PG major it lists the scenarios that must be scored and the allowed skips with their reasons. The test then fails when an expected scenario is skipped (the message carries the skip reason), or when skips leave a gated arm's per-family gate without data. A manifest that is empty, names an unknown scenario or leaves one out fails to load. Unset, skips are reported and do not fail. |
 | `SAGE_BENCH_FAMILIES` | all | Comma-separated families to run, for example `checkpoint_storm,lwlock_contention`. An unknown family fails the test. |
 | `SAGE_BENCH_REPORT_DIR` | the test's temp dir | Where `pgincidentbench.json` and `pgincidentbench.md` are written. CI sets this and uploads the directory. |
+| `SAGE_BENCH_REPLAY` | unset | `1` replays the corpus and attaches its section, with the model lift, to the bench report (and adds 3 minutes to the bench budget). The corpus is the same in every shard, so CI sets it on the core shard of each job only. Unset, the report has no replay section and its replay-backed gates stay `not_evaluated`. |
 | `PG_SAGE_BENCH_LLM_URL` | unset | OpenAI-compatible endpoint for the LLM-on arm (opt-in). If unset, the LLM-on arm uses the deterministic fake model. |
 | `PG_SAGE_BENCH_LLM_MODEL` | unset | Model name. Required when the URL is set. |
 | `PG_SAGE_BENCH_LLM_KEY` | unset | API key. Optional, because local models need none. The key is never written to the report. |
@@ -50,6 +78,8 @@ scenarios read live temp files with `pg_ls_tmpdir` (superuser or
 `pg_monitor`), and the repeated-spill and workload scenarios need
 `pg_stat_statements` preloaded. If the server lacks a fixture, that scenario
 is reported as skipped. A skipped scenario is never scored.
+
+CI's image (`scripts/ci/images/Dockerfile.pg`) has every fixture except the archive one, so on tags the manifest allows only the archiver scenario to skip. A new scenario must be added to the manifest for every major, as expected or as an allowed skip with its reason.
 
 ## What runs
 
@@ -179,11 +209,26 @@ replayed through the real investigator: the coordinator, the store, the
 causal graph and the model turn. Nothing is injected into a database, so a
 case takes milliseconds and the corpus can be large. `TestReplayCorpus` runs
 all of it through the three live arms with every DB test run (about 100 s) and writes
-`pgincidentbench-replay.json` and `.md`. `TestPGIncidentBench` attaches the
-same section to the bench report.
+`pgincidentbench-replay.json` and `.md`. With `SAGE_BENCH_REPLAY=1`,
+`TestPGIncidentBench` attaches the same section to the bench report.
 
 ```sh
 SAGE_TEST_DATABASE_URL=... go test -count=1 -v -run TestReplayCorpus ./sre-bench/
+```
+
+**Compare mode.** `TestReplayCompare` replays the corpus twice on one commit, with
+`sre.investigator.require_support_citation` off and on (the investigator arm of
+`TestReplayCorpus` runs with it off, the Phase 1 rule its gates were set on). It fails on
+any difference in the deterministic arms (state, root, ranking, Safe Pass, top-1) and on a
+replay gate missed under either setting, and adds a per-family table to the replay report:
+how many investigator contests and conclusions the rule keeps. A family that keeps less
+than 90% fails that table's gate; it is reported, not enforced, because only a live-model
+run (the live switches above) decides the shipped default. The fake-model table is
+committed in `replay/compare-require_support_citation.md`.
+
+```sh
+SAGE_TEST_DATABASE_URL=... go test -count=1 -v -run TestReplayCompare ./sre-bench/ \
+  -args --compare require_support_citation
 ```
 
 **What is in it.** 60 R1 cases in `replay/cases/<family>/<id>.json`, plus cases added
@@ -251,6 +296,15 @@ are errors):
 - Each canary (8 characters or more) must appear in the case's data. The
   grader fails the run if a canary appears in the redacted export (JSON or
   Markdown) or in any model prompt.
+- `deadlock_log` (optional, rca-07b) is a deadlock's server-log record:
+  `detail` and `context` as csvlog writes them, and the `participants` a DBA
+  must see (`pid`, `wait_mode`, `blocked_by`). `replay.ParticipantsNamed`
+  runs the record through pg_sage's log parser and scores
+  `participants_named` 1 when every expected participant is named with its
+  lock mode, its blocker and a statement fingerprint, else 0
+  (`lock-deadlock-cycle` carries one). The replay report lists each scored
+  case under `participants_named` (JSON) and "Deadlock participants named"
+  (Markdown). Its text is case text for the canary checks.
 
 **Adding cases (other families).** Add a directory under `replay/cases/` and
 JSON files in it. The loader validates every file against the probe catalog
@@ -337,6 +391,20 @@ overrides pass (lower bound 0.806); 15 of 15 do not (0.796); 29 of 30 pass. A mo
 self-reported confidence is never an input. The report is ingested through the same path as
 promotion evidence (signature, build matching, provenance); the ledger reads, per family, the
 newest live measurement for the running build (`GET /api/v1/model-lift`, the Trust page).
+
+**The authority belongs to the model that earned it.** The report's `llm.model` is an
+authority input: a measurement counts only for an investigator whose `llm.model` is the same
+model. Both names are compared trimmed, lowercased and without any provider prefix up to the
+last `/` (`OpenAI/GPT-6` is `gpt-6`); anything else, including a sibling such as `gpt-6-mini`,
+is another model. The ledger prefers, per family, the newest measurement taken with the
+running model, so a newer report from another model never hides it. A report without
+`llm.model`, or an investigator whose model is unknown, grants nothing. The model is read at
+each question, so after a hot reload to another model the next investigation is advisory and
+the hourly bench loop records the loss (`root_authority_revoked`, with the reason
+`measured with "X"; the investigator runs "Y"`). The view shows both as `measured_model` and
+`running_model`. Each database compares with its own LLM client. Reasoning effort and model
+families are not compared, and the endpoint is not identified: the endpoint `llm.endpoint`
+points at is part of what you trust.
 Until a family passes, its model-sourced roots stay advisory (L1): the investigation keeps
 the graph's root and stores the model's as a contest (`model_contest`, `model_disagreed`
 with `authority: advisory`). The bench itself grants no authority, so `M3-LLM-ROOT` still
@@ -358,7 +426,10 @@ a newer report, the deciding report aging past `bench_max_age_days`, another bui
 
 The report schema is `pg_sage.pgincidentbench.v1` with `schema_revision: 2`: additive, so a
 pg_sage 1.9.0 sidecar still ingests and verifies a new report (ignoring the lift), and this
-sidecar reads a 1.9.0 report as revision 1 with no lift.
+sidecar reads a 1.9.0 report as revision 1 with no lift. In revision 2, `llm.model` (at most
+256 bytes, no control characters) is an authority input: the ledger keeps it, normalized, as
+`llm_model` beside the stored lift, and a revision-2 report without it still ingests but
+grants no model-root authority.
 
 ## Nightly live-model arm
 
@@ -397,9 +468,29 @@ On a tag, the job `bench-live-release-assets` waits for the live run and the rel
 when the live report was signed, attaches it to the GitHub release as
 `pgincidentbench-live.json`, `pgincidentbench-live.json.sigstore.json` and
 `pgincidentbench-live.md`. Neither `release` nor `docker` waits for the live arm: a release
-ships without it when the arm fails, is skipped or is still running. The sidecar does not
-fetch these assets yet (download them into `bench_results_path`); ingesting them is a
-follow-up.
+ships without it when the arm fails, is skipped or is still running. The same job adds
+the two asset URLs and the install command to the release notes.
+
+The sidecar never fetches these assets itself. Download the report and its bundle, then
+install them next to the sidecar:
+
+```bash
+pg_sage bench install --config config.yaml pgincidentbench-live.json
+```
+
+`bench install` verifies `pgincidentbench-live.json.sigstore.json` offline against the
+embedded Sigstore trusted root, checks that the report and the signature name this
+binary's commit (`--commit SHA` names another sidecar's), and copies both, atomically and
+bundle first, into `sre.autonomy.bench_results_path` from the config file (exit 2 when it
+is not set). The hourly ingest then stores the report as a signed release report. An
+admin can instead upload both to `POST /api/v1/sre/autonomy/bench-results` as
+`multipart/form-data` parts `report` and `bundle` (at most 1 MiB together; install
+larger reports with `bench install`).
+
+Model-root authority (the per-family lift above) counts only a signed release or
+local-run report stamped with the running build. A report uploaded without its bundle,
+or one with no `pg_sage_version`/`pg_sage_commit`, is stored as unsigned evidence and
+never grants it.
 
 **The model.** pg_sage has no default LLM model setting (`llm.model` is empty until an
 operator sets it), so the workflow names no model: the repository variable

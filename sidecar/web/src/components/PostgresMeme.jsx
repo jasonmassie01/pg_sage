@@ -2,25 +2,12 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { Pause, Play, Shuffle } from 'lucide-react'
 import { templates, memes } from './postgresMemes'
 import { memeRotation, MEME_ROTATION_MS } from './memeRotation'
-
-const pages = [
-  ['#/advanced/findings', 'Findings explorer'], ['#/advanced/actions', 'Action history'],
-  ['#/advanced/runbooks', 'Runbooks'], ['#/advanced/autonomy', 'Earned autonomy'],
-  ['#/advanced', 'Snapshot & metrics'], ['#/manage-databases', 'Fleet'],
-  ['#/database', 'Database'], ['#/cases', 'Cases'], ['#/findings', 'Findings'],
-  ['#/actions', 'Actions'], ['#/slos', 'SLOs'], ['#/trust', 'Trust'], ['#/facts', 'Facts'],
-  ['#/ask', 'Ask Sage'], ['#/settings', 'Settings'], ['#/notifications', 'Notifications'],
-  ['#/alerts', 'Alert log'], ['#/alert-log', 'Alert log'], ['#/users', 'Users'],
-  ['#/profile', 'Profile'], ['#/agents', 'Agents'], ['#/mcp-tokens', 'MCP tokens'],
-  ['#/link-sso', 'Identity'], ['#/login', 'Sign in'], ['#/forecasts', 'Forecasts'],
-  ['#/query-hints', 'Query hints'], ['#/schema-health', 'Schema health'],
-  ['#/incidents', 'Incidents'], ['#/', 'Value'],
-]
+import { findRoute, routeMemeLabel } from '../routes'
 
 export function PostgresMeme({ route = window.location.hash, compact = false, rotation = memeRotation, guide }) {
   const path = String(route || '#/').split('?')[0]
-  const page = pages.find(([prefix]) => path === prefix || (prefix !== '#/' && path.startsWith(`${prefix}/`)))?.[1]
-    || 'Postgres operations'
+  const match = findRoute(path, { includeSignedOut: true })
+  const page = match ? routeMemeLabel(match) : 'Postgres operations'
   const { meme, paused } = useSyncExternalStore(rotation.subscribe, rotation.getSnapshot)
   const template = templates[meme.template]
   const figure = useRef(null)
@@ -43,7 +30,7 @@ export function PostgresMeme({ route = window.location.hash, compact = false, ro
       <div className="postgres-meme-media">
         <div className={`postgres-meme-poster postgres-meme-${meme.template}`}
           style={{ '--meme-ratio': template.width / template.height }}>
-          <img src={`/memes/${template.file}`} alt={template.alt}
+          <img src={template.src} alt={template.alt}
             width={template.width} height={template.height} loading="eager" decoding="async" />
           {meme.captions.map((caption, index) => (
             <span key={index} className={`postgres-meme-label postgres-meme-label-${index + 1}`}>

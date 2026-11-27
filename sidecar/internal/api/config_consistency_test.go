@@ -50,6 +50,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "4500",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.SelfCostBudgetMs) },
 	},
+	"analyzer.inactive_slot_min_minutes": {
+		input:  "15",
+		reader: func(c *config.Config) string { return itoa(c.Analyzer.InactiveSlotMinMinutes) },
+	},
 	"analyzer.seq_scan_min_rows": {
 		input:  "5000",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.SeqScanMinRows) },
@@ -73,6 +77,12 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	"analyzer.cache_hit_ratio_warning": {
 		input:  "0.85",
 		reader: func(c *config.Config) string { return ftoa(c.Analyzer.CacheHitRatioWarning) },
+	},
+	"analyzer.disabled_rules": { // market-11
+		input: "unused_indexes,slow_queries",
+		reader: func(c *config.Config) string {
+			return strings.Join(c.Analyzer.DisabledRules, ",")
+		},
 	},
 
 	// --- trust ---
@@ -118,6 +128,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "90",
 		reader: func(c *config.Config) string { return itoa(c.Safety.CPUCeilingPct) },
 	},
+	"safety.host_cpu_ceiling_pct": {
+		input:  "80",
+		reader: func(c *config.Config) string { return itoa(c.Safety.HostCPUCeilingPct) },
+	},
 	"safety.query_timeout_ms": {
 		input:  "10000",
 		reader: func(c *config.Config) string { return itoa(c.Safety.QueryTimeoutMs) },
@@ -129,6 +143,22 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	"safety.lock_timeout_ms": {
 		input:  "2000",
 		reader: func(c *config.Config) string { return itoa(c.Safety.LockTimeoutMs) },
+	},
+	"safety.index_build_timeout_seconds": {
+		input:  "7200",
+		reader: func(c *config.Config) string { return itoa(c.Safety.IndexBuildTimeoutSeconds) },
+	},
+	"safety.reindex_timeout_seconds": {
+		input:  "3600",
+		reader: func(c *config.Config) string { return itoa(c.Safety.ReindexTimeoutSeconds) },
+	},
+	"safety.vacuum_timeout_seconds": {
+		input:  "1800",
+		reader: func(c *config.Config) string { return itoa(c.Safety.VacuumTimeoutSeconds) },
+	},
+	"safety.vacuum_stall_minutes": {
+		input:  "45",
+		reader: func(c *config.Config) string { return itoa(c.Safety.VacuumStallMinutes) },
 	},
 
 	// --- llm ---
@@ -168,6 +198,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "500000",
 		reader: func(c *config.Config) string { return itoa(c.LLM.FleetTokenBudgetDaily) },
 	},
+	"llm.global_token_budget_daily": {
+		input:  "750000",
+		reader: func(c *config.Config) string { return itoa(c.LLM.GlobalTokenBudgetDaily) },
+	},
 	"analyzer.autovacuum_tune_min_rows": {
 		input:  "2000000",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.AutovacuumTuneMinRows) },
@@ -180,9 +214,9 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "14",
 		reader: func(c *config.Config) string { return itoa(c.Analyzer.AnalyzeStaleDays) },
 	},
-	"analyzer.wraparound_freeze_xid_age": {
-		input:  "120000000",
-		reader: func(c *config.Config) string { return itoa(c.Analyzer.WraparoundFreezeXIDAge) },
+	"analyzer.wraparound_freeze_share": {
+		input:  "0.6",
+		reader: func(c *config.Config) string { return ftoa(c.Analyzer.WraparoundFreezeShare) },
 	},
 	"llm.context_budget_tokens": {
 		input:  "8192",
@@ -357,7 +391,7 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	// --- v0.9.1: LogWatch (log-based RCA) ---
 	"logwatch.enabled": {
 		input:  "true",
-		reader: func(c *config.Config) string { return btoa(c.LogWatch.Enabled) },
+		reader: logWatchSetting,
 	},
 	"logwatch.log_directory": {
 		input:  "/var/log/postgresql",
@@ -421,10 +455,6 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 		input:  "advisory",
 		reader: func(c *config.Config) string { return c.Migration.Mode },
 	},
-	"migration.managed_service": {
-		input:  "rds",
-		reader: func(c *config.Config) string { return c.Migration.ManagedService },
-	},
 	"migration.log_detection": {
 		input:  "true",
 		reader: func(c *config.Config) string { return btoa(c.Migration.LogDetection) },
@@ -440,6 +470,10 @@ var hotReloadTestValues = map[string]hotReloadTestValue{
 	"migration.ddl_row_threshold": {
 		input:  "50000",
 		reader: func(c *config.Config) string { return itoa(c.Migration.DDLRowThreshold) },
+	},
+	"migration.queue_waiters_threshold": {
+		input:  "5",
+		reader: func(c *config.Config) string { return itoa(c.Migration.QueueWaitersThreshold) },
 	},
 
 	// --- v1.4: Agent-native autonomy ---

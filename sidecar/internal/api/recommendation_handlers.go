@@ -13,8 +13,10 @@ import (
 
 // registerRecommendationRoutes mounts the read-only recommendation API.
 func registerRecommendationRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	mux.HandleFunc("GET /api/v1/recommendations", recommendationsListHandler(mgr))
-	mux.HandleFunc("GET /api/v1/recommendations/{id}", recommendationDetailHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/recommendations", gateViewer, mgr,
+		aggregateHandler(recommendationsListHandler))
+	routeAggregate(mux, "GET /api/v1/recommendations/{id}", gateViewer, mgr,
+		aggregateHandler(recommendationDetailHandler))
 }
 
 // recommendationScope resolves the one database a recommendation request

@@ -24,7 +24,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/notify"
-	"github.com/pg-sage/sidecar/internal/sre"
 	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -34,7 +33,10 @@ import (
 // secret token), processed once, and attributed to the pg_sage user the
 // chat user is explicitly mapped to. Approval goes through the existing
 // approval path (single use, decided_by = the mapped user); unmapped
-// users and viewers are refused.
+// users and viewers are refused. Since policy-08 a Sage SRE cancel is
+// decided through its approval card (sreCard), like every queued action;
+// these tests pin that the authentication, scope, replay and role checks
+// hold for it unchanged.
 
 const testSigningSecret = "8f742231b10e8888abcd99yyyzzz85a5"
 
@@ -118,7 +120,7 @@ func newChatFixture(t *testing.T) *chatFixture {
 	chatopsRun = func(fn func()) { fn() }
 	chatopsReply = cf.replies.record
 	t.Cleanup(func() { chatopsRun, chatopsReply = restoreRun, restoreReply })
-	cf.h = NewRouterFullRuntime(mgr, config.DefaultConfig(), f.pool,
+	cf.h = newTestRouter(mgr, config.DefaultConfig(), f.pool,
 		&ActionDeps{Fleet: mgr}, nil, nil, &RuntimeDeps{})
 	return cf
 }
@@ -197,9 +199,10 @@ func (cf *chatFixture) queue(t *testing.T) (string, *int) {
 
 func TestChatOpsSlackApprovalRunsTheExistingApproval(t *testing.T) {
 	cf := newChatFixture(t)
-	body := slackBody(t, cf.mustExternal(), chatops.SlackApproveAction, string(cf.proposal.ID))
+	token, _ := cf.sreCard(t, cf.slackCh)
+	body := slackBody(t, cf.mustExternal(), chatops.SlackCardApproveAction, token)
 	code, out := cf.slack(t, body, testSigningSecret, time.Now())
-	if code != 200 || out["decision"] != "approve" {
+	if code != 200 || out["decision"] != "approve" || out["executed"] != true {
 		t.Fatalf("slack approve = %d %v", code, out)
 	}
 	if cf.f.canceler.count() != 1 || cf.f.canceler.calls[0].ApprovedBy != cf.operator {
@@ -214,7 +217,7 @@ func TestChatOpsSlackApprovalRunsTheExistingApproval(t *testing.T) {
 	if p.State != sreaction.ProposalExecuted || p.DecidedBy != cf.operator {
 		t.Fatalf("proposal = %s by %d", p.State, p.DecidedBy)
 	}
-	if !strings.Contains(cf.replies.last(), "executed") {
+	if !strings.Contains(cf.replies.last(), "ran on orders") {
 		t.Fatalf("chat reply = %q", cf.replies.last())
 	}
 	// The exact same delivery again is a replay.
@@ -233,6 +236,7 @@ func TestChatOpsSlackApprovalRunsTheExistingApproval(t *testing.T) {
 
 func TestChatOpsSlackRefusesForgedAndStaleCallbacks(t *testing.T) {
 	cf := newChatFixture(t)
+	token, _ := cf.sreCard(t, cf.slackCh)
 	for name, tc := range map[string]struct {
 		secret string
 		at     time.Time
@@ -241,8 +245,7 @@ func TestChatOpsSlackRefusesForgedAndStaleCallbacks(t *testing.T) {
 		"stale":        {testSigningSecret, time.Now().Add(-6 * time.Minute)},
 		"future":       {testSigningSecret, time.Now().Add(6 * time.Minute)},
 	} {
-		body := slackBody(t, cf.mustExternal(), chatops.SlackApproveAction,
-			string(cf.proposal.ID))
+		body := slackBody(t, cf.mustExternal(), chatops.SlackCardApproveAction, token)
 		if code, out := cf.slack(t, body, tc.secret, tc.at); code !=
 			http.StatusUnauthorized || out["code"] != "bad_signature" {
 			t.Errorf("%s = %d %v, want 401 bad_signature", name, code, out)
@@ -255,6 +258,7 @@ func TestChatOpsSlackRefusesForgedAndStaleCallbacks(t *testing.T) {
 
 func TestChatOpsSlackRefusesUnmappedAndViewerUsers(t *testing.T) {
 	cf := newChatFixture(t)
+	token, _ := cf.sreCard(t, cf.slackCh)
 	viewerExt := "U-VW" + cf.suffix()
 	for name, tc := range map[string]struct {
 		user, code string
@@ -262,7 +266,7 @@ func TestChatOpsSlackRefusesUnmappedAndViewerUsers(t *testing.T) {
 		"unmapped": {"U-STRANGER", "unmapped_user"},
 		"viewer":   {viewerExt, "forbidden"},
 	} {
-		body := slackBody(t, tc.user, chatops.SlackApproveAction, string(cf.proposal.ID))
+		body := slackBody(t, tc.user, chatops.SlackCardApproveAction, token)
 		if code, out := cf.slack(t, body, testSigningSecret, time.Now()); code !=
 			http.StatusForbidden || out["code"] != tc.code {
 			t.Errorf("%s = %d %v, want 403 %s", name, code, out, tc.code)
@@ -273,9 +277,12 @@ func TestChatOpsSlackRefusesUnmappedAndViewerUsers(t *testing.T) {
 	}
 }
 
+// A chat Reject of an SRE card rejects the item and syncs the proposal to
+// denied at once (as the retired Deny button did).
 func TestChatOpsSlackDenyRejectsAndAttributes(t *testing.T) {
 	cf := newChatFixture(t)
-	body := slackBody(t, cf.mustExternal(), chatops.SlackDenyAction, string(cf.proposal.ID))
+	token, _ := cf.sreCard(t, cf.slackCh)
+	body := slackBody(t, cf.mustExternal(), chatops.SlackCardRejectAction, token)
 	if code, out := cf.slack(t, body, testSigningSecret, time.Now()); code != 200 ||
 		out["decision"] != "deny" {
 		t.Fatalf("deny = %d %v", code, out)
@@ -292,13 +299,13 @@ func TestChatOpsSlackDenyRejectsAndAttributes(t *testing.T) {
 	}
 }
 
-func TestChatOpsSlackChannelAndProposalChecks(t *testing.T) {
+func TestChatOpsSlackChannelAndCardChecks(t *testing.T) {
 	cf := newChatFixture(t)
-	body := slackBody(t, cf.mustExternal(), chatops.SlackApproveAction,
-		string(sre.NewUUID()))
+	body := slackBody(t, cf.mustExternal(), chatops.SlackCardApproveAction,
+		"ZZZZZZZZZZZZZZZZZZZZZZ")
 	if code, out := cf.slack(t, body, testSigningSecret, time.Now()); code !=
-		http.StatusNotFound || out["code"] != "not_found" {
-		t.Fatalf("unknown proposal = %d %v", code, out)
+		http.StatusNotFound || out["code"] != "unknown_card" {
+		t.Fatalf("unknown card = %d %v", code, out)
 	}
 	for _, path := range []string{"/api/v1/chatops/slack/999999",
 		fmt.Sprintf("/api/v1/chatops/slack/%d", cf.tgCh), "/api/v1/chatops/slack/x"} {
@@ -310,15 +317,19 @@ func TestChatOpsSlackChannelAndProposalChecks(t *testing.T) {
 			t.Errorf("%s = %d, want 404/400", path, code)
 		}
 	}
+	token, _ := cf.sreCard(t, cf.slackCh)
 	other, _ := json.Marshal(map[string]any{"type": "block_actions",
 		"team": map[string]any{"id": "T9999"},
 		"user": map[string]any{"id": cf.mustExternal()},
-		"actions": []any{map[string]any{"action_id": chatops.SlackApproveAction,
-			"value": string(cf.proposal.ID), "action_ts": "1.2"}}})
+		"actions": []any{map[string]any{"action_id": chatops.SlackCardApproveAction,
+			"value": token, "action_ts": "1.2"}}})
 	otherBody := []byte(url.Values{"payload": {string(other)}}.Encode())
 	if code, out := cf.slack(t, otherBody, testSigningSecret, time.Now()); code !=
 		http.StatusForbidden || out["code"] != "forbidden" {
 		t.Fatalf("another workspace = %d %v, want 403", code, out)
+	}
+	if status, _ := cf.queue(t); status != "pending" || cf.f.canceler.count() != 0 {
+		t.Fatalf("a refused callback changed the queue (%s)", status)
 	}
 }
 
@@ -344,7 +355,8 @@ func (cf *chatFixture) telegram(body []byte, secret string) (int, map[string]any
 
 func TestChatOpsTelegramApproval(t *testing.T) {
 	cf := newChatFixture(t)
-	data := chatops.CallbackData(chatops.DecisionApprove, string(cf.proposal.ID))
+	token, _ := cf.sreCard(t, cf.tgCh)
+	data := chatops.CardCallbackData(chatops.DecisionApprove, token)
 	update := time.Now().UnixNano()
 	if code, out := cf.telegram(telegramBody(update, cf.suffix(), "-1001", data),
 		"wrong"); code != http.StatusUnauthorized {
@@ -385,7 +397,7 @@ func TestChatOpsTelegramApproval(t *testing.T) {
 func TestChatOpsCallbacksAreTheOnlySessionlessRoutes(t *testing.T) {
 	cf := newChatFixture(t)
 	mgr := fleet.NewManager(config.DefaultConfig())
-	h := NewRouterFullRuntime(mgr, config.DefaultConfig(), cf.pool,
+	h := newTestRouter(mgr, config.DefaultConfig(), cf.pool,
 		&ActionDeps{Fleet: mgr}, nil, nil, &RuntimeDeps{}, SessionAuthMiddleware(cf.pool))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/chatops/identities", nil)
 	if code, _ := serveJSON(h, req); code != http.StatusUnauthorized {
@@ -412,7 +424,7 @@ func TestChatOpsIdentityAdminRoutes(t *testing.T) {
 					userContextKey, u)))
 			})
 		}
-		return NewRouterFullRuntime(mgr, config.DefaultConfig(), cf.pool,
+		return newTestRouter(mgr, config.DefaultConfig(), cf.pool,
 			&ActionDeps{Fleet: mgr}, nil, nil, &RuntimeDeps{}, inject)
 	}
 	link := fmt.Sprintf(`{"provider":"slack","team_id":"T0001",`+

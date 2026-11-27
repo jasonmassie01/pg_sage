@@ -1,11 +1,9 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -60,7 +58,12 @@ func startShaped(
 ) (wireShape, []byte, error) {
 	shape := requestShape(cfg, tools)
 	body, err := marshalShaped(req, shape)
-	return shape, body, err
+	if err != nil {
+		return shape, nil, err
+	}
+	// The pre-flight size guard (llm-05) runs on the wire body, before
+	// the throttle, the budgets or any I/O.
+	return shape, body, preflight(cfg, estimateTokens(string(body)), req.MaxTokens)
 }
 
 // marshalShaped is the JSON body of the request in the given wire shape.
@@ -172,6 +175,7 @@ func (c *Client) exchangeTools(
 	}()
 	resp, err := c.postToolsAdapting(ctx, requestCtx, cfg, req, shape, len(tools) > 0)
 	if err != nil {
+		c.noteFailure(generation, err, false)
 		return ToolResult{}, err
 	}
 	if !c.generationCurrent(generation) {
@@ -246,60 +250,26 @@ func (c *Client) postToolsAdapting(
 	return out, err
 }
 
-// postTools sends the request once. A 429 is ErrRateLimited; other
-// provider failures feed the circuit breaker as in Chat.
+// postTools sends the request once: the tool path has no retry ladder,
+// so a narration can fall back inside its own deadline. A 429 is
+// ErrRateLimited; failures are classified as in Chat.
 func (c *Client) postTools(
 	ctx, requestCtx context.Context, cfg config.LLMConfig, body []byte,
 	shape wireShape, tools bool,
 ) (*toolChatResponse, error) {
-	httpReq, err := http.NewRequestWithContext(requestCtx, http.MethodPost,
-		chatEndpoint(cfg.Endpoint), bytes.NewReader(body))
+	reply, err := c.post(ctx, requestCtx, cfg, body, 1, "LLM tool request")
 	if err != nil {
-		return nil, fmt.Errorf("tool request: %w", err)
+		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	if cfg.Auth == "databricks" {
-		if err := c.authorizeDatabricks(httpReq); err != nil {
-			return nil, err
-		}
-	}
-	resp, err := c.doRequest(httpReq, cfg)
-	if err != nil {
-		if shouldRecordProviderFailure(ctx, requestCtx) {
-			c.recordFailure()
-		}
-		return nil, providerRequestError("LLM tool request", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return c.decodeToolResponse(resp, cfg, shape, tools)
-}
-
-func (c *Client) decodeToolResponse(
-	resp *http.Response, cfg config.LLMConfig, shape wireShape, tools bool,
-) (*toolChatResponse, error) {
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		c.recordFailure()
-		return nil, fmt.Errorf("read tool response: %w", err)
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		c.recordFailure()
-		return nil, fmt.Errorf("%w (status 429)", ErrRateLimited)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, c.statusError(cfg, shape, tools, resp.StatusCode, respBody,
-			fmt.Errorf("LLM API error %d: %s", resp.StatusCode,
-				redactProviderText(string(respBody))))
+	if reply.status != http.StatusOK {
+		return nil, c.statusError(cfg, shape, tools, reply)
 	}
 	var out toolChatResponse
-	if err := json.Unmarshal(respBody, &out); err != nil {
-		c.recordFailure()
-		return nil, fmt.Errorf("unmarshal tool response: %w", err)
+	if err := json.Unmarshal(reply.body, &out); err != nil {
+		return nil, malformed(fmt.Errorf("unmarshal tool response: %w", err))
 	}
 	if len(out.Choices) == 0 {
-		c.recordFailure()
-		return nil, fmt.Errorf("no choices in tool response")
+		return nil, malformed(fmt.Errorf("no choices in tool response"))
 	}
 	return &out, nil
 }

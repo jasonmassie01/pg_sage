@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +32,21 @@ var historyMetaPool = func() *pgxpool.Pool {
 // meta-db record id. The perf gate replaces it to run the standalone
 // runtime with its history in a store.
 var runtimeHistoryID = func(spec databaseRuntimeSpec) int { return spec.DatabaseID }
+
+// setHistoryProcessMode tells histstore where this process keeps history,
+// once at startup: with history.store: meta, a history read on a pool no
+// runtime registered fails (histstore.ErrNotRegistered) instead of reading
+// that pool's own, wrong, history. The value was validated with the config.
+func setHistoryProcessMode() {
+	mode := histstore.ModeMonitored
+	if cfg.HistoryInMeta() {
+		mode = histstore.ModeMeta
+	}
+	if err := histstore.SetProcessMode(mode); err != nil {
+		logError("startup", "history.store: %v", err)
+		os.Exit(1)
+	}
+}
 
 // initHistoryStoreSchema makes the meta database a history store when
 // history.store is meta (after the meta bootstrap, before any runtime).

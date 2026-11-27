@@ -157,7 +157,7 @@ func TestBuildLLMIncident_HighRiskScoresCritical(t *testing.T) {
 		EstDurationSec:  900,
 	}
 
-	inc := advisor.buildLLMIncident(resp, "ALTER TABLE foo ALTER COLUMN id TYPE bigint")
+	inc, _ := advisor.buildLLMIncident(resp, "ALTER TABLE foo ALTER COLUMN id TYPE bigint")
 	if inc == nil {
 		t.Fatal("buildLLMIncident returned nil")
 	}
@@ -171,16 +171,20 @@ func TestBuildLLMIncident_HighRiskScoresCritical(t *testing.T) {
 	if inc.Confidence != 0.9 {
 		t.Errorf("Confidence = %f, want 0.9", inc.Confidence)
 	}
-	if inc.RecommendedSQL != resp.SafeAlternative {
-		t.Errorf("RecommendedSQL not propagated: got %q", inc.RecommendedSQL)
+	// "...; UPDATE ..." is not valid SQL: labelled model text (security-05).
+	if inc.RecommendedSQL != "" {
+		t.Errorf("RecommendedSQL = %q, want empty", inc.RecommendedSQL)
 	}
 	if inc.DatabaseName != "mydb" {
 		t.Errorf("DatabaseName = %q, want 'mydb'", inc.DatabaseName)
 	}
-	// With a safe alternative present, the causal chain has 3 links:
-	// llm_ddl_analysis, lock_analysis, safe_alternative.
+	// Links: llm_ddl_analysis, lock_analysis, model_text_unvalidated.
 	if len(inc.CausalChain) != 3 {
-		t.Errorf("CausalChain len = %d, want 3", len(inc.CausalChain))
+		t.Fatalf("CausalChain len = %d, want 3", len(inc.CausalChain))
+	}
+	if l := inc.CausalChain[2]; l.Signal != "model_text_unvalidated" ||
+		l.Evidence != resp.SafeAlternative {
+		t.Errorf("CausalChain[2] = %+v, want the labelled model text", l)
 	}
 }
 
@@ -201,7 +205,7 @@ func TestBuildLLMIncident_MediumRiskIsWarning(t *testing.T) {
 		Explanation:     "Moderate risk",
 		EstDurationSec:  10,
 	}
-	inc := advisor.buildLLMIncident(resp, "ALTER TABLE t ADD COLUMN x int")
+	inc, _ := advisor.buildLLMIncident(resp, "ALTER TABLE t ADD COLUMN x int")
 	if inc.Severity != "warning" {
 		t.Errorf("Severity = %q, want 'warning' for risk_score=0.5",
 			inc.Severity)

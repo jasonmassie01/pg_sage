@@ -1,8 +1,9 @@
 package collector
 
 import (
-	"github.com/pg-sage/sidecar/internal/testdb"
 	"context"
+	"github.com/pg-sage/sidecar/internal/testdb"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -120,7 +121,7 @@ func TestPhase2_CollectForeignKeys_WithData(t *testing.T) {
 	for _, fk := range fks {
 		if fk.TableName == "phase2_orders" &&
 			fk.ReferencedTable == "phase2_users" &&
-			fk.FKColumn == "user_id" {
+			reflect.DeepEqual(fk.Columns, []string{"user_id"}) {
 			found = true
 			if fk.ConstraintName == "" {
 				t.Error("ConstraintName should not be empty")
@@ -175,28 +176,29 @@ func TestPhase2_CollectLocks_WithActiveSession(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
 
-	// Acquire an advisory lock on a dedicated connection and hold it
-	// while collectLocks runs on a different connection. We use
-	// pool.Acquire to pin a connection.
+	// Acquire an advisory lock on a dedicated connection and hold it, in
+	// an open transaction, while collectLocks runs on a different
+	// connection. We use pool.Acquire to pin a connection. (collection-01:
+	// the locks category is a wait graph; an idle-in-transaction session
+	// is one of its rows, a lone idle session holding a lock is not.)
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		t.Fatalf("acquire connection: %v", err)
 	}
 
 	_, err = conn.Exec(ctx,
-		`SELECT pg_advisory_lock(12345678)`)
+		`BEGIN; SELECT pg_advisory_xact_lock(12345678)`)
 	if err != nil {
 		conn.Release()
 		t.Fatalf("acquire advisory lock: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = conn.Exec(context.Background(),
-			`SELECT pg_advisory_unlock(12345678)`)
+		_, _ = conn.Exec(context.Background(), `ROLLBACK`)
 		conn.Release()
 	})
 
 	c := phase2Collector(t, pool)
-	locks, err := c.collectLocks(ctx)
+	locks, _, err := c.collectLocks(ctx)
 	if err != nil {
 		t.Fatalf("collectLocks: %v", err)
 	}
@@ -227,7 +229,7 @@ func TestPhase2_CollectLocks_CancelledContext(t *testing.T) {
 	cancel()
 
 	c := phase2Collector(t, pool)
-	_, err := c.collectLocks(ctx)
+	_, _, err := c.collectLocks(ctx)
 	if err == nil {
 		t.Error("collectLocks with cancelled context should error")
 	}
@@ -434,7 +436,7 @@ func TestPhase2_ShouldSkip_ThresholdExceeded_EntersDormant(t *testing.T) {
 	cancel()
 
 	// First call: query fails => skip, consecutiveSkips=1
-	if !cb.ShouldSkip(cancelledCtx, pool) {
+	if !cb.ShouldSkip(cancelledCtx, pool).Skip {
 		t.Error("ShouldSkip should return true when query fails")
 	}
 
@@ -449,7 +451,7 @@ func TestPhase2_ShouldSkip_ThresholdExceeded_EntersDormant(t *testing.T) {
 	cb.mu.Unlock()
 
 	// Second call: query fails => skip, consecutiveSkips=2 >= maxSkips=2
-	if !cb.ShouldSkip(cancelledCtx, pool) {
+	if !cb.ShouldSkip(cancelledCtx, pool).Skip {
 		t.Error("ShouldSkip should return true on second failure")
 	}
 
@@ -481,7 +483,7 @@ func TestPhase2_ShouldSkip_SuccessResetsSkips(t *testing.T) {
 	cb.mu.Unlock()
 
 	// Successful check should reset consecutiveSkips to 0.
-	if cb.ShouldSkip(ctx, pool) {
+	if cb.ShouldSkip(ctx, pool).Skip {
 		t.Error("ShouldSkip should return false with 99% ceiling")
 	}
 
@@ -938,48 +940,6 @@ func TestPhase2_Collect_LocksCollected(t *testing.T) {
 // cycle — collect error path
 // ---------------------------------------------------------------------------
 
-func TestPhase2_Cycle_CollectError(t *testing.T) {
-	// Use a pool that points to a closed connection to trigger
-	// collect errors.
-	pool := testPool(t)
-	cfg := testConfig()
-
-	var messages []string
-	logFn := func(level, msg string, args ...any) {
-		messages = append(messages, level+":"+msg)
-	}
-
-	c := New(pool, cfg, 170000, logFn)
-
-	// Close the pool to force errors during collect.
-	// But first we need to get past ShouldSkip.
-	// ShouldSkip will also fail on a closed pool, causing a skip.
-	// So we need a different approach: use a valid pool but with
-	// very short timeout to cause partial failure.
-	//
-	// Alternative: test with valid pool — cycle should succeed.
-	// The collect-error path is already partially tested via
-	// cancelled context tests. Let's verify the full cycle
-	// error logging path.
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 1*time.Nanosecond)
-	defer cancel()
-
-	// Wait for context to expire.
-	time.Sleep(time.Millisecond)
-
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-
-	c.cycle(ctx, ticker)
-
-	// With an expired context, ShouldSkip should fail and skip.
-	snap := c.LatestSnapshot()
-	if snap != nil {
-		t.Log("snapshot was set despite timeout (query was fast)")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ShouldSkip — threshold path with real load ratio
 // ---------------------------------------------------------------------------
@@ -989,7 +949,7 @@ func TestPhase2_ShouldSkip_HighCeiling_NoSkip(t *testing.T) {
 	ctx := context.Background()
 
 	cb := NewCircuitBreaker(100, 10)
-	if cb.ShouldSkip(ctx, pool) {
+	if cb.ShouldSkip(ctx, pool).Skip {
 		t.Error("100% ceiling should never skip")
 	}
 
@@ -1013,7 +973,7 @@ func TestPhase2_ShouldSkip_MultipleSuccessesResetSkips(t *testing.T) {
 	cb.mu.Unlock()
 
 	// Success should reset.
-	if cb.ShouldSkip(ctx, pool) {
+	if cb.ShouldSkip(ctx, pool).Skip {
 		t.Error("should not skip with 99% ceiling")
 	}
 

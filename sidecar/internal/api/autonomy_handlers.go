@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/gameday"
+	"github.com/pg-sage/sidecar/internal/inbox"
 	"github.com/pg-sage/sidecar/internal/rollout"
 )
 
@@ -21,8 +22,9 @@ import (
 // signed-in role reads the ledger, its evidence and history. Operators
 // review packets, flag harm, ask for an evaluation, reject proposals and
 // downgrade: restricting autonomy is always allowed. Only an admin
-// approves a promotion (the human trust step, recorded with the
-// approver) or uploads benchmark evidence.
+// approves a promotion or re-approves a level a PostgreSQL major upgrade
+// capped (the human trust step, recorded with the approver) or uploads
+// benchmark evidence.
 
 // AutonomyDeps wires the autonomy routes.
 type AutonomyDeps struct {
@@ -34,6 +36,9 @@ type AutonomyDeps struct {
 	// FastElevation is every trust-elevation setting below the spec (the
 	// config is restart-bound, so it is fixed for the process).
 	FastElevation []config.LoweredSetting
+	// BenchVerifier verifies a signed bench upload's Sigstore bundle
+	// (benches-09); without one a signed upload is refused (503).
+	BenchVerifier BenchVerifier
 }
 
 const autonomyPath = "/api/v1/sre/autonomy"
@@ -43,29 +48,31 @@ func registerAutonomyRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	if deps == nil || deps.Ledgers == nil {
 		return
 	}
-	viewer := RequireRole("admin", "operator", "viewer")
-	operator := RequireRole("admin", "operator")
-	admin := RequireRole("admin")
 	h := autonomyHandlers{deps: deps, mgr: mgr}
-	mux.Handle("GET "+autonomyPath, viewer(http.HandlerFunc(h.view)))
-	mux.Handle("GET "+autonomyPath+"/history", viewer(http.HandlerFunc(h.history)))
-	mux.Handle("GET "+autonomyPath+"/proposals", viewer(http.HandlerFunc(h.proposals)))
-	mux.Handle("POST "+autonomyPath+"/evaluate", operator(http.HandlerFunc(h.evaluate)))
-	mux.Handle("POST "+autonomyPath+"/proposals/{id}/approve",
-		admin(http.HandlerFunc(h.approve)))
-	mux.Handle("POST "+autonomyPath+"/proposals/{id}/reject",
-		operator(http.HandlerFunc(h.reject)))
-	mux.Handle("POST "+autonomyPath+"/downgrade", operator(http.HandlerFunc(h.downgrade)))
-	mux.Handle("POST "+autonomyPath+"/reviews", operator(http.HandlerFunc(h.review)))
-	mux.Handle("POST "+autonomyPath+"/outcomes", operator(http.HandlerFunc(h.outcome)))
-	mux.Handle("POST "+autonomyPath+"/bench-results", admin(http.HandlerFunc(h.bench)))
-	mux.Handle("GET "+autonomyPath+"/game-days", viewer(http.HandlerFunc(h.gameDays)))
-	mux.Handle("POST "+autonomyPath+"/game-days", admin(http.HandlerFunc(h.startGameDay)))
-	mux.Handle("GET "+autonomyPath+"/bench-runs", viewer(http.HandlerFunc(h.benchRuns)))
-	mux.Handle("POST "+autonomyPath+"/bench-runs", admin(http.HandlerFunc(h.startBenchRun)))
-	mux.Handle("GET "+autonomyPath+"/rollouts", viewer(http.HandlerFunc(h.rollouts)))
-	mux.Handle("GET "+autonomyPath+"/rollouts/{id}", viewer(http.HandlerFunc(h.rollout)))
-	mux.Handle("POST "+autonomyPath+"/rollouts", admin(http.HandlerFunc(h.startRollout)))
+	route(mux, "GET "+autonomyPath, gateViewer, http.HandlerFunc(h.view))
+	route(mux, "GET "+autonomyPath+"/history", gateViewer, http.HandlerFunc(h.history))
+	route(mux, "GET "+autonomyPath+"/proposals", gateViewer, http.HandlerFunc(h.proposals))
+	routeDB(mux, "POST "+autonomyPath+"/evaluate", gateOperator, queryDatabase,
+		http.HandlerFunc(h.evaluate))
+	route(mux, "POST "+autonomyPath+"/proposals/{id}/approve", gateAdmin,
+		http.HandlerFunc(h.approve))
+	routeDB(mux, "POST "+autonomyPath+"/proposals/{id}/reject", gateOperator, queryDatabase,
+		http.HandlerFunc(h.reject))
+	routeDB(mux, "POST "+autonomyPath+"/downgrade", gateOperator, queryDatabase,
+		http.HandlerFunc(h.downgrade))
+	route(mux, "POST "+autonomyPath+"/revalidate", gateAdmin, http.HandlerFunc(h.revalidate))
+	routeDB(mux, "POST "+autonomyPath+"/reviews", gateOperator, queryDatabase,
+		http.HandlerFunc(h.review))
+	routeDB(mux, "POST "+autonomyPath+"/outcomes", gateOperator, queryDatabase,
+		http.HandlerFunc(h.outcome))
+	route(mux, "POST "+autonomyPath+"/bench-results", gateAdmin, http.HandlerFunc(h.bench))
+	route(mux, "GET "+autonomyPath+"/game-days", gateViewer, http.HandlerFunc(h.gameDays))
+	route(mux, "POST "+autonomyPath+"/game-days", gateAdmin, http.HandlerFunc(h.startGameDay))
+	route(mux, "GET "+autonomyPath+"/bench-runs", gateViewer, http.HandlerFunc(h.benchRuns))
+	route(mux, "POST "+autonomyPath+"/bench-runs", gateAdmin, http.HandlerFunc(h.startBenchRun))
+	route(mux, "GET "+autonomyPath+"/rollouts", gateViewer, http.HandlerFunc(h.rollouts))
+	route(mux, "GET "+autonomyPath+"/rollouts/{id}", gateViewer, http.HandlerFunc(h.rollout))
+	route(mux, "POST "+autonomyPath+"/rollouts", gateAdmin, http.HandlerFunc(h.startRollout))
 }
 
 type autonomyHandlers struct {
@@ -114,6 +121,8 @@ func autonomyError(w http.ResponseWriter, r *http.Request, err error) {
 		sreErrorCode(w, err.Error(), "human_approval_required", http.StatusForbidden)
 	case errors.Is(err, earned.ErrNotADowngrade):
 		sreErrorCode(w, err.Error(), "not_a_downgrade", http.StatusConflict)
+	case errors.Is(err, earned.ErrNotCapped):
+		sreErrorCode(w, err.Error(), "not_capped", http.StatusConflict)
 	case errors.Is(err, earned.ErrNotPending), errors.Is(err, earned.ErrProposalExpired),
 		errors.Is(err, earned.ErrConflict):
 		sreErrorCode(w, err.Error(), "conflict", http.StatusConflict)
@@ -224,12 +233,14 @@ func (h autonomyHandlers) approve(w http.ResponseWriter, r *http.Request) {
 	if !ok || !decodeAutonomyBody(w, r, &body) {
 		return
 	}
+	waiting, _ := e.Service.Proposal(r.Context(), r.PathValue("id"))
 	st, err := e.Service.Approve(r.Context(), r.PathValue("id"),
 		autonomyActor(UserFromContext(r.Context())), body.Note)
 	if err != nil {
 		autonomyError(w, r, err)
 		return
 	}
+	recordDecision(r, inbox.KindAutonomyPromotion, waiting.ProposedAt)
 	jsonResponse(w, map[string]any{"state": st})
 }
 
@@ -247,6 +258,7 @@ func (h autonomyHandlers) reject(w http.ResponseWriter, r *http.Request) {
 		autonomyError(w, r, err)
 		return
 	}
+	recordDecision(r, inbox.KindAutonomyPromotion, p.ProposedAt)
 	jsonResponse(w, map[string]any{"proposal": p})
 }
 

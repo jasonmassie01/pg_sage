@@ -166,7 +166,7 @@ func otherRolePool(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		_, _ = pool.Exec(context.Background(), "DROP OWNED BY "+ident+"; DROP ROLE IF EXISTS "+
 			ident)
 	})
-	u, _ := url.Parse(os.Getenv(testdb.EnvName))
+	u, _ := url.Parse(testdb.SkipUnlessLive(t))
 	u.User = url.UserPassword(role, "sre-probe-test")
 	other, err := pgxpool.New(ctx, u.String())
 	if err != nil {

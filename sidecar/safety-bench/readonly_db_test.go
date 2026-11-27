@@ -2,8 +2,12 @@ package safetybench
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // These tests need a real PostgreSQL server (SAGE_TEST_DATABASE_URL). They
@@ -123,8 +127,8 @@ func TestDesigns_ClassifyRefusal(t *testing.T) {
 
 // TestPrivilegeRoleHoldsAcrossTransactionAndRoleResets: the privilege design
 // is a session logged in as the read-only role, not the owner's session
-// after SET LOCAL ROLE, which a COMMIT or RESET ROLE inside the statement
-// would end. Either reset still leaves the write refused for privilege.
+// with the role switched for the transaction, which a COMMIT or RESET ROLE
+// inside the statement would end. Either reset still leaves the write refused for privilege.
 func TestPrivilegeRoleHoldsAcrossTransactionAndRoleResets(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -170,5 +174,110 @@ func TestDesigns_AllowBenignRead(t *testing.T) {
 		if got := classify(d.Attempt(ctx, pool, read)); got != ClassExecuted {
 			t.Errorf("%s: benign SELECT observed %s, want executed", d.Name(), got)
 		}
+	}
+}
+
+// TestSelfCheckFailsWhenDesignCannotLogIn: a design that never reaches the
+// server measured nothing. Its self-checks must fail by name, not "hold"
+// because the attempt errored with the checksums untouched.
+func TestSelfCheckFailsWhenDesignCannotLogIn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool := newPool(ctx, t)
+	cases, err := LoadCases(true)
+	if err != nil {
+		t.Fatalf("load self-checks: %v", err)
+	}
+	t.Run("missing role", func(t *testing.T) {
+		assertOnlyDesignFails(ctx, t, pool, cases, privRoleDesign{roleName: "sb_no_such_role"})
+	})
+	t.Run("connect revoked", func(t *testing.T) {
+		db := currentDB(ctx, t, pool)
+		d := &connectRevokedDesign{privRoleDesign: privRoleDesign{roleName: readOnlyRole},
+			db: db}
+		t.Cleanup(func() { restoreConnect(t, pool, db) })
+		assertOnlyDesignFails(ctx, t, pool, cases, d)
+		if !d.revoked {
+			t.Fatal("the design never revoked CONNECT; the case was not exercised")
+		}
+	})
+}
+
+// assertOnlyDesignFails runs the self-checks against read_only_txn (a
+// healthy control) and broken, and requires SelfCheckFailures to name
+// broken on every self-check case and never the control.
+func assertOnlyDesignFails(ctx context.Context, t *testing.T, pool *pgxpool.Pool,
+	cases []Case, broken RODesign) {
+	t.Helper()
+	designs := []RODesign{readOnlyTxnDesign{}, broken}
+	results, err := RunReadOnly(ctx, pool, cases, designs)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, c := range results {
+		if got := c.Attempts[1].Observed; got != ClassOtherError {
+			t.Errorf("%s: broken design observed %s, want other_error (detail %q)",
+				c.ID, got, c.Attempts[1].Detail)
+		}
+	}
+	r := BuildReport(ReportMeta{Designs: designNames(designs)}, results, nil, nil)
+	failures := SelfCheckFailures(r)
+	if len(failures) != len(cases) {
+		t.Fatalf("want %d self-check failures (one per case), got %q", len(cases), failures)
+	}
+	for _, f := range failures {
+		if !strings.Contains(f, "not held by "+broken.Name()) {
+			t.Errorf("failure does not name %s: %q", broken.Name(), f)
+		}
+		if strings.Contains(f, "read_only_txn") {
+			t.Errorf("failure blames the healthy control: %q", f)
+		}
+	}
+	if s := r.ReadOnlySummary()[broken.Name()]; s.Held != 0 || s.NotMeasured != len(cases) {
+		t.Errorf("broken design summary = %+v, want Held=0 NotMeasured=%d", s, len(cases))
+	}
+}
+
+// connectRevokedDesign is privRoleDesign whose role loses CONNECT on the
+// fixture database after PrepareReadOnly granted it (on its first attempt).
+// The login then fails with 42501, which must not read as a privilege
+// refusal of the statement.
+type connectRevokedDesign struct {
+	privRoleDesign
+	db      string
+	revoked bool
+}
+
+func (d *connectRevokedDesign) Attempt(ctx context.Context, owner *pgxpool.Pool,
+	sql string) error {
+	if !d.revoked {
+		for _, grantee := range []string{"PUBLIC", quoteIdent(d.roleName)} {
+			stmt := "REVOKE CONNECT ON DATABASE " + quoteIdent(d.db) + " FROM " + grantee
+			if _, err := owner.Exec(ctx, stmt); err != nil {
+				return fmt.Errorf("test setup %q: %w", stmt, err)
+			}
+		}
+		d.revoked = true
+	}
+	return d.privRoleDesign.Attempt(ctx, owner, sql)
+}
+
+func currentDB(ctx context.Context, t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	var db string
+	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&db); err != nil {
+		t.Fatalf("read the fixture database name: %v", err)
+	}
+	return db
+}
+
+// restoreConnect gives PUBLIC its default CONNECT back; the next
+// PrepareReadOnly re-grants the fixture roles.
+func restoreConnect(t *testing.T, pool *pgxpool.Pool, db string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stmt := "GRANT CONNECT ON DATABASE " + quoteIdent(db) + " TO PUBLIC"
+	if _, err := pool.Exec(ctx, stmt); err != nil {
+		t.Errorf("restore CONNECT: %v", err)
 	}
 }

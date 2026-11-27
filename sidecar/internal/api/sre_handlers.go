@@ -8,6 +8,9 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/sre"
@@ -24,11 +27,25 @@ const sreInvestigationsPath = "/api/v1/databases/{db}/investigations"
 // fleetInvestigationLimit bounds each database's page in the fleet list.
 const fleetInvestigationLimit = 100
 
-func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	ledgers *earned.Registry) {
-	viewerUp := RequireRole("admin", "operator", "viewer")
-	mux.Handle("GET /api/v1/investigations", viewerUp(fleetInvestigationsHandler(mgr)))
-	perDB := perDatabaseSREMux(mgr, ledgers)
+// registerSRERoutes registers the fleet and per-database SRE routes; rt
+// supplies the autonomy ledgers, the workload pack keys (with pool) and
+// where restore drill rows live (drill-01d).
+func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager, cfg *config.Config,
+	pool *pgxpool.Pool, rt RuntimeDeps) {
+	drills := drillReads{cfg: cfg, results: rt.RestoreDrillResults}
+	routeAggregate(mux, "GET /api/v1/investigations", gateViewer, mgr,
+		aggregateHandler(fleetInvestigationsHandler))
+	registerFleetRecoverabilityRoute(mux, mgr, drills)
+	perDB := perDatabaseSREMux(mgr, autonomyRegistry(rt.Autonomy), cfg,
+		workloadPackKeys(rt, pool), drills)
+	// check_pressure (guard-01a) takes a read-scope API token from pool's
+	// store outside a Databricks App, as migration lint does.
+	registerPressureRoutes(perDB, mgr, lintTokenStore(mcpTokenStore(pool)),
+		rt.DatabricksAppAuth)
+	// Backfill jobs (guard-01b) take an operator token with the propose
+	// scope to register, by the plan routes' pattern.
+	registerPressureJobRoutes(perDB, mgr, lintTokenStore(mcpTokenStore(pool)),
+		rt.DatabricksAppAuth)
 	// The per-database routes go through their own mux behind one
 	// catch-all per method: "{db}/investigations" and the fleet-mode
 	// "managed/{id}" routes overlap with neither more specific, which
@@ -37,34 +54,40 @@ func registerSRERoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	// "{db}" patterns stop ServeMux redirecting "/databases/x" to the
 	// catch-all's "/databases/x/"; the inner mux answers them 404.
 	for _, method := range []string{"GET", "POST"} {
-		mux.Handle(method+" /api/v1/databases/{db}", perDB)
-		mux.Handle(method+" /api/v1/databases/{db}/{rest...}", perDB)
+		mount(mux, method+" /api/v1/databases/{db}", perDB, perDB)
+		mount(mux, method+" /api/v1/databases/{db}/{rest...}", perDB, perDB)
 	}
 }
 
-func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry) *http.ServeMux {
-	viewerUp := RequireRole("admin", "operator", "viewer")
-	operatorUp := RequireRole("admin", "operator")
+func perDatabaseSREMux(mgr *fleet.DatabaseManager, ledgers *earned.Registry,
+	cfg *config.Config, packKeys WorkloadPackKeys, drills drillReads) *http.ServeMux {
 	base := sreInvestigationsPath
 	mux := http.NewServeMux()
-	mux.Handle("GET "+base, viewerUp(investigationListHandler(mgr)))
-	mux.Handle("GET "+base+"/{id}", viewerUp(investigationDetailHandler(mgr)))
-	mux.Handle("GET "+base+"/{id}/events", viewerUp(investigationEventsHandler(mgr)))
-	mux.Handle("GET "+base+"/{id}/evidence/{evidence}",
-		viewerUp(investigationEvidenceHandler(mgr)))
-	mux.Handle("GET "+base+"/{id}/export", operatorUp(investigationExportHandler(mgr)))
-	mux.Handle("POST "+base+"/{id}/pin", operatorUp(investigationPinHandler(mgr, true)))
-	mux.Handle("POST "+base+"/{id}/unpin", operatorUp(investigationPinHandler(mgr, false)))
-	mux.Handle("POST "+base, operatorUp(investigationStartHandler(mgr)))
-	mux.Handle("POST "+base+"/{id}/stop", operatorUp(investigationTransitionHandler(mgr,
-		false)))
-	mux.Handle("POST "+base+"/{id}/resume", operatorUp(investigationTransitionHandler(mgr,
-		true)))
+	route(mux, "GET "+base, gateViewer, investigationListHandler(mgr))
+	route(mux, "GET "+base+"/{id}", gateViewer, investigationDetailHandler(mgr))
+	route(mux, "GET "+base+"/{id}/events", gateViewer, investigationEventsHandler(mgr))
+	route(mux, "GET "+base+"/{id}/evidence/{evidence}", gateViewer,
+		investigationEvidenceHandler(mgr))
+	route(mux, "GET "+base+"/{id}/export", gateOperator, investigationExportHandler(mgr))
+	routeDB(mux, "POST "+base+"/{id}/pin", gateOperator, pathDB,
+		investigationPinHandler(mgr, true))
+	routeDB(mux, "POST "+base+"/{id}/unpin", gateOperator, pathDB,
+		investigationPinHandler(mgr, false))
+	routeDB(mux, "POST "+base, gateOperator, pathDB, investigationStartHandler(mgr))
+	routeDB(mux, "POST "+base+"/{id}/stop", gateOperator, pathDB,
+		investigationTransitionHandler(mgr, false))
+	routeDB(mux, "POST "+base+"/{id}/resume", gateOperator, pathDB,
+		investigationTransitionHandler(mgr, true))
 	registerSREActionRoutes(mux, mgr)
 	registerSREMaintenanceRoutes(mux, mgr)
 	registerRunbookRoutes(mux, mgr, ledgers)
 	registerReplayCaseRoute(mux, mgr)
 	registerTranscriptRoute(mux, mgr)
+	registerWorkloadPackRoutes(mux, mgr, cfg, packKeys)
+	registerRestoreDrillRoutes(mux, mgr, drills) // drill-01d
+	registerReviewRoutes(mux, mgr)               // review-01a
+	registerReviewGateRoutes(mux, mgr, cfg)      // review-05a
+	registerUpgradeBriefRoutes(mux, mgr, cfg)    // drill-02a
 	return mux
 }
 
@@ -113,9 +136,20 @@ func investigationService(
 	return inst.Investigations, true
 }
 
+// listFilter reads cursor, limit and case_id. One case_id pages that
+// case's investigations; two or more (at most sre.MaxListCaseIDs) ask for
+// the newest investigation of each, in one page. The filter is checked
+// here because the fleet list reports a failing database as unavailable.
 func listFilter(r *http.Request) (sre.ListFilter, error) {
 	q := r.URL.Query()
-	f := sre.ListFilter{Cursor: q.Get("cursor"), CaseID: q.Get("case_id")}
+	f := sre.ListFilter{Cursor: q.Get("cursor")}
+	switch ids := q["case_id"]; len(ids) {
+	case 0:
+	case 1:
+		f.CaseID = ids[0]
+	default:
+		f.CaseIDs = ids
+	}
 	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
@@ -124,7 +158,7 @@ func listFilter(r *http.Request) (sre.ListFilter, error) {
 		}
 		f.Limit = n
 	}
-	return f, nil
+	return f, f.Check()
 }
 
 func investigationListHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {

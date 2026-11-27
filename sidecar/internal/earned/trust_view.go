@@ -52,6 +52,25 @@ type TrustRow struct {
 	Next          *Assessment   `json:"next,omitempty"`
 	Pending       *Proposal     `json:"pending,omitempty"`
 	Downgrades    []Downgrade   `json:"downgrades,omitempty"`
+	// Bench is the report an incident pair's bench checks read (the
+	// newest that counts, whatever its origin), with its provenance.
+	Bench *BenchSummary `json:"bench,omitempty"`
+	// HoldsUntil and ExpiringChecks are when an earned level's evidence
+	// expires and which checks expire then (ClassView, earned-06).
+	HoldsUntil     *time.Time `json:"holds_until,omitempty"`
+	ExpiringChecks []string   `json:"expiring_checks,omitempty"`
+	// ServerMajor is the PostgreSQL major the level was granted on;
+	// MajorCap, set by AnnotateTrust, a self-initiated L3 capped at L2
+	// because the server now runs another (earned-07).
+	ServerMajor *int      `json:"server_major,omitempty"`
+	MajorCap    *MajorCap `json:"major_cap,omitempty"`
+	// ApprovalHistory is a self-initiated class's person approvals in the
+	// window (ux-07a); nil for an incident class.
+	ApprovalHistory *ApprovalHistory `json:"approval_history,omitempty"`
+	// Mode and ModeBecause, set by AnnotateMode, are the class's step on
+	// the autonomy scale and why (ux-06b); empty until annotated.
+	Mode        ModeName `json:"mode,omitempty"`
+	ModeBecause []string `json:"mode_because,omitempty"`
 }
 
 // TrustView is one database's Trust page. Floor is the observation floor
@@ -92,7 +111,8 @@ func (s *Service) TrustView(ctx context.Context) (TrustView, error) {
 		func() error { return s.store.readLevels(ctx, b, &in.levels) },
 		func() error {
 			return s.queueEvidence(ctx, b, grid,
-				evidenceNeeds{incident: true, records: true}, in.e)
+				evidenceNeeds{incident: true, records: true, expiry: true, approvals: true},
+				in.e)
 		},
 		func() error { return s.store.readGrandfather(ctx, b, &in.grand) },
 	} {
@@ -130,8 +150,13 @@ func (s *Service) buildTrustView(grid []pairKey, now time.Time, in trustReads) T
 			}
 			return defaultLevel(p.Family)
 		})
-		v.Rows = append(v.Rows, s.trustRow(st, s.evidenceOf(e, key.family, key.class),
-			e.records[key], byPair[key], changes[key]))
+		ev := s.evidenceOf(e, key.family, key.class)
+		row := s.trustRow(st, ev, e.records[key], byPair[key], changes[key])
+		if row.Supported != nil {
+			row.HoldsUntil, row.ExpiringChecks = s.holding(st, *row.Supported, ev,
+				e.marks[key.family])
+		}
+		v.Rows = append(v.Rows, row)
 	}
 	return v
 }
@@ -143,12 +168,13 @@ func (s *Service) trustRow(st State, ev Evidence, rec ClassRecord, pending *Prop
 	row := TrustRow{Family: f, Kind: KindIncident, Class: c, Level: st.Level,
 		Cap: CapForPair(f, c), Reversibility: spec.Reversibility, Provenance: st.Provenance,
 		ProvenanceRef: st.CarriedRef, Evidence: countsOf(rec), Pending: pending,
-		LastChange: lastChange(st, change)}
+		LastChange: lastChange(st, change), ServerMajor: st.ServerMajor}
 	if IsSelfInitiated(f) {
 		row.Kind, row.OutcomeClass = KindSelfInitiated, OutcomeClassFor(c)
+		row.ApprovalHistory = ev.ApprovalHistory
 	} else {
 		supported := SupportedLevel(s.cfg.Thresholds, ev)
-		row.Supported = &supported
+		row.Supported, row.Bench = &supported, SummarizeBench(ev.Bench)
 	}
 	if next := st.Level + 1; next <= row.Cap && next.Grantable() {
 		a := Assess(s.cfg.Thresholds, next, ev)
@@ -177,34 +203,23 @@ func lastChange(st State, e Event) TrustChange {
 // AnnotateTrust fills each row's effective level on this limiter's
 // database and the database-wide downgrade signals holding now: the
 // error budget and HA role read once, every family's safety record in
-// one statement.
+// one statement (or reused from the view). A row without a supported
+// level shows L0 where the evidence would bind (fail closed).
 func (l *Limiter) AnnotateTrust(ctx context.Context, v *TrustView) {
-	self := l.selfDowngrades(ctx)
-	safety, err := v.safety, error(nil)
-	if safety == nil {
-		safety, err = l.svc.store.safetySet(ctx, rowFamilies(v.Rows, false),
-			l.svc.now().Add(-l.svc.cfg.SafetyWindow))
-	}
-	byFamily := map[Family][]Downgrade{}
+	sig := l.viewSignals(ctx, v.safety, rowFamilies(v.Rows, false))
+	mv := l.majorView(ctx)
 	for i := range v.Rows {
 		row := &v.Rows[i]
-		downs := self
-		if !IsSelfInitiated(row.Family) {
-			if _, ok := byFamily[row.Family]; !ok {
-				byFamily[row.Family] = append(append([]Downgrade(nil), self...),
-					safetyDowngrades(safety[row.Family].n, err)...)
-			}
-			downs = byFamily[row.Family]
+		downs := sig.of(row.Family)
+		supported := L0
+		if row.Supported != nil {
+			supported = *row.Supported
 		}
-		level := MinLevel(row.Level, row.Cap)
-		switch {
-		case row.Provenance == ProvenanceCarriedOver:
-			level = MinLevel(row.Level, carryCap(row.Class))
-		case row.Supported != nil && row.Level >= L2:
-			level = MinLevel(level, *row.Supported)
-		}
-		if len(downs) > 0 && level > L1 {
-			level = L1
+		st := State{Family: row.Family, Class: row.Class, Level: row.Level,
+			Provenance: row.Provenance, ServerMajor: row.ServerMajor}
+		level := viewLevel(st, supported, downs)
+		if row.MajorCap = mv.capOf(ctx, st); row.MajorCap != nil {
+			level = MinLevel(level, L2)
 		}
 		if len(downs) > 0 {
 			row.Downgrades = downs

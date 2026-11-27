@@ -83,3 +83,26 @@ func TestTuningSettingsDailyTokenLimit(t *testing.T) {
 		t.Fatalf("optimizer client without its own cap uses the general one: %d", got)
 	}
 }
+
+// tuning-03: the agent's work_mem rule cites tuner.work_mem_max_mb.
+func TestTuningSettingsCarryTheWorkMemCeiling(t *testing.T) {
+	c := config.DefaultConfig()
+	c.Tuner.WorkMemMaxMB = 300
+	if got := tuningSettings(c, "", "", 0).WorkMemMaxMB; got != 300 {
+		t.Fatalf("WorkMemMaxMB = %d, want tuner.work_mem_max_mb 300", got)
+	}
+}
+
+// llm-05: llm.context_budget_tokens reaches the agent as the case packet's
+// byte trim target (0 adds no trim).
+func TestTuningSettingsCarryTheContextBudget(t *testing.T) {
+	c := config.DefaultConfig()
+	c.LLM.ContextBudgetTokens = 1500
+	if got := tuningSettings(c, "", "", 0).ContextBudgetBytes; got != 6000 {
+		t.Fatalf("ContextBudgetBytes = %d, want 1500 tokens x 4 = 6000", got)
+	}
+	c.LLM.ContextBudgetTokens = 0
+	if got := tuningSettings(c, "", "", 0).ContextBudgetBytes; got != 0 {
+		t.Fatalf("ContextBudgetBytes = %d with the budget off, want 0", got)
+	}
+}

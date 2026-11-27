@@ -17,7 +17,20 @@ func Widens(base, next Document) bool {
 		overridesWiden(base.DeadlineOverrides, next.DeadlineOverrides) ||
 		!subsetStrings(base.RefusalSet, next.RefusalSet) ||
 		base.UnknownClassification != next.UnknownClassification ||
-		base.SerializeMode != next.SerializeMode
+		base.SerializeMode != next.SerializeMode ||
+		next.WindowStartMarginMinutes < base.WindowStartMarginMinutes ||
+		plansWiden(base.Plans, next.Plans) ||
+		exposureWidens(base, next)
+}
+
+// plansWiden: a plan cap raised (zero fields compare as their defaults)
+// or a peak window dropped (plan-02b).
+func plansWiden(base, next PlanCaps) bool {
+	b, n := base.Resolved(), next.Resolved()
+	return n.MaxNewIndexesPerTable > b.MaxNewIndexesPerTable ||
+		n.MaxNewIndexBytesPct > b.MaxNewIndexBytesPct ||
+		n.MaxRestartBoundSteps > b.MaxRestartBoundSteps ||
+		!subsetStrings(b.PeakWindows, n.PeakWindows)
 }
 
 // WidensJSON compares two stored documents. A next document that does not

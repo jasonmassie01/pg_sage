@@ -32,6 +32,12 @@ import (
 // tighter (10 s): only small tables are converted here.
 const storageMigrationTimeout = 2 * time.Minute
 
+// storageMigrationBudget is that bound as a context cause, so a step it
+// ends names it (ci-15).
+var storageMigrationBudget = budgetExpired{
+	what: "storage migration", budget: storageMigrationTimeout,
+}
+
 // bootstrapConvertMaxBytes is the largest history table heap bootstrap
 // converts (validating it reads the heap once: well under a second at this
 // size). Larger tables are converted by retention in the background
@@ -100,14 +106,16 @@ WHERE status = 'resolved' AND resolved_at IS NULL`
 
 // migrateStorage runs the storage steps on the bootstrap session.
 func migrateStorage(ctx context.Context, db partition.DB) error {
-	ctx, cancel := context.WithTimeout(ctx, storageMigrationTimeout)
+	ctx, cancel := withBudget(ctx, storageMigrationBudget)
 	defer cancel()
 	for _, t := range partition.HistoryTables() {
 		if err := partitionAtBootstrap(ctx, db, t); err != nil {
 			return err
 		}
 	}
-	if _, err := db.Exec(ctx, ddlSnapshotDataAt); err != nil {
+	if _, err := runMigrationStep(ctx, db, migrationStep{
+		name: "ddlSnapshotDataAt", sql: ddlSnapshotDataAt,
+	}); err != nil {
 		return fmt.Errorf("snapshot accessor: %w", err)
 	}
 	if err := migrateStorageIndexes(ctx, db); err != nil {

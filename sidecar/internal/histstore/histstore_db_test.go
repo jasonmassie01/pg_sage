@@ -46,7 +46,8 @@ func seedMonitored(t *testing.T, pool *pgxpool.Pool, start time.Time, cycles int
 			{QueryID: 202, Calls: int64(3 * (i + 1)), TotalExecMs: float64(90 * (i + 1)),
 				MeanExecMs: 30, Rows: 1},
 		}
-		if err := querystore.Record(ctx, pool, samples); err != nil {
+		_, err := querystore.NewRecorder().Record(ctx, pool, samples, time.Now())
+		if err != nil {
 			t.Fatalf("record samples %d: %v", i, err)
 		}
 		if _, err := pool.Exec(ctx, `UPDATE sage.query_store SET captured_at = $1

@@ -17,11 +17,16 @@ func oauthConfigHandler(
 	providerName string,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		enabled := provider != nil
-		jsonResponse(w, map[string]any{
-			"enabled":  enabled,
-			"provider": providerName,
-		})
+		if provider == nil {
+			jsonResponse(w, map[string]any{"enabled": false, "provider": providerName})
+			return
+		}
+		ready, reason := provider.Ready()
+		resp := map[string]any{"enabled": true, "ready": ready, "provider": providerName}
+		if !ready {
+			resp["reason"] = reason
+		}
+		jsonResponse(w, resp)
 	}
 }
 
@@ -36,6 +41,9 @@ func oauthAuthorizeHandler(
 		if provider == nil {
 			jsonError(w, "OAuth not configured",
 				http.StatusNotFound)
+			return
+		}
+		if ssoNotReady(w, provider) {
 			return
 		}
 		authURL, state, err := provider.AuthorizationURL()
@@ -86,6 +94,9 @@ func oauthCallbackHandler(
 				http.StatusNotFound)
 			return
 		}
+		if ssoNotReady(w, provider) {
+			return
+		}
 		code, state, cookieState, ok := oauthCallbackParams(w, r)
 		if !ok {
 			return
@@ -122,7 +133,8 @@ func oauthCallbackHandler(
 
 // signInOAuthUser resolves the role the IdP groups grant, then finds or
 // creates the user. With a role mapping the IdP is the source of truth, so
-// an existing user's role is re-synced (and audited) at every login.
+// an existing user's role is re-synced (and audited) at every login; with
+// a database grant mapping so are their IdP grants (apiauth-08d).
 func signInOAuthUser(
 	r *http.Request, pool *pgxpool.Pool, cfg *config.OAuthConfig, id auth.Identity,
 ) (*auth.User, error) {
@@ -131,16 +143,30 @@ func signInOAuthUser(
 		return nil, err
 	}
 	user, err := auth.FindOrCreateOAuthUser(r.Context(), pool, id, cfg.Provider, role)
-	if err != nil || !auth.RoleMappingConfigured(cfg) {
-		return user, err
+	if err != nil {
+		return nil, err
 	}
+	if auth.RoleMappingConfigured(cfg) {
+		if err := syncOAuthRole(r, pool, user, role); err != nil {
+			return nil, err
+		}
+	}
+	if err := syncIdPDatabaseGrants(r, pool, cfg, user.ID, id.Groups); err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+// syncOAuthRole applies the mapped role to user and audits a change. The
+// last admin is kept (with a warning), never demoted.
+func syncOAuthRole(r *http.Request, pool *pgxpool.Pool, user *auth.User, role string) error {
 	old, changed, err := auth.SyncOAuthUserRole(r.Context(), pool, user.ID, role)
 	switch {
 	case errors.Is(err, auth.ErrLastAdmin):
 		slog.Warn("sso role sync kept the last admin; promote another admin first",
 			"user_id", user.ID, "mapped_role", role)
 	case err != nil:
-		return nil, err
+		return err
 	case changed:
 		user.Role = role
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{
@@ -148,7 +174,7 @@ func signInOAuthUser(
 			Detail: map[string]any{"old_role": old, "new_role": role, "source": "idp"},
 		})
 	}
-	return user, nil
+	return nil
 }
 
 // auditSSOFailure records a refused SSO sign-in with its reason code.
@@ -187,7 +213,9 @@ func startSession(
 	return startSessionFor(w, r, pool, userID, auth.SessionDuration)
 }
 
-// startSessionFor is startSession with an explicit lifetime.
+// startSessionFor is startSession with an explicit lifetime. Its cookie
+// (OAuth and break-glass) is always Secure: OAuth redirect URIs are HTTPS
+// or loopback, where browsers keep Secure cookies.
 func startSessionFor(
 	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
 	lifetime time.Duration,
@@ -231,10 +259,19 @@ func writeOAuthUserError(
 	case errors.Is(err, auth.ErrOAuthEmailUnverified):
 		callbackFailure(w, r, link, ssoErrUnverified, http.StatusUnauthorized,
 			"email not verified by identity provider")
+	case errors.Is(err, auth.ErrUserDisabled):
+		slog.Warn("oauth login refused: account is deactivated")
+		callbackFailure(w, r, link, ssoErrUserDisabled, http.StatusForbidden,
+			"this account is deactivated; ask an administrator to reactivate it")
 	case errors.Is(err, auth.ErrOAuthUnmapped):
 		slog.Warn("oauth login refused: no IdP group maps to a pg_sage role")
 		callbackFailure(w, r, link, ssoErrNotAuthorized, http.StatusForbidden,
 			"your identity provider groups do not grant access to pg_sage")
+	case errors.Is(err, auth.ErrIdPGrantSync):
+		slog.Error("oauth login refused: database grants from IdP groups not applied",
+			"error", err)
+		callbackFailure(w, r, link, ssoErrGrantsUnavailable, http.StatusServiceUnavailable,
+			"your database access could not be applied; try again, or ask an administrator")
 	default:
 		internalError(w, r, "resolve oauth user", err)
 	}
@@ -259,7 +296,10 @@ const (
 	ssoErrLinkConflict  = "link_conflict"
 	ssoErrUnverified    = "unverified"
 	ssoErrNotAuthorized = "not_authorized"
+	ssoErrUserDisabled  = "user_disabled"
 	ssoErrFailed        = "failed"
+	// ssoErrGrantsUnavailable: the IdP grant sync failed (apiauth-08d).
+	ssoErrGrantsUnavailable = "grants_unavailable"
 )
 
 // callbackFailure ends a failed OAuth callback. The callback is a top-level

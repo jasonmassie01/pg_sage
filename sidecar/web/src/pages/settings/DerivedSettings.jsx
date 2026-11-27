@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useAPI } from '../../hooks/useAPI'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { QueryState } from '../../components/QueryState'
+import { queryBlocked } from '../../lib/queryState'
 
 // Derived settings (roadmap phase 3, self-configuration): per database,
 // every key pg_sage derives from evidence, with its value, status
@@ -34,12 +36,25 @@ function StatusBadge({ status }) {
   )
 }
 
-function Evidence({ evidence }) {
+// citation is one piece of evidence; cost evidence names where it came
+// from (probe or collector) and, for the slowest read, the collector step.
+function citation(e) {
+  const origin = [e.source, e.detail].filter(Boolean).join(', ')
+  return `${e.name} ${e.value}${e.unit ? ` ${e.unit}` : ''}${origin ? ` (${origin})` : ''}`
+}
+
+function Evidence({ settingKey, evidence }) {
   if (!evidence || evidence.length === 0) return null
+  const timeouts = evidence.some(e => e.name === 'timeouts_seen')
   return (
     <div className="text-xs" style={muted}>
-      Evidence:{' '}
-      {evidence.map(e => `${e.name} ${e.value}${e.unit ? ` ${e.unit}` : ''}`).join(', ')}
+      {timeouts && (
+        <span data-testid={`timeouts-seen-${settingKey}`} className="font-medium"
+          style={{ color: 'var(--warning, #b45309)' }}>
+          timeouts seen: raised after collector reads hit the deadline.{' '}
+        </span>
+      )}
+      Evidence: {evidence.map(citation).join(', ')}
     </div>
   )
 }
@@ -112,7 +127,7 @@ function SettingRow({ setting: s, onPin, busy }) {
       {stateLine(s).map(line => (
         <div key={line} className="text-xs" style={muted}>{line}</div>
       ))}
-      <Evidence evidence={s.evidence} />
+      <Evidence settingKey={s.key} evidence={s.evidence} />
       {open && <History history={s.history} unit={s.unit} />}
     </div>
   )
@@ -132,15 +147,11 @@ async function changePin(database, key, action) {
   return body.error || `${action} failed (${res.status})`
 }
 
-export function DerivedSettings({ database }) {
-  const url = derivedURL(database)
-  const { data, loading, error, refetch } = useAPI(url, 60000)
+// usePinAction pins or unpins one derived setting, refetching on success
+// and keeping the server's refusal to show above the list.
+function usePinAction(refetch) {
   const [failure, setFailure] = useState(null)
   const [busy, setBusy] = useState(false)
-
-  if (loading && !data) return null
-  if (error) return <ErrorBanner message={`Derived settings: ${error}`} onRetry={refetch} />
-
   async function onPin(db, key, action) {
     setBusy(true)
     setFailure(null)
@@ -154,10 +165,25 @@ export function DerivedSettings({ database }) {
       setBusy(false)
     }
   }
+  return { failure, busy, onPin }
+}
+
+export function DerivedSettings({ database }) {
+  const url = derivedURL(database)
+  const derived = useAPI(url, 60000)
+  const { data, refetch } = derived
+  const { failure, busy, onPin } = usePinAction(refetch)
+
+  const message = e => `Derived settings: ${e}`
+  if (queryBlocked(derived)) {
+    return <QueryState query={derived} skeleton={null} message={message} />
+  }
 
   const databases = Array.isArray(data?.databases) ? data.databases : []
   return (
-    <section data-testid="derived-settings" data-url={url} className="rounded p-4 space-y-2"
+    <QueryState query={derived} message={message}>
+    <section id="derived-settings" data-testid="derived-settings" data-url={url}
+      className="rounded p-4 space-y-2"
       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
       <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
         Derived settings
@@ -178,6 +204,6 @@ export function DerivedSettings({ database }) {
           ))}
         </div>
       ))}
-    </section>
+    </section></QueryState>
   )
 }

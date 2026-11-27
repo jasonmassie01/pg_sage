@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
@@ -249,7 +250,7 @@ func TestWave2WireRouterEnforcesLimiterAtRequest61(t *testing.T) {
 	t.Cleanup(pool.Close)
 	rl := NewRateLimiter(60)
 	t.Cleanup(rl.Stop)
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:         testCfg,
 		Pool:        pool,
 		FleetMgr:    testFleetMgr(testCfg),
@@ -285,7 +286,7 @@ func TestWave2WireRouterLimiterRunsBeforeAuth(t *testing.T) {
 	if !rl.Allow(client) {
 		t.Fatal("failed to exhaust limiter before request")
 	}
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:         testCfg,
 		FleetMgr:    testFleetMgr(testCfg),
 		RateLimiter: rl,
@@ -309,5 +310,42 @@ func snapshotTrustedProxyNets() func() {
 		trustedProxyNetsMu.Lock()
 		trustedProxyNets = previous
 		trustedProxyNetsMu.Unlock()
+	}
+}
+
+// apiauth-06: one IPv6 /64 is one client; IPv4 addresses stay separate.
+func TestWave2RateLimiterKeysIPv6By64(t *testing.T) {
+	restoreTrustedProxies := snapshotTrustedProxyNets()
+	t.Cleanup(restoreTrustedProxies)
+	setTrustedProxies(nil)
+	rl := NewRateLimiter(1)
+	t.Cleanup(rl.Stop)
+	handler := rateLimitMiddleware(rl, http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	databricks := databricksAppRateLimitMiddleware(rl, auth.DatabricksAppConfig{},
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))
+	steps := []struct {
+		handler http.Handler
+		remote  string
+		want    int
+	}{
+		{handler, "[2001:db8::1]:443", http.StatusNoContent},
+		{handler, "[2001:db8::2]:443", http.StatusTooManyRequests},
+		{databricks, "[2001:db8::3]:443", http.StatusTooManyRequests},
+		{handler, "[2001:db8:0:1::1]:443", http.StatusNoContent},
+		{handler, "10.0.0.1:443", http.StatusNoContent},
+		{handler, "10.0.0.2:443", http.StatusNoContent},
+		{handler, "10.0.0.1:444", http.StatusTooManyRequests},
+	}
+	for i, s := range steps {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+		req.RemoteAddr = s.remote
+		rec := httptest.NewRecorder()
+		s.handler.ServeHTTP(rec, req)
+		if rec.Code != s.want {
+			t.Fatalf("step %d from %s = %d, want %d", i+1, s.remote, rec.Code, s.want)
+		}
 	}
 }

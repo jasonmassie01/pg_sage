@@ -37,11 +37,18 @@ type Principal struct {
 	// Databases are the databases the principal may use; nil is all.
 	Databases []string
 	TokenID   string
+	// OwnerUserID is the user an operator token belongs to (0: none).
+	OwnerUserID int
 	// Name is the token's name (the external system it belongs to).
 	Name string
 	// PrincipalID is the agent principal an agent token acts for ("agp_…");
 	// the HTTP transport also binds its agentguard.Identity on the context.
 	PrincipalID string
+	// DatabasesUnavailable: the transport could not read the database
+	// grants that narrow this principal (apiauth-08c). Databases is then
+	// empty and every tool call and resource read is the unavailable
+	// error, so a store failure never widens what the principal reads.
+	DatabasesUnavailable bool
 }
 
 type principalKey struct{}
@@ -110,6 +117,16 @@ func (p Principal) MayUseDatabase(name string) bool {
 		}
 	}
 	return false
+}
+
+// databasesUnavailable is the refusal of a call whose principal's
+// database grants could not be read; nil otherwise.
+func databasesUnavailable(ctx context.Context) *rpcError {
+	if p, bound := PrincipalFromContext(ctx); bound && p.DatabasesUnavailable {
+		return failure(codeUnavailable, "database grants cannot be checked right now, "+
+			"so no database is readable; try again")
+	}
+	return nil
 }
 
 // stdioPrincipal is bound to the stdio transport. Whatever launched the

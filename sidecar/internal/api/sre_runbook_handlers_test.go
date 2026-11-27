@@ -21,8 +21,9 @@ import (
 
 // Typed runbook and incident memory routes (AI-SRE-SPEC §7.1, §9):
 // viewers list and read runbooks, run history and similar incidents;
-// operators create and edit drafts, compile English, retire runbooks and
-// record investigation outcomes; only admins sign. Every route is scoped
+// operators create and edit drafts, compile English and record
+// investigation outcomes; only admins sign and retire (retirement is
+// permanent, playbooks-10). Every route is scoped
 // to the named database, and errors carry canonical codes.
 
 const rbDef = `{"name":"Idle holder","trigger":{"kinds":["lock_blocking"],` +
@@ -151,11 +152,11 @@ func TestRunbookAPI_DraftEditAndConflicts(t *testing.T) {
 		out["code"] != "already_signed" {
 		t.Fatalf("sign twice = %d %v, want 409 already_signed", code, out)
 	}
-	if code, out = rbCall(t, op, "POST", rbBase+"/"+id+"/retire", ""); code != 200 ||
+	if code, out = rbCall(t, admin, "POST", rbBase+"/"+id+"/retire", ""); code != 200 ||
 		out["status"] != "retired" {
 		t.Fatalf("retire = %d %v", code, out)
 	}
-	if code, out = rbCall(t, op, "POST", rbBase+"/"+id+"/retire", ""); code != 409 ||
+	if code, out = rbCall(t, admin, "POST", rbBase+"/"+id+"/retire", ""); code != 409 ||
 		out["code"] != "retired" {
 		t.Fatalf("retire twice = %d %v, want 409 retired", code, out)
 	}

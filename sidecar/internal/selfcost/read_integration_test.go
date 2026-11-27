@@ -22,7 +22,12 @@ func TestMain(m *testing.M) {
 
 func livePool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	dsn := testdb.SkipUnlessLive(t)
+	return livePoolOn(t, testdb.SkipUnlessLive(t))
+}
+
+// livePoolOn is livePool on the database dsn names.
+func livePoolOn(t *testing.T, dsn string) (*pgxpool.Pool, context.Context) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, dsn)
@@ -40,7 +45,13 @@ func livePool(t *testing.T) (*pgxpool.Pool, context.Context) {
 // closes it, so its backend flushes its table statistics on exit.
 func runAsSage(t *testing.T, ctx context.Context, statements ...string) {
 	t.Helper()
-	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
+	runAsSageOn(t, ctx, testdb.SkipUnlessLive(t), statements...)
+}
+
+// runAsSageOn is runAsSage on the database dsn names.
+func runAsSageOn(t *testing.T, ctx context.Context, dsn string, statements ...string) {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}

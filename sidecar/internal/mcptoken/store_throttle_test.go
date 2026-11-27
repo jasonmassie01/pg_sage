@@ -66,7 +66,7 @@ func TestValidateRefusedTokenDoesNotTouchLastUsed(t *testing.T) {
 	ctx := context.Background()
 	tok := mustCreate(t, s, agentReq(uniq("throttle-revoked")))
 	stale := setLastUsedAgo(t, pool, tok.ID, 10*time.Minute)
-	_, err := s.Revoke(ctx, tok.ID, "admin@example.com")
+	_, err := s.Revoke(ctx, tok.ID, "admin@example.com", mcptoken.Audit{})
 	require.NoError(t, err)
 
 	_, err = s.Validate(ctx, tok.Secret)

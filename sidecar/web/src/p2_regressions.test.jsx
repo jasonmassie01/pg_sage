@@ -8,7 +8,7 @@ import { DatabaseForm } from './pages/databases/DatabaseForm'
 import { resolveSelectedDB } from './lib/selectedDatabase'
 import { installAuthExpiryInterceptor } from './lib/authExpiry'
 
-vi.mock('./pages/Dashboard', () => ({ formatTrustLevel: v => v }))
+vi.mock('./lib/trustLevel', () => ({ formatTrustLevel: v => v }))
 
 afterEach(() => vi.unstubAllGlobals())
 

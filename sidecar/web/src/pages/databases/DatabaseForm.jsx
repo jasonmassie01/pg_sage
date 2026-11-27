@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AutonomyChoice } from './AutonomyChoice'
 
 const SSL_MODES = [
   'disable', 'allow', 'prefer', 'require',
@@ -8,8 +9,26 @@ const TRUST_LEVELS = ['observation', 'advisory', 'autonomous']
 const EXEC_MODES = ['auto', 'approval', 'manual']
 const NUMERIC_FIELDS = new Set(['port', 'max_connections'])
 
-export function DatabaseForm({ db, onClose, onError }) {
+// requestBody sends the write-only action identity (security-09b) only
+// when the operator touched it: a changed role (an empty one removes it)
+// or a new password, which always travels with its role.
+function requestBody(form, storedActionUser) {
+  const {
+    action_username: actionUser, action_password: actionPassword, ...rest
+  } = form
+  const body = { ...rest }
+  if (actionUser !== storedActionUser || actionPassword) {
+    body.action_username = actionUser
+  }
+  if (actionPassword) body.action_password = actionPassword
+  return body
+}
+
+// initial prefills a new database's fields (the setup wizard's pasted
+// URL, ux-04b); onSaved, when given, runs after a save instead of onClose.
+export function DatabaseForm({ db, initial, onClose, onSaved, onError }) {
   const isEdit = !!db
+  const storedActionUser = db?.action_identity?.username || ''
   const [form, setForm] = useState({
     name: db?.name || '',
     host: db?.host || '',
@@ -20,10 +39,13 @@ export function DatabaseForm({ db, onClose, onError }) {
     sslmode: db?.sslmode || 'require',
     max_connections: db?.max_connections || 2,
     trust_level: db?.trust_level || 'observation',
-    execution_mode: db?.execution_mode || 'approval',
+    execution_mode: db?.execution_mode || 'manual',
+    action_username: storedActionUser,
+    action_password: '',
     // Round-trip tags: the PUT replaces them, so omitting them wiped
     // tags set through the API or MCP (G9-B10).
     ...(db?.tags ? { tags: db.tags } : {}),
+    ...(isEdit ? {} : initial),
   })
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState(null)
@@ -50,7 +72,7 @@ export function DatabaseForm({ db, onClose, onError }) {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(form),
+            body: JSON.stringify(requestBody(form, storedActionUser)),
           })
       } else {
         res = await fetch(
@@ -59,7 +81,7 @@ export function DatabaseForm({ db, onClose, onError }) {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(form),
+            body: JSON.stringify(requestBody(form, storedActionUser)),
           })
       }
       const data = await res.json()
@@ -83,13 +105,14 @@ export function DatabaseForm({ db, onClose, onError }) {
         method,
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(form),
+        body: JSON.stringify(requestBody(form, storedActionUser)),
       })
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'Failed to save')
       }
-      onClose()
+      if (onSaved) onSaved()
+      else onClose()
     } catch (err) {
       onError(err.message)
     } finally {
@@ -142,22 +165,30 @@ export function DatabaseForm({ db, onClose, onError }) {
             value={form.max_connections}
             onChange={set('max_connections')} style={inputStyle}
             required data-testid="db-max-connections" />
-          <SelectField label="Trust Level" value={form.trust_level}
-            onChange={set('trust_level')} options={TRUST_LEVELS}
-			style={inputStyle} data-testid="db-trust-level"
-			disabled={isEdit} />
-          <SelectField label="Execution Mode"
-            value={form.execution_mode}
-            onChange={set('execution_mode')} options={EXEC_MODES}
-			style={inputStyle} data-testid="db-execution-mode"
-			disabled={isEdit} />
+          <AutonomyChoice trustLevel={form.trust_level}
+            executionMode={form.execution_mode} disabled={isEdit}
+            onChoose={c => setForm(f => ({
+              ...f, trust_level: c.trust_level, execution_mode: c.execution_mode,
+            }))}>
+            <SelectField label="Trust Level" value={form.trust_level}
+              onChange={set('trust_level')} options={TRUST_LEVELS}
+              style={inputStyle} data-testid="db-trust-level"
+              disabled={isEdit} />
+            <SelectField label="Execution Mode"
+              value={form.execution_mode}
+              onChange={set('execution_mode')} options={EXEC_MODES}
+              style={inputStyle} data-testid="db-execution-mode"
+              disabled={isEdit} />
+          </AutonomyChoice>
         </div>
 		{isEdit && (
 		  <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
 		    Change policy in Settings; connection edits preserve the current
-		    trust level and execution mode.
+		    autonomy and execution policy.
 		  </p>
 		)}
+        <ActionIdentityFields form={form} set={set} isEdit={isEdit}
+          configured={!!storedActionUser} style={inputStyle} />
 
         {testResult && (
           <TestResultBanner result={testResult} />
@@ -167,7 +198,7 @@ export function DatabaseForm({ db, onClose, onError }) {
           <button type="submit" disabled={saving}
             data-testid="db-save-button"
             className="px-4 py-1.5 rounded text-sm font-medium"
-            style={{ background: 'var(--accent)', color: '#fff' }}>
+            style={{ background: 'var(--accent-solid)', color: '#fff' }}>
             {saving ? 'Saving...' : 'Save'}
           </button>
           <button type="button" onClick={handleTest}
@@ -190,6 +221,32 @@ export function DatabaseForm({ db, onClose, onError }) {
         </div>
       </form>
     </div>
+  )
+}
+
+function ActionIdentityFields({ form, set, isEdit, configured, style }) {
+  return (
+    <fieldset className="mb-3" data-testid="db-action-identity">
+      <legend className="text-xs font-semibold mb-1"
+        style={{ color: 'var(--text-primary)' }}>
+        Action identity (optional)
+      </legend>
+      <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+        A second role on the same database that runs approved changes and
+        backend cancel/terminate; the role above then only observes. Clear
+        the role to remove it.
+      </p>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Action role" value={form.action_username}
+          onChange={set('action_username')} style={style}
+          data-testid="db-action-username" />
+        <Field label="Action password" type="password"
+          value={form.action_password} onChange={set('action_password')}
+          style={style}
+          placeholder={isEdit && configured ? '(unchanged)' : ''}
+          data-testid="db-action-password" />
+      </div>
+    </fieldset>
   )
 }
 

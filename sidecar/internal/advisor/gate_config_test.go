@@ -13,7 +13,8 @@ import (
 // remaining sub-advisors and the tuning agent (roadmap 2.2).
 
 func TestGateConfigFindings(t *testing.T) {
-	settings := []collector.PGSetting{{Name: "work_mem", Setting: "4096", Unit: "kB"}}
+	settings := []collector.PGSetting{{Name: "work_mem", Setting: "4096", Unit: "kB",
+		Context: "user"}}
 	for _, tc := range []struct {
 		name, sql, cloud string
 		hostMem          int64

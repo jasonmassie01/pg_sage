@@ -3,21 +3,14 @@ package schema
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
-
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 var (
 	testPool     *pgxpool.Pool
@@ -28,8 +21,8 @@ var (
 func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	testPoolOnce.Do(func() {
-		dsn := testDSN()
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			testPoolErr = fmt.Errorf("parsing DSN: %w", err)
@@ -83,7 +76,6 @@ func TestExpectedTables_AllPresent(t *testing.T) {
 		"notification_log",
 		"action_queue",
 		"incidents",
-		"size_history",
 		"explain_results",
 		"schema_findings",
 		"crypto_meta",
@@ -373,6 +365,7 @@ func TestBootstrap_Idempotent(t *testing.T) {
 
 func TestPersistTrustRampStart_HonorsConfigValue(t *testing.T) {
 	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool) // sage.config must exist when run alone
 
 	// Clean slate: drop any existing trust_ramp_start row.
 	_, _ = pool.Exec(ctx,
@@ -406,6 +399,7 @@ func TestPersistTrustRampStart_HonorsConfigValue(t *testing.T) {
 
 func TestPersistTrustRampStart_ZeroConfigUsesNow(t *testing.T) {
 	pool, ctx := requireDB(t)
+	bootstrapWithRetry(t, ctx, pool) // sage.config must exist when run alone
 
 	// Clean slate.
 	_, _ = pool.Exec(ctx,

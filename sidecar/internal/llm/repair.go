@@ -81,59 +81,119 @@ func isThinkingModel(model string) bool {
 // openAIReasoningFamily matches gpt-5, gpt-5.1, gpt-6-luna, gpt-12, ...
 var openAIReasoningFamily = regexp.MustCompile(`^gpt-([5-9]|[1-9][0-9])([.-]|$)`)
 
-// RepairTruncatedJSON attempts to salvage a truncated JSON array by
-// cutting after the last complete top-level element and closing the
-// array. Nesting depth is tracked, so elements that themselves contain
-// arrays or objects (e.g. "affected_queries":[...]) are handled.
+// RepairTruncatedJSON salvages a truncated JSON object or array. It
+// scans from the first '{' or '[', cuts after the last completed value
+// and appends the closers of the containers still open there:
 //
-// When thinking models exhaust the output token budget, the JSON
-// response is cut mid-element:
+//	{"findings":[{"x":1},{"x":2   ->  {"findings":[{"x":1}]}
+//	{"a":1,"b":[1,2               ->  {"a":1,"b":[1]}
 //
-//	[{"hint":"HashJoin(t1 t2)","q":["a"]},{"hint":"Set(work_mem
-//
-// becomes [{"hint":"HashJoin(t1 t2)","q":["a"]}]. Input that is not a
-// truncated array is returned trimmed and unchanged.
+// A scalar or string counts only once a ',' or a closer follows it, so a
+// cut number or a key without its value is dropped. An object that is an
+// array element is kept whole or not at all, so a salvaged list never
+// holds a half-built element (a hint without its rationale). Text before
+// the first delimiter is dropped. Input that is already valid JSON, has
+// nothing salvageable, or would not repair to valid JSON is returned
+// unchanged, byte for byte.
 func RepairTruncatedJSON(s string) string {
-	s = strings.TrimSpace(s)
-	start := strings.Index(s, "[")
+	if json.Valid([]byte(s)) {
+		return s
+	}
+	start := strings.IndexAny(s, "{[")
 	if start < 0 {
 		return s
 	}
-	lastComplete, closed := lastCompleteElement(s, start)
-	if closed || lastComplete < 0 {
-		return s // complete array, or nothing salvageable
+	cut, closers, ok := scanTruncated(s[start:])
+	if !ok {
+		return s
 	}
-	return s[start:lastComplete+1] + "]"
+	repaired := s[start:start+cut] + closers
+	if !json.Valid([]byte(repaired)) {
+		return s
+	}
+	return repaired
 }
 
-// lastCompleteElement scans the array opened at s[start] and returns
-// the index of the final byte of the last complete top-level element,
-// and whether the array itself was closed.
-func lastCompleteElement(s string, start int) (int, bool) {
-	lastComplete := -1
-	depth := 1
+// truncScan is the state of one scanTruncated pass. stack holds the open
+// containers ('{' or '['); elemObjects counts the open objects that are
+// array elements, which may not be cut inside.
+type truncScan struct {
+	stack       []byte
+	elemObjects int
+	cut         int // end (exclusive) of the last completed value, or -1
+	cutDepth    int // containers open at cut
+}
+
+// scanTruncated scans s, which starts with '{' or '[', and returns where
+// to cut and the closers to append. ok is false when the root container
+// closes (s is not truncated) or no value completed before the end.
+func scanTruncated(s string) (cut int, closers string, ok bool) {
+	st := truncScan{cut: -1}
 	inString, escaped := false, false
-	for i := start + 1; i < len(s); i++ {
+	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
 		case escaped:
 			escaped = false
-		case inString && c == '\\':
-			escaped = true
-		case c == '"':
-			inString = !inString
 		case inString:
+			escaped = c == '\\'
+			inString = c != '"'
+		case c == '"':
+			inString = true
 		case c == '{' || c == '[':
-			depth++
+			st.open(c)
 		case c == '}' || c == ']':
-			depth--
-			if depth == 0 {
-				return lastComplete, true
+			if st.close() {
+				return 0, "", false
 			}
-			if depth == 1 {
-				lastComplete = i
-			}
+			st.mark(i + 1)
+		case c == ',':
+			st.mark(i)
 		}
 	}
-	return lastComplete, false
+	if st.cut < 0 {
+		return 0, "", false
+	}
+	return st.cut, st.closers(), true
+}
+
+func (st *truncScan) open(c byte) {
+	if c == '{' && len(st.stack) > 0 && st.stack[len(st.stack)-1] == '[' {
+		st.elemObjects++
+		c = 'e' // an object that is an array element
+	}
+	st.stack = append(st.stack, c)
+}
+
+// close pops the innermost container and reports whether it was the root.
+func (st *truncScan) close() bool {
+	top := st.stack[len(st.stack)-1]
+	st.stack = st.stack[:len(st.stack)-1]
+	if top == 'e' {
+		st.elemObjects--
+	}
+	return len(st.stack) == 0
+}
+
+// mark records end as a cut point unless it falls inside an array element
+// object.
+func (st *truncScan) mark(end int) {
+	if st.elemObjects == 0 {
+		st.cut, st.cutDepth = end, len(st.stack)
+	}
+}
+
+// closers returns the closing delimiters for the containers open at cut,
+// innermost first. Every container open at the cut is still open at the
+// end of the scan: closing one would have recorded a later cut.
+func (st *truncScan) closers() string {
+	b := make([]byte, 0, st.cutDepth)
+	for i := st.cutDepth - 1; i >= 0; i-- {
+		if st.stack[i] == '[' {
+			b = append(b, ']')
+		} else {
+			b = append(b, '}')
+		}
+	}
+	return string(b)
 }

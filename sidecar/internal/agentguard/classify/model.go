@@ -71,7 +71,8 @@ func (m *ModelSuggester) Suggest(ctx context.Context, cols []Column) ([]Proposal
 		lines = append(lines, line)
 	}
 	user := "Columns:\n" + llm.UntrustedData("schema_columns", strings.Join(lines, "\n"))
-	raw, _, err := m.client.Chat(ctx, modelSystemPrompt+llm.UntrustedDataRule, user,
+	pctx := llm.WithPurpose(ctx, "agent_guard") // llm-04: usage ledger label
+	raw, _, err := m.client.Chat(pctx, modelSystemPrompt+llm.UntrustedDataRule, user,
 		modelMaxTokens)
 	if err != nil {
 		return nil, fmt.Errorf("model column classes: %w", err)

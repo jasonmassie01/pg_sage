@@ -36,7 +36,7 @@ func TestCoverage_FullCategoriesSayWhy(t *testing.T) {
 }
 
 func TestCoverage_UnknownCategoryIsUndecided(t *testing.T) {
-	for _, cat := range []string{"", "prepared_xacts", "Tables"} {
+	for _, cat := range []string{"", "xmin_holders", "Tables"} {
 		if delta, reason := Coverage(cat); delta || reason != "" {
 			t.Errorf("%q: delta=%v reason=%q, want undecided", cat, delta, reason)
 		}

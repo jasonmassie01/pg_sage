@@ -1,6 +1,7 @@
 package selfbudget
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ func TestLoops_TrackAccumulatesBusyTimeAndRuns(t *testing.T) {
 
 func TestLoops_TrackMeasuresSinceStart(t *testing.T) {
 	l := NewLoops()
-	done := l.Track("advisor")
+	_, done := l.TrackFor(context.Background(), "advisor")
 	time.Sleep(20 * time.Millisecond)
 	done()
 	s := l.Snapshot()["advisor"]
@@ -98,7 +99,8 @@ func TestTopLoops_EmptyAndZero(t *testing.T) {
 func TestLoops_NilIsSafe(t *testing.T) {
 	var l *Loops
 	l.Add("x", time.Second)
-	l.Track("x")()
+	_, done := l.TrackFor(context.Background(), "x")
+	done()
 	if s := l.Snapshot(); len(s) != 0 {
 		t.Fatalf("nil loops snapshot = %+v", s)
 	}

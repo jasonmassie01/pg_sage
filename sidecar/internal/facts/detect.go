@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,22 +49,35 @@ func (d appManagedDetector) Detect(ctx context.Context) ([]Proposal, error) {
 	sort.Strings(keys)
 	out := make([]Proposal, 0, len(keys))
 	for _, key := range keys {
-		ref, err := ParseObjectRef(key)
-		if err != nil || ref.Schema == "" {
-			continue // an unqualified drop names no schema to own
+		subject, table, ok := appManagedSubject(managed[key])
+		if !ok {
+			continue
 		}
 		m := managed[key]
-		subject := ref.String()
 		out = append(out, Proposal{Type: TypeAppMigrations, Kind: KindIndex,
 			Subject: subject, Source: SourceDetector, ProposedBy: "detector:app_managed_index",
 			Rationale: "pg_sage dropped this index and something recreated it with the " +
 				"same definition: most likely the application's schema migrations.",
 			Evidence: []Citation{{Kind: "action_log", Ref: "drop_index:" + subject,
 				Detail: fmt.Sprintf("pg_sage dropped it %d times (last at %s) and it came "+
-					"back with the same definition each time", m.Drops,
-					m.LastDrop.UTC().Format(time.RFC3339)), ObservedAt: d.now()}}})
+					"back on table %s with the same definition each time", m.Drops,
+					m.LastDrop.UTC().Format(time.RFC3339), table), ObservedAt: d.now()}}})
 	}
 	return out, nil
+}
+
+// appManagedSubject spells an app-managed index and its table as fact
+// subjects, in the catalog's exact case. It refuses an index no drop named
+// the schema of (an unqualified drop names no schema to own) and a name
+// with '*', which a subject would read as a wildcard covering other
+// indexes.
+func appManagedSubject(m analyzer.AppManagedIndex) (index, table string, ok bool) {
+	if !m.Qualified || m.Schema == "" || m.Name == "" ||
+		strings.ContainsRune(m.Schema+m.Name, '*') {
+		return "", "", false
+	}
+	return ObjectRef{Kind: KindIndex, Schema: m.Schema, Name: m.Name}.String(),
+		ObjectRef{Kind: KindTable, Schema: m.Schema, Name: m.Table}.String(), true
 }
 
 // slotConsumerDetector proposes the consumer of each logical slot of the
@@ -80,7 +94,7 @@ func NewSlotConsumerDetector(pool *pgxpool.Pool) Detector {
 
 func (slotConsumerDetector) Name() string { return "slot_consumer" }
 
-const logicalSlotsSQL = `/* pg_sage */
+const logicalSlotsSQL = `/* pg_sage facts */
 SELECT s.slot_name::text, COALESCE(s.plugin::text, ''), s.active,
        COALESCE(r.application_name, '')
 FROM pg_catalog.pg_replication_slots s
@@ -145,7 +159,7 @@ func NewAppendOnlyDetector(pool *pgxpool.Pool, minInserts int64) Detector {
 
 func (appendOnlyDetector) Name() string { return "append_only" }
 
-const insertOnlySQL = `/* pg_sage */
+const insertOnlySQL = `/* pg_sage facts */
 SELECT schemaname::text, relname::text, n_tup_ins
 FROM pg_catalog.pg_stat_user_tables
 WHERE n_tup_upd = 0 AND n_tup_del = 0 AND n_tup_hot_upd = 0 AND n_tup_ins >= $1

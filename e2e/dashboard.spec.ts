@@ -63,15 +63,14 @@ test.describe('Dashboard', () => {
     }
   });
 
-  // Verifies the recent findings section renders (may be empty)
-  test('recent findings section renders', async ({ page }) => {
+  // Verifies the top cases section renders (may be empty)
+  test('top cases section renders', async ({ page }) => {
     await page.goto('/#/advanced');
     // Wait for the dashboard to finish loading (stat cards prove it)
     await page.waitForSelector('[data-testid="stat-databases"]');
 
-    await page.getByTestId('overview-tab-recent-recos').click();
-    await expect(page.getByTestId('recent-findings')).toBeVisible();
-    await expect(page.getByTestId('recent-findings'))
-      .toContainText('Recent Recommendations');
+    await page.getByTestId('overview-tab-top-cases').click();
+    await expect(page.getByTestId('top-cases')).toBeVisible();
+    await expect(page.getByTestId('top-cases')).toContainText('Top Cases');
   });
 });

@@ -2,137 +2,114 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/auth"
-	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/crypto"
-	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
-const (
-	adminEmail    = "admin@pg-sage.local"
-	adminPassLen  = 16
-	metaDBTimeout = 10 * time.Second
-)
+const metaDBTimeout = 10 * time.Second
+
+// metaSchemaBootTimeout bounds the meta database's schema boot. The boot
+// runs every migration step, each under its own lock_timeout, and a fresh
+// install takes most of metaDBTimeout already (8.7 s under load with -race
+// in T7 test round 2), so it gets a budget of its own: long enough for a
+// first boot on a slow server, short enough that a hung meta database still
+// fails startup with an error that names it. A var only as a test seam.
+var metaSchemaBootTimeout = time.Minute
 
 var bootstrapManagedDatabaseSchema = schema.Bootstrap
+
+// metaSchemaBootstrap is the meta database's schema boot (a test seam).
+var metaSchemaBootstrap = schema.Bootstrap
 
 // metaDBState holds state derived from the --meta-db flag.
 type metaDBState struct {
 	Pool       *pgxpool.Pool
 	EncryptKey []byte
-	Store      *store.DatabaseStore
+	// Keys holds EncryptKey's keyring and the previous key of a rotation.
+	Keys  *controlKeySet
+	Store *store.DatabaseStore
 }
 
 // connectMetaDB creates a connection pool for the metadata database
 // with exponential backoff. Retries up to 5 times with delays of
-// 1s, 2s, 4s, 8s, 16s before giving up.
+// 1s, 2s, 4s, 8s before giving up; each attempt resolves the Lakebase
+// endpoint afresh.
 func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
-	poolCfg, err := pgxpool.ParseConfig(dsn)
+	base, err := sagepool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parsing meta-db DSN: %w", err)
 	}
-	poolCfg.MaxConns = 5
-	if err := databricksauth.ConfigurePool(context.Background(), poolCfg); err != nil {
-		return nil, err
+	base.MaxConns = 5
+	p, err := retryStartup(context.Background(), "meta-db", startupAttempts,
+		func(ctx context.Context) (*pgxpool.Pool, error) {
+			return openStartupPool(ctx, base, func(poolCfg *pgxpool.Config) {
+				poolCfg.MinConns = 1
+				poolCfg.MaxConnLifetime = 30 * time.Minute
+				poolCfg.MaxConnIdleTime = 5 * time.Minute
+				// pg_sage's sessions are named and its statements tagged,
+				// not hidden from pg_stat_statements: a DBA sees its cost
+				// (perf v1.8.3).
+				selfmonitor.ConfigurePool(poolCfg)
+			})
+		})
+	warnLakebaseScaleToZero("meta-db", p, 0) // no collector reads the meta-db
+	return p, err
+}
+
+// bootstrapMetaSchema runs the schema boot within metaSchemaBootTimeout, so
+// a slow boot cannot spend the budget of the steps after it (the admin's
+// password hash among them).
+func bootstrapMetaSchema(metaPool *pgxpool.Pool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), metaSchemaBootTimeout)
+	defer cancel()
+	if err := metaSchemaBootstrap(ctx, metaPool); err != nil {
+		return fmt.Errorf("bootstrapping meta-db schema: %w", err)
 	}
-	poolCfg.MinConns = 1
-	poolCfg.MaxConnLifetime = 30 * time.Minute
-	poolCfg.MaxConnIdleTime = 5 * time.Minute
-	// pg_sage's sessions are named and its statements tagged, not hidden
-	// from pg_stat_statements: a DBA sees its cost (perf v1.8.3).
-	selfmonitor.ConfigurePool(poolCfg)
-
-	const maxAttempts = 5
-	backoff := 1 * time.Second
-	var lastErr error
-
-	for attempt := range maxAttempts {
-		p, err := pgxpool.NewWithConfig(
-			context.Background(), poolCfg)
-		if err != nil {
-			lastErr = fmt.Errorf("creating meta-db pool: %w", err)
-			logRetry("meta-db", attempt, maxAttempts,
-				backoff, lastErr)
-			time.Sleep(backoff)
-			backoff *= 2
-			continue
-		}
-
-		ctx, cancel := context.WithTimeout(
-			context.Background(), 5*time.Second,
-		)
-		err = p.Ping(ctx)
-		cancel()
-		if err == nil {
-			return p, nil
-		}
-		p.Close()
-		lastErr = fmt.Errorf("pinging meta-db: %w", err)
-		if attempt < maxAttempts-1 {
-			logRetry("meta-db", attempt, maxAttempts,
-				backoff, lastErr)
-			time.Sleep(backoff)
-			backoff *= 2
-		}
-	}
-	return nil, fmt.Errorf(
-		"meta-db failed after %d attempts: %w",
-		maxAttempts, lastErr)
+	return nil
 }
 
 // initMetaDB bootstraps the meta database: schema, admin user,
-// and returns state needed by the rest of startup.
+// and returns state needed by the rest of startup. The schema boot and
+// the steps after it each get metaDBTimeout.
 func initMetaDB(
 	metaPool *pgxpool.Pool, encKeyPassphrase string,
 ) (*metaDBState, error) {
+	if err := bootstrapMetaSchema(metaPool); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(
 		context.Background(), metaDBTimeout,
 	)
 	defer cancel()
-
-	// Bootstrap sage.* schema on the meta database.
-	if err := schema.Bootstrap(ctx, metaPool); err != nil {
-		return nil, fmt.Errorf("bootstrapping meta-db schema: %w", err)
-	}
+	warnIsolationDefault(ctx, metaPool, "meta-db", logWarn)
 
 	// Run config schema migration (adds database_id, audit table).
 	if err := schema.MigrateConfigSchema(ctx, metaPool); err != nil {
 		return nil, fmt.Errorf("config schema migration: %w", err)
 	}
 
-	// Derive encryption key if provided. A per-deployment random
-	// salt is persisted in sage.crypto_meta on first bootstrap and
-	// reused on every subsequent startup, so keys derived here
-	// match keys used to encrypt prior records. The salt must be
-	// stable across restarts — if it is lost, all encrypted
-	// credentials become unrecoverable.
-	var encKey, salt []byte
-	if encKeyPassphrase != "" {
-		var err error
-		salt, err = schema.ReadOrCreateKDFSalt(ctx, metaPool)
-		if err != nil {
-			return nil, fmt.Errorf("kdf salt: %w", err)
-		}
-		encKey = crypto.DeriveKey(encKeyPassphrase, salt)
+	// The keys are derived with the per-deployment KDF salt persisted in
+	// sage.crypto_meta; without a passphrase a generated key may be settled
+	// here (security-08). Losing the salt or the key loses the secrets.
+	keys, err := controlKeysFor(ctx, metaPool, encKeyPassphrase)
+	if err != nil {
+		return nil, fmt.Errorf("meta-db encryption key: %w", err)
+	}
+	var encKey []byte
+	if keys != nil {
+		encKey = keys.active
 	} else {
-		log.Println(
-			"WARNING: --encryption-key not set; " +
-				"database credentials cannot be encrypted",
-		)
+		log.Println("WARNING: no encryption key; database credentials cannot be stored")
 	}
 
 	// Bootstrap admin user if none exist.
@@ -140,73 +117,21 @@ func initMetaDB(
 		return nil, fmt.Errorf("admin bootstrap: %w", err)
 	}
 
-	dbStore := store.NewDatabaseStore(metaPool, encKey)
-	if encKeyPassphrase != "" {
-		// Credentials written by v0.8.4/v0.8.5 used legacy key
-		// derivations; decrypt and re-encrypt them on first read (G5-B05).
-		dbStore.WithKeyMigration(encKeyPassphrase, salt)
+	dbStore, err := metaDatabaseStore(ctx, metaPool, keys, encKeyPassphrase)
+	if err != nil {
+		return nil, err
 	}
 
 	return &metaDBState{
 		Pool:       metaPool,
 		EncryptKey: encKey,
+		Keys:       keys,
 		Store:      dbStore,
 	}, nil
 }
 
-// bootstrapAdminUser creates the first admin user when the
-// sage.users table is empty. Only generated credentials are printed to stderr.
-func bootstrapAdminUser(
-	ctx context.Context, pool *pgxpool.Pool,
-) error {
-	appAuth, err := auth.LoadDatabricksAppConfigFromEnv(os.Getenv)
-	if err != nil {
-		return err
-	}
-	if appAuth != nil {
-		return auth.BootstrapDatabricksAppAdmin(ctx, pool, *appAuth)
-	}
-	count, err := auth.UserCount(ctx, pool)
-	if err != nil {
-		return fmt.Errorf("checking user count: %w", err)
-	}
-	if count > 0 {
-		return nil
-	}
-
-	credentials, err := loadBootstrapAdminCredentials()
-	if err != nil {
-		return fmt.Errorf("loading admin bootstrap credentials: %w", err)
-	}
-
-	if err := auth.BootstrapAdmin(
-		ctx, pool, credentials.email, credentials.password,
-	); err != nil {
-		return fmt.Errorf("creating admin: %w", err)
-	}
-
-	if credentials.supplied {
-		fmt.Fprintf(os.Stderr, "First admin created: %s (configured bootstrap secret; password not logged)\n", credentials.email)
-		return nil
-	}
-	fmt.Fprintf(os.Stderr,
-		"First admin created: %s\nInitial password: %s\nChange this password immediately.\n",
-		credentials.email, credentials.password,
-	)
-	return nil
-}
-
-// generateRandomPassword returns a hex-encoded random string of
-// the given length.
-func generateRandomPassword(length int) (string, error) {
-	buf := make([]byte, length)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("reading random bytes: %w", err)
-	}
-	return hex.EncodeToString(buf)[:length], nil
-}
-
-// loadDatabasesFromStore reads enabled databases from the store.
+// loadDatabasesFromStore reads the databases that get a runtime: enabled
+// full members (an observe-only member is swept, fleetpol-01d).
 func loadDatabasesFromStore(
 	ctx context.Context, dbStore *store.DatabaseStore,
 ) ([]store.DatabaseRecord, error) {
@@ -217,7 +142,7 @@ func loadDatabasesFromStore(
 
 	var enabled []store.DatabaseRecord
 	for _, r := range records {
-		if r.Enabled {
+		if r.RunsRuntime() {
 			enabled = append(enabled, r)
 		}
 	}
@@ -226,7 +151,7 @@ func loadDatabasesFromStore(
 
 // connectMonitoredDB creates and pings a pool for a monitored DB
 // with exponential backoff. Retries up to 5 times with delays of
-// 1s, 2s, 4s, 8s, 16s before giving up.
+// 1s, 2s, 4s, 8s before giving up.
 func connectMonitoredDB(
 	dsn string, maxConns int,
 ) (*pgxpool.Pool, error) {
@@ -241,14 +166,20 @@ func connectMonitoredDBContext(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	poolCfg, err := pgxpool.ParseConfig(dsn)
+	base, err := sagepool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}
-	poolCfg.MaxConns = int32(maxConns)
-	if err := databricksauth.ConfigurePool(ctx, poolCfg); err != nil {
-		return nil, err
-	}
+	base.MaxConns = int32(maxConns)
+	p, err := retryStartup(ctx, "connect", startupAttempts,
+		func(ctx context.Context) (*pgxpool.Pool, error) {
+			return openStartupPool(ctx, base, tuneMonitoredPool)
+		})
+	warnLakebaseScaleToZero("connect", p, monitoredCollectorInterval())
+	return p, err
+}
+
+func tuneMonitoredPool(poolCfg *pgxpool.Config) {
 	if poolCfg.MaxConns < 2 {
 		poolCfg.MaxConns = 2
 	}
@@ -256,77 +187,12 @@ func connectMonitoredDBContext(
 	poolCfg.MaxConnLifetime = 30 * time.Minute
 	poolCfg.MaxConnIdleTime = 5 * time.Minute
 	poolCfg.HealthCheckPeriod = 30 * time.Second
-
 	// A stable application_name lets the analyzer and executor recognize
 	// every sidecar backend (not just pg_backend_pid() of one pool conn)
 	// when deciding whether a query is safe to terminate; every statement
 	// carries the /* pg_sage */ tag so pg_stat_statements shows pg_sage's
 	// cost and pg_sage's own analysis leaves it out.
 	selfmonitor.ConfigurePool(poolCfg)
-
-	const maxAttempts = 5
-	backoff := 1 * time.Second
-	var lastErr error
-
-	for attempt := range maxAttempts {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		p, err := pgxpool.NewWithConfig(ctx, poolCfg)
-		if err != nil {
-			lastErr = fmt.Errorf("creating pool: %w", err)
-			if attempt < maxAttempts-1 {
-				logRetry("connect", attempt, maxAttempts,
-					backoff, lastErr)
-				if err := waitForRetry(ctx, backoff); err != nil {
-					return nil, err
-				}
-				backoff *= 2
-			}
-			continue
-		}
-
-		pingCtx, cancel := context.WithTimeout(
-			ctx, 5*time.Second,
-		)
-		err = p.Ping(pingCtx)
-		cancel()
-		if err == nil {
-			return p, nil
-		}
-		p.Close()
-		lastErr = fmt.Errorf("cannot connect: %w", err)
-		if attempt < maxAttempts-1 {
-			logRetry("connect", attempt, maxAttempts,
-				backoff, lastErr)
-			if err := waitForRetry(ctx, backoff); err != nil {
-				return nil, err
-			}
-			backoff *= 2
-		}
-	}
-	return nil, fmt.Errorf(
-		"failed after %d attempts: %w", maxAttempts, lastErr)
-}
-
-func waitForRetry(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func logRetry(
-	component string, attempt, max int,
-	backoff time.Duration, err error,
-) {
-	logWarn(component,
-		"attempt %d/%d failed: %v — retrying in %s",
-		attempt+1, max, err, backoff)
 }
 
 // initMetaDBFleet loads databases from the meta-db store and
@@ -334,9 +200,14 @@ func logRetry(
 // Starts a background goroutine to reconnect failed databases.
 func initMetaDBFleet(state *metaDBState) {
 	fleetMgr = fleet.NewManager(cfg)
+	// fleet-09: the fleet-wide stop lives in the meta database; restore it
+	// before any database registers.
+	fleetMgr.UseFleetStopStore(fleet.NewPGFleetStopStore(state.Pool))
 	initializeAnalyzeSemaphore()
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
+	startBriefingRollup()
+	learnLLMInputLimits()
 	llmMgr = llm.NewManager(llmClient, nil, false)
 
 	ctx, cancel := context.WithTimeout(
@@ -350,17 +221,23 @@ func initMetaDBFleet(state *metaDBState) {
 		return
 	}
 
-	logInfo("meta-db", "found %d enabled databases", len(records))
+	logInfo("meta-db", "found %d enabled databases; fleet-learning boundaries: %s",
+		len(records), metaBoundarySummary(records))
 	names := make([]string, 0, len(records))
 	for _, record := range records {
 		names = append(names, record.Name)
+		llmUsageIDs.setID(record.Name, record.ID)
 	}
 	initializeFleetBudget(names)
+	startLLMUsageLedger(state.Pool) // fleet-10: before any database registers
+	warnMissingSLOOwners(cfg.SRE.SLO, names, logStructuredWrapper)
 	startHistoryStoreCleaner(state.Pool) // history_store_wiring.go
 	for _, rec := range records {
 		registerStoreDatabase(state, rec)
 	}
 
+	startFleetDiscovery(state) // fleet_discovery_wiring.go (market-06)
+	startObserveSweeper(state) // observe_only_wiring.go (fleetpol-01d)
 	go fleetReconnectLoop(shutdownCtx, state)
 }
 
@@ -373,7 +250,7 @@ func registerStoreDatabase(
 		context.Background(), state, rec,
 	)
 	if err != nil {
-		logError("meta-db", "db %q: prepare: %v", rec.Name, err)
+		logStorePrepareFailure(rec.Name, err)
 		registerFailedInstance(rec, err.Error())
 		return
 	}
@@ -386,48 +263,6 @@ func registerFailedInstance(rec store.DatabaseRecord, errMsg string) {
 	fleetMgr.RegisterInstance(failedStoreInstance(rec, errMsg))
 }
 
-func prepareStoreDatabase(
-	ctx context.Context, state *metaDBState, rec store.DatabaseRecord,
-) (*fleet.DatabaseInstance, error) {
-	connStr, err := state.Store.GetConnectionString(ctx, rec.ID)
-	if err != nil {
-		return nil, fmt.Errorf("get connection string: %w", err)
-	}
-	return prepareStoreDatabaseConnection(ctx, rec, connStr)
-}
-
-func prepareStoreDatabaseConnection(
-	ctx context.Context, rec store.DatabaseRecord, connStr string,
-) (*fleet.DatabaseInstance, error) {
-	dbPool, err := connectMonitoredDBContext(ctx, connStr, rec.MaxConnections)
-	if err != nil {
-		return nil, err
-	}
-	inst, err := buildStoreDatabaseRuntime(ctx, rec, dbPool)
-	if err != nil {
-		dbPool.Close()
-		return nil, err
-	}
-	return inst, nil
-}
-
-// buildStoreDatabaseRuntime builds a store-managed database's runtime. Its
-// standing policy is scoped to the record and, with notifications, lives
-// in the meta DB the API writes to (G5-B10, G5-B11).
-func buildStoreDatabaseRuntime(
-	ctx context.Context, rec store.DatabaseRecord, dbPool *pgxpool.Pool,
-) (*fleet.DatabaseInstance, error) {
-	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
-		Scope: "meta-db", Name: rec.Name, DatabaseID: rec.ID,
-		Config: storeRecordToDBConfig(rec), Pool: dbPool,
-		ControlPool: notificationControlPool(globalMetaState, nil),
-		ExecMode:    resolveExecMode(rec), Parent: shutdownCtx, RequireChecks: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return rt.inst, nil
-}
 func activateStoreDatabase(inst *fleet.DatabaseInstance) {
 	activateStoreDatabaseWithManager(fleetMgr, inst)
 }
@@ -457,91 +292,14 @@ func healthCheckStoreDatabase(
 	).Scan(&databaseName); err != nil {
 		return fmt.Errorf("health check database: %w", err)
 	}
-	if inst.Config.Database != "" && databaseName != inst.Config.Database {
+	expected := inst.ConfigSnapshot().Database
+	if expected != "" && databaseName != expected {
 		return fmt.Errorf(
 			"health check connected to %q, expected %q",
-			databaseName, inst.Config.Database,
+			databaseName, expected,
 		)
 	}
 	return nil
-}
-
-// fleetReconnectLoop periodically checks for failed instances and
-// attempts to reconnect with exponential backoff. Runs every 30s,
-// caps backoff at 5 minutes per database.
-func fleetReconnectLoop(ctx context.Context, state *metaDBState) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			// Rows changed outside this process's API (another replica,
-			// SQL) converge first; failed databases then retry.
-			runMetaReconcilePass(ctx, state)
-			retryFailedInstances(state)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// retryFailedInstances finds instances with errors or nil pools
-// and attempts reconnection.
-func retryFailedInstances(state *metaDBState) {
-	instances := fleetMgr.Instances()
-	for name, inst := range instances {
-		snap := inst.SnapshotStatus()
-		if inst.Pool != nil && snap.Error == "" {
-			continue // healthy
-		}
-		if fleetMgr.InstanceStopped(inst) {
-			continue // manually stopped
-		}
-
-		logInfo("reconnect", "attempting reconnect for %q", name)
-
-		ctx, cancel := context.WithTimeout(
-			context.Background(), metaDBTimeout,
-		)
-		records, err := loadDatabasesFromStore(ctx, state.Store)
-		if err != nil {
-			cancel()
-			logWarn("reconnect", "load databases: %v", err)
-			return
-		}
-
-		for _, rec := range records {
-			if rec.Name != name {
-				continue
-			}
-			candidate, err := prepareStoreDatabase(ctx, state, rec)
-			if err != nil {
-				logWarn("reconnect",
-					"db %q: still unreachable: %v", name, err)
-				break
-			}
-			// Success — bootstrap and re-register.
-			err = fleetMgr.ReplaceInstanceIfCurrent(
-				ctx, name, inst, candidate, healthCheckStoreDatabase,
-			)
-			if err != nil {
-				if fleetMgr.GetInstance(candidate.Name) == candidate {
-					logWarn("reconnect",
-						"db %q: published but old runtime drain failed: %v",
-						name, err)
-				} else {
-					logWarn("reconnect", "db %q: candidate rejected: %v",
-						name, err)
-				}
-				break
-			}
-			updateInstanceFindings(context.Background(), candidate)
-			logInfo("reconnect", "db %q: reconnected successfully", name)
-			break
-		}
-		cancel()
-	}
 }
 
 // detectPGVersion queries the PG version number from the pool and
@@ -572,31 +330,4 @@ func detectPGVersion(p *pgxpool.Pool) int {
 		return fallback
 	}
 	return ver
-}
-
-// storeRecordToDBConfig converts a store.DatabaseRecord to a
-// config.DatabaseConfig for the fleet manager.
-func storeRecordToDBConfig(
-	rec store.DatabaseRecord,
-) config.DatabaseConfig {
-	return config.DatabaseConfig{
-		Name:               rec.Name,
-		Host:               rec.Host,
-		Port:               rec.Port,
-		Database:           rec.DatabaseName,
-		User:               rec.Username,
-		SSLMode:            rec.SSLMode,
-		MaxConnections:     rec.MaxConnections,
-		TrustLevel:         rec.TrustLevel,
-		TrustLevelExplicit: true,
-		ExecutionMode:      resolveExecMode(rec),
-	}
-}
-
-// resolveExecMode returns the execution mode for a store record.
-func resolveExecMode(rec store.DatabaseRecord) string {
-	if rec.ExecutionMode != "" {
-		return rec.ExecutionMode
-	}
-	return "auto"
 }

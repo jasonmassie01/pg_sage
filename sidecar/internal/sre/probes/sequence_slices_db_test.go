@@ -56,7 +56,7 @@ func catalogSequences(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int
 	var n int64
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_sequence q
 		JOIN pg_class c ON c.oid = q.seqrelid
-		WHERE q.seqincrement > 0 AND NOT pg_is_other_temp_schema(c.relnamespace)`).
+		WHERE NOT pg_is_other_temp_schema(c.relnamespace)`).
 		Scan(&n); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,8 @@ func TestSequenceRunway_SliceLockFootprint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	sliceFixture(t, ctx, pool, SequenceScanCap+600)
-	for _, args := range [][]any{{51, 0, 0}, {51, 2, 0}, {51, 2, 1}} {
+	none := []string{}
+	for _, args := range [][]any{{101, 0, 0, none}, {101, 2, 0, none}, {101, 2, 1, none}} {
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			t.Fatal(err)

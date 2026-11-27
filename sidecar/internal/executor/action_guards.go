@@ -7,15 +7,22 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 )
 
+// defaultCascadeCooldown applies when the cycles or interval are unset.
+const defaultCascadeCooldown = 5 * time.Minute
+
 // cascadeCooldown returns the cooldown duration for the cascade
-// guard, computed from config.
+// guard, computed from the live policy snapshot.
 func (e *Executor) cascadeCooldown() time.Duration {
-	cycles := e.cfg.Trust.CascadeCooldownCycles
-	interval := e.cfg.Collector.IntervalSeconds
+	cfg, _, _ := e.policySnapshot()
+	if cfg == nil {
+		return defaultCascadeCooldown
+	}
+	cycles := cfg.Trust.CascadeCooldownCycles
+	interval := cfg.Collector.IntervalSeconds
 	d := time.Duration(cycles) *
 		time.Duration(interval) * time.Second
 	if d == 0 {
-		d = 5 * time.Minute
+		d = defaultCascadeCooldown
 	}
 	return d
 }
@@ -26,7 +33,7 @@ func (e *Executor) lookupFindingID(
 ) int64 {
 	var id int64
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT id FROM sage.findings
+		`/* pg_sage executor */ SELECT id FROM sage.findings
 		 WHERE category = $1
 		   AND object_identifier = $2
 		   AND status = 'open'
@@ -68,10 +75,10 @@ func (e *Executor) exceedsOscillationLimit(
 	}
 	var n int
 	if err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT count(*) FROM sage.action_log
+		`/* pg_sage executor */ SELECT count(*) FROM sage.action_log
 		 WHERE sql_executed = $1
 		   AND outcome IN ('success', 'rolled_back', 'rollback_failed',
-		                   'rollback_skipped')
+		                   'rollback_skipped', 'rollback_withheld')
 		   AND executed_at > now() - make_interval(days => $2)`,
 		f.RecommendedSQL, oscillationWindowDays,
 	).Scan(&n); err != nil {
@@ -83,7 +90,7 @@ func (e *Executor) exceedsOscillationLimit(
 				"backing off (object reverts externally)",
 			f.Title, n, oscillationWindowDays)
 		_, _ = e.pool.Exec(ctx,
-			`/* pg_sage */ UPDATE sage.findings SET acted_on_at = now()
+			`/* pg_sage executor */ UPDATE sage.findings SET acted_on_at = now()
 			 WHERE id = $1 AND acted_on_at IS NULL`, findingID)
 		return true
 	}
@@ -100,7 +107,7 @@ func (e *Executor) exceedsMaxRetries(
 	}
 	var failCount int
 	err := e.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT count(*) FROM sage.action_log al
+		`/* pg_sage executor */ SELECT count(*) FROM sage.action_log al
 		 LEFT JOIN sage.findings prev ON prev.id = al.finding_id
 		 WHERE al.outcome = 'failed'
 		   AND (al.finding_id = $1 OR EXISTS (
@@ -117,7 +124,7 @@ func (e *Executor) exceedsMaxRetries(
 		// If the UPDATE fails silently we would retry forever, so
 		// log the failure to surface it to operators.
 		if _, err := e.pool.Exec(ctx,
-			`/* pg_sage */ UPDATE sage.findings
+			`/* pg_sage executor */ UPDATE sage.findings
 			 SET acted_on_at = now()
 			 WHERE id = $1 AND acted_on_at IS NULL`,
 			findingID,
@@ -138,7 +145,7 @@ func (e *Executor) markFindingActioned(
 	actionID int64,
 ) {
 	tag, err := e.pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.findings
+		`/* pg_sage executor */ UPDATE sage.findings
 		 SET acted_on_at = now(),
 		     action_log_id = $1,
 		     status = 'resolved',

@@ -65,7 +65,8 @@ type SREProxyConfig struct {
 // defaults (30-day window, 50 events, 5-minute staleness).
 type SREObjectiveConfig struct {
 	Name              string  `yaml:"name" doc:"Lower-case name; db_ is reserved for proxies."`
-	Database          string  `yaml:"database" doc:"Monitored database the service uses; empty = every database."`
+	Database          string  `yaml:"database" doc:"Monitored database the service uses; empty = every database (fleets need owner_database)."`
+	OwnerDatabase     string  `yaml:"owner_database" doc:"Fleets, no database: only this database opens the slo_burn investigation."`
 	Description       string  `yaml:"description" doc:"What the SLI measures, shown with its state."`
 	Owner             string  `yaml:"owner" doc:"Team or person who owns the service SLO."`
 	Source            string  `yaml:"source" doc:"Where the counters come from: prometheus or push."`
@@ -74,8 +75,9 @@ type SREObjectiveConfig struct {
 	BadQuery          string  `yaml:"bad_query" doc:"PromQL for bad events over $window (use 'or vector(0)' so zero errors is not absent data)."`
 	EligibleQuery     string  `yaml:"eligible_query" doc:"PromQL for eligible events over $window."`
 	ResetsQuery       string  `yaml:"resets_query" doc:"Optional PromQL counting counter resets over $window."`
+	CoverageQuery     string  `yaml:"coverage_query" doc:"Optional PromQL for the earliest sample time (Unix s) over $window, e.g. min_over_time(timestamp(<series>)[$window:1m]); marks windows partial or stale. Empty: coverage unverified."`
 	MinEligibleEvents float64 `yaml:"min_eligible_events" doc:"Fewer eligible events in a window is low traffic (unknown). Default: 50."`
-	StaleAfterSeconds int     `yaml:"stale_after_seconds" doc:"Pushed samples older than this are stale. Default: 300."`
+	StaleAfterSeconds int     `yaml:"stale_after_seconds" doc:"Pushed samples (Prometheus samples, with coverage_query) older than this are stale. Default: 300."`
 }
 
 // SREChangeEventsConfig configures the change feed.
@@ -83,7 +85,7 @@ type SREChangeEventsConfig struct {
 	HMACSecret                string   `yaml:"hmac_secret" secret:"true" doc:"Shared secret (at least 32 bytes) signing POST /api/v1/sre/change-events. Empty disables ingestion."`
 	TimestampToleranceSeconds int      `yaml:"timestamp_tolerance_seconds" doc:"Accepted signature clock skew, 30-3600. Default: 300."`
 	AllowedSources            []string `yaml:"allowed_sources" doc:"Sources allowed to submit events; empty allows any signed source."`
-	FeedEnabled               bool     `yaml:"feed_enabled" doc:"Poll pg_sage's own change sources (actions, config audit, DDL, statistics resets, restarts, failovers, extensions). Default: true."`
+	FeedEnabled               bool     `yaml:"feed_enabled" doc:"Poll pg_sage's own change sources (actions, config audit, DDL, statistics resets, extensions). Restarts, failovers, server version and host changes are polled even when off. Default: true."`
 	FeedIntervalSeconds       int      `yaml:"feed_interval_seconds" doc:"Seconds between change feed polls, 15-3600. Default: 60."`
 	RetentionDays             int      `yaml:"retention_days" doc:"Days change events are kept, 1-3650. Default: 90."`
 }

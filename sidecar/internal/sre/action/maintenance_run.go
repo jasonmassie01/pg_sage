@@ -15,6 +15,15 @@ import (
 )
 
 func (m *MaintenanceService) mutate(ctx context.Context, id sre.UUID, actor string, fn func(*MaintenanceProposal, sre.Emit) error) (MaintenanceProposal, error) {
+	return m.mutateTx(ctx, id, actor, func(_ pgx.Tx, p *MaintenanceProposal, emit sre.Emit) error {
+		return fn(p, emit)
+	})
+}
+
+// mutateTx changes one proposal under its investigation lock and row lock;
+// fn also gets the transaction, which runs on the colocated target database.
+func (m *MaintenanceService) mutateTx(ctx context.Context, id sre.UUID, actor string,
+	fn func(pgx.Tx, *MaintenanceProposal, sre.Emit) error) (MaintenanceProposal, error) {
 	p, err := m.Get(ctx, id)
 	if err != nil {
 		return p, err
@@ -31,7 +40,7 @@ func (m *MaintenanceService) mutate(ctx context.Context, id sre.UUID, actor stri
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return err
 		}
-		if err := fn(&p, emit); err != nil {
+		if err := fn(tx, &p, emit); err != nil {
 			return err
 		}
 		raw, err := json.Marshal(p)
@@ -146,32 +155,16 @@ func (m *MaintenanceService) RunApproved(ctx context.Context, a store.QueuedActi
 	if err != nil {
 		return executor.ApprovedRun{}, err
 	}
-	actionID, objectOID, runErr := m.Executor.ExecuteSREStatistics(ctx, p.FindingID, p.SQL, approvedBy, p.Target)
-	state, verification, detail := "executed", "verified", "created object is built; workload benefit and incident recovery are unproven"
-	if runErr != nil {
-		state, verification, detail = "failed", "failed", runErr.Error()
-		if actionID > 0 && objectOID > 0 {
-			state, verification = "uncertain", "inconclusive"
-		}
-	}
-	_, saveErr := m.mutate(context.WithoutCancel(ctx), id, userActor(approvedBy), func(q *MaintenanceProposal, emit sre.Emit) error {
-		if q.State != "executing" {
-			return ErrProposalState
-		}
-		q.State = state
-		q.ActionLogID = actionID
-		q.StatisticsOID = objectOID
-		q.Verification = verification
-		q.Detail = detail
-		typ := "action_executed"
-		if runErr != nil {
-			typ = "action_failed"
-		}
-		return emit(typ, map[string]any{"proposal_id": q.ID, "class": q.Class, "action_log_id": actionID, "statistics_oid": objectOID, "structural_verification": verification, "workload_benefit": "unproven", "incident_recovery": "unproven", "detail": detail})
-	})
+	runCtx, cancel := m.boundedRun(ctx)
+	actionID, objectOID, runErr := m.Executor.ExecuteSREStatistics(runCtx, p.FindingID, p.SQL,
+		approvedBy, p.Target)
+	cancel()
+	saved, saveErr := m.record(context.WithoutCancel(ctx), id, userActor(approvedBy), actionID,
+		objectOID, runErr)
 	if saveErr != nil {
 		return executor.ApprovedRun{ActionLogID: actionID, VerificationStatus: "inconclusive"}, saveErr
 	}
+	verification := saved.Verification
 	_, queueErr := m.Pool.Exec(context.WithoutCancel(ctx), `UPDATE sage.action_queue SET verification_status=$2,action_log_id=NULLIF($3,0) WHERE id=$1`, p.QueueID, verification, actionID)
 	if runErr != nil {
 		return executor.ApprovedRun{ActionLogID: actionID, VerificationStatus: verification}, runErr
@@ -180,6 +173,39 @@ func (m *MaintenanceService) RunApproved(ctx context.Context, a store.QueuedActi
 		return executor.ApprovedRun{ActionLogID: actionID}, queueErr
 	}
 	return executor.ApprovedRun{ActionLogID: actionID, VerificationStatus: "verified"}, nil
+}
+
+// boundedRun bounds a typed run's DDL-slot wait by one apply timeout so the
+// stranded-run sweeper can tell a dead run from a waiting one; the executor
+// bounds the detached run itself.
+func (m *MaintenanceService) boundedRun(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, m.Executor.ApplyTimeout())
+}
+
+// record saves the executor's result on an executing proposal. A proposal
+// the stranded-run sweeper settled first is refused with ErrProposalState.
+func (m *MaintenanceService) record(ctx context.Context, id sre.UUID, actor string,
+	actionID int64, objectOID uint32, runErr error) (MaintenanceProposal, error) {
+	state, verification := "executed", "verified"
+	detail := "created object is built; workload benefit and incident recovery are unproven"
+	typ := "action_executed"
+	if runErr != nil {
+		state, verification, detail, typ = "failed", "failed", runErr.Error(), "action_failed"
+		if actionID > 0 && objectOID > 0 {
+			state, verification = "uncertain", "inconclusive"
+		}
+	}
+	return m.mutate(ctx, id, actor, func(q *MaintenanceProposal, emit sre.Emit) error {
+		if q.State != "executing" {
+			return ErrProposalState
+		}
+		q.State, q.ActionLogID, q.StatisticsOID = state, actionID, objectOID
+		q.Verification, q.Detail = verification, detail
+		return emit(typ, map[string]any{"proposal_id": q.ID, "class": q.Class,
+			"action_log_id": actionID, "statistics_oid": objectOID,
+			"structural_verification": verification, "workload_benefit": "unproven",
+			"incident_recovery": "unproven", "detail": detail})
+	})
 }
 
 // Rollback is an explicit operator action and uses the existing rollback policy.
@@ -200,7 +226,10 @@ func (m *MaintenanceService) Rollback(ctx context.Context, id sre.UUID, reason s
 	if err != nil {
 		return p, err
 	}
-	runErr := m.Executor.RollbackSREStatistics(ctx, p.ActionLogID, p.SQL, p.Target, p.StatisticsOID, reason, approvedBy)
+	runCtx, cancel := m.boundedRun(ctx)
+	runErr := m.Executor.RollbackSREStatistics(runCtx, p.ActionLogID, p.SQL, p.Target,
+		p.StatisticsOID, reason, approvedBy)
+	cancel()
 	out, saveErr := m.mutate(context.WithoutCancel(ctx), id, userActor(approvedBy), func(p *MaintenanceProposal, emit sre.Emit) error {
 		if p.State != "rolling_back" {
 			return ErrProposalState

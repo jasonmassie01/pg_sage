@@ -44,16 +44,29 @@ func TestCreditAvoidedIncidentRecordsConservativeNearMiss(t *testing.T) {
 }
 
 func TestCreditAvoidedIncidentMinutesBySeverity(t *testing.T) {
-	for severity, want := range map[string]float64{
-		SeverityNearMiss: 120, SeverityPrevented: 480,
+	repo := &fakeIncidentRepository{candidate: verifiedIncidentCandidate()}
+	_, err := NewService(repo).CreditAvoidedIncident(context.Background(),
+		AvoidedIncident{ActionID: 42, Kind: IncidentXIDWraparound,
+			Severity: SeverityNearMiss, OccurredAt: incidentAt})
+	if err != nil || repo.recorded.CreditedMinutes != 120 {
+		t.Fatalf("near_miss minutes = %v (%v), want 120",
+			repo.recorded.CreditedMinutes, err)
+	}
+}
+
+// lock_storm and prevented had no producer and are retired (earned-09):
+// the service refuses them before it reads or writes the ledger.
+func TestCreditAvoidedIncidentRefusesRetiredKindAndSeverity(t *testing.T) {
+	for _, incident := range []AvoidedIncident{
+		{ActionID: 42, Kind: "lock_storm", Severity: SeverityNearMiss, OccurredAt: incidentAt},
+		{ActionID: 42, Kind: IncidentXIDWraparound, Severity: "prevented",
+			OccurredAt: incidentAt},
 	} {
 		repo := &fakeIncidentRepository{candidate: verifiedIncidentCandidate()}
-		_, err := NewService(repo).CreditAvoidedIncident(context.Background(),
-			AvoidedIncident{ActionID: 42, Kind: IncidentXIDWraparound,
-				Severity: severity, OccurredAt: incidentAt})
-		if err != nil || repo.recorded.CreditedMinutes != want {
-			t.Fatalf("%s minutes = %v (%v), want %v",
-				severity, repo.recorded.CreditedMinutes, err, want)
+		_, err := NewService(repo).CreditAvoidedIncident(context.Background(), incident)
+		if !errors.Is(err, ErrInvalidIncident) || repo.recordCalls != 0 {
+			t.Fatalf("%s/%s: err=%v record calls=%d, want ErrInvalidIncident and none",
+				incident.Kind, incident.Severity, err, repo.recordCalls)
 		}
 	}
 }
@@ -105,7 +118,7 @@ func TestCreditAvoidedIncidentRejectsInvalidInput(t *testing.T) {
 // Every known kind the schema accepts is accepted by the service, so the
 // two lists cannot drift apart silently.
 func TestCreditAvoidedIncidentAcceptsEverySchemaKind(t *testing.T) {
-	for _, kind := range []string{"xid_wraparound", "disk_full_slot", "lock_storm"} {
+	for _, kind := range []string{"xid_wraparound", "disk_full_slot"} {
 		repo := &fakeIncidentRepository{candidate: verifiedIncidentCandidate()}
 		_, err := NewService(repo).CreditAvoidedIncident(context.Background(),
 			AvoidedIncident{ActionID: 42, Kind: kind, Severity: SeverityNearMiss,

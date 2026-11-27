@@ -68,6 +68,13 @@ func forecastsHandler(
 	}
 }
 
+// queryHintStatuses are the sage.query_hints statuses the status filter
+// accepts (docs/hint-verification.md "Hint lifecycle").
+var queryHintStatuses = map[string]bool{
+	"proposed": true, "active": true, "dormant": true, "retired": true,
+	"broken": true, "rolled_back": true, "rejected": true, "expired": true,
+}
+
 func queryHintsHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
@@ -77,8 +84,7 @@ func queryHintsHandler(
 			return
 		}
 		status := r.URL.Query().Get("status")
-		if status != "" && status != "active" &&
-			status != "retired" && status != "broken" {
+		if status != "" && !queryHintStatuses[status] {
 			jsonError(w, "invalid status", http.StatusBadRequest)
 			return
 		}
@@ -130,10 +136,18 @@ func queryHintsHandler(
 	}
 }
 
+// alertLogHandler serves the alert log of the selected databases. A
+// database whose log cannot be read is named in failed_databases and the
+// rows of the others are still returned (alerting-09); only when every
+// selected database fails is the reply a 503. The route is deprecated
+// (alerting-06c): it stays readable for history and every reply links
+// the notification log that replaces it.
 func alertLogHandler(
 	mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Deprecation", "true")
+		w.Header().Set("Link", `</api/v1/notifications/log>; rel="successor-version"`)
 		database, ok := readDatabaseParam(w, r)
 		if !ok {
 			return
@@ -144,41 +158,51 @@ func alertLogHandler(
 		if rejectUnknownDatabase(w, mgr, database) {
 			return
 		}
-		displayName := responseDatabaseName(database)
 		pools := poolsForDatabaseSelection(mgr, database)
-		if len(pools) == 0 {
-			jsonResponse(w, map[string]any{
-				"database": displayName,
-				"alerts":   []any{},
+		alerts, failed := collectAlertLogs(r.Context(), pools)
+		if len(pools) > 0 && len(failed) == len(pools) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error": "alert log could not be read from any " +
+					"selected database; check the sidecar log",
+				"failed_databases": failed,
 			})
 			return
 		}
-		var alerts []map[string]any
-		for _, selected := range pools {
-			dbAlerts, err := queryAlertLog(r.Context(), selected.pool)
-			if err != nil {
-				slog.Error("query alert log failed",
-					"database", selected.name, "error", err)
-				jsonError(w, "failed to query alerts", 500)
-				return
-			}
-			for _, alert := range dbAlerts {
-				alert["database_name"] = selected.name
-				alerts = append(alerts, alert)
-			}
-		}
-		sort.SliceStable(alerts, func(i, j int) bool {
-			return timeFromMap(alerts[i], "sent_at").After(
-				timeFromMap(alerts[j], "sent_at"))
-		})
-		if alerts == nil {
-			alerts = []map[string]any{}
-		}
 		jsonResponse(w, map[string]any{
-			"database": displayName,
-			"alerts":   alerts,
+			"database":         responseDatabaseName(database),
+			"alerts":           alerts,
+			"failed_databases": failed,
 		})
 	}
+}
+
+// collectAlertLogs reads every pool's alert log, newest first, and returns
+// the rows that loaded with the names of the databases that failed.
+func collectAlertLogs(
+	ctx context.Context, pools []namedPool,
+) ([]map[string]any, []string) {
+	alerts := []map[string]any{}
+	failed := []string{}
+	for _, selected := range pools {
+		dbAlerts, err := queryAlertLog(ctx, selected.pool)
+		if err != nil {
+			slog.Error("query alert log failed",
+				"database", selected.name, "error", err)
+			failed = append(failed, selected.name)
+			continue
+		}
+		for _, alert := range dbAlerts {
+			alert["database_name"] = selected.name
+			alerts = append(alerts, alert)
+		}
+	}
+	sort.SliceStable(alerts, func(i, j int) bool {
+		return timeFromMap(alerts[i], "sent_at").After(
+			timeFromMap(alerts[j], "sent_at"))
+	})
+	return alerts, failed
 }
 
 // --- Query helpers ---
@@ -254,13 +278,25 @@ const queryHintsSQL = `/* pg_sage */SELECT queryid, hint_text, symptom,
 func queryQueryHints(
 	ctx context.Context, pool *pgxpool.Pool, status ...string,
 ) ([]map[string]any, error) {
-	query := queryHintsSQL
-	var args []any
-	if len(status) > 0 && status[0] != "" {
-		query += " WHERE status = $1"
-		args = append(args, status[0])
+	only := ""
+	if len(status) > 0 {
+		only = status[0]
 	}
-	query += " ORDER BY created_at DESC LIMIT 200"
+	return queryQueryHintsLimit(ctx, pool, 200, only)
+}
+
+// queryQueryHintsLimit reads up to limit query hints, newest first, only
+// those with the given status when it is not empty.
+func queryQueryHintsLimit(
+	ctx context.Context, pool *pgxpool.Pool, limit int, status string,
+) ([]map[string]any, error) {
+	query := queryHintsSQL
+	args := []any{limit}
+	if status != "" {
+		query += " WHERE status = $2"
+		args = append(args, status)
+	}
+	query += " ORDER BY created_at DESC LIMIT $1"
 	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query hints: %w", err)
@@ -315,10 +351,7 @@ func scanQueryHintRows(rows pgx.Rows) ([]map[string]any, error) {
 		}
 		results = append(results, row)
 	}
-	if results == nil {
-		results = []map[string]any{}
-	}
-	return results, nil
+	return scannedRows(rows, results, "query hints")
 }
 
 func timeFromMap(row map[string]any, key string) time.Time {
@@ -384,6 +417,11 @@ func scanAlertLogRows(rows pgx.Rows) ([]map[string]any, error) {
 			"category":      category,
 			"title":         title,
 		})
+	}
+	// pgx reports an error raised while the query runs (permission
+	// denied, statement timeout, a dropped connection) only here.
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read alert log rows: %w", err)
 	}
 	if results == nil {
 		results = []map[string]any{}

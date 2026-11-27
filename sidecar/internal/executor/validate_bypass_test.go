@@ -21,7 +21,7 @@ func TestValidateRejectsAlterTableSubcommandLists(t *testing.T) {
 		if err := ValidateExecutorSQL(sql); err == nil {
 			t.Fatalf("ValidateExecutorSQL(%q) accepted a non-reloption subcommand", sql)
 		}
-		if got := actionTypeForProposalSQL(sql); got == "set_table_autovacuum" {
+		if got := ActionTypeForSQL(sql); got == "set_table_autovacuum" {
 			t.Fatalf("%q classified as set_table_autovacuum", sql)
 		}
 	}
@@ -48,11 +48,11 @@ func TestVacuumFullIsNeverClassifiedAsSafeVacuum(t *testing.T) {
 		"VACUUM /**/ FULL public.orders",
 		"VACUUM (VERBOSE,  FULL) public.orders",
 	} {
-		if got := actionTypeForProposalSQL(sql); got == "vacuum_table" {
+		if got := ActionTypeForSQL(sql); got == "vacuum_table" {
 			t.Fatalf("%q classified as safe vacuum_table", sql)
 		}
 	}
-	if got := actionTypeForProposalSQL("VACUUM  public.orders"); got != "vacuum_table" {
+	if got := ActionTypeForSQL("VACUUM  public.orders"); got != "vacuum_table" {
 		t.Fatalf("plain VACUUM with double space = %q, want vacuum_table", got)
 	}
 }
@@ -78,10 +78,13 @@ func TestValidateRejectsSessionSafetyGUCs(t *testing.T) {
 	for _, param := range []string{
 		"statement_timeout", "lock_timeout", "idle_in_transaction_session_timeout",
 	} {
-		for _, sql := range []string{
-			"ALTER SYSTEM SET " + param + " = 100",
-			"ALTER DATABASE app SET " + param + " = 100",
-		} {
+		sqls := []string{"ALTER SYSTEM SET " + param + " = 100"}
+		// advisors-07: idle_in_transaction_session_timeout runs at database
+		// scope, with approval (TestTimeoutScope_RefusedUnderAlterSystem).
+		if param != "idle_in_transaction_session_timeout" {
+			sqls = append(sqls, "ALTER DATABASE app SET "+param+" = 100")
+		}
+		for _, sql := range sqls {
 			err := ValidateExecutorSQL(sql)
 			if err == nil || !strings.Contains(err.Error(), "disallowed") {
 				t.Fatalf("ValidateExecutorSQL(%q) = %v, want disallowed", sql, err)

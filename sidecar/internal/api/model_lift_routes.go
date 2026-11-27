@@ -22,9 +22,8 @@ func registerModelLiftRoutes(mux *http.ServeMux, deps *AutonomyDeps) {
 	if deps == nil || deps.Ledgers == nil {
 		return
 	}
-	viewer := RequireRole("admin", "operator", "viewer")
 	h := autonomyHandlers{deps: deps}
-	mux.Handle("GET "+modelLiftPath, viewer(http.HandlerFunc(h.modelLift)))
+	route(mux, "GET "+modelLiftPath, gateViewer, http.HandlerFunc(h.modelLift))
 }
 
 func (h autonomyHandlers) modelLift(w http.ResponseWriter, r *http.Request) {

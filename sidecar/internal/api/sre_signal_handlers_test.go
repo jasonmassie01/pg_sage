@@ -98,7 +98,7 @@ func signalRouter(t *testing.T, mgr *fleet.DatabaseManager, cfg *config.Config,
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(mgr, cfg, nil, nil, nil, nil, nil, inject)
+	return newTestRouter(mgr, cfg, nil, nil, nil, nil, nil, inject)
 }
 
 type signedCall struct {

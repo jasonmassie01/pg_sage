@@ -15,7 +15,7 @@ import (
 
 // localBenchHow says how to make local runs available.
 const localBenchHow = "Set clone.provider (dle or snapshot) or " +
-	"sre.autonomy.game_days.local_dsn (a disposable database, never a monitored one) " +
+	"sre.autonomy.game_days.local_dsn (a marked database on its own cluster) " +
 	"to run the bench locally."
 
 func (h autonomyHandlers) localBench(database string) (*gameday.LocalBench, bool) {

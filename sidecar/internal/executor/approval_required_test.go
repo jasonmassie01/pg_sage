@@ -1,6 +1,8 @@
 package executor
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
@@ -23,19 +25,27 @@ func hasApprovalGuardrail(req policy.ActionRequest) bool {
 }
 
 func TestFindingRequestApprovalRequirement(t *testing.T) {
+	// The drops carry a passed clone rehearsal, so the ladder's entry rule
+	// (lab-03a) does not decide them; "unrehearsed drop" pins that rule.
+	rehearsed := ladderDetail(t, passedClone())
 	drop := analyzer.Finding{Category: "unused_index", ObjectIdentifier: "public.idx_a",
-		RecommendedSQL: `DROP INDEX CONCURRENTLY "public"."idx_a"`}
+		RecommendedSQL: `DROP INDEX CONCURRENTLY "public"."idx_a"`,
+		Detail:         map[string]any{"ladder": rehearsed}}
+	unrehearsed := analyzer.Finding{Category: "unused_index",
+		ObjectIdentifier: "public.idx_a", RecommendedSQL: drop.RecommendedSQL}
 	replicaDrop := drop
-	replicaDrop.Detail = map[string]any{
+	replicaDrop.Detail = map[string]any{"ladder": rehearsed,
 		analyzer.DetailApprovalRequired: "2 streaming replicas; standby index usage unknown"}
 	emptyMarker := drop
-	emptyMarker.Detail = map[string]any{analyzer.DetailApprovalRequired: ""}
+	emptyMarker.Detail = map[string]any{"ladder": rehearsed,
+		analyzer.DetailApprovalRequired: ""}
 	cases := []struct {
 		name string
 		f    analyzer.Finding
 		want bool
 	}{
 		{"plain drop", drop, false},
+		{"unrehearsed drop", unrehearsed, true},
 		{"drop with replicas", replicaDrop, true},
 		{"empty marker", emptyMarker, false},
 		{"reload-only GUC", analyzer.Finding{
@@ -81,5 +91,80 @@ func TestApprovalRequiredReasonTypes(t *testing.T) {
 		if got := approvalRequiredReason(f) != ""; got != c.want {
 			t.Errorf("approvalRequiredReason(%v) set = %v, want %v", c.detail, got, c.want)
 		}
+	}
+}
+
+// advisors-07: idle_in_transaction_session_timeout is approval-only at
+// database scope and refused under ALTER SYSTEM. An ALTER DATABASE of a
+// setting off the autonomous list needs an operator as ALTER SYSTEM does.
+func TestTimeoutScope_DatabaseApprovalRequired(t *testing.T) {
+	cases := []struct {
+		sql  string
+		want bool
+	}{
+		{`ALTER DATABASE "app" SET idle_in_transaction_session_timeout = '5min'`, true},
+		{`ALTER DATABASE app SET idle_in_transaction_session_timeout TO '10min';`, true},
+		{`ALTER DATABASE "app" RESET idle_in_transaction_session_timeout`, true},
+		{`ALTER SYSTEM SET idle_in_transaction_session_timeout = '5min'`, true},
+		// Executable but not autonomous at any scope.
+		{`ALTER DATABASE "app" SET jit = off`, true},
+		// Autonomous settings keep running unattended at database scope.
+		{`ALTER DATABASE "app" SET work_mem = '64MB'`, false},
+		{`ALTER DATABASE "app" SET random_page_cost = 1.1`, false},
+	}
+	for _, c := range cases {
+		f := analyzer.Finding{Category: "connection_tuning", ObjectIdentifier: "instance",
+			RecommendedSQL: c.sql}
+		if got := approvalRequiredReason(f) != ""; got != c.want {
+			t.Errorf("approvalRequiredReason(%q) set = %v, want %v (%q)", c.sql, got,
+				c.want, approvalRequiredReason(f))
+		}
+	}
+}
+
+func TestTimeoutScope_RefusedUnderAlterSystem(t *testing.T) {
+	err := ValidateExecutorSQL("ALTER SYSTEM SET idle_in_transaction_session_timeout = '5min'")
+	if !errors.Is(err, ErrDisallowedSQL) || !strings.Contains(err.Error(), "ALTER DATABASE") {
+		t.Fatalf("ALTER SYSTEM of a database-scope timeout: err = %v, want a refusal "+
+			"naming ALTER DATABASE", err)
+	}
+	if err := ValidateExecutorSQL(
+		"ALTER SYSTEM RESET idle_in_transaction_session_timeout"); !errors.Is(err,
+		ErrDisallowedSQL) {
+		t.Fatalf("ALTER SYSTEM RESET of a database-scope timeout: err = %v", err)
+	}
+	for _, sql := range []string{
+		`ALTER DATABASE "app" SET idle_in_transaction_session_timeout = '5min'`,
+		`ALTER DATABASE "app" RESET idle_in_transaction_session_timeout`,
+	} {
+		if err := ValidateExecutorSQL(sql); err != nil {
+			t.Errorf("ValidateExecutorSQL(%q) = %v, want allowed", sql, err)
+		}
+	}
+	for _, sql := range []string{
+		`ALTER DATABASE "app" SET statement_timeout = '30s'`,
+		`ALTER SYSTEM SET statement_timeout = '30s'`,
+		`ALTER DATABASE "app" SET idle_session_timeout = '1h'`,
+	} {
+		if err := ValidateExecutorSQL(sql); !errors.Is(err, ErrDisallowedSQL) {
+			t.Errorf("ValidateExecutorSQL(%q) = %v, want refused (advisory only)", sql, err)
+		}
+	}
+}
+
+// The executor never runs the timeout unattended: its request carries the
+// approval guardrail whichever producer marked it, or none did.
+func TestTimeoutScope_QueuedForApproval(t *testing.T) {
+	f := analyzer.Finding{Category: "connection_tuning", ObjectIdentifier: "instance",
+		Severity: "info",
+		RecommendedSQL: `ALTER DATABASE "app" SET idle_in_transaction_session_timeout = ` +
+			`'5min'`}
+	req := findingRequest(f, false)
+	if req.Contract == nil {
+		t.Fatalf("no contract for %q", f.RecommendedSQL)
+	}
+	if !hasApprovalGuardrail(req) {
+		t.Errorf("database-scope timeout must carry the approval guardrail: %+v",
+			req.Contract.Guardrails)
 	}
 }

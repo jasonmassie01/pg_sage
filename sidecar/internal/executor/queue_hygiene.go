@@ -20,7 +20,7 @@ import (
 // housekeeping: the trust ledger counts only an operator's rejection.
 
 // tableIndexDefsSQL lists the valid, ready indexes of a table.
-const tableIndexDefsSQL = `/* pg_sage */ SELECT c.relname, pg_get_indexdef(i.indexrelid)
+const tableIndexDefsSQL = `/* pg_sage executor */ SELECT c.relname, pg_get_indexdef(i.indexrelid)
 	FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
 	WHERE i.indrelid = to_regclass(CASE WHEN $1 = '' THEN quote_ident($2)
 	                                    ELSE quote_ident($1) || '.' || quote_ident($2) END)
@@ -76,7 +76,7 @@ func (e *Executor) skipCoveredCreate(
 	if index == "" {
 		return false
 	}
-	_, err = e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.findings
+	_, err = e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.findings
 		SET status = 'resolved', resolved_at = now(),
 		    detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object('covered_by', $2::text)
 		WHERE id = $1 AND status = 'open' AND acted_on_at IS NULL`, findingID, index)
@@ -88,24 +88,31 @@ func (e *Executor) skipCoveredCreate(
 }
 
 // supersedeGoneSQL closes pending proposals whose finding is no longer
-// open, and those an equivalent newer pending proposal replaces (same
-// identity key, or the same SQL).
-const supersedeGoneSQL = `/* pg_sage */ UPDATE sage.action_queue q
+// open (restore and revert cards outlive their action's finding by
+// design: see supersedeSettledRestoresSQL and supersedeSettledRevertsSQL),
+// and those an equivalent newer pending proposal replaces (same identity
+// key, or the same SQL). A revert item is replaced only by its identity
+// key: a forward proposal of the same SQL does not settle the withheld
+// revert, so superseding the item would dead-end it (policy-05).
+const supersedeGoneSQL = `/* pg_sage executor */ UPDATE sage.action_queue q
 	SET status = 'superseded',
 	    reason = 'superseded: finding ' || q.finding_id || ' is no longer open'
 	WHERE q.status = 'pending' AND q.finding_id IS NOT NULL
+	  AND q.action_type IS DISTINCT FROM '` + ActionTypeRestoreDroppedIndex + `'
+	  AND q.action_type IS DISTINCT FROM '` + ActionTypeRevertAction + `'
 	  AND NOT EXISTS (SELECT 1 FROM sage.findings f
 	                  WHERE f.id = q.finding_id AND f.status = 'open'
 	                    AND f.resolved_at IS NULL)
 	RETURNING q.id`
 
-const supersedeNewerSQL = `/* pg_sage */ WITH newer AS (
+const supersedeNewerSQL = `/* pg_sage executor */ WITH newer AS (
 		SELECT q.id, max(n.id) AS by
 		FROM sage.action_queue q JOIN sage.action_queue n
 		  ON n.status = 'pending' AND n.id > q.id
 		 AND n.database_id IS NOT DISTINCT FROM q.database_id
 		 AND ((q.identity_key IS NOT NULL AND n.identity_key = q.identity_key)
-		      OR btrim(n.proposed_sql) = btrim(q.proposed_sql))
+		      OR (btrim(n.proposed_sql) = btrim(q.proposed_sql)
+		          AND q.action_type IS DISTINCT FROM '` + ActionTypeRevertAction + `'))
 		WHERE q.status = 'pending'
 		GROUP BY q.id)
 	UPDATE sage.action_queue q
@@ -115,9 +122,13 @@ const supersedeNewerSQL = `/* pg_sage */ WITH newer AS (
 	RETURNING q.id`
 
 // pendingCreatesSQL lists pending index-create proposals for the coverage
-// check.
-const pendingCreatesSQL = `/* pg_sage */ SELECT id, proposed_sql FROM sage.action_queue
+// check. A restore card is not one: the index that covers it is often the
+// very reason the drop ran (a redundant index), and the regression says the
+// planner needs the dropped one back (executor-01).
+const pendingCreatesSQL = `/* pg_sage executor */ SELECT id, proposed_sql FROM sage.action_queue
 	WHERE status = 'pending' AND proposed_sql ~* '^\s*CREATE\s+(UNIQUE\s+)?INDEX\s'
+	  AND action_type IS DISTINCT FROM '` + ActionTypeRestoreDroppedIndex + `'
+	  AND action_type IS DISTINCT FROM '` + ActionTypeRevertAction + `'
 	ORDER BY id`
 
 // supersedeStaleApprovals closes the pending proposals whose reason is
@@ -128,7 +139,8 @@ func (e *Executor) supersedeStaleApprovals(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	total := 0
-	for _, stmt := range []string{supersedeGoneSQL, supersedeNewerSQL} {
+	for _, stmt := range []string{supersedeGoneSQL, supersedeNewerSQL,
+		supersedeSettledRestoresSQL, supersedeSettledRevertsSQL} {
 		rows, err := e.pool.Query(ctx, stmt)
 		if err != nil {
 			return total, fmt.Errorf("supersede stale proposals: %w", err)
@@ -171,7 +183,7 @@ func (e *Executor) supersedeCoveredCreates(ctx context.Context) (int, error) {
 		if index == "" {
 			continue
 		}
-		tag, err := e.pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_queue
+		tag, err := e.pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_queue
 			SET status = 'superseded', reason = $2 WHERE id = $1 AND status = 'pending'`,
 			p.id, "superseded: index "+index+" already covers this index")
 		if err != nil {

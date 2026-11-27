@@ -260,7 +260,8 @@ func TestRecordRetiringAdmin(t *testing.T) {
 
 	// A retired principal keeps the admin who retired it.
 	other := createUser(t, pool, "admin")
-	_, err := agentguard.NewStore(pool).SetStatus(ctx, p.ID, agentguard.StatusRetired, "x")
+	_, err := agentguard.NewStore(pool).SetStatus(ctx, p.ID, agentguard.StatusRetired,
+		agentguard.Audit{Reason: "x"})
 	require.NoError(t, err)
 	require.ErrorIs(t, RecordRetiringAdmin(ctx, pool, p.ID, other), agentguard.ErrRetired)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT retired_by FROM sage.guard_principals

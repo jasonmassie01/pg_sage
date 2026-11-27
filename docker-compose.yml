@@ -69,13 +69,20 @@ services:
       SAGE_DATABASE_URL: postgres://postgres:postgres@pg_sage:5432/postgres?sslmode=disable
       SAGE_MODE: standalone
       SAGE_SUPERVISED: "1"
-      SAGE_PROMETHEUS_PORT: "9187"
       SAGE_RATE_LIMIT: "60"
+    # Metrics bind to 127.0.0.1 unless told otherwise; this local stack
+    # publishes them, so it widens the bind explicitly (config-08).
+    command: ["--prom-addr", "0.0.0.0:8187"]
+    # Holds the generated encryption.key that seals stored secrets
+    # (security-08); keep the volume, and back it up.
+    volumes:
+      - sagedata:/var/lib/pg_sage
     ports:
       - "8080:8080"   # API + Dashboard
-      - "9187:9187"   # Prometheus metrics
+      - "8187:8187"   # Prometheus metrics
 
 volumes:
   pgdata:
   pg1data:
   pg2data:
+  sagedata:

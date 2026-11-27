@@ -1,9 +1,14 @@
-// One agent (spec §8.4 drawer): identity, freeze and unfreeze, tokens,
-// grants with their requests, and activity.
+// One agent (spec §8.4 drawer): identity, edit and retire (admins),
+// freeze and unfreeze, tokens, OAuth identities, grants with their
+// requests, and activity. A retired agent offers no edit, retire, freeze
+// or new token.
 import { useCallback, useEffect, useState } from 'react'
 import { AgentActivity } from './AgentActivity'
+import { AgentEdit } from './AgentEdit'
 import { AgentFreeze } from './AgentFreeze'
 import { AgentGrants } from './AgentGrants'
+import { AgentIdentities } from './AgentIdentities'
+import { AgentRetire } from './AgentRetire'
 import { AgentTokens } from './AgentTokens'
 import { getAgent, sponsorLabel } from './agentsApi'
 import { Button, ErrorBox, card, muted, when } from './ui'
@@ -53,13 +58,14 @@ function Identity({ agent, users }) {
   )
 }
 
-export function AgentDetail({ agentId, user, databases = [], users = [], onChanged,
-  onClose }) {
+export function AgentDetail({ agentId, user, databases = [], users = [], profiles = null,
+  retireGraceDays = null, onChanged, onClose }) {
   const { agent, error, reload } = useAgent(agentId)
   const changed = () => {
     reload()
     onChanged?.()
   }
+  const editable = agent && user?.role === 'admin' && agent.status !== 'retired'
   return (
     <div data-testid="agent-detail" className="rounded-lg p-4 mb-4"
       style={{ ...card, borderColor: 'var(--accent)' }}>
@@ -74,10 +80,15 @@ export function AgentDetail({ agentId, user, databases = [], users = [], onChang
       {agent && (
         <>
           <Identity agent={agent} users={users} />
+          {editable && <AgentEdit agent={agent} users={users} profiles={profiles}
+            onChanged={changed} />}
           <AgentFreeze agent={agent} user={user} onChanged={changed} />
           <AgentTokens agent={agent} user={user} />
+          <AgentIdentities agent={agent} user={user} />
           <AgentGrants agent={agent} databases={databases} />
           <AgentActivity agent={agent} />
+          {editable && <AgentRetire agent={agent} graceDays={retireGraceDays}
+            onChanged={changed} />}
         </>
       )}
     </div>

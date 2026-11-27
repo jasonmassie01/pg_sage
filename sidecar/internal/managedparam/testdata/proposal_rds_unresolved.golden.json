@@ -1,0 +1,26 @@
+{
+  "provider": "rds",
+  "mechanism": "parameter_group",
+  "target": "\u003cdb-parameter-group\u003e",
+  "parameter": "work_mem",
+  "value": "65536",
+  "pg_value": "64MB",
+  "unit": "kB",
+  "apply_method": "immediate",
+  "reboot_required": false,
+  "rollback": {
+    "reset": true,
+    "apply_method": "immediate",
+    "cli": "aws rds reset-db-parameter-group --region \u003cregion\u003e --db-parameter-group-name \u003cdb-parameter-group\u003e --parameters '[{\"ParameterName\":\"work_mem\",\"ApplyMethod\":\"immediate\"}]'"
+  },
+  "cli": "aws rds modify-db-parameter-group --region \u003cregion\u003e --db-parameter-group-name \u003cdb-parameter-group\u003e --parameters '[{\"ParameterName\":\"work_mem\",\"ParameterValue\":\"65536\",\"ApplyMethod\":\"immediate\"}]'",
+  "console_url": "https://us-east-1.console.aws.amazon.com/rds/home?region=us-east-1#parameter-groups:",
+  "notes": [
+    "The parameter group is unknown (cloud telemetry is not configured): replace the placeholders with the instance's own DB parameter group and region. A default group (default.*) cannot be modified."
+  ],
+  "requires_approval": true,
+  "auto_apply": false,
+  "auto_apply_withheld": "pg_sage never applies provider parameter changes in this release: an operator runs the command (most need a reboot, an outage) and pg_sage verifies the running value afterwards",
+  "reason": "requires a restart",
+  "fingerprint": "v2:ade4e79f81dbda6a"
+}

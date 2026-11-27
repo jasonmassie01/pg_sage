@@ -24,9 +24,13 @@ analyzer:
   interval_seconds: 600    # How often to run the rules engine
   slow_query_threshold_ms: 1000
   self_cost_budget_ms: 3000  # finding when pg_sage itself uses more DB time per collector cycle; 0 = off
+  inactive_slot_min_minutes: 5  # report a replication slot inactive this long (WAL at risk: at once)
+  subscription_lag_minutes: 5   # subscriber silent toward its publisher this long (or no apply worker)
+  cdc_stall_minutes: 10         # active logical slot not confirming while WAL advances
   seq_scan_min_rows: 100000
   unused_index_window_days: 30  # Built-in default is 7; 30 recommended for prod
-  index_bloat_threshold_pct: 30
+  index_bloat_threshold_pct: 30  # index_bloat finding (REINDEX CONCURRENTLY) from this estimate
+  index_bloat_min_bytes: 104857600  # estimate btree indexes of at least 100 MiB
   table_bloat_dead_tuple_pct: 20
   table_bloat_min_rows: 1000         # Skip bloat checks for tiny tables
   idle_in_transaction_timeout_minutes: 30
@@ -43,7 +47,9 @@ analyzer:
   work_mem_promotion_threshold: 5
 
 safety:
-  cpu_ceiling_pct: 90           # active_backends / max_connections threshold
+  cpu_ceiling_pct: 90           # collector breaker: active sessions / max_connections, %
+  # host_cpu_ceiling_pct: 90    # index verification host CPU ceiling, %; unset inherits
+  #                             # cpu_ceiling_pct
   query_timeout_ms: 500         # Collector/analyzer query timeout
   lock_timeout_ms: 30000        # Lock acquisition timeout for DDL
   ddl_timeout_seconds: 300      # Tier 3 DDL timeout (CREATE INDEX, etc.)
@@ -79,6 +85,8 @@ llm:
                                 # (current OpenAI models need max_completion_tokens)
   tool_reasoning_effort: auto   # auto | none | low | medium | high | omit
                                 # auto sends "none" with tools once a model needs it
+  redact_numeric_literals: true # replace compared numbers of 6+ digits (card
+                                # numbers, ids) with ? before text reaches a model
   # Cost reduction tips:
   #   - Advisor interval 7200s (2h) instead of 3600s saves ~50% advisor tokens
   #   - Briefing daily (default) vs hourly saves ~23x briefing tokens
@@ -91,7 +99,6 @@ llm:
     max_indexes_per_table: 10   # Skip table if already has this many indexes
     max_new_per_table: 3        # Max new index recommendations per table/cycle
     max_include_columns: 3      # Max INCLUDE columns per recommendation
-    over_indexed_ratio_pct: 150 # Index bytes > 150% of table bytes = over-indexed
     write_heavy_ratio_pct: 70   # Skip table if >70% of ops are writes
     rejection_memory:           # Don't re-measure ideas HypoPG already rejected
       enabled: true
@@ -123,8 +130,12 @@ briefing:
   schedule: "0 6 * * *"
   channels: ["stdout"]          # stdout, slack
   slack_webhook_url: ""
+  fleet_mode: rollup            # fleet only: rollup (one message) or per_database
 
 alerting:
+  # When enabled, startup refuses routes that would send nothing: channels
+  # are slack, pagerduty, or a webhook name (bare or "webhook:<name>"),
+  # case-sensitive; severities are critical, warning, info.
   enabled: false
   check_interval_seconds: 60    # How often to check for new findings
   cooldown_minutes: 15          # Min time between repeated alerts
@@ -139,7 +150,9 @@ alerting:
     - severity: warning
       channels: ["slack"]
     # info severity: not routed by default
-  # webhooks:
+    # - severity: info
+    #   channels: ["myapp"]       # same as "webhook:myapp"
+  # webhooks:                    # names must be unique
   #   - name: myapp
   #     url: https://hooks.example.com/pg-sage
   #     headers:
@@ -150,16 +163,16 @@ auto_explain:
   log_min_duration_ms: 1000   # Minimum query duration to capture plans
   collect_interval_seconds: 300
   max_plans_per_cycle: 100
-  prefer_session_load: true   # Use LOAD 'auto_explain' per-session
 
 forecaster:
   enabled: true
   lookback_days: 30             # Days of history to analyze
   disk_warn_growth_gb_day: 5    # Warn if DB growing faster than this
   connection_warn_pct: 80       # Warn when peak connections > this % of max
-  cache_warn_threshold: 0.95    # Warn when cache hit ratio trends below this
-  sequence_warn_days: 90        # Warn when sequence exhausts in < this many days
-  sequence_critical_days: 30    # Critical when sequence exhausts in < this many days
+  cache_warn_threshold: 0.95    # Warn when the newest day's cache hit ratio is below this
+  cache_min_blocks_per_day: 100000  # Leave out days with fewer block accesses
+  checkpoint_requested_per_hour: 2  # Warn at this many requested checkpoints/hour
+  # disk_capacity_bytes: 0      # Disk size for days_until_full and the disk runway (0: undeclared)
 
 # Per-query tuner: non-invasive query optimization via pg_hint_plan.
 # Detects plan-level symptoms (disk sorts, hash spills, bad joins) and
@@ -169,7 +182,7 @@ tuner:
   llm_enabled: true              # Use LLM for advanced query tuning (default on)
   work_mem_max_mb: 512           # max per-query work_mem hint
   plan_time_ratio: 3.0           # plan/exec ratio threshold for generic plan
-  nested_loop_row_threshold: 10000
+  nested_loop_row_threshold: 10000 # inner rows x loops a misestimated nested loop must read
   parallel_min_table_rows: 1000000
   min_query_calls: 100           # ignore rarely-called queries
   verify_after_apply: true       # Enables the hint revalidation loop below
@@ -177,12 +190,14 @@ tuner:
 
   # Hint revalidation loop.
   # Runs as a background cycle when verify_after_apply is true.
-  # Removes hints that have become redundant, harmful, or broken.
-  hint_retirement_days: 14              # Retire hints older than this unconditionally
+  # Marks hints broken when an index they name is gone, dormant while their
+  # query does not run, and survives pg_stat_statements resets. It never
+  # removes a working hint. See docs/hint-verification.md "Hint lifecycle".
+  hint_retirement_days: 14              # Mark hints due for re-verification after this (0 disables)
   revalidation_interval_hours: 24       # How often the loop runs (0 disables)
-  # revalidation_keep_ratio / revalidation_rollback_ratio /
-  # revalidation_explain_timeout_ms are accepted for compatibility but have
-  # no effect: the loop performs no hinted-vs-unhinted cost comparison.
+  # Cycles an open query_tuning finding's statement must be absent from
+  # pg_stat_statements, or below the admission thresholds, before it resolves.
+  hint_absent_cycles: 3
 
   # Stale-statistics detection + ANALYZE action.
   # Detects row-estimate skew in plans, cross-references pg_stat_user_tables,
@@ -218,10 +233,22 @@ verify:
   write_impact_pct: 20
   min_samples: 30
 clone:
-  provider: "none"            # none, dle, or snapshot
+  provider: "none"            # none, dle, or lakebase_branch
   dle_endpoint: ""
   dle_token: "${DLE_TOKEN}"
   max_clone_age_minutes: 1440
+  # Index rehearsals (tuning agent and index floor), per database:
+  # rehearsals_per_hour: 2
+  # rehearsal_statement_timeout_seconds: 5
+  # Every clone, every purpose (lab-05a):
+  # allow_full_copy: false   # whole-instance restores need this opt-in
+  # max_creates_per_hour: 4  # per deployment
+  # lakebase_branch: one instant Lakebase branch per rehearsal (docs/lakebase.md)
+  # lakebase:
+  #   project: "<project>"
+  #   source_branch: ""         # default: the monitored endpoint's branch
+  #   ttl_minutes: 60           # server-side expiry of each branch, 1-1440
+  #   endpoint_max_cu: 1
 custodian:
   freeze:
     red_buffer_pct: 25
@@ -231,6 +258,7 @@ custodian:
 mcp:
   enabled: true
   transport: "http"           # intent-level, never raw SQL; MCP token required
+  call_timeout_seconds: 90    # stdio: one tools/call is cancelled after this (5-600)
 
 # pg_sage's declared budget for itself: over budget raises sage_self_budget,
 # naming its costliest statements and loops. 0 disables a resource.
@@ -239,6 +267,12 @@ self_budget:
   db_time_ms_per_hour: 0       # 0 = analyzer.self_cost_budget_ms budgets DB time per cycle
   blocks_per_hour: 18000000    # shared blocks touched by pg_sage's statements per hour
   storage_mb: 10240            # size of the sage schema
+
+# CDC heartbeat tables a connector writes through its slot (read with one
+# bounded SELECT max(column) per cycle; empty runs nothing).
+# replication:
+#   cdc_heartbeats:
+#     - {slot: debezium, table: cdc.heartbeat, column: ts, max_age_minutes: 5}
 
 # debug:
 #   pprof_enabled: false       # Go profiler at /api/v1/debug/pprof/, admins only
@@ -251,7 +285,7 @@ self_config:
   soak_hours: 24
 
 prometheus:
-  listen_addr: "0.0.0.0:9187"
+  listen_addr: "0.0.0.0:8187"
 
 # OAuth/OIDC SSO (optional)
 # Allows team login via Google Workspace, GitHub, Azure AD, or any OIDC provider.

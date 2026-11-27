@@ -3,7 +3,9 @@ package facts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,8 +69,9 @@ func TestResolveRefsFromSQLAndTargets(t *testing.T) {
 			[]ObjectRef{{Kind: KindSlot, Name: "cdc_orders"}}},
 		{"SELECT pg_replication_slot_advance('cdc_orders', '0/16B3748')", nil,
 			[]ObjectRef{{Kind: KindSlot, Name: "cdc_orders"}}},
+		// A cluster-wide WAL bound touches every slot (facts-02), then its target.
 		{"ALTER SYSTEM SET max_slot_wal_keep_size = '2048MB'", []string{"slot:cdc_orders"},
-			[]ObjectRef{{Kind: KindSlot, Name: "cdc_orders"}}},
+			[]ObjectRef{{Kind: KindSlot, AllSlots: true}, {Kind: KindSlot, Name: "cdc_orders"}}},
 		{"", []string{"public.orders|btree(status)", "pid:42"},
 			[]ObjectRef{{Kind: KindRelation, Schema: "public", Name: "orders"}}},
 	}
@@ -301,7 +304,7 @@ type fakeResolver struct {
 	calls   int
 }
 
-func (r *fakeResolver) ResolveIndexes(_ context.Context, refs []ObjectRef) ([]ObjectRef,
+func (r *fakeResolver) ResolveCatalog(_ context.Context, refs []ObjectRef) ([]ObjectRef,
 	error) {
 	r.calls++
 	if r.err != nil {
@@ -365,5 +368,46 @@ func TestBinderFailsClosedAndSkipsWorkWithoutFacts(t *testing.T) {
 	got, err := b.Bind(context.Background(), policyRequest("DROP INDEX public.i", "public.i"))
 	if err != nil || got != nil || res.calls != 0 {
 		t.Fatalf("no facts: %+v %v, resolver calls %d", got, err, res.calls)
+	}
+}
+
+// facts-10 CHECK-02: the bindings of a non-partitioned table are the same
+// before and after partition roots are resolved (golden list).
+func TestBinderNonPartitionedTableBindingsGolden(t *testing.T) {
+	src := &fakeConfirmed{facts: []Fact{
+		confirmed(1, TypeAppMigrations, KindTable, "app.orders", nil),
+		confirmed(2, TypeAppendOnly, KindTable, "app.orders", nil),
+		confirmed(3, TypeTableWindow, KindTable, "app.orders",
+			map[string]string{"kind": "maintenance", "window": "daily 01:00-03:00 UTC"}),
+	}}
+	res := &partitionCatalog{rels: map[string]ObjectRef{
+		"app.orders": {Kind: KindTable}, "app.orders_archive": {Kind: KindTable},
+		"app.orders_pkey": {Kind: KindIndex, TableSchema: "app", TableName: "orders"}}}
+	golden := []struct {
+		req  policy.ActionRequest
+		want string
+	}{
+		{setAutovacuum("ALTER TABLE app.orders SET (autovacuum_vacuum_scale_factor=0.01)"),
+			"1:source_fix:app.orders 3:wait_for_window:app.orders"},
+		{policy.ActionRequest{SQL: "VACUUM (FULL) app.orders"},
+			"2:keep:app.orders 3:wait_for_window:app.orders"},
+		{policyRequest("DROP INDEX CONCURRENTLY app.orders_pkey"), "1:source_fix:" +
+			"app.orders_pkey 2:keep:app.orders_pkey 3:wait_for_window:app.orders_pkey"},
+		{policy.ActionRequest{SQL: "VACUUM app.orders", OperatorApproved: true}, ""},
+		{policy.ActionRequest{SQL: "VACUUM (FULL) app.orders_archive"}, ""},
+	}
+	b := NewBinder(src, res, func() time.Time { return bindNow })
+	for _, g := range golden {
+		got, err := b.Bind(context.Background(), g.req)
+		if err != nil {
+			t.Fatalf("%s: %v", g.req.SQL, err)
+		}
+		var parts []string
+		for _, fb := range got {
+			parts = append(parts, fmt.Sprintf("%d:%s:%s", fb.FactID, fb.Route, fb.Object))
+		}
+		if s := strings.Join(parts, " "); s != g.want {
+			t.Errorf("%s:\n got %q\nwant %q", g.req.SQL, s, g.want)
+		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // PGTriggerSource is the RCA trigger adapter (AI-SRE-SPEC §5): it reads
@@ -34,15 +35,15 @@ const triggerBatch = 50
 // incident signals map back to their families, so its incidents resume
 // after a restart under the same idempotency key.
 var signalKinds = map[string]TriggerKind{
-	"lock_contention": TriggerLock, "idle_in_tx_elevated": TriggerLock,
-	"orphaned_prepared_tx": TriggerLock, "connections_high": TriggerConnections,
-	"wal_growth_spike": TriggerWAL, "replication_lag_increasing": TriggerReplicationLag,
-	"log_replication_conflict":    TriggerReplicationLag,
-	"log_checkpoint_too_frequent": TriggerCheckpoint,
-	"log_temp_file_created":       TriggerTempFiles,
-	"sre_checkpoint_storm":        TriggerCheckpoint,
-	"sre_temp_file_explosion":     TriggerTempFiles,
-	"sre_lwlock_contention":       TriggerLWLock,
+	signalid.LockContention: TriggerLock, signalid.IdleInTxElevated: TriggerLock,
+	signalid.OrphanedPreparedTx: TriggerLock, signalid.ConnectionsHigh: TriggerConnections,
+	signalid.WALGrowthSpike: TriggerWAL, signalid.ReplicationLagIncreasing: TriggerReplicationLag,
+	signalid.LogReplicationConflict:   TriggerReplicationLag,
+	signalid.LogCheckpointTooFrequent: TriggerCheckpoint,
+	signalid.LogTempFileCreated:       TriggerTempFiles,
+	signalid.SRECheckpointStorm:       TriggerCheckpoint,
+	signalid.SRETempFileExplosion:     TriggerTempFiles,
+	signalid.SRELWLockContention:      TriggerLWLock,
 }
 
 // NewPGTriggerSource reads the sage schema of pool; database is the
@@ -64,7 +65,11 @@ func (s *PGTriggerSource) Triggers(ctx context.Context) ([]Trigger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read plan regression triggers: %w", err)
 	}
-	return append(out, plans...), nil
+	anomalies, err := s.anomalyTriggers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read workload anomaly triggers: %w", err)
+	}
+	return append(append(out, plans...), anomalies...), nil
 }
 
 func (s *PGTriggerSource) incidentTriggers(ctx context.Context) ([]Trigger, error) {

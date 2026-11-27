@@ -5,10 +5,10 @@ import (
 	"math"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // ----------------------------------------------------------------
@@ -32,16 +32,17 @@ func fnTestOptimizerConfig() *config.OptimizerConfig {
 
 func sampleTableContext() TableContext {
 	return TableContext{
-		Schema:     "public",
-		Table:      "orders",
-		LiveTuples: 50000,
-		DeadTuples: 100,
-		TableBytes: 10485760,
-		IndexBytes: 2097152,
-		WriteRate:  15.5,
-		Workload:   "oltp_read",
-		IndexCount: 2,
-		Collation:  "C",
+		Schema:       "public",
+		Table:        "orders",
+		LiveTuples:   50000,
+		DeadTuples:   100,
+		TableBytes:   10485760,
+		IndexBytes:   2097152,
+		WriteRate:    15.5,
+		Workload:     "oltp_read",
+		IndexCount:   2,
+		Collation:    "C",
+		ColumnsKnown: true,
 		Columns: []ColumnInfo{
 			{Name: "id", Type: "integer", IsNullable: false},
 			{Name: "customer_id", Type: "integer", IsNullable: false},
@@ -218,6 +219,28 @@ func TestFunctional_Validate_SortDirectionStripped(t *testing.T) {
 	}
 }
 
+// indexes-01: only a uniform reversal is a duplicate. (customer_id,
+// created_at DESC) orders differently from (customer_id, created_at) on
+// its second key, so a backward scan of either cannot serve the other.
+func TestFunctional_Validate_MixedOrderIsNotADuplicate(t *testing.T) {
+	v := fnNewTestValidator(fnTestOptimizerConfig())
+	tc := sampleTableContext()
+	tc.Indexes = append(tc.Indexes, IndexInfo{Name: "orders_customer_created",
+		Definition: "CREATE INDEX orders_customer_created ON public.orders " +
+			"USING btree (customer_id, created_at)", IsValid: true})
+	rec := Recommendation{IndexType: "btree", DDL: "CREATE INDEX CONCURRENTLY " +
+		"idx_customer_created_desc ON orders (customer_id, created_at DESC)"}
+	if ok, reason := v.checkDuplicate(rec, tc); !ok {
+		t.Fatalf("mixed order rejected: %s", reason)
+	}
+	rec.DDL = "CREATE INDEX CONCURRENTLY idx_customer_created_rev ON orders " +
+		"(customer_id DESC, created_at DESC)"
+	ok, reason := v.checkDuplicate(rec, tc)
+	if ok || !strings.Contains(reason, "duplicate") {
+		t.Fatalf("uniform reversal: ok=%v reason %q, want a duplicate", ok, reason)
+	}
+}
+
 func TestFunctional_Validate_WriteHeavyRejection(t *testing.T) {
 	cfg := fnTestOptimizerConfig()
 	cfg.WriteHeavyRatioPct = 70
@@ -233,7 +256,8 @@ func TestFunctional_Validate_WriteHeavyRejection(t *testing.T) {
 	tc := sampleTableContext()
 	tc.WriteRate = 80.0 // write-heavy
 
-	ok, reason := v.Validate(context.Background(), rec, tc)
+	// indexes-02: Admit applies the gate to the what-if's measurement.
+	ok, reason := v.checkWriteImpact(rec, tc)
 	if ok {
 		t.Fatal("expected rejection for write-heavy + low improvement")
 	}
@@ -289,7 +313,7 @@ func TestFunctional_Validate_MaxIndexesReached(t *testing.T) {
 }
 
 func TestFunctional_Validate_GINWithoutPgTrgm(t *testing.T) {
-	// With nil pool, extensionInstalled returns true (can't check).
+	// With nil pool, the extension check admits (cannot check).
 	// extractColumnsFromDDL parses "status gin_trgm_ops" as the
 	// column name (includes opclass). We need to test that the
 	// extension check passes. Use a column-less DDL that skips
@@ -412,10 +436,11 @@ func TestFunctional_Validate_ColumnExtractionEmpty(t *testing.T) {
 
 func TestFunctional_Validate_NilPoolExtension(t *testing.T) {
 	v := fnNewTestValidator(fnTestOptimizerConfig())
-	// extensionInstalled with nil pool returns true.
-	got := v.extensionInstalled(context.Background(), "pg_trgm")
-	if !got {
-		t.Error("extensionInstalled(nil pool) should return true")
+	// The extension check with nil pool admits (cannot check).
+	ok, reason := v.checkExtensionRequired(context.Background(), Recommendation{
+		DDL: "CREATE INDEX CONCURRENTLY i ON t USING gist (c gist_trgm_ops)"}, TableContext{})
+	if !ok {
+		t.Errorf("checkExtensionRequired(nil pool) should admit, got %q", reason)
 	}
 }
 
@@ -479,26 +504,6 @@ func TestFunctional_Validate_ExpressionNilPool(t *testing.T) {
 // ----------------------------------------------------------------
 // Section 5: Detection Heuristics (15.6)
 // ----------------------------------------------------------------
-
-func TestFunctional_DetectIncludeCandidates(t *testing.T) {
-	plans := []PlanSummary{
-		{QueryID: 1, ScanType: "Index Scan", HeapFetches: 5000},
-		{QueryID: 2, ScanType: "Index Scan", HeapFetches: 100},
-		{QueryID: 3, ScanType: "Seq Scan", HeapFetches: 9999},
-	}
-	candidates := DetectIncludeCandidates(plans, 1000)
-	if len(candidates) != 1 {
-		t.Fatalf("candidates = %d, want 1", len(candidates))
-	}
-	if candidates[0].QueryID != 1 {
-		t.Errorf("QueryID = %d, want 1", candidates[0].QueryID)
-	}
-	if candidates[0].HeapFetches != 5000 {
-		t.Errorf(
-			"HeapFetches = %d, want 5000", candidates[0].HeapFetches,
-		)
-	}
-}
 
 func TestFunctional_DetectPartialCandidates(t *testing.T) {
 	queries := []QueryInfo{
@@ -590,67 +595,6 @@ func TestFunctional_DetectJoinPairs_Implicit(t *testing.T) {
 	pairs := DetectJoinPairs(queries)
 	if len(pairs) == 0 {
 		t.Fatal("expected at least one implicit join pair")
-	}
-}
-
-func TestFunctional_DetectMatViewCandidates(t *testing.T) {
-	queries := []QueryInfo{
-		{
-			QueryID: 1,
-			Text:    "SELECT status, count(*) FROM orders GROUP BY status",
-		},
-	}
-	plans := []PlanSummary{
-		{QueryID: 1, ScanType: "Seq Scan", Summary: "Seq Scan"},
-	}
-	ids := DetectMatViewCandidates(queries, plans)
-	if len(ids) != 1 {
-		t.Fatalf("ids = %d, want 1", len(ids))
-	}
-	if ids[0] != 1 {
-		t.Errorf("ids[0] = %d, want 1", ids[0])
-	}
-}
-
-func TestFunctional_DetectParamTuningNeeds(t *testing.T) {
-	plans := []PlanSummary{
-		{
-			QueryID:  1,
-			SortDisk: 1024,
-			Summary:  "Sort Method: external merge Disk",
-		},
-		{
-			QueryID: 2,
-			Summary: "Hash Join (Hash Batches: 16)",
-		},
-	}
-	results := DetectParamTuningNeeds(plans)
-	if _, ok := results["work_mem_sort"]; !ok {
-		t.Error("expected work_mem_sort signal")
-	}
-	if _, ok := results["work_mem_hash"]; !ok {
-		t.Error("expected work_mem_hash signal")
-	}
-}
-
-func TestFunctional_IsBRINCandidate(t *testing.T) {
-	colStats := []ColStat{
-		{Column: "created_at", Correlation: 0.95},
-		{Column: "status", Correlation: 0.1},
-		{Column: "negative_corr", Correlation: -0.85},
-	}
-
-	if !IsBRINCandidate(colStats, "created_at") {
-		t.Error("created_at with correlation 0.95 should be BRIN candidate")
-	}
-	if IsBRINCandidate(colStats, "status") {
-		t.Error("status with correlation 0.1 should not be BRIN candidate")
-	}
-	if !IsBRINCandidate(colStats, "negative_corr") {
-		t.Error("negative_corr with correlation -0.85 should be BRIN candidate")
-	}
-	if IsBRINCandidate(colStats, "missing_col") {
-		t.Error("missing column should not be BRIN candidate")
 	}
 }
 
@@ -762,163 +706,6 @@ func TestFunctional_Fingerprint_SortOrder(t *testing.T) {
 				"(want descending by TotalTimeMs)",
 			grouped[0].TotalTimeMs, grouped[1].TotalTimeMs,
 		)
-	}
-}
-
-// ----------------------------------------------------------------
-// Section 9: Cost Estimation (15.12)
-// ----------------------------------------------------------------
-
-func TestFunctional_Cost_BTreeSize(t *testing.T) {
-	size := EstimateIndexSize(100000, 32)
-	// 100000 * 32 * 1.2 = 3_840_000
-	expected := int64(3840000)
-	if size != expected {
-		t.Errorf("btree size = %d, want %d", size, expected)
-	}
-}
-
-func TestFunctional_Cost_GINSize(t *testing.T) {
-	avgBytes := avgEntryBytesForType("gin")
-	if avgBytes != 64 {
-		t.Errorf("GIN avg bytes = %d, want 64", avgBytes)
-	}
-	size := EstimateIndexSize(50000, avgBytes)
-	expected := int64(float64(50000) * 64 * 1.2)
-	if size != expected {
-		t.Errorf("gin size = %d, want %d", size, expected)
-	}
-}
-
-func TestFunctional_Cost_BRINSize(t *testing.T) {
-	avgBytes := avgEntryBytesForType("brin")
-	if avgBytes != 8 {
-		t.Errorf("BRIN avg bytes = %d, want 8", avgBytes)
-	}
-	size := EstimateIndexSize(1000000, avgBytes)
-	expected := int64(float64(1000000) * 8 * 1.2)
-	if size != expected {
-		t.Errorf("brin size = %d, want %d", size, expected)
-	}
-}
-
-func TestFunctional_Cost_GiSTSize(t *testing.T) {
-	avgBytes := avgEntryBytesForType("gist")
-	if avgBytes != 48 {
-		t.Errorf("GiST avg bytes = %d, want 48", avgBytes)
-	}
-	size := EstimateIndexSize(75000, avgBytes)
-	expected := int64(float64(75000) * 48 * 1.2)
-	if size != expected {
-		t.Errorf("gist size = %d, want %d", size, expected)
-	}
-}
-
-func TestFunctional_Cost_HashSize(t *testing.T) {
-	avgBytes := avgEntryBytesForType("hash")
-	if avgBytes != 24 {
-		t.Errorf("Hash avg bytes = %d, want 24", avgBytes)
-	}
-	size := EstimateIndexSize(200000, avgBytes)
-	expected := int64(float64(200000) * 24 * 1.2)
-	if size != expected {
-		t.Errorf("hash size = %d, want %d", size, expected)
-	}
-}
-
-func TestFunctional_Cost_BuildTime(t *testing.T) {
-	// 100MB table -> 100 / 10 = 10 seconds.
-	tableBytes := int64(100 * 1024 * 1024)
-	dur := EstimateBuildTime(tableBytes)
-	expected := 10 * time.Second
-	// Allow small floating-point tolerance.
-	if math.Abs(float64(dur-expected)) > float64(time.Millisecond) {
-		t.Errorf("build time = %v, want %v", dur, expected)
-	}
-}
-
-func TestFunctional_Cost_BuildTimeMinimum(t *testing.T) {
-	// Very small table: should return at least 1 second.
-	dur := EstimateBuildTime(100)
-	if dur < time.Second {
-		t.Errorf("build time = %v, want >= 1s (minimum)", dur)
-	}
-}
-
-func TestFunctional_Cost_WriteAmplification(t *testing.T) {
-	// 3 existing indexes, 50% write rate.
-	amp := EstimateWriteAmplification(3, 50.0)
-	// 1/(3+1) * 100 = 25%
-	expected := 25.0
-	if math.Abs(amp-expected) > 0.01 {
-		t.Errorf("write amplification = %.2f, want %.2f", amp, expected)
-	}
-}
-
-func TestFunctional_Cost_WriteAmplificationZeroRate(t *testing.T) {
-	amp := EstimateWriteAmplification(3, 0.0)
-	if amp != 0.0 {
-		t.Errorf(
-			"write amplification = %.2f, want 0 (zero write rate)",
-			amp,
-		)
-	}
-}
-
-func TestFunctional_Cost_QuerySavingsNoImprovement(t *testing.T) {
-	// afterCostMs >= beforeCostMs => no savings.
-	savings := ComputeQuerySavings(10.0, 10.0, 1000)
-	if savings != 0 {
-		t.Errorf("savings = %v, want 0 (no improvement)", savings)
-	}
-	savings = ComputeQuerySavings(10.0, 15.0, 1000)
-	if savings != 0 {
-		t.Errorf("savings = %v, want 0 (worse after)", savings)
-	}
-}
-
-func TestFunctional_Cost_QuerySavingsZeroCalls(t *testing.T) {
-	savings := ComputeQuerySavings(10.0, 5.0, 0)
-	if savings != 0 {
-		t.Errorf("savings = %v, want 0 (zero calls)", savings)
-	}
-}
-
-func TestFunctional_Cost_QuerySavingsNegativeCalls(t *testing.T) {
-	savings := ComputeQuerySavings(10.0, 5.0, -1)
-	if savings != 0 {
-		t.Errorf("savings = %v, want 0 (negative calls)", savings)
-	}
-}
-
-func TestFunctional_Cost_BuildCostEstimate(t *testing.T) {
-	rec := Recommendation{
-		IndexType:               "btree",
-		EstimatedImprovementPct: 20.0,
-	}
-	tc := TableContext{
-		LiveTuples: 100000,
-		TableBytes: 50 * 1024 * 1024, // 50MB
-		IndexCount: 3,
-		WriteRate:  30.0,
-		Queries: []QueryInfo{
-			{Calls: 500, MeanTimeMs: 10.0},
-		},
-	}
-	cost := BuildCostEstimate(rec, tc, 0)
-	if cost.EstimatedSizeBytes <= 0 {
-		t.Error("expected positive estimated size")
-	}
-	if cost.BuildTimeEstimate < time.Second {
-		t.Errorf(
-			"build time = %v, want >= 1s", cost.BuildTimeEstimate,
-		)
-	}
-	if cost.WriteAmplifyPct <= 0 {
-		t.Error("expected positive write amplification")
-	}
-	if cost.QuerySavingsPerDay <= 0 {
-		t.Error("expected positive query savings with 20% improvement")
 	}
 }
 
@@ -1083,8 +870,6 @@ func TestFunctional_Context_ParseFloatArray(t *testing.T) {
 // ----------------------------------------------------------------
 
 // --- 16.1 filterPlansForTable ---
-
-// --- 16.2 WithAutoExplain ---
 
 // --- 16.3 lookupSelectivity ---
 
@@ -1272,9 +1057,9 @@ func TestFunctional_Coverage_MergeChildQueries_SkipNonMatchingParent(t *testing.
 	parentQueries := []QueryInfo{
 		{QueryID: 1, Text: "SELECT 1"},
 	}
-	tableQueries := map[string][]QueryInfo{
-		"public.child_a": {{QueryID: 10, Text: "SELECT child_a"}},
-		"public.child_b": {{QueryID: 20, Text: "SELECT child_b"}},
+	tableQueries := map[workload.Relation][]QueryInfo{
+		{Schema: "public", Name: "child_a"}: {{QueryID: 10, Text: "SELECT child_a"}},
+		{Schema: "public", Name: "child_b"}: {{QueryID: 20, Text: "SELECT child_b"}},
 	}
 	childSet := map[string]bool{
 		"public.child_a": true,
@@ -1325,8 +1110,8 @@ func TestFunctional_Coverage_MergeChildQueries_DeduplicateByQueryID(t *testing.T
 	parentQueries := []QueryInfo{
 		{QueryID: 1, Text: "SELECT 1"},
 	}
-	tableQueries := map[string][]QueryInfo{
-		"public.child_a": {
+	tableQueries := map[workload.Relation][]QueryInfo{
+		{Schema: "public", Name: "child_a"}: {
 			{QueryID: 1, Text: "SELECT 1"}, // duplicate of parent
 			{QueryID: 2, Text: "SELECT 2"},
 		},
@@ -1358,8 +1143,8 @@ func TestFunctional_Coverage_MergeChildQueries_ChildNotInChildSet(t *testing.T) 
 	parentQueries := []QueryInfo{
 		{QueryID: 1, Text: "SELECT 1"},
 	}
-	tableQueries := map[string][]QueryInfo{
-		"public.child_a": {{QueryID: 10, Text: "SELECT child_a"}},
+	tableQueries := map[workload.Relation][]QueryInfo{
+		{Schema: "public", Name: "child_a"}: {{QueryID: 10, Text: "SELECT child_a"}},
 	}
 	childSet := map[string]bool{
 		// child_a is NOT in the childSet

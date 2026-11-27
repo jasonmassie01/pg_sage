@@ -33,10 +33,15 @@ func rewriteWeight(risk *DDLRisk) float64 {
 		return 1.0
 	}
 	// Metadata-only operations: DROP COLUMN, binary-coercible ALTER TYPE,
-	// ATTACH PARTITION. Everything else that takes a heavy lock scans.
+	// ATTACH PARTITION, RENAME, DETACH PARTITION, DROP INDEX, DROP TRIGGER
+	// and DROP FUNCTION. Everything else that takes a heavy lock scans
+	// (CREATE TRIGGER does not scan, but it blocks writes and slows every
+	// later one, so it scores like one).
 	switch risk.RuleID {
 	case "ddl_drop_column", "ddl_drop_table", "ddl_missing_lock_timeout",
-		"ddl_attach_partition_no_check", "ddl_alter_type_rewrite":
+		"ddl_attach_partition_no_check", "ddl_alter_type_rewrite", "ddl_rename",
+		"ddl_detach_partition_not_concurrent", "ddl_drop_index_not_concurrent",
+		"ddl_drop_trigger", "ddl_drop_function":
 		return 0.2
 	default:
 		return 0.6

@@ -2,9 +2,12 @@ package plan
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"regexp"
 	"strings"
+	"time"
+
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 type Classification string
@@ -59,6 +62,9 @@ type Step struct {
 	SQL              string
 	RequiresTopLevel bool
 	Destructive      bool
+	// LockLevel is the table lock the step takes (migration-06); StepLock
+	// folds in what the DDL classifier reports.
+	LockLevel string
 }
 type Plan struct {
 	Cycle                  int
@@ -68,6 +74,16 @@ type Plan struct {
 	ExpandSteps            []Step
 	ContractSteps          []Step
 	ContractNotBeforeCycle int
+	// ContractNotBefore is how long after the expand phase the contract
+	// phase may run (migration.contract_delay); the recorder stores the
+	// wall-clock time.
+	ContractNotBefore time.Duration
+	// ContractGuard is the proof the contract script asserts first.
+	ContractGuard ContractGuard
+	// Table is the migrated table (Request.Table): the rehearsal measures
+	// the statements that reference it (lab-04b). Not part of the plan's
+	// JSON.
+	Table TableFacts `json:"-"`
 }
 
 func (p Plan) StepsForCycle(cycle int, phase Phase) []Step {
@@ -80,17 +96,9 @@ func (p Plan) StepsForCycle(cycle int, phase Phase) []Step {
 	return nil
 }
 
-type Planner struct{}
+type Planner struct{ contractDelay time.Duration }
 
-func NewPlanner() *Planner { return &Planner{} }
-
-var addUniquePattern = regexp.MustCompile(
-	`(?i)ADD\s+CONSTRAINT\s+([a-zA-Z0-9_]+)\s+UNIQUE\s*\(([^)]+)\)`,
-)
-
-var setNotNullPattern = regexp.MustCompile(
-	`(?i)ALTER\s+COLUMN\s+([a-zA-Z0-9_]+)\s+SET\s+NOT\s+NULL`,
-)
+func NewPlanner() *Planner { return &Planner{contractDelay: DefaultContractDelay} }
 
 func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 	if err := ctx.Err(); err != nil {
@@ -99,74 +107,105 @@ func (p *Planner) Plan(ctx context.Context, request Request) (Plan, error) {
 	if err := validateStatement(request); err != nil {
 		return Plan{}, err
 	}
-	if match := addUniquePattern.FindStringSubmatch(request.SQL); len(match) == 3 {
-		return planUnique(request, match[1], splitColumns(match[2])), nil
+	stmt, err := sqlast.ParsePlannableAlter(request.SQL)
+	if errors.Is(err, sqlast.ErrUnavailable) {
+		return Plan{}, fmt.Errorf("online migration planning needs the parse-tree "+
+			"build: %w", err)
 	}
-	if match := setNotNullPattern.FindStringSubmatch(request.SQL); len(match) == 2 {
-		return planNotNull(request, match[1]), nil
+	if err != nil {
+		return Plan{}, err
 	}
-	return Plan{}, fmt.Errorf("unsupported migration statement")
+	if err := checkTarget(stmt, request.Table); err != nil {
+		return Plan{}, err
+	}
+	planned, err := planNotNull(request, stmt.Column)
+	if stmt.Kind == sqlast.AlterAddUnique {
+		planned, err = planUnique(request, stmt)
+	}
+	if err != nil {
+		return Plan{}, err
+	}
+	planned.ContractNotBefore = p.delay()
+	planned.Table = request.Table
+	return planned, nil
 }
 
-func planUnique(request Request, constraint string, columns []string) Plan {
+func planUnique(request Request, stmt sqlast.PlannableAlter) (Plan, error) {
+	index := stmt.Constraint + "_idx"
+	if err := checkNames(append([]string{stmt.Constraint, index},
+		stmt.Columns...)...); err != nil {
+		return Plan{}, err
+	}
 	table := qualified(request.Table)
-	index := constraint + "_idx"
-	columnSQL := quotedColumns(columns)
+	columnSQL := quotedColumns(stmt.Columns)
 	return Plan{Cycle: request.Cycle, Classification: ClassificationAddUnique,
 		Rewritten: true, RequiresRehearsal: true,
 		ExpandSteps: []Step{{Kind: StepCreateUniqueIndex, Phase: PhaseExpand,
 			SQL: fmt.Sprintf("CREATE UNIQUE INDEX CONCURRENTLY %s ON %s (%s)",
-				quote(index), table, columnSQL), RequiresTopLevel: true}},
+				quote(index), table, columnSQL), RequiresTopLevel: true,
+			LockLevel: lockShareUpdateExclusive}},
 		ContractSteps: []Step{{Kind: StepAttachUniqueConstraint, Phase: PhaseContract,
-			SQL: fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE USING INDEX %s",
-				table, quote(constraint), quote(index))}},
-		ContractNotBeforeCycle: request.Cycle + 1}
+			SQL: fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s UNIQUE USING INDEX %s%s",
+				table, quote(stmt.Constraint), quote(index), stmt.Timing),
+			LockLevel: lockAccessExclusive}},
+		ContractNotBeforeCycle: request.Cycle + 1,
+		ContractGuard: ContractGuard{Kind: GuardValidUniqueIndex,
+			Schema: request.Table.Schema, Table: request.Table.Name, Name: index}}, nil
 }
 
-func planNotNull(request Request, column string) Plan {
-	table := qualified(request.Table)
+func planNotNull(request Request, column string) (Plan, error) {
 	proofName := request.Table.Name + "_" + column + "_nn"
-	result := Plan{Cycle: request.Cycle, Classification: ClassificationSetNotNull,
-		RequiresRehearsal: true, ContractNotBeforeCycle: request.Cycle + 1}
-	if !hasProof(request.Proofs, column) {
-		result.Rewritten = true
-		result.ExpandSteps = []Step{
-			{Kind: StepAddCheckNotValid, Phase: PhaseExpand,
-				SQL: fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s IS NOT NULL) NOT VALID",
-					table, quote(proofName), quote(column))},
-			{Kind: StepValidateConstraint, Phase: PhaseExpand,
-				SQL: fmt.Sprintf("ALTER TABLE %s VALIDATE CONSTRAINT %s", table, quote(proofName))},
-		}
-		result.ContractSteps = append(result.ContractSteps,
-			Step{Kind: StepSetNotNull, Phase: PhaseContract,
-				SQL: fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", table, quote(column))},
-			Step{Kind: StepDropProofConstraint, Phase: PhaseContract, Destructive: true,
-				SQL: fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s", table, quote(proofName))})
-		return result
+	if err := checkNames(column, proofName); err != nil {
+		return Plan{}, err
 	}
-	result.ContractSteps = []Step{{Kind: StepSetNotNull, Phase: PhaseContract,
-		SQL: fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", table, quote(column))}}
-	return result
+	table := qualified(request.Table)
+	result := Plan{Cycle: request.Cycle, Classification: ClassificationSetNotNull,
+		RequiresRehearsal: true, ContractNotBeforeCycle: request.Cycle + 1,
+		ContractGuard: ContractGuard{Kind: GuardValidatedCheck,
+			Schema: request.Table.Schema, Table: request.Table.Name, Name: proofName}}
+	setNotNull := Step{Kind: StepSetNotNull, Phase: PhaseContract,
+		SQL:       fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s SET NOT NULL", table, quote(column)),
+		LockLevel: lockAccessExclusive}
+	if proof, ok := findProof(request.Proofs, column); ok {
+		result.ContractGuard.Name = proof.Constraint
+		result.ContractSteps = []Step{setNotNull}
+		return result, nil
+	}
+	result.Rewritten = true
+	result.ExpandSteps = []Step{
+		{Kind: StepAddCheckNotValid, Phase: PhaseExpand, LockLevel: lockAccessExclusive,
+			SQL: fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s IS NOT NULL) NOT VALID",
+				table, quote(proofName), quote(column))},
+		{Kind: StepValidateConstraint, Phase: PhaseExpand, LockLevel: lockShareUpdateExclusive,
+			SQL: fmt.Sprintf("ALTER TABLE %s VALIDATE CONSTRAINT %s", table, quote(proofName))},
+	}
+	result.ContractSteps = append(result.ContractSteps, setNotNull,
+		Step{Kind: StepDropProofConstraint, Phase: PhaseContract, Destructive: true,
+			LockLevel: lockAccessExclusive,
+			SQL:       fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s", table, quote(proofName))})
+	return result, nil
 }
 
-func hasProof(proofs []Proof, column string) bool {
+// findProof matches the folded column exactly: Proof.Column is a
+// catalog attname, so "Email" proves nothing about email.
+func findProof(proofs []Proof, column string) (Proof, bool) {
 	for _, proof := range proofs {
 		if proof.Kind == ProofValidatedNotNullCheck && proof.Validated &&
-			strings.EqualFold(proof.Column, column) {
-			return true
+			proof.Column == column {
+			return proof, true
 		}
 	}
-	return false
+	return Proof{}, false
 }
 func qualified(table TableFacts) string { return quote(table.Schema) + "." + quote(table.Name) }
-func quote(value string) string {
-	return `"` + strings.ReplaceAll(strings.TrimSpace(value), `"`, `""`) + `"`
-}
-func splitColumns(raw string) []string { return strings.Split(raw, ",") }
+
+// quote emits name, already folded, as one quoted identifier.
+func quote(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
+
 func quotedColumns(columns []string) string {
 	result := make([]string, 0, len(columns))
 	for _, column := range columns {
-		result = append(result, quote(strings.TrimSpace(column)))
+		result = append(result, quote(column))
 	}
 	return strings.Join(result, ", ")
 }

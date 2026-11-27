@@ -53,7 +53,7 @@ func newLocalBench(t *testing.T, p *fakeProvider, f *fakeFaults,
 }
 
 func TestLocalBenchRunsOnACloneAndIngestsALocalRun(t *testing.T) {
-	p, f, l := &fakeProvider{}, &fakeFaults{report: []byte(`{"report":1}`)},
+	p, f, l := &fakeProvider{}, &fakeFaults{report: []byte(scoredReport)},
 		&fakeBenchLedger{}
 	b := newLocalBench(t, p, f, l)
 	run, err := b.Run(context.Background(), []string{"lock_blocking"})
@@ -78,7 +78,7 @@ func TestLocalBenchRunsOnACloneAndIngestsALocalRun(t *testing.T) {
 	}
 	in := l.calls[0].in
 	if in.Origin != earned.OriginLocalRun || in.Actor != earned.ActorPgSage ||
-		in.Signature != nil || string(l.calls[0].raw) != `{"report":1}` {
+		in.Signature != nil || string(l.calls[0].raw) != scoredReport {
 		t.Fatalf("ingest = %+v %q", in, l.calls[0].raw)
 	}
 	if last, ok := b.Last(); !ok || last.ID != run.ID || last.Status != StatusCompleted {
@@ -91,7 +91,7 @@ func TestLocalBenchRunsOnACloneAndIngestsALocalRun(t *testing.T) {
 }
 
 func TestLocalBenchWithoutFamiliesRunsEveryFamily(t *testing.T) {
-	f := &fakeFaults{report: []byte(`{}`)}
+	f := &fakeFaults{report: []byte(scoredReport)}
 	b := newLocalBench(t, &fakeProvider{}, f, &fakeBenchLedger{})
 	if _, err := b.Run(context.Background(), nil); err != nil {
 		t.Fatal(err)
@@ -162,7 +162,7 @@ func TestLocalBenchRefusesUnknownFamilies(t *testing.T) {
 }
 
 func TestLocalBenchRunsOneAtATime(t *testing.T) {
-	f := &fakeFaults{report: []byte(`{}`), block: make(chan struct{})}
+	f := &fakeFaults{report: []byte(scoredReport), block: make(chan struct{})}
 	l := &fakeBenchLedger{}
 	b := newLocalBench(t, &fakeProvider{}, f, l)
 	started, err := b.Start(context.Background(), []string{"lock_blocking"})
@@ -192,7 +192,7 @@ func TestLocalBenchRunsOneAtATime(t *testing.T) {
 	}
 	// A background run survives the request that started it.
 	ctx, cancel := context.WithCancel(context.Background())
-	f2 := &fakeFaults{report: []byte(`{}`), block: make(chan struct{})}
+	f2 := &fakeFaults{report: []byte(scoredReport), block: make(chan struct{})}
 	b2 := newLocalBench(t, &fakeProvider{}, f2, &fakeBenchLedger{})
 	if _, err := b2.Start(ctx, nil); err != nil {
 		t.Fatal(err)
@@ -237,11 +237,15 @@ func TestLocalBenchTargetRefusesTheMonitoredDatabase(t *testing.T) {
 		"postgres://other:pw@DB.PROD:5432/orders?sslmode=require",
 		"postgres://sage:pw@meta.internal:5432/sage_meta",
 	} {
-		if _, err := NewLocalProvider(dsn, monitored); !errors.Is(err, ErrMonitoredDSN) {
+		if _, err := NewLocalProvider(dsn, monitored,
+			refusing(prodCluster())); !errors.Is(err, ErrMonitoredDSN) {
 			t.Errorf("%s: err = %v, want ErrMonitoredDSN", dsn, err)
 		}
 	}
-	if _, err := NewLocalProvider("postgres://u:pw@db.prod:5432/scratch", monitored); err != nil {
+	// The boot-time check is by name only; Create compares cluster
+	// identities (benches-02, local_test.go).
+	if _, err := NewLocalProvider("postgres://u:pw@db.prod:5432/scratch", monitored,
+		refusing(prodCluster())); err != nil {
 		t.Fatalf("a disposable database on the same server was refused: %v", err)
 	}
 }

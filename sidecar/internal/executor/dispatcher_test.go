@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // mockDispatcher records dispatched events for testing.
@@ -23,6 +24,7 @@ func (m *mockDispatcher) Dispatch(
 	return m.err
 }
 
+// An executor without a dispatcher drops events instead of panicking.
 func TestDispatchEvent_NilDispatcher(t *testing.T) {
 	e := &Executor{
 		cfg: &config.Config{
@@ -32,10 +34,10 @@ func TestDispatchEvent_NilDispatcher(t *testing.T) {
 		logFn:         func(string, string, ...any) {},
 		dispatcher:    nil,
 	}
-
-	// Must not panic with nil dispatcher.
-	e.dispatchEvent(context.Background(),
-		notify.ActionExecutedEvent("test", "SELECT 1", "mydb"))
+	require.NotPanics(t, func() {
+		e.dispatchEvent(context.Background(),
+			notify.ActionExecutedEvent("test", "SELECT 1", "mydb"))
+	})
 }
 
 func TestDispatchEvent_Success(t *testing.T) {

@@ -87,7 +87,8 @@ func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 			id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			user_id     INT REFERENCES sage.users(id) ON DELETE CASCADE,
 			expires_at  TIMESTAMPTZ NOT NULL,
-			created_at  TIMESTAMPTZ DEFAULT now()
+			created_at  TIMESTAMPTZ DEFAULT now(),
+			token_hash  TEXT NOT NULL UNIQUE
 		);
 
 		ALTER TABLE sage.users
@@ -98,6 +99,12 @@ func setupPhase2Pool(t *testing.T) *pgxpool.Pool {
 			ADD COLUMN IF NOT EXISTS oauth_issuer TEXT;
 		ALTER TABLE sage.users
 			ADD COLUMN IF NOT EXISTS oauth_subject TEXT;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE sage.users
+			ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oauth_identity
 			ON sage.users (oauth_issuer, oauth_subject)
 			WHERE oauth_issuer IS NOT NULL;
@@ -429,12 +436,15 @@ func TestPhase2_ValidateSession_Expired(t *testing.T) {
 	}
 
 	// Insert an already-expired session directly.
-	var sessionID string
-	err = pool.QueryRow(ctx,
-		"INSERT INTO sage.sessions (user_id, expires_at) "+
-			"VALUES ($1, $2) RETURNING id",
-		userID, time.Now().Add(-1*time.Hour),
-	).Scan(&sessionID)
+	sessionID, err := newSessionToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx,
+		"INSERT INTO sage.sessions (user_id, expires_at, token_hash) "+
+			"VALUES ($1, $2, $3)",
+		userID, time.Now().Add(-1*time.Hour), HashSessionToken(sessionID),
+	)
 	if err != nil {
 		t.Fatalf("inserting expired session: %v", err)
 	}
@@ -526,9 +536,9 @@ func TestPhase2_CleanExpiredSessions(t *testing.T) {
 
 	// Insert expired session directly.
 	_, err = pool.Exec(ctx,
-		"INSERT INTO sage.sessions (user_id, expires_at) "+
-			"VALUES ($1, $2)",
-		userID, time.Now().Add(-1*time.Hour),
+		"INSERT INTO sage.sessions (user_id, expires_at, token_hash) "+
+			"VALUES ($1, $2, $3)",
+		userID, time.Now().Add(-1*time.Hour), HashSessionToken("expired-fixture"),
 	)
 	if err != nil {
 		t.Fatalf("inserting expired session: %v", err)

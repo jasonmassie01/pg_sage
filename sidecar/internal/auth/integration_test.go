@@ -4,19 +4,16 @@ package auth
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func setupTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_DATABASE_URL")
-	if dsn == "" {
-		dsn = os.Getenv("SAGE_TEST_DATABASE_URL")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("connecting to postgres: %v", err)
@@ -46,7 +43,10 @@ func setupTestPool(t *testing.T) *pgxpool.Pool {
 	_, err = pool.Exec(ctx, `ALTER TABLE sage.users
 		ADD COLUMN IF NOT EXISTS oauth_provider TEXT DEFAULT '',
 		ADD COLUMN IF NOT EXISTS oauth_issuer TEXT,
-		ADD COLUMN IF NOT EXISTS oauth_subject TEXT;
+		ADD COLUMN IF NOT EXISTS oauth_subject TEXT,
+		ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ,
+		ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false,
+		ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ;
 		ALTER TABLE sage.users ALTER COLUMN password DROP NOT NULL`)
 	if err != nil {
 		t.Fatalf("adding OAuth identity fields: %v", err)
@@ -56,7 +56,8 @@ func setupTestPool(t *testing.T) *pgxpool.Pool {
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			user_id INT REFERENCES sage.users(id) ON DELETE CASCADE,
 			expires_at TIMESTAMPTZ NOT NULL,
-			created_at TIMESTAMPTZ DEFAULT now()
+			created_at TIMESTAMPTZ DEFAULT now(),
+			token_hash TEXT NOT NULL UNIQUE
 		)`)
 	if err != nil {
 		t.Fatalf("creating sessions table: %v", err)
@@ -200,12 +201,15 @@ func TestValidateSession_Expired(t *testing.T) {
 	}
 
 	// Insert an already-expired session directly.
-	var sessionID string
-	err = pool.QueryRow(ctx,
-		"INSERT INTO sage.sessions (user_id, expires_at) "+
-			"VALUES ($1, $2) RETURNING id",
-		id, time.Now().Add(-1*time.Hour),
-	).Scan(&sessionID)
+	sessionID, err := newSessionToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx,
+		"INSERT INTO sage.sessions (user_id, expires_at, token_hash) "+
+			"VALUES ($1, $2, $3)",
+		id, time.Now().Add(-1*time.Hour), HashSessionToken(sessionID),
+	)
 	if err != nil {
 		t.Fatalf("insert expired session: %v", err)
 	}
@@ -265,9 +269,9 @@ func TestCleanExpiredSessions(t *testing.T) {
 
 	// Insert expired session.
 	_, err = pool.Exec(ctx,
-		"INSERT INTO sage.sessions (user_id, expires_at) "+
-			"VALUES ($1, $2)",
-		id, time.Now().Add(-1*time.Hour),
+		"INSERT INTO sage.sessions (user_id, expires_at, token_hash) "+
+			"VALUES ($1, $2, $3)",
+		id, time.Now().Add(-1*time.Hour), HashSessionToken("expired-fixture"),
 	)
 	if err != nil {
 		t.Fatalf("insert expired session: %v", err)

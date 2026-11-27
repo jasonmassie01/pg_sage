@@ -101,6 +101,15 @@ func TestCollectCatalog_ManySchemasPagedByOID(t *testing.T) {
 	}
 }
 
+func hasTable(tables []TableStats, schema, name string) bool {
+	for _, tb := range tables {
+		if tb.SchemaName == schema && tb.RelName == name {
+			return true
+		}
+	}
+	return false
+}
+
 type logRecorder struct {
 	mu    sync.Mutex
 	lines []string
@@ -126,9 +135,16 @@ func (l *logRecorder) has(level, sub string) bool {
 // One slow category marks itself unavailable; the snapshot, the other
 // categories and their persistence go on, and nothing is stored for the
 // unavailable one (an empty row would read as "no indexes").
+// The test owns its database and its one user table (env-pg-a): it used to
+// rely on the package database holding a table, and the only one there was
+// pg_hint_plan's hint_plan.hints, so on a server without pg_hint_plan
+// (postgres:15) "tables" was empty and the test failed.
 func TestCollect_OneFailedCategoryDoesNotFailTheSnapshot(t *testing.T) {
-	pool := testPool(t)
+	pool, _ := graphPool(t, "one_failed")
 	ctx := context.Background()
+	if _, err := pool.Exec(ctx, "CREATE TABLE public.ofc_kept (id int)"); err != nil {
+		t.Fatalf("create the table the tables category must report: %v", err)
+	}
 	rec := &logRecorder{}
 	c := New(pool, testConfig(), serverVersion(t, pool), rec.log)
 	timeout := errors.New("canceling statement due to statement timeout")
@@ -142,8 +158,9 @@ func TestCollect_OneFailedCategoryDoesNotFailTheSnapshot(t *testing.T) {
 		t.Fatalf("indexes = %v / %q, want unavailable with the reason", snap.Indexes,
 			snap.Unavailable["indexes"])
 	}
-	if !snap.Available("tables") || len(snap.Tables) == 0 || !snap.Available("system") {
-		t.Fatalf("other categories missing: tables %d, unavailable %v", len(snap.Tables),
+	if !snap.Available("tables") || !hasTable(snap.Tables, "public", "ofc_kept") ||
+		!snap.Available("system") {
+		t.Fatalf("other categories missing: tables %+v, unavailable %v", snap.Tables,
 			snap.Unavailable)
 	}
 	if !rec.has("WARN", "indexes") {

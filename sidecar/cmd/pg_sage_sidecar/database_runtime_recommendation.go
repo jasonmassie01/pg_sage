@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 
-	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 )
 
@@ -31,16 +30,7 @@ func migrateRecommendations(ctx context.Context, spec databaseRuntimeSpec) {
 // executor enforces for this database (the same store and scope), for
 // the analyzer to record on each recommendation revision.
 func (rt *databaseRuntime) policyVersionReader() func(context.Context) (int64, error) {
-	pool := rt.spec.ControlPool
-	if pool == nil {
-		pool = rt.spec.Pool
-	}
-	store := policy.NewStore(pool)
-	var scope policy.Scope
-	if rt.spec.DatabaseID > 0 {
-		id := int64(rt.spec.DatabaseID)
-		scope.DatabaseID = &id
-	}
+	store, scope := rt.policyStoreScope()
 	return func(ctx context.Context) (int64, error) {
 		current, err := store.Current(ctx, scope)
 		return current.Version, err

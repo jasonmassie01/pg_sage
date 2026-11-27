@@ -23,7 +23,12 @@ func TestMain(m *testing.M) {
 // livePool connects to the package's fixture database.
 func livePool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	dsn := testdb.SkipUnlessLive(t)
+	return livePoolOn(t, testdb.SkipUnlessLive(t))
+}
+
+// livePoolOn connects to the database dsn names.
+func livePoolOn(t *testing.T, dsn string) (*pgxpool.Pool, context.Context) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, dsn)

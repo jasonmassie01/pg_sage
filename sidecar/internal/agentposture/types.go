@@ -95,6 +95,10 @@ type Finding struct {
 	FixScript      string
 	Caveat         string
 	Evidence       []Evidence
+	// DataAPIExposed is whether the Supabase Data API serves the finding's
+	// schema (AP-03, AP-04): DataAPIExposed, DataAPINotExposed or
+	// DataAPIUnknown; "" off Supabase (fleetpol-02c).
+	DataAPIExposed string
 }
 
 // Category is the finding's category in sage.findings.
@@ -140,6 +144,11 @@ type Spec struct {
 	Title    string
 	Severity Severity
 	Arms     []Arm
+	// ReadsSessions marks a detector that needs the session list:
+	// pg_stat_activity or the client-hint agent roles read from it. When
+	// that list is unreadable (Env.SessionsErr), the detector does not
+	// complete, so its open findings stay open.
+	ReadsSessions bool
 }
 
 // Detector is one posture check.
@@ -159,38 +168,21 @@ type Querier interface {
 // Input is what a detector reads: the transaction, the resolved
 // environment and which of its arms apply to the server.
 type Input struct {
-	Q      Querier
-	Env    Env
-	active map[string]bool
+	Q         Querier
+	Env       Env
+	active    map[string]bool
+	truncated *[]Truncation // the run's Outcome.Truncated
 }
 
 // Arm reports whether the detector's arm name applies to this server.
 func (in Input) Arm(name string) bool { return in.active[name] }
 
-// QuoteIdent quotes a PostgreSQL identifier unless it is a plain
-// lower-case name, so fix scripts stay readable and safe to paste.
-func QuoteIdent(name string) string {
-	bare := name != "" && (name[0] < '0' || name[0] > '9')
-	for _, r := range name {
-		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
-			bare = false
-			break
-		}
+// Truncated reports that the detector's read arm stopped at limit rows:
+// the rows past it were not checked, so the run does not evaluate the
+// detector and its open findings stay open. Outside RunDetector there is
+// no run to report to and it does nothing.
+func (in Input) Truncated(arm string, limit int) {
+	if in.truncated != nil {
+		*in.truncated = append(*in.truncated, Truncation{Arm: arm, Limit: limit})
 	}
-	if bare && !reservedWords[name] {
-		return name
-	}
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
-
-// QualifiedName is schema.name, each part quoted when needed.
-func QualifiedName(schema, name string) string {
-	return QuoteIdent(schema) + "." + QuoteIdent(name)
-}
-
-// reservedWords are the reserved key words most likely as object names.
-var reservedWords = map[string]bool{"user": true, "order": true, "group": true,
-	"table": true, "select": true, "from": true, "where": true, "default": true,
-	"check": true, "column": true, "limit": true, "offset": true, "end": true,
-	"primary": true, "references": true, "all": true, "analyse": true, "analyze": true,
-	"grant": true, "to": true}

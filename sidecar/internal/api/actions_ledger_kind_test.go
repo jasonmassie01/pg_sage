@@ -131,14 +131,19 @@ func cleanLedgerTables(
 	t *testing.T, pool *pgxpool.Pool, ctx context.Context,
 ) {
 	t.Helper()
-	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, "DELETE FROM sage.verification")
-		_, _ = pool.Exec(ctx, "DELETE FROM sage.decision")
-	})
-	for _, q := range []string{
+	// Approvals that ran through Executor.Apply leave change leases that
+	// reference their decisions; they go first, or the decision wipe fails.
+	wipe := []string{
 		"DELETE FROM sage.verification",
+		"DELETE FROM sage.change_lease WHERE decision_id IS NOT NULL",
 		"DELETE FROM sage.decision",
-	} {
+	}
+	t.Cleanup(func() {
+		for _, q := range wipe {
+			_, _ = pool.Exec(ctx, q)
+		}
+	})
+	for _, q := range wipe {
 		if _, err := pool.Exec(ctx, q); err != nil {
 			t.Fatalf("%s: %v", q, err)
 		}

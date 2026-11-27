@@ -1,0 +1,7 @@
+# ci-30: files allowed over the 500-line limit, and the number of top-level
+# Go functions allowed over 50 lines. scripts/ci/line-limits.sh fails when a
+# file over 500 lines has no row, when a listed file grows past its count, or
+# when the function total exceeds functions_over_50. A PR may shrink a row or
+# delete it, never add one or raise it. Each split item deletes its rows.
+# Format: <repo-relative path> <max lines>
+functions_over_50 44

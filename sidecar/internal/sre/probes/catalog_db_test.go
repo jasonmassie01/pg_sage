@@ -40,7 +40,7 @@ func dialLive(t *testing.T, ctx context.Context, dsn string) *pgx.Conn {
 // TABLE (ACCESS EXCLUSIVE) behind it and a reader behind the ALTER.
 func startChain(t *testing.T, ctx context.Context, pool *pgxpool.Pool) *chainFixture {
 	t.Helper()
-	dsn := os.Getenv(testdb.EnvName)
+	dsn := testdb.SkipUnlessLive(t)
 	cf := &chainFixture{table: fmt.Sprintf("sre_chain_%d", time.Now().UnixNano())}
 	ident := pgx.Identifier{cf.table}.Sanitize()
 	if _, err := pool.Exec(ctx, "CREATE TABLE "+ident+" (id int)"); err != nil {
@@ -195,7 +195,7 @@ func TestCatalog_LockGraphIgnoresOtherDatabases(t *testing.T) {
 func TestCatalog_ConnectionSaturationCountsRealSessions(t *testing.T) {
 	pool, ctx := livePool(t)
 	app := fmt.Sprintf("sre_conn_pressure_%d", os.Getpid())
-	cfg, err := pgx.ParseConfig(os.Getenv(testdb.EnvName))
+	cfg, err := pgx.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestCatalog_ConnectionSaturationCountsRealSessions(t *testing.T) {
 
 func TestCatalog_IdleInTransactionSession(t *testing.T) {
 	pool, ctx := livePool(t)
-	conn := dialLive(t, ctx, os.Getenv(testdb.EnvName))
+	conn := dialLive(t, ctx, testdb.SkipUnlessLive(t))
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 	var pid int
 	_ = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid)
@@ -280,27 +280,27 @@ func waitServerIdleAge(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	t.Fatalf("server never reported pid %d idle for %v s", pid, seconds)
 }
 
+// A primary without standbys has no replication_lag rows, and an inactive
+// physical slot shows in replication_slots. It runs on the exclusive
+// server: both views are cluster-wide, and on the shared server another
+// package's subscription adds a walsender and PGIncidentBench's WAL
+// scenarios would see the slot. The slot is dropped before the release.
 func TestCatalog_ReplicationProbesOnAPrimaryWithoutReplicas(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := exclusivePool(t, "pg_stat_replication and replication slots are cluster-wide")
 	r := NewRunner(pool, Catalog(), NewLimiter(1))
 	if res := r.Run(ctx, ReplicationLag, Args{}); res.Status != StatusEmpty {
 		t.Fatalf("replication_lag without replicas = %+v, want empty", res)
 	}
-	// Slots are cluster-wide: serialize with PGIncidentBench's WAL
-	// scenarios, which would otherwise see this inactive slot.
-	release, err := testdb.LockCluster(ctx, os.Getenv(testdb.EnvName), "wal")
-	if err != nil {
-		t.Fatalf("cluster lock: %v", err)
-	}
-	t.Cleanup(release)
 	slot := fmt.Sprintf("sre_probe_slot_%d", os.Getpid())
 	if _, err := pool.Exec(ctx,
 		"SELECT pg_create_physical_replication_slot($1, true)", slot); err != nil {
 		t.Fatalf("create slot: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			"SELECT pg_drop_replication_slot($1)", slot)
+		if _, err := pool.Exec(context.Background(),
+			"SELECT pg_drop_replication_slot($1)", slot); err != nil {
+			t.Errorf("drop slot %s: %v", slot, err)
+		}
 	})
 	res := r.Run(ctx, ReplicationSlots, Args{})
 	if res.Status != StatusOK {

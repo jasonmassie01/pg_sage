@@ -1,7 +1,9 @@
 import { Clock } from 'lucide-react'
 import { useTimeRange } from '../context/TimeRangeContext'
 
-export function TimeRangePicker() {
+// TimeRangePicker chooses the shared time range. label names what the range
+// scopes on this page (dashboard-07), e.g. "Ledger window".
+export function TimeRangePicker({ label }) {
   const { rangeKey, setRangeKey, ranges } = useTimeRange()
   return (
     <div
@@ -13,6 +15,7 @@ export function TimeRangePicker() {
         color: 'var(--text-secondary)',
       }}>
       <Clock size={13} aria-hidden="true" />
+      {label && <span data-testid="time-range-scope">{label}</span>}
       <select
         aria-label="Time range"
         value={rangeKey}

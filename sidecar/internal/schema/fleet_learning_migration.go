@@ -42,3 +42,30 @@ CREATE TABLE IF NOT EXISTS sage.fleet_leader_lease (
     renewed_at  timestamptz NOT NULL DEFAULT now(),
     expires_at  timestamptz NOT NULL
 );`
+
+// ddlFleetLeaseControl records, on every lease row, the control database
+// it was written in: the cluster's system identifier (NULL where
+// pg_control_system() is restricted) and the database name (fleet-03).
+// Catalog-first, so a re-run takes no lock.
+const ddlFleetLeaseControl = `
+SET LOCAL lock_timeout = '5s';
+DO $fleet_lease_control$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_attribute
+         WHERE attrelid = 'sage.fleet_leader_lease'::regclass
+           AND attname = 'control_system_identifier' AND NOT attisdropped
+    ) THEN
+        ALTER TABLE sage.fleet_leader_lease
+            ADD COLUMN control_system_identifier bigint;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_attribute
+         WHERE attrelid = 'sage.fleet_leader_lease'::regclass
+           AND attname = 'control_datname' AND NOT attisdropped
+    ) THEN
+        ALTER TABLE sage.fleet_leader_lease ADD COLUMN control_datname text;
+    END IF;
+END
+$fleet_lease_control$;
+`

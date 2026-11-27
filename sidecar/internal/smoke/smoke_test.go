@@ -9,7 +9,6 @@ package smoke
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/retention"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ================================================================
@@ -33,19 +33,12 @@ var (
 	sPoolErr  error
 )
 
-func smokeDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
-
 func requireSmokeDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
 
+	dsn := testdb.SkipUnlessLive(t)
 	sPoolOnce.Do(func() {
-		dsn := smokeDSN()
 		qctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 

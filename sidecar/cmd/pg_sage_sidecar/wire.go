@@ -9,11 +9,20 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/api"
+	"github.com/pg-sage/sidecar/internal/ask"
 	"github.com/pg-sage/sidecar/internal/auth"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/evidence/workpack"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/outcomes"
+	"github.com/pg-sage/sidecar/internal/querystore"
+	"github.com/pg-sage/sidecar/internal/rollout"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
+	"github.com/pg-sage/sidecar/internal/shadow"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -49,11 +58,26 @@ type WireResult struct {
 	AuthPool   *pgxpool.Pool
 	ActionDeps *api.ActionDeps
 	DBDeps     *api.DatabaseDeps
+	// Canary is the fleet canary service (nil without a fleet and a
+	// control database); the API server sweeps its interrupted runs.
+	Canary *rollout.CanaryService
+}
+
+// apiRateLimit is the API rate limiter: per platform identity in a
+// Databricks App, per client address elsewhere.
+func apiRateLimit(p WireParams) func(http.Handler) http.Handler {
+	rl := p.RateLimiter
+	return func(next http.Handler) http.Handler {
+		if p.DatabricksAppAuth != nil {
+			return databricksAppRateLimitMiddleware(rl, *p.DatabricksAppAuth, next)
+		}
+		return rateLimitMiddleware(rl, next)
+	}
 }
 
 // wireRouter assembles the HTTP handler from the given params.
 // This is the testable core extracted from startAPIServer.
-func wireRouter(p WireParams) WireResult {
+func wireRouter(p WireParams) (WireResult, error) {
 	// Meta mode has an explicit canonical control pool. Monitored
 	// databases are replaceable and must never own auth or sessions.
 	var authPool *pgxpool.Pool
@@ -85,8 +109,9 @@ func wireRouter(p WireParams) WireResult {
 	if p.MetaState != nil && p.MetaState.Store != nil {
 		metaState := p.MetaState
 		dbDeps = &api.DatabaseDeps{
-			Store: metaState.Store,
-			Fleet: p.FleetMgr,
+			Store:     metaState.Store,
+			Fleet:     p.FleetMgr,
+			Discovery: store.NewDiscoveryStore(metaState.Pool),
 			ApplyCreate: func(
 				ctx context.Context, input store.DatabaseInput, createdBy int,
 			) (*store.DatabaseRecord, error) {
@@ -135,14 +160,7 @@ func wireRouter(p WireParams) WireResult {
 	// so the limiter must be first to run before auth performs a DB lookup.
 	middlewares := make([]func(http.Handler) http.Handler, 0, 2)
 	if p.RateLimiter != nil {
-		rl := p.RateLimiter
-		middlewares = append(middlewares,
-			func(next http.Handler) http.Handler {
-				if p.DatabricksAppAuth != nil {
-					return databricksAppRateLimitMiddleware(rl, *p.DatabricksAppAuth, next)
-				}
-				return rateLimitMiddleware(rl, next)
-			})
+		middlewares = append(middlewares, apiRateLimit(p))
 	}
 	if p.DatabricksAppAuth != nil {
 		middlewares = append(middlewares, api.DatabricksAppAuthMiddleware(authPool, *p.DatabricksAppAuth))
@@ -151,9 +169,16 @@ func wireRouter(p WireParams) WireResult {
 	}
 
 	specialistHandler, specialistAudit := specialistAPIDeps(p.Cfg, p.FleetMgr, authPool)
+	callSites, err := callSiteSource(p.Cfg) // pr-01a
+	if err != nil {
+		return WireResult{}, err
+	}
+	autonomy := autonomyAPIDeps(p.FleetMgr, authPool)
 	// Auth audit retains the client address independently of App identity buckets.
 	api.SetClientIPResolver(clientIP)
-	router := api.NewRouterFullRuntime(
+	// X-Forwarded-Proto marks a session cookie Secure only from a trusted proxy.
+	api.SetForwardedProtoTrust(fromTrustedProxy)
+	router, err := api.NewRouterFullRuntime(
 		p.FleetMgr, p.Cfg, authPool, actionDeps, dbDeps,
 		p.LLMMgr, &api.RuntimeDeps{
 			DatabricksAppAuth: p.DatabricksAppAuth != nil,
@@ -163,18 +188,27 @@ func wireRouter(p WireParams) WireResult {
 			LLMBudgets:        p.LLMBudgets,
 			TelemetryStatus:   lakebaseTelemetryStatuses,
 			TelemetryHistory:  lakebaseTelemetryHistory,
+			LakebaseWaitLoad:  lakebaseWaitLoad, // market-01b
+			CallSites:         callSites,        // pr-01a
+			// Expiry times and failure classes only; never tokens (databricks-06).
+			LakebaseCredentials:  databricksauth.CredentialStatuses,
+			LakebaseEndpointInfo: databricksauth.EndpointInfoFor,
 			// Same key and policy as the runtime dispatchers (G7-B20/B21).
-			NotificationSecretKey:    notificationSecretKey(authPool),
-			NotificationTargetPolicy: notificationTargetPolicy(),
+			NotificationSecretKey:         notificationSecretKey(authPool),
+			NotificationPreviousSecretKey: notificationPreviousSecretKey(authPool),
+			NotificationTargetPolicy:      notificationTargetPolicy(),
+			CaseTicketSync:                true, // market-14
+			SecretsPosture:                secretsPostureSource(authPool),
 			DisableConfigWrites: p.Cfg != nil && p.Cfg.IsFleet() &&
 				!p.Cfg.HasMetaDB(),
 			MCPHandler: p.MCPHandler,
 			MCPOAuth:   mcpOAuthValidator(p.Cfg, p.FleetMgr, authPool),
-			Audit: api.AuditDeps{SIEMStatus: siemStatusFunc(p.Cfg),
-				EvidenceKey: evidenceSigningKey(p.Cfg)},
-			Autonomy:   autonomyAPIDeps(p.FleetMgr, authPool),
-			Ask:        askServices(),
-			Specialist: specialistHandler,
+			Audit:      auditAPIDeps(p.Cfg, authPool),
+			// evid-02c: keys the workload pack model tier's identifier hashing.
+			WorkloadPseudonymKey: workloadPseudonymKey(authPool),
+			Autonomy:             autonomy,
+			Ask:                  askServices(),
+			Specialist:           specialistHandler,
 			// Look-alikes and leader status (fleet learning).
 			FleetLearning: fleetLearningAPI{},
 			// The request audit of the Postgres-specialist contract.
@@ -187,16 +221,25 @@ func wireRouter(p WireParams) WireResult {
 			AgentActivity: agentActivityAPI{},
 			// Agent grants and capability requests (agent_grants_wiring.go).
 			AgentGrants: agentGrantAPI(p.Cfg, p.FleetMgr, p.MetaState),
+			// tls_expiring in /ready details when the API serves TLS.
+			TLSExpiring: apiTLSExpiringFunc(apiTLS),
+			// GET /metrics on this listener (prometheus.serve_on_api).
+			Metrics: apiMetricsRoute(p, authPool),
+			// Where restore drill rows live (drill-01d).
+			RestoreDrillResults: restoreDrillResults(p.Cfg, p.FleetMgr, p.MetaState),
 		},
 		middlewares...,
 	)
-
+	if err != nil {
+		return WireResult{}, err
+	}
 	return WireResult{
 		Handler:    router,
 		AuthPool:   authPool,
 		ActionDeps: actionDeps,
 		DBDeps:     dbDeps,
-	}
+		Canary:     autonomy.Canary,
+	}, nil
 }
 
 func applyMetaDatabaseCreate(
@@ -206,14 +249,29 @@ func applyMetaDatabaseCreate(
 	input store.DatabaseInput,
 	createdBy int,
 ) (*store.DatabaseRecord, error) {
+	return applyMetaDatabaseCreateWith(ctx, mgr, state, input.Name,
+		func(ctx context.Context) (int, error) {
+			return state.Store.Create(ctx, input, createdBy)
+		})
+}
+
+// applyMetaDatabaseCreateWith registers the member create inserts as name:
+// the row is deleted again when its runtime cannot be published.
+func applyMetaDatabaseCreateWith(
+	ctx context.Context,
+	mgr *fleet.DatabaseManager,
+	state *metaDBState,
+	name string,
+	create func(context.Context) (int, error),
+) (*store.DatabaseRecord, error) {
 	var id int
 	var rec *store.DatabaseRecord
 	var candidate *fleet.DatabaseInstance
 	err := mgr.WithLifecycle(ctx, func(op *fleet.LifecycleMutation) (resultErr error) {
-		if err := op.ValidateRegistration(input.Name); err != nil {
+		if err := op.ValidateRegistration(name); err != nil {
 			return err
 		}
-		id, resultErr = state.Store.Create(ctx, input, createdBy)
+		id, resultErr = create(ctx)
 		if resultErr != nil {
 			return resultErr
 		}
@@ -261,7 +319,12 @@ func applyMetaDatabaseUpdate(
 		if err != nil {
 			return nil, err
 		}
-		return prepareStoreDatabaseConnection(ctx, prospective, connStr)
+		actionDSN, err := state.Store.GetUpdateActionConnectionString(ctx, id, input)
+		action, err := classifyMemberAction(actionDSN, err, prospective.ActionUsername, connStr)
+		if err != nil {
+			return nil, err
+		}
+		return prepareStoreDatabaseConnection(ctx, prospective, connStr, action)
 	}
 	persist := func(ctx context.Context) error {
 		return state.Store.Update(ctx, id, input)
@@ -273,13 +336,14 @@ func applyMetaDatabaseUpdate(
 	if err != nil {
 		return nil, err
 	}
-	if oldRec.Name != candidate.Name {
-		unregisterFleetBudget(oldRec.Name)
-	}
 	if err := fleet.ShutdownInstance(ctx, retired); err != nil {
 		logWarn("meta-db",
 			"db %q: replacement published; old runtime still draining: %v",
 			candidate.Name, err)
+	}
+	// After the drain: the old runtime's in-flight work may still count.
+	if oldRec.Name != candidate.Name && mgr.GetInstance(oldRec.Name) == nil {
+		forgetRemovedDatabase(oldRec.Name)
 	}
 	updateInstanceFindings(context.Background(), candidate)
 	logInfo("meta-db", "db %q: replaced", candidate.Name)
@@ -303,11 +367,14 @@ func applyMetaDatabaseDelete(
 	if err != nil {
 		return err
 	}
-	unregisterFleetBudget(rec.Name)
 	if err := fleet.ShutdownInstance(context.WithoutCancel(ctx), retired); err != nil {
 		logWarn("meta-db",
 			"db %q: delete committed; runtime drain incomplete: %v",
 			rec.Name, err)
+	}
+	// After the drain, unless the name was added back meanwhile.
+	if mgr.GetInstance(rec.Name) == nil {
+		forgetRemovedDatabase(rec.Name)
 	}
 	return nil
 }
@@ -367,12 +434,27 @@ func replaceManagedDatabase(
 	return candidate, retired, err
 }
 
-// unregisterFleetBudget returns a deleted or renamed database's LLM budget
-// share to the remaining databases (G5-B06).
-func unregisterFleetBudget(name string) {
+// forgetRemovedDatabase releases what the process keeps per database name
+// once that name has left it (deleted, renamed or removed by a reload):
+// the LLM budget share returns to the remaining databases (G5-B06), its
+// Sage SRE probe queue series leave /metrics (sre-06), and the
+// process-wide /metrics counters drop its series (observability-07), the
+// LLM health counters included (observability-05), its workload
+// evidence pack series (evid-02a), its hourly query rollup series
+// (evid-01a) and its measured-outcome share (ux-02a).
+func forgetRemovedDatabase(name string) {
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.Unregister(name)
 	}
+	probes.ForgetQueueStats(name)
+	executor.PruneCounts(name)
+	shadow.Prune(name)
+	llmHealth.prune(name)
+	ask.ForgetDatabase(name)
+	selfbudget.Process().ForgetDatabase(name)
+	workpack.ForgetDatabase(name)
+	querystore.ForgetRollupDatabase(name)
+	outcomes.ForgetDatabase(name)
 }
 
 func cleanupManagedCandidate(candidate *fleet.DatabaseInstance) error {
@@ -395,5 +477,8 @@ func updatedDatabaseRecord(
 	old.Tags = input.Tags
 	old.TrustLevel = input.TrustLevel
 	old.ExecutionMode = input.ExecutionMode
+	if input.Action != nil {
+		old.ActionUsername = input.Action.Username
+	}
 	return old
 }

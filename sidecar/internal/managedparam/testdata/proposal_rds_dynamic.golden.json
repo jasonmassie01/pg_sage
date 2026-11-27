@@ -1,0 +1,28 @@
+{
+  "provider": "rds",
+  "mechanism": "parameter_group",
+  "target": "orders-pg16",
+  "region": "us-east-1",
+  "instance": "orders",
+  "parameter_group": "orders-pg16",
+  "parameter": "work_mem",
+  "value": "65536",
+  "pg_value": "64MB",
+  "unit": "kB",
+  "current_value": "4096",
+  "apply_method": "immediate",
+  "reboot_required": false,
+  "rollback": {
+    "value": "4096",
+    "reset": false,
+    "apply_method": "immediate",
+    "cli": "aws rds modify-db-parameter-group --region us-east-1 --db-parameter-group-name orders-pg16 --parameters '[{\"ParameterName\":\"work_mem\",\"ParameterValue\":\"4096\",\"ApplyMethod\":\"immediate\"}]'"
+  },
+  "cli": "aws rds modify-db-parameter-group --region us-east-1 --db-parameter-group-name orders-pg16 --parameters '[{\"ParameterName\":\"work_mem\",\"ParameterValue\":\"65536\",\"ApplyMethod\":\"immediate\"}]'",
+  "console_url": "https://us-east-1.console.aws.amazon.com/rds/home?region=us-east-1#parameter-group-details:parameter-group-name=orders-pg16",
+  "requires_approval": true,
+  "auto_apply": false,
+  "auto_apply_withheld": "pg_sage never applies provider parameter changes in this release: an operator runs the command (most need a reboot, an outage) and pg_sage verifies the running value afterwards",
+  "reason": "requires a restart",
+  "fingerprint": "v2:ade4e79f81dbda6a"
+}

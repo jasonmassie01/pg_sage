@@ -95,6 +95,32 @@ type Check struct {
 	// Retried: the check degraded with a transient error and was run once
 	// more; Note keeps the first attempt's failure.
 	Retried bool `json:"retried,omitempty"`
+	// Truncated: the check found more than the report shows (items past the
+	// per-rule cap, or a catalog read cut at its row limit); Note says how much.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// CheckCounts is how the checks of one report section ended.
+type CheckCounts struct {
+	Total, Degraded, Truncated int
+}
+
+// CountChecks counts the checks of section ("" is the catalog checks).
+func CountChecks(checks []Check, section string) CheckCounts {
+	var n CheckCounts
+	for _, c := range checks {
+		if c.Section != section {
+			continue
+		}
+		n.Total++
+		if c.Status == CheckDegraded {
+			n.Degraded++
+		}
+		if c.Truncated {
+			n.Truncated++
+		}
+	}
+	return n
 }
 
 // Report is one first look of one database.

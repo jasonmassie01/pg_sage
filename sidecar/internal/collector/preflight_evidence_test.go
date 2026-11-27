@@ -11,8 +11,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/querystore"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
@@ -31,8 +33,16 @@ func preflightPoolWith(
 	t *testing.T, params map[string]string,
 ) (*pgxpool.Pool, context.Context, *Collector) {
 	t.Helper()
+	return preflightPoolOn(t, testdb.SkipUnlessLive(t), params)
+}
+
+// preflightPoolOn is preflightPoolWith on the database dsn names.
+func preflightPoolOn(
+	t *testing.T, dsn string, params map[string]string,
+) (*pgxpool.Pool, context.Context, *Collector) {
+	t.Helper()
 	ctx := context.Background()
-	pcfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
+	pcfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +65,13 @@ func preflightPoolWith(
 	cfg.Advisor.Enabled = false
 	cfg.HasPlanTimeColumns = true
 	cfg.Safety.QueryTimeoutMs = 5000
+	// The startup checks' pg_stat_statements schema, as production sets it
+	// (security-01c-q: the collector qualifies the view by it).
+	ext, err := extschema.Detect(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.StatementsSchema = ext.Statements
 	c := New(p, cfg, 170000, func(level, format string, args ...any) { t.Logf(format, args...) })
 	return p, ctx, c
 }
@@ -100,7 +117,8 @@ func preflightWorkload(t *testing.T, p *pgxpool.Pool, c *Collector, n int) (
 // measurement here is repeated when the statistics changed generation
 // under it (pgssepoch).
 func TestPreflightEvidenceResetAfterRegrowth(t *testing.T) {
-	p, ctx, c := preflightPool(t)
+	p, ctx, c := preflightPoolOn(t,
+		testdb.Exclusive(t, "the pg_stat_statements stats_reset epoch"), nil)
 	// Only the second reset must be cluster-wide (it moves the stats_reset
 	// epoch); a cluster-wide reset wipes other packages' workloads.
 	preflightResetDatabase(t, p)
@@ -138,11 +156,8 @@ func TestPreflightEvidenceResetAfterRegrowth(t *testing.T) {
 	if !after.StatsReset {
 		t.Error("collector missed confirmed reset after counter regrowth")
 	}
-	ms, ok, err := querystore.WindowedLatencyMs(ctx, p, q1.QueryID,
+	ms, ok := preflightWindowLatency(t, ctx, p, q1.QueryID,
 		before.CollectedAt.Add(-time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Logf("cross-epoch latency ms=%f ok=%v", ms, ok)
 	if ok {
 		t.Error("query store certified a window crossing confirmed statistics epochs")
@@ -271,15 +286,36 @@ func preflightCohortWindow(t *testing.T, p *pgxpool.Pool, c *Collector, run func
 			column, label, cohorts, calls2-calls1)}
 	}
 	expected := (total2 - total1) / float64(calls2-calls1)
-	ms, ok, err := querystore.WindowedLatencyMs(ctx, p, id,
-		before.CollectedAt.Add(-time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
+	ms, ok := preflightWindowLatency(t, ctx, p, id, before.CollectedAt.Add(-time.Second))
 	t.Logf("%s=%d aggregate expected=%f; actual=%f ok=%v", label, cohorts, expected, ms, ok)
 	if !ok || math.Abs(ms-expected) > 0.000001 {
 		return []string{fmt.Sprintf("same-query %s cohorts lost: got %f/%v want "+
 			"aggregate %f", column, ms, ok, expected)}
 	}
 	return nil
+}
+
+// preflightWindowLatency is the query store's per-call latency for id from
+// since to now (querystore.QueryIntervals): ok only without an epoch break
+// and with new calls.
+func preflightWindowLatency(t *testing.T, ctx context.Context, p *pgxpool.Pool, id int64,
+	since time.Time) (float64, bool) {
+	t.Helper()
+	ivs, err := querystore.QueryIntervals(ctx, p, id, since, time.Now().Add(time.Hour),
+		24*time.Hour)
+	if err != nil {
+		t.Fatalf("query %d intervals: %v", id, err)
+	}
+	var calls int64
+	var total float64
+	for _, iv := range ivs {
+		if iv.EpochBreak {
+			return 0, false
+		}
+		calls, total = calls+iv.Calls, total+iv.TotalMs
+	}
+	if calls <= 0 {
+		return 0, false
+	}
+	return total / float64(calls), true
 }

@@ -18,8 +18,23 @@
 // the SIEM exporter uses as its cursor.
 //
 // The chain proves integrity against anyone who edits rows without also
-// recomputing every later hash. Someone who can rewrite the whole chain is
-// caught by the off-box copy: the SIEM export carries each link's hash.
+// recomputing every later hash. A full verification also finds rows whose
+// own link is gone (links deleted from the tail, or the whole chain), which
+// the walk alone cannot see: it trusts the head it reads from the same
+// table. Someone who can rewrite the whole chain, rows included, or a
+// restore that takes the chain back, is caught by the off-box copy: the
+// SIEM export carries each link's hash, and before each pass the exporter
+// checks that the link at every sink's cursor still has the hash it
+// exported. A chain that went back stops for that sink as "regressed"
+// (never skipping the positions new links reuse) and raises
+// audit_chain_regressed until an admin re-anchors the cursor.
+//
+// Two marker links carry no row (audit-03b). A signed checkpoint (C)
+// signs, with the evidence-signing key, the hash of a head a clean
+// verification reached, and reaches the SIEM like any link. A prune (P),
+// opt-in, records that the links below a floor were removed once every
+// sink held a signed checkpoint above them; verification of a pruned chain
+// starts at the floor and rests on that checkpoint's signature.
 package auditchain
 
 import (
@@ -117,9 +132,72 @@ var PGAuditEvents = Spec{
 		col("object_name"), col("statement"), col("correlated_by")},
 }
 
-// Specs lists the chains the schema migration installs.
+// FactEvents chains the history of fact decisions (facts-07): who
+// proposed, confirmed, rejected, declared or expired a binding fact.
+// Append-only; rejecting or expiring a confirmed fact lifts a guard.
+var FactEvents = Spec{
+	Chain: "fact_events", Table: "sage.fact_events", Version: 1,
+	Sealed: []string{col("id"), col("fact_id"), epochUS("at"), col("actor"), col("verb"),
+		col("from_status"), col("to_status"), col("fact_hash"), col("note")},
+}
+
+// DecisionLedger chains the policy gate's decisions (audit-11): the
+// authority a change ran under. What was decided about, at which tier and
+// under which policy is sealed. The verdict is state, with the reason,
+// evidence and links pg_sage updates later: the executor legitimately
+// turns an execute into the block it became (vacuum admission, the
+// maintenance precheck). repeat_count and last_seen_at are telemetry and
+// stay unchained, so a parked repeat appends nothing.
+var DecisionLedger = Spec{
+	Chain: "decision", Table: "sage.decision", Version: 1,
+	Sealed: []string{col("id"), col("database_id"), col("feature"), col("intent"),
+		col("target_objects"), col("policy_version"), col("policy_doc_sha256"),
+		col("risk_tier"), col("evidence_id"), col("fingerprint"), col("principal_id"),
+		col("task_id"), col("artifact_hash"), epochUS("created_at")},
+	State: []string{col("verdict"), col("reason"), col("evidence"), col("guardrails"),
+		col("off_window_ok"), col("deadline_kind"), epochUS("deadline_hard_at"),
+		col("queue_id"), col("action_log_id"), epochUS("resolved_at"), col("candidate_key")},
+	Optional: true,
+}
+
+// PolicyApprovals chains each person's approval of a policy version
+// (audit-11). The approval is sealed; its post-hoc review is state. The
+// table lives where the policy does (the control database in fleet mode).
+var PolicyApprovals = Spec{
+	Chain: "policy_approvals", Table: "sage.policy_approvals", Version: 1,
+	Sealed: []string{col("id"), col("policy_id"), col("approver"), col("approver_user_id"),
+		col("reason"), col("single_operator"), epochUS("decided_at")},
+	State:    []string{col("review_status")},
+	Optional: true,
+}
+
+// PlanEvents chains a plan's history (plan-01b): every plan write and
+// engine transition, with the plan hash after it. Append-only. The table
+// belongs to the plan objects (internal/changeplan), so the chain installs
+// once it exists.
+var PlanEvents = Spec{
+	Chain: "plan_events", Table: "sage.plan_event", Version: 1,
+	Sealed: []string{col("id"), col("plan_id"), col("step_id"), col("kind"),
+		col("plan_hash"), col("actor"), col("detail"), epochUS("created_at")},
+	Optional: true,
+}
+
+// PlanModelRecords chains the model passes a plan was built from
+// (plan-01b): the pack, model, prompt version and raw output a later model
+// is replayed on. Append-only; every column is sealed.
+var PlanModelRecords = Spec{
+	Chain: "plan_model_records", Table: "sage.plan_model_record", Version: 1,
+	Sealed: []string{col("id"), col("plan_id"), col("pack_hash"), col("model"),
+		col("prompt_version"), col("raw_output"), col("raw_output_sha256"),
+		epochUS("created_at")},
+	Optional: true,
+}
+
+// Specs lists the chains the schema migration installs. New chains are
+// appended: the order is the install order.
 func Specs() []Spec {
-	return []Spec{ActionLog, AuthAudit, ConfigAudit, GuardQueryAudit, PGAuditEvents}
+	return []Spec{ActionLog, AuthAudit, ConfigAudit, GuardQueryAudit, PGAuditEvents,
+		FactEvents, DecisionLedger, PolicyApprovals, PlanEvents, PlanModelRecords}
 }
 
 // SpecFor returns the built-in spec of chain.

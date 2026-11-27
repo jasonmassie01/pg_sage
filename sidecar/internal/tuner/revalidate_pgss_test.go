@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
@@ -70,8 +71,9 @@ LIMIT 1`,
 	return qid, calls, ""
 }
 
-// TestDecideHintFate_StagnantCalls — Check 3: calls_at_last_check >=
-// currentCalls (hint has not been exercised since last pass) ⇒ broken.
+// TestDecideHintFate_StagnantCalls — calls equal to calls_at_last_check (the
+// query has not run since the last pass) ⇒ dormant, not broken (tuning-01):
+// a weekly batch job checked every 24 h is quiet, not broken.
 func TestDecideHintFate_StagnantCalls(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
 	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
@@ -95,9 +97,9 @@ func TestDecideHintFate_StagnantCalls(t *testing.T) {
 		}
 		d := tuner.decideHintFate(ctx, h, 30*24*time.Hour)
 		var problems []string
-		if d.action != hintActionBroken {
+		if d.action != hintActionDormant {
 			problems = append(problems, fmt.Sprintf(
-				"action = %v, want hintActionBroken (stagnant)", d.action))
+				"action = %v, want hintActionDormant (stagnant)", d.action))
 		}
 		if d.reason == "" || !contains(d.reason, "executions") {
 			problems = append(problems, fmt.Sprintf(
@@ -112,15 +114,16 @@ func TestDecideHintFate_StagnantCalls(t *testing.T) {
 }
 
 // TestDecideHintFate_ObservationalSuccess — a fast query lands in
-// pg_stat_statements with mean_exec_time well under 100 ms. With no
-// calls_at_last_check and the hint not aged out, decideHintFate takes the
-// "observational success" ⇒ hintActionRetired branch.
+// pg_stat_statements with mean_exec_time well under 100 ms. That is what a
+// working hint achieves, so the hint stays active. This test used to pin the
+// bug: the "observational success" rule retired the hint, the query
+// regressed, and the tuner proposed the same hint again (tuning-01).
 func TestDecideHintFate_ObservationalSuccess(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
 	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
 
 	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
-		realQID, _, missing := runRevalProbe(t, ctx, pool, revalObsCols, 4)
+		realQID, realCalls, missing := runRevalProbe(t, ctx, pool, revalObsCols, 4)
 		if missing != "" {
 			return []string{missing}
 		}
@@ -132,13 +135,18 @@ func TestDecideHintFate_ObservationalSuccess(t *testing.T) {
 		}
 		d := tuner.decideHintFate(ctx, h, 30*24*time.Hour)
 		var problems []string
-		if d.action != hintActionRetired {
+		if d.action != hintActionKeep || d.nextStatus(h) != "active" {
 			problems = append(problems, fmt.Sprintf(
-				"action = %v, want hintActionRetired (obs success)", d.action))
+				"action = %v status %q, want hintActionKeep, active",
+				d.action, d.nextStatus(h)))
 		}
-		if d.reason == "" || !contains(d.reason, "mean_exec_time") {
+		if d.checkpoint == nil || *d.checkpoint < realCalls {
 			problems = append(problems, fmt.Sprintf(
-				"reason %q should mention mean_exec_time", d.reason))
+				"checkpoint = %v, want >= %d", d.checkpoint, realCalls))
+		}
+		if d.resetAt == nil {
+			problems = append(problems,
+				"stats_reset from pg_stat_statements_info not recorded")
 		}
 		return problems
 	})
@@ -150,17 +158,18 @@ func TestFetchQueryStats_NotFound(t *testing.T) {
 	pool, ctx := requireTunerDB(t)
 	tuner := New(pool, TunerConfig{}, nil, noopLogFn)
 
-	calls, meanMs, found, err := tuner.fetchQueryStats(
-		ctx, revalTestQIDBase+777,
-	)
+	obs, err := tuner.fetchQueryStats(ctx, revalTestQIDBase+777)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if found {
-		t.Error("found should be false for absent queryid")
+	if obs.Found {
+		t.Error("found should be false for absent queryid (NULL sum(calls))")
 	}
-	if calls != 0 || meanMs != 0 {
-		t.Errorf("expected zero stats, got calls=%d mean=%f", calls, meanMs)
+	if obs.Calls != 0 || obs.MeanMs != 0 {
+		t.Errorf("expected zero stats, got calls=%d mean=%f", obs.Calls, obs.MeanMs)
+	}
+	if obs.ResetAt == nil {
+		t.Error("stats_reset should be read even when the queryid is absent")
 	}
 }
 
@@ -177,18 +186,18 @@ func TestFetchQueryStats_Found(t *testing.T) {
 		if missing != "" {
 			return []string{missing}
 		}
-		calls, meanMs, found, err := tuner.fetchQueryStats(ctx, realQID)
+		obs, err := tuner.fetchQueryStats(ctx, realQID)
 		if err != nil {
 			t.Fatalf("fetchQueryStats: %v", err)
 		}
-		if !found {
+		if !obs.Found {
 			return []string{"expected found=true for a queryid we just executed"}
 		}
-		if calls < runs {
-			return []string{fmt.Sprintf("calls = %d, want >= %d", calls, runs)}
+		if obs.Calls < runs {
+			return []string{fmt.Sprintf("calls = %d, want >= %d", obs.Calls, runs)}
 		}
-		if meanMs < 0 {
-			t.Errorf("meanMs = %f, expected >= 0", meanMs)
+		if obs.MeanMs < 0 {
+			t.Errorf("meanMs = %f, expected >= 0", obs.MeanMs)
 		}
 		return nil
 	})
@@ -225,10 +234,11 @@ func TestFetchQueryStats_DBIDScope(t *testing.T) {
 				"calls=%d (test database %d); cannot prove dbid filtering",
 				realQID, found, otherCalls, ownCalls)}
 		}
-		got, _, found, err := tuner.fetchQueryStats(ctx, realQID)
+		obs, err := tuner.fetchQueryStats(ctx, realQID)
 		if err != nil {
 			t.Fatalf("fetchQueryStats: %v", err)
 		}
+		got, found := obs.Calls, obs.Found
 		if !found || got != ownCalls {
 			return []string{fmt.Sprintf("fetchQueryStats returned calls=%d found=%v; "+
 				"want the test database's %d (template1 has %d)",
@@ -242,7 +252,7 @@ func TestFetchQueryStats_DBIDScope(t *testing.T) {
 // test ends); the test is skipped when it cannot.
 func template1Pool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
-	cfg, err := pgxpool.ParseConfig(replaceDBInDSN(tunerTestDSN(), "template1"))
+	cfg, err := pgxpool.ParseConfig(replaceDBInDSN(testdb.SkipUnlessLive(t), "template1"))
 	if err != nil {
 		t.Fatalf("parse template1 DSN: %v", err)
 	}

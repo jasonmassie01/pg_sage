@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // MaxTokenBytes bounds an access token; larger ones are refused unparsed.
@@ -44,7 +46,7 @@ func New(cfg Config, resolver Resolver, databases func() []string,
 		return nil, fmt.Errorf("mcp.oauth: no principal resolver")
 	}
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = egress.HTTPClient(10 * time.Second)
 	}
 	if databases == nil {
 		databases = func() []string { return nil }

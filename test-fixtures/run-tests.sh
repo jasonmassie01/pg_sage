@@ -919,7 +919,7 @@ phase13() {
     fi
 
     # Check specific metrics
-    local expected_metrics=("pg_sage_info" "pg_sage_connection_up" "pg_sage_findings_total" "pg_sage_collector_cycles")
+    local expected_metrics=("pg_sage_info" "pg_sage_connection_up" "pg_sage_findings_open" "pg_sage_collector_cycles")
     local found_count=0
     for m in "${expected_metrics[@]}"; do
         if echo "$prom_metrics" | grep -q "$m"; then

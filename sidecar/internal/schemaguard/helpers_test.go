@@ -4,10 +4,9 @@ import "time"
 
 func testPolicy() Policy {
 	return Policy{
-		AllowFKIndexApply:          true,
-		AllowRetentionApply:        true,
-		AllowRedundantIndexCleanup: true,
-		OscillationLimit:           3,
+		AllowFKIndexApply:   true,
+		AllowRetentionApply: true,
+		OscillationLimit:    3,
 	}
 }
 

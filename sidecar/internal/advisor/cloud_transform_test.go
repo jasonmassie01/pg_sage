@@ -5,7 +5,21 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/managedparam"
 )
+
+// cloudContexts is the pg_settings context PostgreSQL reports for the
+// settings these tests change: the managed rewrite routes on it.
+var cloudContexts = []collector.PGSetting{
+	{Name: "work_mem", Context: "user"},
+	{Name: "max_wal_size", Context: "sighup"},
+	{Name: "full_page_writes", Context: "sighup"},
+	{Name: "checkpoint_timeout", Context: "sighup"},
+	{Name: "max_connections", Context: "postmaster"},
+	{Name: "shared_buffers", Context: "postmaster"},
+	{Name: "wal_level", Context: "postmaster"},
+}
 
 func TestTransformForCloud_SelfManaged_NoChanges(t *testing.T) {
 	findings := []analyzer.Finding{
@@ -39,7 +53,7 @@ func TestTransformForCloud_RDS_RewritesToAlterDatabase(t *testing.T) {
 	findings := []analyzer.Finding{
 		{RecommendedSQL: "ALTER SYSTEM SET work_mem = '64MB'"},
 	}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(result))
 	}
@@ -50,15 +64,35 @@ func TestTransformForCloud_RDS_RewritesToAlterDatabase(t *testing.T) {
 	}
 }
 
-func TestTransformForCloud_CloudSQL_RewritesToAlterDatabase(t *testing.T) {
+// max_wal_size is a sighup setting: PostgreSQL refuses ALTER DATABASE SET
+// for it (55P02), so Cloud SQL gets a database-flag intent and no SQL.
+func TestTransformForCloud_CloudSQL_MaxWALSizeBecomesManagedIntent(t *testing.T) {
 	findings := []analyzer.Finding{
 		{RecommendedSQL: "ALTER SYSTEM SET max_wal_size = '4GB'"},
 	}
-	result := TransformForCloud(findings, "cloud-sql", "postgres")
-	expected := `ALTER DATABASE "postgres" SET max_wal_size = '4GB'`
+	result := TransformForCloud(findings, "cloud-sql", "postgres", cloudContexts)
+	if result[0].RecommendedSQL != "" || result[0].RollbackSQL != "" {
+		t.Fatalf("expected no SQL, got %q / %q",
+			result[0].RecommendedSQL, result[0].RollbackSQL)
+	}
+	in, ok := managedparam.IntentFromDetail(result[0].Detail)
+	if !ok || in.Provider != "cloud-sql" || in.Parameter != "max_wal_size" ||
+		in.Value != "4GB" {
+		t.Fatalf("expected a Cloud SQL max_wal_size intent, got %+v (ok=%v)", in, ok)
+	}
+}
+
+func TestTransformForCloud_CloudSQL_WorkMemRewritesToAlterDatabase(t *testing.T) {
+	findings := []analyzer.Finding{
+		{RecommendedSQL: "ALTER SYSTEM SET work_mem = '32MB'"},
+	}
+	result := TransformForCloud(findings, "cloud-sql", "postgres", cloudContexts)
+	expected := `ALTER DATABASE "postgres" SET work_mem = '32MB'`
 	if result[0].RecommendedSQL != expected {
-		t.Fatalf("expected %q, got %q",
-			expected, result[0].RecommendedSQL)
+		t.Fatalf("expected %q, got %q", expected, result[0].RecommendedSQL)
+	}
+	if _, ok := managedparam.IntentFromDetail(result[0].Detail); ok {
+		t.Fatal("a user-context setting needs no managed intent")
 	}
 }
 
@@ -66,7 +100,7 @@ func TestTransformForCloud_Aurora_RewritesToAlterDatabase(t *testing.T) {
 	findings := []analyzer.Finding{
 		{RecommendedSQL: "ALTER SYSTEM SET work_mem = '128MB'"},
 	}
-	result := TransformForCloud(findings, "aurora", "proddb")
+	result := TransformForCloud(findings, "aurora", "proddb", cloudContexts)
 	expected := `ALTER DATABASE "proddb" SET work_mem = '128MB'`
 	if result[0].RecommendedSQL != expected {
 		t.Fatalf("expected %q, got %q",
@@ -78,7 +112,7 @@ func TestTransformForCloud_AlloyDB_RewritesToAlterDatabase(t *testing.T) {
 	findings := []analyzer.Finding{
 		{RecommendedSQL: "ALTER SYSTEM SET work_mem = '64MB'"},
 	}
-	result := TransformForCloud(findings, "alloydb", "testdb")
+	result := TransformForCloud(findings, "alloydb", "testdb", cloudContexts)
 	expected := `ALTER DATABASE "testdb" SET work_mem = '64MB'`
 	if result[0].RecommendedSQL != expected {
 		t.Fatalf("expected %q, got %q",
@@ -90,7 +124,7 @@ func TestTransformForCloud_Azure_RewritesToAlterDatabase(t *testing.T) {
 	findings := []analyzer.Finding{
 		{RecommendedSQL: "ALTER SYSTEM SET work_mem = '64MB'"},
 	}
-	result := TransformForCloud(findings, "azure", "azuredb")
+	result := TransformForCloud(findings, "azure", "azuredb", cloudContexts)
 	expected := `ALTER DATABASE "azuredb" SET work_mem = '64MB'`
 	if result[0].RecommendedSQL != expected {
 		t.Fatalf("expected %q, got %q",
@@ -102,7 +136,7 @@ func TestTransformForCloud_RollbackSQL_Generated(t *testing.T) {
 	findings := []analyzer.Finding{
 		{RecommendedSQL: "ALTER SYSTEM SET work_mem = '64MB'"},
 	}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	expectedRollback := `ALTER DATABASE "mydb" RESET work_mem`
 	if result[0].RollbackSQL != expectedRollback {
 		t.Fatalf("expected rollback %q, got %q",
@@ -114,7 +148,7 @@ func TestTransformForCloud_AlterSystemReset_Rewritten(t *testing.T) {
 	findings := []analyzer.Finding{
 		{RecommendedSQL: "ALTER SYSTEM RESET work_mem"},
 	}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	expected := `ALTER DATABASE "mydb" RESET work_mem`
 	if result[0].RecommendedSQL != expected {
 		t.Fatalf("expected %q, got %q",
@@ -132,7 +166,7 @@ func TestTransformForCloud_RestartRequired_DropsSQL(t *testing.T) {
 			Recommendation: "Increase max_connections",
 		},
 	}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(result))
 	}
@@ -193,7 +227,7 @@ func TestTransformForCloud_EmptySQL_Passthrough(t *testing.T) {
 			Recommendation: "Everything looks fine",
 		},
 	}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	if len(result) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(result))
 	}
@@ -210,7 +244,7 @@ func TestTransformForCloud_AlterTable_NotRewritten(t *testing.T) {
 			RecommendedSQL: "ALTER TABLE public.orders SET (autovacuum_vacuum_scale_factor = 0.02)",
 		},
 	}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	if result[0].RecommendedSQL != findings[0].RecommendedSQL {
 		t.Fatalf("expected ALTER TABLE to pass through, got: %s",
 			result[0].RecommendedSQL)
@@ -224,7 +258,7 @@ func TestTransformForCloud_MixedFindings(t *testing.T) {
 		{RecommendedSQL: "ALTER TABLE public.t SET (fillfactor = 90)"},
 		{RecommendedSQL: ""},
 	}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	if len(result) != 4 {
 		t.Fatalf("expected 4 findings, got %d", len(result))
 	}
@@ -255,7 +289,7 @@ func TestTransformForCloud_HyphenatedDBName_Quoted(t *testing.T) {
 	}
 	// Callers pass raw (unquoted) db names;
 	// QuoteIdentifier handles quoting.
-	result := TransformForCloud(findings, "rds", "my-db")
+	result := TransformForCloud(findings, "rds", "my-db", cloudContexts)
 	expected := `ALTER DATABASE "my-db" SET work_mem = '64MB'`
 	if result[0].RecommendedSQL != expected {
 		t.Fatalf("expected %s, got: %s",
@@ -309,7 +343,7 @@ func TestTransformForCloud_AllPlatforms(t *testing.T) {
 			findings := []analyzer.Finding{
 				{RecommendedSQL: "ALTER SYSTEM SET work_mem = '64MB'"},
 			}
-			result := TransformForCloud(findings, p, "testdb")
+			result := TransformForCloud(findings, p, "testdb", cloudContexts)
 			if !strings.HasPrefix(result[0].RecommendedSQL, "ALTER DATABASE") {
 				t.Fatalf("expected ALTER DATABASE on %s, got: %s",
 					p, result[0].RecommendedSQL)
@@ -325,7 +359,7 @@ func TestTransformForCloud_RollbackSQL_ClearedForRestart(t *testing.T) {
 			RollbackSQL:    "ALTER SYSTEM SET max_connections = 100",
 		},
 	}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	if result[0].RollbackSQL != "" {
 		t.Fatalf("expected empty rollback SQL for restart-required GUC, got: %s",
 			result[0].RollbackSQL)
@@ -341,7 +375,7 @@ func TestTransformForCloud_RestrictedSetting_FullPageWrites(t *testing.T) {
 		RecommendedSQL: "ALTER SYSTEM SET full_page_writes = off;",
 		Severity:       "warning",
 	}}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	if len(result) != 1 {
 		t.Fatalf("len = %d", len(result))
 	}
@@ -381,7 +415,7 @@ func TestTransformForCloud_NonRestrictedSetting_Passes(t *testing.T) {
 		RecommendedSQL: "ALTER SYSTEM SET work_mem = '256MB';",
 		Severity:       "warning",
 	}}
-	result := TransformForCloud(findings, "rds", "mydb")
+	result := TransformForCloud(findings, "rds", "mydb", cloudContexts)
 	if result[0].RecommendedSQL == "" {
 		t.Error("work_mem should not be restricted, SQL should be present")
 	}

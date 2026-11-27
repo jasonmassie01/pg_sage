@@ -5,58 +5,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/config"
 )
-
-// corsMiddleware handles CORS for local dev mode only.
-// The dashboard is served from the same origin in production,
-// so CORS headers are only needed when the Vite dev server
-// runs on a different port. We restrict to localhost origins.
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if isAllowedOrigin(origin) {
-			w.Header().Set(
-				"Access-Control-Allow-Origin", origin,
-			)
-			w.Header().Set(
-				"Access-Control-Allow-Methods",
-				"GET, POST, PUT, DELETE, OPTIONS",
-			)
-			w.Header().Set(
-				"Access-Control-Allow-Headers",
-				"Content-Type, Authorization",
-			)
-			w.Header().Set(
-				"Access-Control-Allow-Credentials", "true",
-			)
-		}
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// isAllowedOrigin returns true for same-origin (empty) or
-// localhost origins used during development. Note: the session
-// cookie has Secure: true, but browsers treat localhost as a
-// "potentially trustworthy" origin (W3C Secure Contexts spec),
-// so Secure cookies are sent over http://localhost.
-func isAllowedOrigin(origin string) bool {
-	if origin == "" {
-		return false
-	}
-	switch origin {
-	case "http://localhost:5173",
-		"http://localhost:8080",
-		"http://127.0.0.1:5173",
-		"http://127.0.0.1:8080":
-		return true
-	}
-	return false
-}
 
 // maxBodyMiddleware wraps r.Body with a size limit for
 // non-GET/HEAD requests to prevent memory exhaustion.
@@ -74,7 +25,9 @@ func maxBodyMiddleware(next http.Handler) http.Handler {
 
 // securityHeadersMiddleware sets standard security headers
 // on every response. HSTS and CSP are excluded as they
-// require deployment-specific configuration.
+// require deployment-specific configuration. Cache-Control:
+// no-store keeps tokens, grants and data out of browser and
+// proxy caches; the SSE stream alone replaces it with no-cache.
 func securityHeadersMiddleware(
 	next http.Handler,
 ) http.Handler {
@@ -91,6 +44,7 @@ func securityHeadersMiddleware(
 		w.Header().Set(
 			"Permissions-Policy",
 			"camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -115,6 +69,15 @@ const defaultRequestTimeout = 30 * time.Second
 func timeoutMiddleware(
 	next http.Handler,
 ) http.Handler {
+	return routeTimeoutMiddleware(next, defaultRequestTimeout)
+}
+
+// routeTimeoutMiddleware is timeoutMiddleware with askTimeout for
+// POST /api/v1/databases/{db}/ask (ask.max_seconds_per_question plus
+// askRouteSlack); every other route keeps defaultRequestTimeout.
+func routeTimeoutMiddleware(
+	next http.Handler, askTimeout time.Duration,
+) http.Handler {
 	return http.HandlerFunc(func(
 		w http.ResponseWriter, r *http.Request,
 	) {
@@ -125,15 +88,54 @@ func timeoutMiddleware(
 			next.ServeHTTP(w, r)
 			return
 		}
-		ctx, cancel := context.WithTimeout(
-			r.Context(), defaultRequestTimeout)
+		timeout := defaultRequestTimeout
+		if isAskQuestion(r) {
+			timeout = askTimeout
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
+// askRouteSlack is what the ask route's deadline adds to the question's
+// wall clock, for reading the conversation and storing the answer.
+const askRouteSlack = 5 * time.Second
+
+// askRequestTimeout is the ask route's request deadline under cfg (the
+// default setting when cfg is nil).
+func askRequestTimeout(cfg *config.Config) time.Duration {
+	seconds := config.DefaultAskMaxSecondsPerQuestion
+	if cfg != nil && cfg.Ask.MaxSecondsPerQuestion > 0 {
+		seconds = cfg.Ask.MaxSecondsPerQuestion
+	}
+	return time.Duration(seconds)*time.Second + askRouteSlack
+}
+
+// isAskQuestion is POST /api/v1/databases/{db}/ask with a non-empty {db}.
+func isAskQuestion(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/databases/")
+	if !ok {
+		return false
+	}
+	db, ok := strings.CutSuffix(rest, "/ask")
+	return ok && db != "" && !strings.Contains(db, "/")
+}
+
+// multipartExempt are the routes that take a multipart/form-data upload.
+var multipartExempt = map[string]bool{
+	"/api/v1/databases/managed/import":   true,
+	"/api/v1/sre/autonomy/bench-results": true,
+}
+
 // requireJSONMiddleware rejects POST/PUT/PATCH requests
-// that do not send Content-Type: application/json.
+// that do not send Content-Type: application/json. The multipart CSV
+// import and the signed bench upload (benches-09) are exempt; the
+// cross-origin check, not this one, is what keeps a same-site HTML form
+// from reaching them (apiauth-10).
 func requireJSONMiddleware(
 	next http.Handler,
 ) http.Handler {
@@ -144,7 +146,7 @@ func requireJSONMiddleware(
 		case http.MethodPost, http.MethodPut,
 			http.MethodPatch:
 			ct := r.Header.Get("Content-Type")
-			if r.URL.Path == "/api/v1/databases/managed/import" &&
+			if multipartExempt[r.URL.Path] &&
 				strings.HasPrefix(ct, "multipart/form-data") {
 				break
 			}

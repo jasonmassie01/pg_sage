@@ -1,6 +1,16 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Fragment, useState, useEffect, useCallback } from 'react'
 import { SSOGrantNotice, UserSSOCell } from './users/UserSSOControls'
 import { grantLinkURL, issueSSOLinkGrant, unlinkUserSSO } from './users/ssoApi'
+import { DisabledBadge, UserStatusButton } from './users/UserStatusControls'
+import { deleteUser, setUserDisabled } from './users/userAdminApi'
+import { useConfirm } from '../hooks/useConfirm'
+import { useConfirmTarget } from '../hooks/useConfirmTarget'
+import {
+  ResetPasswordButton, ResetPasswordDialog, TempPasswordNotice,
+} from './users/UserPasswordReset'
+import { resetUserPassword } from './users/passwordApi'
+import { DatabaseGrantsButton, UserDatabaseGrants } from './users/UserDatabaseGrants'
+import { formatTime } from '../lib/time'
 
 export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const platformManaged = authMode === 'databricks_app'
@@ -12,6 +22,17 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   const [creating, setCreating] = useState(false)
   const [ssoOnly, setSSOOnly] = useState(false)
   const [grant, setGrant] = useState(null)
+  const { askConfirm, dialog } = useConfirm()
+  const [reset, setReset] = useState(null)
+  const [grantsOpen, setGrantsOpen] = useState(null)
+  const resetConfirm = useConfirmTarget({
+    perform: user => {
+      setError(null)
+      setReset(null)
+      return resetUserPassword(user.id)
+    },
+    onDone: (user, data) => setReset({ email: user.email, password: data.temporary_password }),
+  })
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -58,13 +79,30 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   }
 
   async function handleDelete(id, userEmail) {
-    if (!confirm(`Delete user ${userEmail}?`)) return
+    const ok = await askConfirm({
+      title: `Delete user ${userEmail}`, action: 'Delete',
+      consequence: 'Deleting cannot be undone. Deactivating instead keeps their '
+        + 'history attributable and can be undone.',
+    })
+    if (!ok) return
+    setError(null)
     try {
-      const res = await fetch(`/api/v1/users/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      })
-      if (!res.ok) throw new Error('Failed to delete user')
+      await deleteUser(id)
+      fetchUsers()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleStatus(user) {
+    const disable = !user.disabled
+    if (disable && !await askConfirm({
+      title: `Deactivate ${user.email}`, action: 'Deactivate',
+      consequence: 'They are signed out everywhere and their MCP tokens are revoked.',
+    })) return
+    setError(null)
+    try {
+      await setUserDisabled(user.id, disable)
       fetchUsers()
     } catch (err) {
       setError(err.message)
@@ -90,7 +128,11 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
   }
 
   async function handleUnlink(user) {
-    if (!confirm(`Unlink SSO from ${user.email}? Their sessions end.`)) return
+    const ok = await askConfirm({
+      title: `Unlink SSO from ${user.email}`, action: 'Unlink',
+      consequence: 'Their sessions end.',
+    })
+    if (!ok) return
     setError(null)
     try {
       await unlinkUserSSO(user.id)
@@ -117,15 +159,18 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
     border: '1px solid var(--border)',
     color: 'var(--text-primary)',
   }
-  const adminCount = users.filter(u => u.role === 'admin').length
+  // Only enabled admins count: a deactivated admin holds no admin power.
+  const adminCount = users.filter(u => u.role === 'admin' && !u.disabled).length
 
   return (
     <div>
+      {dialog}
+      <ResetPasswordDialog reset={resetConfirm} />
       {error && (
         <div className="text-sm p-3 rounded mb-4"
           style={{
             background: 'rgba(239,68,68,0.1)',
-            color: '#ef4444',
+            color: 'var(--red)',
             border: '1px solid rgba(239,68,68,0.3)',
           }}>
           {error}
@@ -133,6 +178,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
       )}
 
       {!platformManaged && <SSOGrantNotice grant={grant} onDismiss={() => setGrant(null)} />}
+      {!platformManaged && <TempPasswordNotice reset={reset} onDismiss={() => setReset(null)} />}
 
       {platformManaged && (
         <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
@@ -203,7 +249,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
             data-testid="add-user-submit"
             className="px-4 py-1.5 rounded text-sm font-medium"
             style={{
-              background: 'var(--accent)',
+              background: 'var(--accent-solid)',
               color: '#fff',
             }}>
             {creating ? 'Adding...' : 'Add User'}
@@ -222,7 +268,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
               {['Email', 'Role', platformManaged ? 'Sign-in' : 'SSO', 'Created', 'Last Login',
                 ...(!platformManaged ? [''] : [])].map(
                 h => (
-                  <th key={h} className="text-left px-4 py-2 text-xs"
+                  <th scope="col" key={h} className="text-left px-4 py-2 text-xs"
                     style={{ color: 'var(--text-secondary)' }}>
                     {h}
                   </th>
@@ -234,7 +280,7 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
             {users.map(u => {
               const isCurrentUser = currentUser?.id === u.id
               const isLastAdmin =
-                u.role === 'admin' && adminCount <= 1
+                u.role === 'admin' && !u.disabled && adminCount <= 1
               const roleLocked = isCurrentUser || isLastAdmin
               const lockTitle = isCurrentUser
                 ? 'You cannot change your own admin role'
@@ -242,13 +288,15 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                   ? 'At least one admin must remain'
                   : undefined
               return (
-              <tr key={u.id}
+              <Fragment key={u.id}>
+              <tr
                 style={{
                   borderBottom: '1px solid var(--border)',
                 }}>
                 <td className="px-4 py-2"
                   style={{ color: 'var(--text-primary)' }}>
                   {u.email}
+                  <DisabledBadge user={u} />
                 </td>
                 <td className="px-4 py-2">
                   <select value={u.role}
@@ -274,15 +322,25 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                 </td>
                 <td className="px-4 py-2"
                   style={{ color: 'var(--text-secondary)' }}>
-                  {new Date(u.created_at).toLocaleDateString()}
+                  {formatTime(u.created_at)}
                 </td>
                 <td className="px-4 py-2"
                   style={{ color: 'var(--text-secondary)' }}>
                   {u.last_login
-                    ? new Date(u.last_login).toLocaleString()
+                    ? formatTime(u.last_login)
                     : 'Never'}
                 </td>
                 {!platformManaged && <td className="px-4 py-2 text-right">
+                  <UserStatusButton user={u}
+                    locked={!u.disabled && (isCurrentUser || isLastAdmin)}
+                    lockTitle={isCurrentUser
+                      ? 'You cannot deactivate your own account'
+                      : 'At least one enabled admin must remain'}
+                    onToggle={handleStatus} />
+                  <ResetPasswordButton user={u} isCurrentUser={isCurrentUser}
+                    onReset={resetConfirm.open} />
+                  <DatabaseGrantsButton user={u} open={grantsOpen === u.id}
+                    onToggle={id => setGrantsOpen(grantsOpen === id ? null : id)} />
                   <button
                     onClick={() => handleDelete(u.id, u.email)}
                     disabled={isCurrentUser || isLastAdmin}
@@ -301,6 +359,10 @@ export function UsersPage({ currentUser, authMode = currentUser?.auth_mode }) {
                   </button>
                 </td>}
               </tr>
+              {grantsOpen === u.id && u.role !== 'admin' && <tr>
+                <td colSpan={6}><UserDatabaseGrants user={u} /></td>
+              </tr>}
+              </Fragment>
               )
             })}
           </tbody>

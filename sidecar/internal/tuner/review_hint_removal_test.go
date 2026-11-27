@@ -16,6 +16,10 @@ func prepareHintTables(t *testing.T, pool *pgxpool.Pool, ids []int64) {
 		`CREATE TABLE IF NOT EXISTS hint_plan.hints (
 			id serial PRIMARY KEY, query_id bigint NOT NULL,
 			application_name text NOT NULL, hints text NOT NULL)`,
+		// pg_hint_plan 1.7 ships this unique index; without it the fixture
+		// accepted duplicate rows the real extension rejects.
+		`CREATE UNIQUE INDEX IF NOT EXISTS hints_id_and_app
+			ON hint_plan.hints (query_id, application_name)`,
 	} {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
 			t.Fatalf("prepare hint_plan: %v", err)
@@ -58,7 +62,7 @@ func TestHintRemovalFindings_RetiredAndBrokenOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ready := &HintPlanAvailability{Available: true, HintTableReady: true}
+	ready := &HintPlanAvailability{ApplicationEffect: true, HintTableReady: true}
 	tu := New(pool, TunerConfig{}, ready, noopLog2)
 	findings := tu.hintRemovalFindings(ctx)
 	var got []string
@@ -73,9 +77,9 @@ func TestHintRemovalFindings_RetiredAndBrokenOnly(t *testing.T) {
 		t.Fatalf("removal findings = %v, want [queryid:9001 queryid:9002]", got)
 	}
 	for _, f := range findings {
-		want := BuildDeleteSQL(9001)
+		want := BuildDeleteSQL(9001, "HashJoin(a b)")
 		if f.ObjectIdentifier == "queryid:9002" {
-			want = BuildDeleteSQL(9002)
+			want = BuildDeleteSQL(9002, "HashJoin(a b)")
 		}
 		if f.RecommendedSQL != want {
 			t.Errorf("%s SQL = %q, want %q", f.ObjectIdentifier, f.RecommendedSQL, want)

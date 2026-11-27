@@ -5,116 +5,6 @@ import (
 	"testing"
 )
 
-func TestHasParamPlaceholder(t *testing.T) {
-	tests := []struct {
-		name  string
-		query string
-		want  bool
-	}{
-		{"single $1", "SELECT * FROM t WHERE id = $1", true},
-		{"no placeholder", "SELECT * FROM t WHERE id = 1", false},
-		{"multiple placeholders", "SELECT $1, $2", true},
-		{"empty string", "", false},
-		{
-			"dollar sign inside string literal",
-			"SELECT * FROM t WHERE name = 'has $1 in string'",
-			true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := hasParamPlaceholder(tt.query)
-			if got != tt.want {
-				t.Errorf(
-					"hasParamPlaceholder(%q) = %v, want %v",
-					tt.query, got, tt.want,
-				)
-			}
-		})
-	}
-}
-
-// ---------- normalizeQuery ----------
-
-func TestNormalizeQuery(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			"collapse whitespace",
-			"SELECT  *   FROM  t",
-			"SELECT * FROM t",
-		},
-		{
-			"strip line comment",
-			"SELECT * FROM t -- comment\nWHERE id = 1",
-			"SELECT * FROM t WHERE id = 1",
-		},
-		{
-			"strip block comment",
-			"SELECT /* block comment */ * FROM t",
-			"SELECT * FROM t",
-		},
-		{
-			"trim leading and trailing whitespace",
-			"  SELECT * FROM t  ",
-			"SELECT * FROM t",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeQuery(tt.input)
-			if got != tt.want {
-				t.Errorf(
-					"normalizeQuery(%q)\n  got  %q\n  want %q",
-					tt.input, got, tt.want,
-				)
-			}
-		})
-	}
-}
-
-// ---------- queryHash ----------
-
-func TestQueryHash(t *testing.T) {
-	t.Run("same query same hash", func(t *testing.T) {
-		h1 := queryHash("SELECT * FROM t", nil)
-		h2 := queryHash("SELECT * FROM t", nil)
-		if h1 != h2 {
-			t.Errorf("identical queries produced different hashes: %d vs %d", h1, h2)
-		}
-	})
-
-	t.Run("different queries different hashes", func(t *testing.T) {
-		h1 := queryHash("SELECT * FROM t", nil)
-		h2 := queryHash("SELECT * FROM other_table", nil)
-		if h1 == h2 {
-			t.Error("different queries produced the same hash")
-		}
-	})
-
-	t.Run("same query different params different hashes", func(t *testing.T) {
-		h1 := queryHash("SELECT * FROM t WHERE id = $1", []string{"1"})
-		h2 := queryHash("SELECT * FROM t WHERE id = $1", []string{"2"})
-		if h1 == h2 {
-			t.Error("same query with different params produced the same hash")
-		}
-	})
-
-	t.Run("comments stripped before hashing", func(t *testing.T) {
-		h1 := queryHash("SELECT * FROM t", nil)
-		h2 := queryHash("SELECT * FROM t -- with comment", nil)
-		if h1 != h2 {
-			t.Errorf(
-				"query with stripped comment produced different hash: %d vs %d",
-				h1, h2,
-			)
-		}
-	})
-}
-
 // ---------- explainSQL ----------
 
 func TestExplainSQL(t *testing.T) {
@@ -365,8 +255,9 @@ func TestBuildResult(t *testing.T) {
 		if result.ActualTimeMs == nil {
 			t.Fatal("ActualTimeMs is nil, expected populated")
 		}
-		if *result.ActualTimeMs != 8.3 {
-			t.Errorf("ActualTimeMs = %f, want 8.3", *result.ActualTimeMs)
+		// tuning-10: the statement's Execution Time, not the root node's.
+		if *result.ActualTimeMs != 8.72 {
+			t.Errorf("ActualTimeMs = %f, want 8.72", *result.ActualTimeMs)
 		}
 		if result.PlanningTimeMs == nil {
 			t.Fatal("PlanningTimeMs is nil, expected populated")

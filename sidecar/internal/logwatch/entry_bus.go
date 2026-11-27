@@ -5,6 +5,7 @@ package logwatch
 type entryBuffer struct {
 	database string
 	entries  []LogEntry
+	evicted  int // entries pushed out unread since the last TakeEvicted
 }
 
 // EntrySubscriber receives parsed entries from the same FileWatcher that
@@ -39,17 +40,19 @@ func (fw *FileWatcher) publishEntry(entry LogEntry) {
 		if buffer.database != "" && buffer.database != entry.Database {
 			continue
 		}
-		buffer.entries = appendEntryCapped(buffer.entries, entry)
+		buffer.append(entry)
 	}
 }
 
-func appendEntryCapped(entries []LogEntry, entry LogEntry) []LogEntry {
-	if len(entries) < maxBufferSize {
-		return append(entries, entry)
+// append queues entry; a full buffer evicts its oldest entry and counts it.
+func (b *entryBuffer) append(entry LogEntry) {
+	if len(b.entries) < maxBufferSize {
+		b.entries = append(b.entries, entry)
+		return
 	}
-	copy(entries, entries[1:])
-	entries[len(entries)-1] = entry
-	return entries
+	copy(b.entries, b.entries[1:])
+	b.entries[len(b.entries)-1] = entry
+	b.evicted++
 }
 
 // Drain returns each queued entry once for this subscriber.
@@ -66,6 +69,23 @@ func (s *EntrySubscriber) Drain() []LogEntry {
 	entries := buffer.entries
 	buffer.entries = nil
 	return entries
+}
+
+// TakeEvicted returns how many entries a full buffer evicted unread since
+// the last call, and starts the count again.
+func (s *EntrySubscriber) TakeEvicted() int {
+	if s == nil || s.watcher == nil {
+		return 0
+	}
+	s.watcher.entryMu.Lock()
+	defer s.watcher.entryMu.Unlock()
+	buffer := s.watcher.entries[s.id]
+	if buffer == nil {
+		return 0
+	}
+	n := buffer.evicted
+	buffer.evicted = 0
+	return n
 }
 
 // Stop unregisters the subscriber and releases its backlog.

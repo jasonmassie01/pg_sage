@@ -54,7 +54,7 @@ func specialistRouter(t *testing.T, rt *RuntimeDeps, user *auth.User,
 			next.ServeHTTP(w, r)
 		})
 	})
-	return NewRouterFullRuntime(nil, config.DefaultConfig(), nil, nil, nil, nil, rt, mws...)
+	return newTestRouter(nil, config.DefaultConfig(), nil, nil, nil, nil, rt, mws...)
 }
 
 func TestSpecialistContractIsLeftToItsBearerCheck(t *testing.T) {

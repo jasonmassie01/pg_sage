@@ -1,17 +1,20 @@
-// MCP v2: admins create and revoke the scoped MCP API tokens coding agents
-// (Claude Code, Cursor) use to reach pg_sage. Admin only: App.jsx gates the
-// route and Layout hides the nav link from other roles.
+// MCP v2: admins list and revoke every MCP API token, and create operator
+// tokens: a person's own token for Claude Code or Cursor, acting for its
+// owner. A coding agent's token is minted per agent on the Agents page
+// (agentgov-01). Admin only: it is the MCP tokens tab of Agents (ux-11),
+// which other roles never get. Agent requests moved to the Inbox and ledger.
 import { useCallback, useEffect, useState } from 'react'
-import { ExternalAgentRequests } from './mcptokens/ExternalAgentRequests'
+import { useConfirm } from '../hooks/useConfirm'
 import { SecretNotice } from './mcptokens/SecretNotice'
 import { TokenForm } from './mcptokens/TokenForm'
 import { TokenTable } from './mcptokens/TokenTable'
 import { createToken, listTokens, revokeToken } from './mcptokens/tokenApi'
+import { useOwners } from './mcptokens/useOwners'
 
 const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
 const errorStyle = {
   background: 'rgba(239,68,68,0.1)',
-  color: '#ef4444',
+  color: 'var(--red)',
   border: '1px solid rgba(239,68,68,0.3)',
 }
 
@@ -23,12 +26,26 @@ function Explainer() {
         MCP for coding agents
       </h2>
       <p>
-        A token lets a coding agent such as Claude Code or Cursor read pg_sage&apos;s
-        findings and propose fixes over MCP. Agent tokens can read and propose but
-        never approve; an operator token acts for its owner and may approve.
-        Every proposal still goes through pg_sage&apos;s trust gates. See docs/mcp.md
-        for setup and the tools each scope unlocks.
+        A token lets an MCP client such as Claude Code or Cursor read pg_sage&apos;s
+        issues and propose fixes. The tokens created here are operator tokens: each
+        acts for its owner, an operator or admin, and may approve. Agent tokens can
+        read and propose but never approve. Every proposed change still goes through
+        pg_sage&apos;s trust gates. See docs/mcp.md for setup and the tools each scope
+        unlocks.
       </p>
+    </div>
+  )
+}
+
+function AgentsBanner() {
+  return (
+    <div data-testid="mcp-tokens-agents-banner" className="rounded-lg p-3 mb-4 text-sm"
+      style={{ ...card, color: 'var(--text-primary)' }}>
+      Tokens for coding agents are issued per agent on the Agents page.{' '}
+      <a data-testid="mcp-tokens-agents-link" href="#/agents" className="underline"
+        style={{ color: 'var(--accent)' }}>
+        Open Agents
+      </a>
     </div>
   )
 }
@@ -52,6 +69,7 @@ function useTokenList() {
 
 function useRevoke(replace, setError) {
   const [revokingIds, setRevokingIds] = useState(() => new Set())
+  const { askConfirm, dialog } = useConfirm()
   const mark = (id, on) => setRevokingIds(prev => {
     const next = new Set(prev)
     if (on) next.add(id)
@@ -60,9 +78,11 @@ function useRevoke(replace, setError) {
   })
   async function revoke(token) {
     if (revokingIds.has(token.id)) return
-    if (!confirm(`Revoke MCP token "${token.name}"? Agents using it lose access now.`)) {
-      return
-    }
+    const ok = await askConfirm({
+      title: `Revoke MCP token "${token.name}"`, action: 'Revoke',
+      consequence: 'Agents using this token lose access now.',
+    })
+    if (!ok) return
     setError(null)
     mark(token.id, true)
     try {
@@ -73,7 +93,7 @@ function useRevoke(replace, setError) {
       mark(token.id, false)
     }
   }
-  return { revokingIds, revoke }
+  return { revokingIds, revoke, dialog }
 }
 
 function useCreate(load) {
@@ -98,7 +118,7 @@ function useCreate(load) {
   return { created, creating, formError, create, dismiss: () => setCreated(null) }
 }
 
-function TokenList({ list, revokingIds, onRevoke }) {
+function TokenList({ list, owners, revokingIds, onRevoke }) {
   if (list.error) {
     return (
       <div data-testid="mcp-tokens-error" className="text-sm p-3 rounded" style={errorStyle}>
@@ -115,24 +135,27 @@ function TokenList({ list, revokingIds, onRevoke }) {
       </div>
     )
   }
-  return <TokenTable tokens={list.tokens} now={list.at} revokingIds={revokingIds}
-    onRevoke={onRevoke} />
+  return <TokenTable tokens={list.tokens} now={list.at} owners={owners}
+    revokingIds={revokingIds} onRevoke={onRevoke} />
 }
 
 export function MCPTokensPage() {
   const list = useTokenList()
+  const owners = useOwners()
   const [actionError, setActionError] = useState(null)
-  const { revokingIds, revoke } = useRevoke(list.replace, setActionError)
+  const { revokingIds, revoke, dialog } = useRevoke(list.replace, setActionError)
   const { created, creating, formError, create, dismiss } = useCreate(list.load)
   return (
     <div data-testid="mcp-tokens-page">
       <Explainer />
+      <AgentsBanner />
       <SecretNotice created={created} onDismiss={dismiss} />
       <div className="rounded-lg p-4 mb-6" style={card}>
         <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
           Create MCP token
         </h2>
-        <TokenForm onCreate={create} creating={creating} error={formError} />
+        <TokenForm onCreate={create} creating={creating} error={formError}
+          owners={owners} />
       </div>
       {actionError && (
         <div data-testid="mcp-tokens-action-error" role="alert"
@@ -140,8 +163,9 @@ export function MCPTokensPage() {
           {actionError}
         </div>
       )}
-      <TokenList list={list} revokingIds={revokingIds} onRevoke={revoke} />
-      <ExternalAgentRequests />
+      <TokenList list={list} owners={owners.owners} revokingIds={revokingIds}
+        onRevoke={revoke} />
+      {dialog}
     </div>
   )
 }

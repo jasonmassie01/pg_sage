@@ -16,6 +16,15 @@ var (
 	ErrDuplicateName = errors.New("agentguard: principal name already exists")
 	// ErrSponsorNotFound is a sponsor_user_id with no sage.users row (422).
 	ErrSponsorNotFound = errors.New("agentguard: sponsor user not found")
+	// ErrSponsorNotEligible is a sponsor who is not an enabled operator or
+	// admin (422): a viewer is accountable for nothing.
+	ErrSponsorNotEligible = errors.New(
+		"agentguard: the sponsor must be an enabled operator or admin")
+	// ErrSponsorChangeFrozen is a sponsor change while the principal has an
+	// open freeze (409 sponsor_change_frozen): the unfreeze sign-off reads
+	// the sponsor, so it is fixed until the freeze is lifted.
+	ErrSponsorChangeFrozen = errors.New(
+		"agentguard: the sponsor cannot change while the principal is frozen; unfreeze it first")
 	// ErrRetired is an operation on a retired principal (409).
 	ErrRetired = errors.New("agentguard: principal is retired")
 	// ErrUnavailable is no control database (503 / -32010 unavailable).

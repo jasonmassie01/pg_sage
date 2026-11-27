@@ -63,6 +63,7 @@ func dropIndexFinding(index string) analyzer.Finding {
 	return analyzer.Finding{
 		Category: "duplicate_index", ObjectType: "index", ObjectIdentifier: index,
 		RecommendedSQL: "DROP INDEX CONCURRENTLY " + index,
+		Detail:         map[string]any{"ladder": rehearsedLadder()},
 	}
 }
 
@@ -194,7 +195,7 @@ func recordExecute(
 		Reason: policy.ReasonAuthorized, RiskTier: policy.RiskModerate,
 		BudgetKind: policy.BudgetKindFor(req), RowsRewritten: rows}
 	recorded, err := ledger.NewService(ledger.NewPostgresRepository(pool)).
-		RecordDecision(ctx, ledgerInput(nil, 1, req, decision))
+		RecordDecision(ctx, ledgerInputAt(nil, 1, req, decision))
 	if err != nil {
 		t.Fatalf("record execute decision: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestLedgerInputStampsBudgetAndIgnoresSpoofedEvidence(t *testing.T) {
 		"budget_released": true, "budget_detail": "fake"}
 	perf := findingRequest(createIndexFinding("public.t"), false)
 	perf.Evidence = spoofed
-	input := ledgerInput(nil, 1, perf, policy.Decision{Verdict: policy.VerdictExecute,
+	input := ledgerInputAt(nil, 1, perf, policy.Decision{Verdict: policy.VerdictExecute,
 		BudgetKind: policy.BudgetPerformance, RowsRewritten: 500})
 	if input.Evidence["budget_kind"] != "performance" ||
 		input.Evidence["rows_rewritten"] != int64(500) {
@@ -277,7 +278,7 @@ func TestLedgerInputStampsBudgetAndIgnoresSpoofedEvidence(t *testing.T) {
 		t.Fatalf("evidence = %v, want no budget detail on an execute", input.Evidence)
 	}
 	drop := findingRequest(dropIndexFinding("public.idx"), false)
-	parked := ledgerInput(nil, 1, drop, policy.Decision{Verdict: policy.VerdictPark,
+	parked := ledgerInputAt(nil, 1, drop, policy.Decision{Verdict: policy.VerdictPark,
 		Reason: policy.ReasonBlastRadiusExceeded, BudgetKind: policy.BudgetHygiene,
 		Detail: "hygiene budget full: 11 of 10 tables"})
 	if parked.Evidence["budget_kind"] != "hygiene" ||
@@ -285,7 +286,7 @@ func TestLedgerInputStampsBudgetAndIgnoresSpoofedEvidence(t *testing.T) {
 		t.Fatalf("parked evidence = %v, want kind hygiene and the budget detail",
 			parked.Evidence)
 	}
-	bare := ledgerInput(nil, 1, policy.ActionRequest{SQL: "ANALYZE public.t"},
+	bare := ledgerInputAt(nil, 1, policy.ActionRequest{SQL: "ANALYZE public.t"},
 		policy.Decision{Verdict: policy.VerdictBlocked, Reason: policy.ReasonNoTypedContract})
 	if bare.Evidence["budget_kind"] != "performance" {
 		t.Fatalf("no contract: evidence = %v, want performance (fail closed)", bare.Evidence)

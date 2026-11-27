@@ -42,7 +42,7 @@ func TestDefaultsWithoutLLMWireDeterministicRuntime(t *testing.T) {
 	if rt.llmOn {
 		t.Fatal("llmOn = true with no endpoint or key")
 	}
-	if agent := rt.newTuningAgent(false, nil); agent != nil {
+	if agent := rt.newTuningAgent(nil); agent != nil {
 		t.Error("tuning agent built without a usable LLM")
 	}
 	if adv := rt.newAdvisor(); adv != nil {
@@ -64,7 +64,7 @@ func TestDefaultsWithLLMWireLLMComponents(t *testing.T) {
 	if !rt.llmOn {
 		t.Fatal("llmOn = false with endpoint and key configured")
 	}
-	if rt.newTuningAgent(false, nil) == nil {
+	if rt.newTuningAgent(nil) == nil {
 		t.Error("tuning agent not built with a usable LLM")
 	}
 	if rt.newAdvisor() == nil {
@@ -87,7 +87,7 @@ func TestExplicitOptOutsWinWithConfiguredLLM(t *testing.T) {
 	rt := standaloneDefaultsRuntime(t, "http://127.0.0.1:1/v1", "fixture-key")
 	cfg.Tuning.Enabled = false
 	cfg.Advisor.Enabled = false
-	if rt.newTuningAgent(false, nil) != nil || rt.newAdvisor() != nil {
+	if rt.newTuningAgent(nil) != nil || rt.newAdvisor() != nil {
 		t.Error("explicit tuning/advisor false ignored")
 	}
 	if rt.newCollector().CollectsConfigSnapshots() {
@@ -102,21 +102,32 @@ func TestExplicitOptOutsWinWithConfiguredLLM(t *testing.T) {
 	}
 }
 
-// captureStderr returns what fn writes to os.Stderr.
+// swapStderr sets os.Stderr to f and returns the previous file. It holds
+// the log lock, under which logStructured reads os.Stderr: a runtime
+// worker the test started may log while the test swaps.
+func swapStderr(f *os.File) *os.File {
+	logOutputMu.Lock()
+	defer logOutputMu.Unlock()
+	previous := os.Stderr
+	os.Stderr = f
+	return previous
+}
+
+// captureStderr returns what fn writes to os.Stderr, with what runtime
+// workers log while fn runs.
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
-	original := os.Stderr
-	os.Stderr = writer
+	original := swapStderr(writer)
 	done := make(chan string)
 	go func() {
 		data, _ := io.ReadAll(reader)
 		done <- string(data)
 	}()
-	defer func() { os.Stderr = original }()
+	defer swapStderr(original)
 	fn()
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close pipe: %v", err)

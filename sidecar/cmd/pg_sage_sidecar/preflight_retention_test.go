@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/schemaguard"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -65,10 +67,11 @@ func TestPreflightRetentionHonorsRuntimeControls(t *testing.T) {
 	}
 }
 
-// preflightRunRetentionCycles wires the executor exactly as startup does
-// (standing policy enabled), runs a first schema-guard cycle that records the
-// dry run, ages that dry run past its review window, and returns the result
-// of the second (apply) cycle.
+// preflightRunRetentionCycles wires the executor and the database's
+// autonomy workers exactly as startup does (standing policy enabled), then
+// drives the worker tick by tick: the first cycle's schema guard records the
+// dry run, the test ages that dry run past its review window, and the result
+// of the second (apply) cycle's schema guard scan is returned.
 func preflightRunRetentionCycles(
 	t *testing.T, p *pgxpool.Pool, table, control string,
 ) error {
@@ -97,11 +100,8 @@ func preflightRunRetentionCycles(
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = executor.SetEmergencyStop(ctx, p, false, "test") })
-	supervisor, err := newDatabaseAutonomy(p, c, "preflight", e)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := supervisor.TriggerSchemaGuard(ctx, "preflight"); err != nil {
+	cycles := startPreflightCycles(t, p, c, e)
+	if err := cycles.next(t); err != nil {
 		t.Fatalf("dry-run cycle: %v", err)
 	}
 	tag, err := p.Exec(ctx, `UPDATE sage.retention_run
@@ -111,7 +111,79 @@ func preflightRunRetentionCycles(
 	if err != nil || tag.RowsAffected() != 1 {
 		t.Fatalf("age dry run: rows=%d err=%v", tag.RowsAffected(), err)
 	}
-	return supervisor.TriggerSchemaGuard(ctx, "preflight")
+	return cycles.next(t)
+}
+
+// preflightCycles drives one database's autonomy worker through its Tick
+// channel and hands back each cycle's schema guard scan result.
+type preflightCycles struct {
+	ticks chan time.Time
+	scans chan error
+}
+
+// startPreflightCycles builds the database's autonomy workers as startup
+// does, swaps the interval ticker for a test tick channel, records each
+// schema guard scan's error, and starts the supervisor until the test ends.
+func startPreflightCycles(
+	t *testing.T, p *pgxpool.Pool, c *config.Config, e *executor.Executor,
+) *preflightCycles {
+	t.Helper()
+	workers, err := databaseAutonomyWorkers(p, c, "preflight", e,
+		newFreezeCustodian(p, c, "preflight"), checkedHAMonitor(t, p), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cycles := &preflightCycles{ticks: make(chan time.Time), scans: make(chan error, 8)}
+	workers.Tick = cycles.ticks
+	workers.Schema = preflightScanRecorder{inner: workers.Schema, scans: cycles.scans}
+	supervisor, err := superviseDatabaseAutonomy(workers, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	supervisor.Start(ctx)
+	t.Cleanup(func() {
+		cancel()
+		drain, stop := context.WithTimeout(context.Background(), 30*time.Second)
+		defer stop()
+		if err := supervisor.Shutdown(drain); err != nil {
+			t.Errorf("drain preflight autonomy: %v", err)
+		}
+	})
+	return cycles
+}
+
+// next sends one tick and waits for that cycle's schema guard scan.
+func (c *preflightCycles) next(t *testing.T) error {
+	t.Helper()
+	select {
+	case c.ticks <- time.Now():
+	case <-time.After(time.Minute):
+		t.Fatal("autonomy worker did not take the tick within 1m")
+	}
+	select {
+	case err := <-c.scans:
+		return err
+	case <-time.After(3 * time.Minute):
+		t.Fatal("schema guard cycle did not finish within 3m")
+	}
+	return nil
+}
+
+// preflightScanRecorder passes scans through to the real schema guard and
+// records each one's error, which a ticked worker would otherwise only log.
+type preflightScanRecorder struct {
+	inner autonomy.SchemaGuard
+	scans chan<- error
+}
+
+func (r preflightScanRecorder) Scan(ctx context.Context) (schemaguard.CycleResult, error) {
+	result, err := r.inner.Scan(ctx)
+	select {
+	case r.scans <- err:
+	default:
+	}
+	return result, err
 }
 
 func preflightRuntimePool(t *testing.T) *pgxpool.Pool {

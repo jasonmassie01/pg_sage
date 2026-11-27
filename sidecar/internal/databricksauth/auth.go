@@ -10,10 +10,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	databricks "github.com/databricks/databricks-sdk-go"
 	sdkconfig "github.com/databricks/databricks-sdk-go/config"
+	"github.com/databricks/databricks-sdk-go/service/postgres"
 	"github.com/databricks/databricks-sdk-go/service/sql"
+	"github.com/pg-sage/sidecar/internal/appmode"
 )
 
 var workspaceOnce sync.Once
@@ -21,19 +24,33 @@ var workspaceClient *databricks.WorkspaceClient
 var workspaceErr error
 var workspaceMetadata atomic.Pointer[AuthMetadata]
 
-// AuthMetadata reports configuration and a past successful authentication only.
-// It never contains tokens, secrets, or a claim that a cached token is still valid.
+// AuthMetadata reports configuration and the latest authentication outcomes.
+// It never contains tokens, secrets, error text, or a claim that a cached token
+// is still valid. AuthenticationObserved means the last successful Authorize is
+// newer than the last failed one.
 type AuthMetadata struct {
-	Provider                  string `json:"provider"`
-	Workspace                 string `json:"workspace,omitempty"`
-	PrincipalID               string `json:"principal_id,omitempty"`
-	PrincipalKind             string `json:"principal_kind,omitempty"`
-	AuthenticationObserved    bool   `json:"authentication_observed"`
-	RestartRequiredForChanges bool   `json:"restart_required_for_changes"`
+	Provider                  string     `json:"provider"`
+	Workspace                 string     `json:"workspace,omitempty"`
+	PrincipalID               string     `json:"principal_id,omitempty"`
+	PrincipalKind             string     `json:"principal_kind,omitempty"`
+	AuthenticationObserved    bool       `json:"authentication_observed"`
+	RestartRequiredForChanges bool       `json:"restart_required_for_changes"`
+	LastAuthSuccessAt         *time.Time `json:"last_auth_success_at,omitempty"`
+	LastAuthFailureAt         *time.Time `json:"last_auth_failure_at,omitempty"`
+	// LastFailureClass is FailureConfig, FailureOrigin or FailureAuthenticate.
+	LastFailureClass string `json:"last_failure_class,omitempty"`
 }
 
+// Authorize failure classes. They name the step that failed, never the cause.
+const (
+	FailureConfig       = "config"
+	FailureOrigin       = "origin"
+	FailureAuthenticate = "authenticate"
+)
+
+// AppMode reports whether the process runs inside Databricks Apps.
 func AppMode() bool {
-	return os.Getenv("SAGE_AUTH_MODE") == "databricks_app" || os.Getenv("DATABRICKS_APP_PORT") != ""
+	return appmode.InApps(os.Getenv)
 }
 
 func appSDKConfig(getenv func(string) string) (*sdkconfig.Config, error) {
@@ -94,6 +111,16 @@ func StatementExecution() (sql.StatementExecutionInterface, error) {
 	return w.StatementExecution, nil
 }
 
+// Postgres exposes the SDK Lakebase (Postgres) service of the unified-auth
+// workspace, for the lakebase_branch clone provider (market-03).
+func Postgres() (postgres.PostgresInterface, error) {
+	w, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+	return w.Postgres, nil
+}
+
 // WorkspaceOrigin binds external resource scopes to the actual SDK workspace.
 func WorkspaceOrigin() (string, error) {
 	w, err := workspace()
@@ -126,23 +153,63 @@ func workspace() (*databricks.WorkspaceClient, error) {
 	return workspaceClient, workspaceErr
 }
 
-// Authorize refreshes workspace authentication through the official SDK. Only
-// the configured workspace origin may receive these credentials.
-func Authorize(req *http.Request) error {
+// workspaceAuth returns the SDK workspace host and its request authenticator;
+// tests replace it with a fake.
+var workspaceAuth = func() (string, func(*http.Request) error, error) {
 	w, err := workspace()
 	if err != nil {
-		return fmt.Errorf("configure Databricks unified authentication: %w", err)
+		return "", nil, err
 	}
-	if err := validateOrigin(req.URL, w.Config.Host); err != nil {
-		return err
+	return w.Config.Host, w.Config.Authenticate, nil
+}
+
+// authNow is the clock for authentication outcomes; tests replace it.
+var authNow = time.Now
+
+// authOutcomeMu serializes outcome updates so concurrent requests never lose
+// one; readers load the published metadata without it.
+var authOutcomeMu sync.Mutex
+
+// Authorize refreshes workspace authentication through the official SDK. Only
+// the configured workspace origin may receive these credentials. Every call
+// records its outcome for the deployment status.
+func Authorize(req *http.Request) error {
+	class, err := authorize(req)
+	recordAuthOutcome(class)
+	return err
+}
+
+// authorize reports the failure class ("" on success) with the error.
+func authorize(req *http.Request) (string, error) {
+	host, authenticate, err := workspaceAuth()
+	if err != nil {
+		return FailureConfig, fmt.Errorf("configure Databricks unified authentication: %w", err)
 	}
-	if err := w.Config.Authenticate(req); err != nil {
-		return fmt.Errorf("authenticate Databricks request: %w", err)
+	if err := validateOrigin(req.URL, host); err != nil {
+		return FailureOrigin, err
 	}
+	if err := authenticate(req); err != nil {
+		return FailureAuthenticate, fmt.Errorf("authenticate Databricks request: %w", err)
+	}
+	return "", nil
+}
+
+// recordAuthOutcome stores a success (class "") or a failure of class. The
+// time is read under the lock, so recorded times only move forward.
+func recordAuthOutcome(class string) {
+	authOutcomeMu.Lock()
+	defer authOutcomeMu.Unlock()
 	metadata := CurrentAuthMetadata()
-	metadata.AuthenticationObserved = true
+	at := authNow().UTC()
+	if class == "" {
+		metadata.LastAuthSuccessAt = &at
+	} else {
+		metadata.LastAuthFailureAt, metadata.LastFailureClass = &at, class
+	}
+	success, failure := metadata.LastAuthSuccessAt, metadata.LastAuthFailureAt
+	metadata.AuthenticationObserved = success != nil &&
+		(failure == nil || success.After(*failure))
 	workspaceMetadata.Store(&metadata)
-	return nil
 }
 
 func validateOrigin(target *url.URL, workspaceHost string) error {

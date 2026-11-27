@@ -95,6 +95,48 @@ func (r Result) Text(maxRows int) string {
 	return strings.Join(lines, "\n")
 }
 
+// GroundingValues are the values a claim citing this result may quote,
+// each one exact token as Text renders it: the row values of at most
+// maxRows rows (null, booleans and unknown floats carry no number), then
+// the reason and error. The head line, row count and ordinals are
+// formatting, not values.
+func (r Result) GroundingValues(maxRows int) []string {
+	var out []string
+	cols := r.columns()
+	for i, row := range r.Rows {
+		if i == maxRows {
+			break
+		}
+		for _, c := range cols {
+			if v, ok := groundingValue(row[c]); ok {
+				out = append(out, v)
+			}
+		}
+	}
+	for _, s := range []string{r.Reason, r.Error} {
+		if s != "" {
+			out = append(out, truncateText(s))
+		}
+	}
+	return out
+}
+
+func groundingValue(v any) (string, bool) {
+	switch x := v.(type) {
+	case nil, bool:
+		return "", false
+	case float64:
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return "", false
+		}
+	case float32:
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
+			return "", false
+		}
+	}
+	return FormatValue(v), true
+}
+
 func (r Result) columns() []string {
 	if len(r.Columns) > 0 {
 		return r.Columns

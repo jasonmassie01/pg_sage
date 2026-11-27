@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // Bounds of a what-if request.
@@ -38,8 +39,8 @@ type WhatIfResult struct {
 var createIndexPattern = regexp.MustCompile(`(?is)^CREATE\s+(UNIQUE\s+)?INDEX\b`)
 
 // WhatIfIndex plans the statements with and without a hypothetical index
-// (HypoPG, session-local: nothing is built). Without HypoPG the result
-// says so instead of failing.
+// (HypoPG, session-local: nothing is built). Without HypoPG, or for an
+// access method HypoPG cannot model, the result says so instead of failing.
 func (t *Tools) WhatIfIndex(ctx context.Context, req WhatIfRequest) (WhatIfResult, error) {
 	if err := t.ready(); err != nil {
 		return WhatIfResult{}, err
@@ -53,7 +54,13 @@ func (t *Tools) WhatIfIndex(ctx context.Context, req WhatIfRequest) (WhatIfResul
 	}
 	res := WhatIfResult{QueryIDs: req.QueryIDs}
 	hypo := optimizer.NewHypoPG(t.pool, t.opts.Log)
-	if !hypo.IsAvailable(ctx) {
+	available := hypo.IsAvailable(ctx)
+	if reason := optimizer.HypoPGCannotModel(ddl); reason != "" {
+		res.Available, res.Verdict, res.Reason = available, optimizer.WhatIfUnverified, reason
+		res.Note = "No hypothetical index was planned: HypoPG cannot model this access method."
+		return res, nil
+	}
+	if !available {
 		res.Note = "HypoPG is not installed in this database, so no hypothetical index " +
 			"was planned; install the hypopg extension to compare plans."
 		return res, nil
@@ -89,12 +96,12 @@ func indexDDL(raw string) (string, error) {
 	if len(ddl) > maxDDLBytes {
 		return "", invalid("ddl is longer than %d bytes", maxDDLBytes)
 	}
-	scan, err := scanSQL(ddl)
+	scan, err := sqlast.ScanSQL(ddl)
 	if err != nil {
 		return "", invalid("ddl: %v", err)
 	}
-	if scan.statements != 1 {
-		return "", invalid("ddl must be one statement, got %d", scan.statements)
+	if scan.Statements != 1 {
+		return "", invalid("ddl must be one statement, got %d", scan.Statements)
 	}
 	ddl = strings.TrimSpace(strings.TrimRight(ddl, "; \t\r\n"))
 	if !createIndexPattern.MatchString(ddl) {

@@ -7,15 +7,11 @@ for feature-specific permissions, limitations and test evidence. This page
 covers packaging, installation, updates and recovery; it does not convert the
 application to AppKit or require a custom runtime container.
 
-The current release is **2.5.0**. The acceptance report for its last development
-build, [2.5.0-dev.14](../reviews/2026-11-02-v2.5-dev14-acceptance.md), covers the
-descriptions beside each tab's meme. The [dev.13 report](../reviews/2026-11-02-v2.5-dev13-acceptance.md)
-records the 50-meme shuffle and standalone Settings correction. The
-[dev.11–12 report](../reviews/2026-11-02-v2.5-dev12-acceptance.md) retains the
-earlier authentication, telemetry and event-stream evidence. The App remains in
-Observation mode with metadata-only telemetry. Acceptance is scoped to each deployment;
-it does not certify every Lakebase extension, cloud, privilege or long-duration
-scenario. Older release evidence remains linked from the matrix and reports.
+The current release is **2.6.0**. The App runs in Observation mode with
+metadata-only telemetry. Acceptance is scoped to each deployment; it does not
+certify every Lakebase extension, cloud, privilege or long-duration scenario.
+Dated acceptance reports are in the
+[evidence appendix](lakebase-evidence.md#databricks-apps-guide).
 
 Follow the sections in order for a new installation. For an existing App, read
 [resource preservation](#keep-all-resources-and-identity-settings) and
@@ -35,6 +31,12 @@ platform users start as viewers, and existing platform-bound users retain their
 pg_sage roles. Other local accounts require a reviewed identity migration;
 matching an email does not automatically link them. Visiting first does not
 grant administration.
+
+The binary fails closed on its own as well as through `launch.py`: when
+`DATABRICKS_APP_PORT` is set and `SAGE_AUTH_MODE` is not `databricks_app`
+(unset, `session` or anything else), pg_sage exits 1 at startup with an error
+naming `SAGE_AUTH_MODE=databricks_app`, and it never generates or prints a local
+admin password inside Apps. There is no override.
 
 An optional `SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS` audience gate restricts
 protected access to a comma-separated list of exact email domains. Matching is
@@ -80,6 +82,9 @@ ordinary API server timeouts are unchanged. This avoids running an indefinite
 SSE response into the server's absolute write timeout or the Apps proxy's
 long-request limit. Pages also retain their normal polling; reconnecting a
 stream does not prove complete event delivery or continuous source telemetry.
+If the Apps proxy refuses a reconnect (a 502 or 504 during a restart), the
+dashboard opens a new stream with backoff and its header shows "Polling" or
+"Offline" with the age of the data until the stream is live again.
 
 This mode is restricted to the Apps runtime and requires its injected port and
 `DATABRICKS_HOST` (a bare hostname is normalized to HTTPS). Missing platform
@@ -91,6 +96,43 @@ every forwarded identity field is immutable. pg_sage does not infer roles from
 client-supplied role headers or assume the forwarded user ID equals a workspace
 SCIM ID. App service-principal authentication for background Lakebase/Gateway
 operations remains separate from the current viewer's identity.
+
+### Identity pin
+
+An App account is keyed on the forwarded email, and an IdP can give a departed
+employee's address to someone else. pg_sage therefore pins the
+`X-Forwarded-User` value the Apps proxy sends beside the email: the first time an
+account is seen with that header, it stores the hex SHA-256 of the workspace
+origin and the value in `sage.users.databricks_user_pin` (never the raw value).
+Later requests compare the value with the pin. The account is still selected by
+email, the audience check still runs before any lookup, and roles never come
+from headers. A request without the header (or with an empty value) behaves as
+it did before; two or more `X-Forwarded-User` values return HTTP 401.
+
+`SAGE_DATABRICKS_APP_IDENTITY_PIN` selects what a changed value does:
+
+| Value | Behavior |
+|---|---|
+| `log` (default) | Writes a warning and a `databricks_app_identity_changed` auth audit event with `refused: false`, then lets the request through. |
+| `enforce` | Writes the same event with `refused: true` and returns HTTP 403 `databricks_app_identity_changed`. |
+| `off` | Never reads or writes the pin. |
+
+Any other value stops startup. The audit event carries the user ID and the first
+12 hex characters of the stored and seen pins, never an email or forwarded
+value. One changed identity is recorded once an hour per process, so a polling
+dashboard does not flood the audit chain. Set the variable in the App's
+`app.yaml` environment. Ship in `log` and move to `enforce` only after checking
+that one user's `X-Forwarded-User` stays the same across two sign-ins and a
+browser restart in your workspace; the public header reference does not promise
+it is stable.
+
+To relink after reviewing an event (for example, the IdP really did reissue the
+user's ID), an administrator calls `POST /api/v1/users/{id}/identity-pin/reset`.
+It clears the pin, writes a `databricks_app_pin_reset` audit event naming the
+administrator, and returns `{"status":"reset","previously_pinned":true|false}`;
+the user's next request pins its current value. If the only administrator is
+locked out in `enforce` mode, restart the App with
+`SAGE_DATABRICKS_APP_IDENTITY_PIN=log`, reset the pin, then restore `enforce`.
 
 In Apps mode the outbound SDK is pinned to `oauth-m2m`, using the platform's
 injected workspace, client ID and client secret. The launcher and native SDK
@@ -105,18 +147,35 @@ provider choices remain available outside Apps.
 
 `/api/v1/llm/status` reports each client's auth mode and endpoint origin, plus
 safe SDK provider/workspace/principal metadata. `authentication_observed` means
-the adapter previously authenticated a workspace HTTP request; it does not
-promise that a cached token is currently valid. Credentials and token expiry
-values are not exposed. The cached workspace/provider configuration requires
-a process restart to change.
+the last workspace HTTP request the adapter authenticated succeeded, and no
+later one failed; it does not promise that a cached token is currently valid.
+`last_auth_success_at`, `last_auth_failure_at` and `last_failure_class`
+(`config`, `origin` or `authenticate`, never the error text) give the times
+behind it. Credentials are never exposed, and `/api/v1/llm/status` reports no
+expiry. The cached workspace/provider configuration requires a process restart
+to change.
 
 Administrators can retrieve `/api/v1/deployment/status` for an allowlisted
 snapshot of the active global AI/SRE/source/action configuration after persisted
 overrides. It includes configuration generation and safe flags, never the
-configuration's secrets, DSNs or raw provider payloads. The response explicitly
-excludes per-database overrides and runtime liveness; those require separate
-runtime checks. `/api/v1/lakebase-observability/status` reports the telemetry
-runtime's sanitized state to authenticated viewers without returning events.
+configuration's secrets, DSNs or raw provider payloads. It excludes
+per-database overrides. `runtime_liveness` is `partial`: the `databricks` block
+reports runtime health, and other readers still need separate checks:
+
+| Field | Meaning |
+|---|---|
+| `databricks.active` | `true` in App mode, with a Lakebase OAuth endpoint, Lakebase telemetry, or Gateway LLM auth |
+| `databricks.endpoints[]` | Per Lakebase endpoint: `endpoint`, `last_minted_at`, `expires_at`, `consecutive_mint_failures`, `last_error_class`, and scale-to-zero: `suspend_timeout_seconds`, `compute_state`, `compute_observed_at`, `keeps_compute_active`, `scale_to_zero_blockers` (null when not yet observed; see the [cost model](lakebase.md#cost-model)). Expiry times only, never tokens. `[]` when there is none |
+| `databricks.gateway` | `authentication_observed`, `last_auth_success_at`, `last_auth_failure_at`, `last_failure_class` |
+| `databricks.telemetry` | The per-binding telemetry projection from `/api/v1/lakebase-observability/status`; `{}` when no reader runs |
+
+`last_error_class` is one of `bad_credential`, `timeout`, `canceled`,
+`unauthenticated`, `permission_denied`, `not_found`, `throttled`, `unavailable`
+or `mint_error`. The Settings General tab shows this block to administrators
+as the Databricks runtime card, which warns on mint failures, an expired
+credential or a failing Gateway. `/api/v1/lakebase-observability/status`
+reports the telemetry runtime's sanitized state to authenticated viewers
+without returning events.
 
 Optional MCP, specialist, legacy signed SLI/change-event ingestion and local token
 issuance return `501 databricks_app_protocol_unsupported` after platform
@@ -155,7 +214,13 @@ pg_sage database when that behavior is wanted. An App principal without
 native Gateway integration do not require granting that privilege.
 
 The launcher maps `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, and `PGSSLMODE` to
-pg_sage's existing connection settings. `PGUSER` defaults to the injected
+pg_sage's existing connection settings. Lakebase OAuth requires
+`sslmode=verify-full`: an injected `PGSSLMODE=require` is raised to
+`verify-full` (strictly stronger, logged once on stderr), an absent
+`PGSSLMODE` defaults to `verify-full`, and any other weaker mode, or an
+explicit `SAGE_PG_SSLMODE` below `verify-full`, stops the launcher before
+pg_sage starts. pg_sage itself sees `PGSSLMODE=verify-full`, so a
+`SAGE_DATABASE_URL` without `sslmode` also verifies the endpoint. `PGUSER` defaults to the injected
 `DATABRICKS_CLIENT_ID`. `SAGE_LAKEBASE_ENDPOINT` is the full endpoint resource
 path (`projects/.../branches/.../endpoints/...`); `LAKEBASE_ENDPOINT` and
 `ENDPOINT_NAME` are accepted launcher aliases. Native Go unified authentication
@@ -170,6 +235,55 @@ selected Databricks CLI profile instead. A single `SAGE_LAKEBASE_ENDPOINT` appli
 to every pool in the process, including a separate metadata database. For
 different endpoint hosts, use the native `SAGE_LAKEBASE_ENDPOINTS` hostname-to-
 resource JSON map in a custom deployment instead of the single-endpoint launcher.
+
+### Service principals and MCP
+
+Agents cannot reach pg_sage inside an App yet. `/mcp`, `/api/v1/mcp`, the
+specialist API, signed ingestion and agent-token issuance return
+`501 databricks_app_protocol_unsupported` after platform authentication, even
+when MCP is enabled in the configuration. A request whose `X-Forwarded-Email`
+is not an email address (for example a service principal's application ID)
+gets HTTP 401, so a service principal never becomes a pg_sage user account by
+accident. No other forwarded header, bearer token or forwarded access token
+selects an identity.
+
+Opening MCP to service principals waits on a spike (databricks-09): nobody has
+yet recorded which headers the Apps proxy sets for a caller with an OAuth M2M
+token, or whether it removes client-supplied copies. The planned build maps a
+platform-verified application ID to an administrator-created agent principal
+through `sage.guard_identity_bindings` under the issuer
+`<workspace>/databricks-apps-sp` (never the user namespace, never
+auto-provisioned), serves read-only MCP tools first and sends action tools
+through the existing approvals. It ships only after the spike says go.
+
+To run the spike in a test workspace, deploy
+[`deploy/databricks-apps/header-spike`](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/header-spike/app.py)
+as its own temporary App (never beside pg_sage) and give a test service
+principal `CAN_USE` on it. The App answers every path with the headers it
+received; credential headers show only their length and a fixed set of JWT
+identity claims (`sub`, `iss`, `aud`, `azp`, `client_id`, `email`, `scope`,
+`exp`, `iat`), never the token. Make these calls and keep each JSON response:
+
+| Call | How |
+|---|---|
+| U1 | A workspace user opens `https://<app-url>/whoami` in the browser. |
+| S1 | `curl -H "Authorization: Bearer $SP_TOKEN" https://<app-url>/mcp`, with an M2M token from `https://<workspace-host>/oidc/v1/token`. |
+| S2 | S1 plus forged `X-Forwarded-Email: forged-spike@example.invalid`, `X-Forwarded-User: forged-spike`, `X-Forwarded-Preferred-Username: forged-spike` and `X-Forwarded-Access-Token: forged.forged.forged`. |
+| S3 | S1 again with a newly minted token. |
+| S4 | S1 again after redeploying the spike App. |
+| S5 | U1 and S1 with user authorization scopes configured on the App, to see whether `X-Forwarded-Access-Token` appears. |
+
+The answer is **go** only when S2 shows every forged header removed or
+replaced (one value, not the forged one) and either one forwarded header
+carries the service principal's application ID, distinct from any user
+email and identical across S1, S3 and S4, or the forwarded access token is a
+JWT issued by the workspace whose `sub` or `client_id` is the application ID
+(the build then verifies that token's signature instead of trusting a
+header). Anything else is **no-go**, and agent transports stay 501. Record the
+date, cloud and CLI version and the captures, with real emails and IDs
+replaced by placeholders, in Q7 of
+[the Lakebase gap-closure review](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-gap-closure-plan.md),
+then delete the spike App.
 
 ## Establish the operator inputs
 
@@ -192,7 +306,7 @@ PG_SAGE_APP="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["
 ```
 
 Create the settings file from
-[`settings.example.json`](../deploy/databricks-apps/settings.example.json), edit
+[`settings.example.json`](https://github.com/jasonmassie01/pg_sage/blob/master/deploy/databricks-apps/settings.example.json), edit
 it outside version control, and fill actual resource references before running
 that block. No value in angle brackets is a deployable identifier. A fresh
 package directory is required: `package.py` refuses an existing output directory.
@@ -616,6 +730,44 @@ An App RUNNING state alone does not establish useful collection or AI access.
 | Repeated restart exit 42 | Launcher stops after more than five requests in 60 seconds. Inspect the restart-requiring setting and logs rather than masking a restart loop. |
 | Request times out at the platform | Check current proxy limits and use the existing asynchronous investigation/status flow. Do not assume a client timeout proves that a submitted operation did not run. |
 
+## Prometheus metrics
+
+Apps exposes only the App port, so the launcher sets
+`prometheus.serve_on_api: true` and `prometheus.listen_addr: ""` whatever the
+base configuration says, and refuses `SAGE_PROMETHEUS_ADDR` and
+`SAGE_PROMETHEUS_PORT`. `GET /metrics` on the App URL then passes the platform
+ingress like every other request: pg_sage trusts only the forwarded Databricks
+identity, never a bearer token of its own (the proxy may consume the
+`Authorization` header). Any pg_sage role may scrape, so a scraper's identity
+needs only the viewer role that pg_sage gives a new App identity on its first
+request; do not raise it to operator or admin for metrics. An identity outside
+the App audience gets 403, and a missing identity 401, without metric names.
+
+Prometheus authenticates to the App as a service principal that has
+`CAN_USE` on the App, with an OAuth access token from the workspace. A token
+file refreshed by your own job works with `authorization.credentials_file`;
+Prometheus can also fetch the token itself with the client-credentials
+`oauth2` block (the token endpoint and scope below are the usual Databricks
+M2M values; confirm them for your workspace):
+
+```yaml
+scrape_configs:
+  - job_name: pg_sage_app
+    scheme: https
+    metrics_path: /metrics
+    oauth2:
+      client_id: <service-principal-application-id>
+      client_secret_file: /etc/prometheus/pg_sage_app_sp_secret
+      token_url: https://<workspace-host>/oidc/v1/token
+      scopes: [all-apis]
+    static_configs:
+      - targets: ["<app-url-host>"]
+```
+
+Whether the platform forwards a service principal's identity in a form
+pg_sage accepts (an email address) has not been verified on a live App yet:
+check that the first scrape returns 200 before relying on alerts.
+
 ## Retained SRE history
 
 With `lakebase_observability` configured, the investigator's `read_history`
@@ -653,7 +805,7 @@ hashes/citations and eight unchanged action/approval ledgers.
 The advisory outcomes were inconclusive; no database cause or remediation was
 established. `allow_payload: false` remained active. This accepts structured
 retained history and its citations; App raw-plan-cache ingestion and complete
-telemetry remain unproven. The [dev.5 report](../reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence)
+telemetry remain unproven. The [dev.5 report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence)
 records artifact/event identities and preserved transport/cleanup failures.
 
 ## Application SLI ingestion
@@ -702,7 +854,7 @@ Authenticated viewers can read `/api/v1/sre/slos?database=<name>` and
 configuration flags/counts; individual status exposes the target and burn
 rules. The global config API does not expose every startup SRE field, so
 validate the reviewed deployment configuration as well as runtime behavior.
-The [dev.5 App SLO acceptance](../reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass)
+The [dev.5 App SLO acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass)
 passed fifteen real-time samples across seven minutes, replay/refusal checks,
 both burn windows, a cited real-Gateway case and actual stopped-source staleness
 after 123.06 seconds. Eight action/approval ledgers were unchanged and exact
@@ -735,7 +887,7 @@ exact object, preserving a same-name replacement. **It cannot restore prior
 ANALYZE statistics.** Structural success establishes neither performance
 improvement nor incident recovery and earns no value/autonomy credit.
 
-The [native maintenance lifecycle](../reviews/2026-10-30-sre-maintenance.md)
+The [native maintenance lifecycle](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-sre-maintenance.md)
 passed on an owned PG18 fixture as the native user role. App-principal
 maintenance execution remains unproven; no broad workload-table grants or
 ownership transfer is implied by deployment.
@@ -787,10 +939,11 @@ checks. Record each result and any unproven item explicitly:
   action/approval ledgers. Remove only owned fixture rows and the temporary
   objective while preserving the case; synthetic data makes no production
   customer-impact claim. These scoped dev.5 checks
-  [passed on the dedicated development App](../reviews/2026-10-30-app-slo-acceptance.md);
+  [passed on the dedicated development App](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-app-slo-acceptance.md);
   overall final deployment acceptance is tracked separately.
-- SIGTERM shuts down cleanly within the platform allowance. The optional
-  secondary Prometheus listener is not exposed by Apps' single public port.
+- SIGTERM shuts down cleanly within the platform allowance. The launcher
+  opens no secondary Prometheus listener; `/metrics` is served on the App
+  port ([Prometheus metrics](#prometheus-metrics)).
 
 The standard test suite includes backend, frontend and local PostgreSQL fixture
 coverage beyond these deployment checks. Passing that suite cannot certify

@@ -540,7 +540,9 @@ func TestPhase2_ScanPlan_BadNestedLoop(t *testing.T) {
 		"Plan Rows": 10,
 		"Actual Rows": 10000,
 		"Actual Loops": 1,
-		"Plans":[]
+		"Plans":[
+			{"Node Type":"Seq Scan","Plan Rows":10,"Actual Rows":10,"Actual Loops":1},
+			{"Node Type":"Index Scan","Plan Rows":1,"Actual Rows":1,"Actual Loops":10000}]
 	}}]`
 	symptoms, err := ScanPlan([]byte(plan))
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/chatops"
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
@@ -19,8 +20,8 @@ import (
 // fixtures and redirects bound changes to source-fix packets; the
 // optimizer, advisor and investigator prompts carry confirmed facts; a
 // worker imports earlier declarations, runs the detectors (and the model,
-// when an LLM is configured), sends a fact card for every new proposal
-// and re-verifies facts against the catalog.
+// when an LLM is configured) and re-verifies facts against the catalog;
+// every new proposal on the pool, whoever made it, sends a fact card.
 
 // Detector and card settings.
 const (
@@ -36,18 +37,42 @@ func newFactStore(pool *pgxpool.Pool) *facts.Store {
 	return facts.NewStore(pool).WithLog(logStructuredWrapper)
 }
 
-// factBinder is the gate's typed view of the database's confirmed facts.
-func (rt *databaseRuntime) factBinder() *facts.Binder {
-	return facts.NewBinder(rt.facts, facts.NewCatalogResolver(rt.spec.Pool), nil)
+// initFacts opens the database's fact store and joins the process's
+// cluster registry for the life of the runtime, so its siblings' gates
+// see its slot facts (facts-02).
+func (rt *databaseRuntime) initFacts() {
+	rt.facts = newFactStore(rt.spec.Pool).WithConfirmedAbsence(
+		time.Duration(factAbsenceDays(rt.cfg)) * 24 * time.Hour)
+	rt.factCluster = processFactClusters.join(rt.ctx,
+		factClusterIdentity(rt.ctx, rt.spec.Pool), rt.spec.Name, rt.facts)
 }
 
-// factFilter applies the confirmed facts to the analyzer's cycles.
+// factBinder is the gate's typed view of the database's confirmed facts and
+// of the slot facts of its sibling databases on the same cluster.
+func (rt *databaseRuntime) factBinder() *facts.Binder {
+	return newClusterFactBinder(rt.spec.Pool, rt.facts, processFactClusters, rt.factCluster)
+}
+
+// factFilter applies the confirmed facts to the analyzer's cycles, with
+// refs resolved against the catalog (a fact on a partitioned table
+// redirects findings on its partitions); its cleanup batches embed
+// activity baselines read from the database.
 func (rt *databaseRuntime) factFilter() *facts.FindingFilter {
-	return facts.NewFindingFilter(rt.facts, logStructuredWrapper)
+	return facts.NewFindingFilter(rt.facts, catalogResolver(rt.spec.Pool),
+		logStructuredWrapper).WithActivity(facts.NewActivityReader(rt.spec.Pool))
 }
 
 // startFacts runs the database's facts worker on the instance worker group.
 func (rt *databaseRuntime) startFacts() {
+	w := facts.NewWorker(rt.facts, rt.factWorkerOptions())
+	rt.start(func() { w.Run(rt.ctx) })
+	rt.note("facts")
+}
+
+// factWorkerOptions are the worker's detectors, model and expiry notice;
+// its proposals' cards go out through the pool's notifier
+// (registerFactCards).
+func (rt *databaseRuntime) factWorkerOptions() facts.WorkerOptions {
 	pool := rt.spec.Pool
 	opts := facts.WorkerOptions{
 		Detectors: []facts.Detector{
@@ -56,8 +81,8 @@ func (rt *databaseRuntime) startFacts() {
 			facts.NewSlotConsumerDetector(pool),
 			facts.NewAppendOnlyDetector(pool, factAppendOnlyMin),
 		},
-		Notify: rt.notifyFact,
-		LogFn:  logStructuredWrapper,
+		NotifyExpired: rt.notifyFactExpired,
+		LogFn:         logStructuredWrapper,
 	}
 	if rt.llmOn {
 		opts.Model = facts.NewModelProposer(rt.generalLLM).WithLog(logStructuredWrapper)
@@ -65,9 +90,21 @@ func (rt *databaseRuntime) startFacts() {
 			return facts.CollectModelEvidence(ctx, pool)
 		}
 	}
-	w := facts.NewWorker(rt.facts, opts)
-	rt.start(func() { w.Run(rt.ctx) })
-	rt.note("facts")
+	return opts
+}
+
+// registerFactCards makes every new or reopened proposal on the database's
+// pool send its fact card, whichever path proposed it: the worker, the
+// first look, MCP propose_fact and mark_object, Ask Sage (facts-09). The
+// registration ends with the runtime.
+func (rt *databaseRuntime) registerFactCards() {
+	unset := facts.SetProposalNotifier(rt.spec.Pool, func(ctx context.Context,
+		f facts.Fact) {
+		if rt.ctx.Err() == nil {
+			rt.notifyFact(ctx, f)
+		}
+	})
+	context.AfterFunc(rt.ctx, unset)
 }
 
 // notifyFact sends the card of a new proposal to the approval channels.
@@ -80,6 +117,32 @@ func (rt *databaseRuntime) notifyFact(ctx context.Context, f facts.Fact) {
 	if err := rt.dispatcher.Dispatch(ctx, notify.FactProposedEvent(ref,
 		factCardBody(f))); err != nil {
 		logWarn(rt.spec.Scope, "db %q: fact card %d not sent: %v", rt.spec.Name, f.ID, err)
+	}
+}
+
+// factAbsenceDays is facts.confirmed_absence_days (its default without a
+// config).
+func factAbsenceDays(cfg *config.Config) int {
+	if cfg == nil || cfg.Facts.ConfirmedAbsenceDays <= 0 {
+		return config.DefaultFactsConfirmedAbsenceDays
+	}
+	return cfg.Facts.ConfirmedAbsenceDays
+}
+
+// notifyFactExpired tells the channels that a confirmed fact expired and
+// no longer binds (facts-08). A proposal's expiry is nobody's loss.
+func (rt *databaseRuntime) notifyFactExpired(ctx context.Context, f facts.Fact) {
+	if rt.dispatcher == nil || !f.ConfirmationLost() {
+		return
+	}
+	x := notify.FactExpiry{Database: rt.spec.Name, FactID: f.ID, Title: f.Describe(),
+		ConfirmedBy: f.DecidedBy, Reason: f.ExpiredReason, MissingSince: f.MissingSince}
+	if f.MissingSince != nil {
+		x.RestoreDays = factAbsenceDays(rt.cfg)
+	}
+	if err := rt.dispatcher.Dispatch(ctx, notify.FactExpiredEvent(x)); err != nil {
+		logWarn(rt.spec.Scope, "db %q: fact %d expiry not notified: %v", rt.spec.Name,
+			f.ID, err)
 	}
 }
 

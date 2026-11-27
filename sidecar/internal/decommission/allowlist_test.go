@@ -13,11 +13,26 @@ import (
 // still name the removed feature or its token prefix must be on the allowlist.
 const legacyNamePattern = `agent[-_]?db|agt_`
 
+// legacyPinnedFiles are files outside the package that must spell a legacy
+// name: the router table and the per-route database scopes pin every
+// registered route, this package's /api/v1/agentdb routes included
+// (apiauth-09, agentgov-11, apiauth-08), and the v2.4.0 and v2.5.0 schema
+// dumps still hold sage.agentdb_decommission (config-04, plan-01a).
+var legacyPinnedFiles = map[string]bool{
+	"sidecar/internal/api/router_table_probes_test.go":      true,
+	"sidecar/internal/api/testdata/router_table.golden":     true,
+	"sidecar/internal/api/testdata/route_scopes.golden":     true,
+	"sidecar/internal/schema/testdata/v2.4.0_sage_dump.sql": true,
+	"sidecar/internal/schema/testdata/v2.5.0_sage_dump.sql": true,
+}
+
 // allowedLegacyReference reports whether a tracked path may still name the
-// removed feature: this package, schema migrations, the changelog and the
-// review archive (AGENTDB-SPEC §10.1 G0-02).
+// removed feature: this package, schema migrations, the changelog, the
+// review archive (AGENTDB-SPEC §10.1 G0-02) and legacyPinnedFiles.
 func allowedLegacyReference(file string) bool {
 	switch {
+	case legacyPinnedFiles[file]:
+		return true
 	case strings.HasPrefix(file, "sidecar/internal/decommission/"),
 		strings.HasPrefix(file, "reviews/"),
 		strings.EqualFold(path.Base(file), "CHANGELOG.md"):
@@ -43,6 +58,11 @@ func TestAllowedLegacyReference(t *testing.T) {
 		"sidecar/internal/schema/migration_helpers.go":                   false,
 		"sidecar/web/src/pages/x.jsx":                                    false,
 		"sidecar/internal/schema/lint/decommission_migration_fixture.go": false,
+		"sidecar/internal/api/testdata/router_table.golden":              true,
+		"sidecar/internal/api/router_table_probes_test.go":               true,
+		"sidecar/internal/api/router_table_test.go":                      false,
+		"sidecar/internal/schema/testdata/v2.4.0_sage_dump.sql":          true,
+		"sidecar/internal/schema/testdata/other_dump.sql":                false,
 	} {
 		if got := allowedLegacyReference(file); got != want {
 			t.Errorf("allowedLegacyReference(%q) = %v, want %v", file, got, want)

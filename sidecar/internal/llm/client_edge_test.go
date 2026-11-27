@@ -53,10 +53,11 @@ func TestClientRetryBackoff(t *testing.T) {
 	}
 }
 
-// TestClientNoRetryOn500 verifies that 500 Internal Server Error is
-// NOT retried (only 429 and 503 are retryable). The error should
-// be returned immediately without wasting tokens on retries.
-func TestClientNoRetryOn500(t *testing.T) {
+// TestClientRetriesOn500 verifies that 500 Internal Server Error is
+// retried like the other transient statuses (llm-02; before it, 500
+// returned at once). The provider sees maxAttempts requests, and the
+// request counts once toward the breaker.
+func TestClientRetriesOn500(t *testing.T) {
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
@@ -71,6 +72,7 @@ func TestClientNoRetryOn500(t *testing.T) {
 		TimeoutSeconds: 5, TokenBudgetDaily: 100000, CooldownSeconds: 10,
 	}
 	client := New(cfg, noopLog)
+	client.retryDelays = []time.Duration{0, 0, 0}
 
 	_, _, err := client.Chat(context.Background(), "s", "u", 100)
 	if err == nil {
@@ -79,10 +81,11 @@ func TestClientNoRetryOn500(t *testing.T) {
 	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected error containing '500', got: %v", err)
 	}
-
-	// 500 is not retryable, so only 1 attempt should be made.
-	if attempts.Load() != 1 {
-		t.Errorf("attempts = %d, want 1 (500 should not trigger retry)", attempts.Load())
+	if attempts.Load() != maxAttempts {
+		t.Errorf("attempts = %d, want %d", attempts.Load(), maxAttempts)
+	}
+	if failureCount(client) != 1 {
+		t.Errorf("failures = %d, want 1", failureCount(client))
 	}
 }
 

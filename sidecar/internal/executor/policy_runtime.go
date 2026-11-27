@@ -27,16 +27,19 @@ func isApprovalRequiredGuardrail(value string) bool {
 func changeClassForActionType(actionType string) string {
 	switch actionType {
 	case "create_index_concurrently", "drop_unused_index", "reindex_concurrently",
-		"revert_created_index", ActionTypeReplaceIndex:
+		"revert_created_index", ActionTypeRestoreDroppedIndex, ActionTypeReplaceIndex:
 		return string(policy.ChangeIndex)
-	case "analyze_table", "create_statistics", "revert_created_statistics":
-		// Planner statistics: ANALYZE and pg_sage's extended statistics.
+	case "analyze_table", "create_statistics", "revert_created_statistics",
+		ActionTypeSetColumnStatistics:
+		// Planner statistics: ANALYZE, pg_sage's extended statistics and a
+		// column's statistics target.
 		return string(policy.ChangeAnalyze)
 	case "vacuum_table":
 		return string(policy.ChangeVacuum)
 	case "set_table_autovacuum":
 		return string(policy.ChangeAutovacuumTuning)
-	case "alter_system_guc", "alter_database_guc":
+	case "alter_system_guc", "alter_database_guc", ActionTypeSetRoleTimeout,
+		ActionTypeSetRoleConnectionLimit:
 		return string(policy.ChangeConfigGUC)
 	case "cancel_backend", "terminate_backend":
 		return string(policy.ChangeBackendSignal)
@@ -46,6 +49,8 @@ func changeClassForActionType(actionType string) string {
 		return string(policy.ChangeSchemaChange)
 	case "retention_delete":
 		return string(policy.ChangeRetention)
+	case ActionTypeRevokePublicGrant, ActionTypeEnableRLS:
+		return string(policy.ChangeExposure)
 	case ActionTypeGuardRoleEnsure, ActionTypeGuardRoleRetire, ActionTypeGuardFreeze,
 		ActionTypeGuardKill, ActionTypeGuardUnfreeze, ActionTypeGuardGrant,
 		ActionTypeGuardRevoke:
@@ -77,11 +82,13 @@ func (e *Executor) standingRuntimeState(
 	state.InConfiguredWindow = inMaintenanceWindowForPolicy(cfg, time.Now())
 	state.Provider = cfg.CloudEnvironment
 	state.WindowConfigured = strings.TrimSpace(cfg.Trust.MaintenanceWindow) != ""
+	state.TrustWindow = trustWindowExpression(cfg.Trust.MaintenanceWindow)
 	return state
 }
 
 // policySnapshot copies the live config under the hot-reload read lock so
-// authorization never reads a half-applied config change.
+// authorization never reads a half-applied config change. The live trust
+// level and trust ceiling overlay the copy; every ceiling reader uses it.
 func (e *Executor) policySnapshot() (*config.Config, string, bool) {
 	e.policyMu.RLock()
 	defer e.policyMu.RUnlock()
@@ -93,6 +100,9 @@ func (e *Executor) policySnapshot() (*config.Config, string, bool) {
 	config.RUnlockForHotReload()
 	if e.trustLevelOverride != "" {
 		cfgCopy.Trust.Level = e.trustLevelOverride
+	}
+	if e.trustCeiling != nil {
+		e.trustCeiling.ApplyTo(&cfgCopy.Trust)
 	}
 	return &cfgCopy, e.execMode, !e.executorDisabled
 }

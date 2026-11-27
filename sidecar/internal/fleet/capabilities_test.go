@@ -28,7 +28,8 @@ func TestBuildActionFamilyReadinessAnalyzeSupportedCloudSQL(t *testing.T) {
 	caps := ProviderCapabilities{Provider: "cloud-sql"}
 	explain := ExecutorFamilyExplainer(gateExecutor(t, "autonomous"))
 
-	analyze := actionReadiness(t, buildActionFamilyReadiness(caps, explain), "analyze_table")
+	analyze := actionReadiness(t,
+		buildActionFamilyReadiness(context.Background(), caps, explain), "analyze_table")
 
 	if !analyze.Supported || analyze.Decision != executor.PolicyDecisionExecute {
 		t.Fatalf("analyze readiness = %#v, want supported execute", analyze)
@@ -38,7 +39,9 @@ func TestBuildActionFamilyReadinessAnalyzeSupportedCloudSQL(t *testing.T) {
 // Adapter-unsupported and unimplemented families never reach the gate.
 func TestBuildActionFamilyReadinessAsksGateOnlyForSupportedFamilies(t *testing.T) {
 	var asked []string
-	explain := func(contracts []executor.ActionContract, _ bool) []executor.ActionPolicyDecision {
+	explain := func(
+		_ context.Context, contracts []executor.ActionContract, _ bool,
+	) []executor.ActionPolicyDecision {
 		out := make([]executor.ActionPolicyDecision, len(contracts))
 		for i, c := range contracts {
 			asked = append(asked, c.ActionType)
@@ -46,7 +49,8 @@ func TestBuildActionFamilyReadinessAsksGateOnlyForSupportedFamilies(t *testing.T
 		}
 		return out
 	}
-	got := buildActionFamilyReadiness(ProviderCapabilities{Provider: "postgres"}, explain)
+	got := buildActionFamilyReadiness(context.Background(),
+		ProviderCapabilities{Provider: "postgres"}, explain)
 	for _, actionType := range asked {
 		if actionType == "promote_role_work_mem" {
 			t.Fatalf("unimplemented family %s was sent to the gate", actionType)
@@ -62,8 +66,8 @@ func TestBuildActionFamilyReadinessAsksGateOnlyForSupportedFamilies(t *testing.T
 }
 
 func TestBuildActionFamilyReadinessFailsClosedWithoutExecutor(t *testing.T) {
-	got := buildActionFamilyReadiness(ProviderCapabilities{Provider: "postgres"},
-		ExecutorFamilyExplainer(nil))
+	got := buildActionFamilyReadiness(context.Background(),
+		ProviderCapabilities{Provider: "postgres"}, ExecutorFamilyExplainer(nil))
 	analyze := actionReadiness(t, got, "analyze_table")
 	if analyze.Supported || analyze.BlockedReason != "standing policy unavailable" {
 		t.Fatalf("analyze without executor = %#v", analyze)
@@ -103,7 +107,8 @@ func TestBuildProviderCapabilitiesUsesProviderAdapter(t *testing.T) {
 }
 
 func TestBuildActionFamilyReadinessIncludesNewAutonomyFamilies(t *testing.T) {
-	got := buildActionFamilyReadiness(ProviderCapabilities{Provider: "postgres"},
+	got := buildActionFamilyReadiness(context.Background(),
+		ProviderCapabilities{Provider: "postgres"},
 		ExecutorFamilyExplainer(gateExecutor(t, "autonomous")))
 
 	for _, actionType := range []string{
@@ -136,7 +141,7 @@ func TestBuildActionFamilyReadinessIncludesNewAutonomyFamilies(t *testing.T) {
 
 func TestBuildActionFamilyReadinessBlocksReplicaWriteAction(t *testing.T) {
 	caps := ProviderCapabilities{Provider: "postgres", IsReplica: true}
-	got := buildActionFamilyReadiness(caps,
+	got := buildActionFamilyReadiness(context.Background(), caps,
 		ExecutorFamilyExplainer(gateExecutor(t, "autonomous")))
 	analyze := actionReadiness(t, got, "analyze_table")
 

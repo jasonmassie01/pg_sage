@@ -14,8 +14,9 @@ import (
 // A signed runbook matching an investigation's trigger extends its probe
 // plan within the probe ceiling and active time, decides deterministically
 // on its evidence and the causal graph, and records which version ran and
-// what it proposes (never executed). Unsigned, edited, retired, tampered
-// or non-matching runbooks never run (AI-SRE-SPEC §7.1).
+// what it proposes (never executed). Unsigned, retired, tampered or
+// non-matching runbooks never run (AI-SRE-SPEC §7.1); an edit stages a
+// draft and the signed version keeps running (playbooks-10).
 
 func runbookEvidence(t *testing.T, st *PostgresStore, inv Investigation) []Evidence {
 	t.Helper()
@@ -82,14 +83,13 @@ var unrunnable = map[string]func(t *testing.T, ctx context.Context, st *Postgres
 			t.Fatal(err)
 		}
 	},
-	"edited after signing": func(t *testing.T, ctx context.Context, st *PostgresStore,
-		s Scope) {
+	"draft over a tampered signature": func(t *testing.T, ctx context.Context,
+		st *PostgresStore, s Scope) {
 		rb := signedRunbook(t, ctx, st, s, idleRunbook())
-		d := idleRunbook()
-		d.Description = "edited"
-		if _, err := st.ReviseRunbook(ctx, s, rb.ID, 1, draftOf(d)); err != nil {
+		if _, err := st.ReviseRunbook(ctx, s, rb.ID, 1, draftOf(editedIdle("v2"))); err != nil {
 			t.Fatal(err)
 		}
+		tamperVersion(t, ctx, st.pool, s, rb.ID, 1)
 	},
 	"retired": func(t *testing.T, ctx context.Context, st *PostgresStore, s Scope) {
 		rb := signedRunbook(t, ctx, st, s, idleRunbook())
@@ -281,7 +281,7 @@ func TestRunbookRun_ResumesFromNeedsEvidence(t *testing.T) {
 	}
 	plan, _ := planFor(TriggerLock, c.cfg.ActionWindow)
 	if _, err := st.CommitStep(ctx, lease, StepResult{IdempotencyKey: stepKey(0),
-		Results: c.runStep(ctx, plan[0]), NextState: StateEvaluating}); err != nil {
+		Results: c.runStep(ctx, lease, plan[0]), NextState: StateEvaluating}); err != nil {
 		t.Fatalf("commit the plan step: %v", err)
 	}
 	// The worker stops while waiting for more evidence.
@@ -317,8 +317,12 @@ func TestPickRunbook_OnlyRunnableMostSpecificFirst(t *testing.T) {
 	mk := func(name string, nodes []string, runnable bool) Runbook {
 		d := idleRunbook()
 		d.Name, d.Trigger.Nodes = name, nodes
-		return Runbook{ID: NewUUID(), Runnable: runnable,
-			Latest: RunbookVersion{Name: name, Definition: d}}
+		v := RunbookVersion{Name: name, Definition: d}
+		rb := Runbook{ID: NewUUID(), Runnable: runnable, Latest: v}
+		if runnable {
+			rb.Running = &v
+		}
+		return rb
 	}
 	open := []string{"idle_in_tx_holder", "ddl_lock_queue"}
 	draft := mk("a draft", []string{"idle_in_tx_holder", "ddl_lock_queue"}, false)

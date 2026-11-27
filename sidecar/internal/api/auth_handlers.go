@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
 )
@@ -29,8 +30,8 @@ func loginHandler(
 		if !ok {
 			return
 		}
-		if !loginRateLimitDisabled &&
-			!loginLimiter.reserve(req.Email) {
+		budgetKey := ClientLimiterKey(requestClientIP(r))
+		if !reserveLoginAttempt(budgetKey, req.Email) {
 			auditPasswordFailure(r, pool, req.Email, "rate_limited")
 			jsonError(w, "too many login attempts, "+
 				"try again later",
@@ -42,13 +43,18 @@ func loginHandler(
 			r.Context(), pool, req.Email, req.Password,
 		)
 		if err != nil {
+			if !errors.Is(err, auth.ErrInvalidCredentials) {
+				// The client still sees 401; the operator needs the cause.
+				slog.Warn("login refused: authentication could not complete",
+					"error", err)
+			}
 			auditPasswordFailure(r, pool, req.Email, "invalid_credentials")
 			jsonError(w, "invalid credentials",
 				http.StatusUnauthorized)
 			return
 		}
 
-		loginLimiter.reset(req.Email)
+		loginSucceeded(budgetKey, req.Email)
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{
 			Event: auth.AuditLoginSucceeded, ActorUserID: user.ID,
 			TargetUserID: user.ID, Detail: map[string]any{"method": "password"},
@@ -58,15 +64,44 @@ func loginHandler(
 			return
 		}
 		jsonResponse(w, map[string]any{
-			"id":    user.ID,
-			"email": user.Email,
-			"role":  user.Role,
+			"id":                   user.ID,
+			"email":                user.Email,
+			"role":                 user.Role,
+			"must_change_password": user.MustChangePassword,
 		})
 	}
 }
 
-// setLoginSession creates a session and sets its cookie (Secure only when
-// the request arrived over TLS); it reports false after a 500.
+// reserveLoginAttempt spends one slot of the client's failed-login budget
+// and one of the email's attempts. A refusal by the email limiter refunds
+// the budget slot: that request never reached a password check.
+func reserveLoginAttempt(budgetKey, email string) bool {
+	if loginRateLimitDisabled {
+		return true
+	}
+	if !loginFailureBudget.reserve(budgetKey) {
+		return false
+	}
+	if !loginLimiter.reserve(email) {
+		loginFailureBudget.refund(budgetKey)
+		return false
+	}
+	return true
+}
+
+// loginSucceeded refunds this request's budget slot (the client's earlier
+// failures stay counted) and clears the email's attempts.
+func loginSucceeded(budgetKey, email string) {
+	if loginRateLimitDisabled {
+		return
+	}
+	loginFailureBudget.refund(budgetKey)
+	loginLimiter.reset(email)
+}
+
+// setLoginSession creates a session and sets its cookie (Secure when the
+// request arrived over TLS or through a trusted TLS proxy); it reports
+// false after a 500.
 func setLoginSession(
 	w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, userID int,
 ) bool {
@@ -80,7 +115,7 @@ func setLoginSession(
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   isSecureRequest(r),
+		Secure:   secureCookie(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(auth.SessionDuration.Seconds()),
 	})
@@ -126,31 +161,20 @@ func logoutHandler(
 	pool *pgxpool.Pool,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("sage_session")
-		if err == nil {
-			_ = auth.DeleteSession(
-				r.Context(), pool, cookie.Value,
-			)
-		}
+		endCurrentSession(r, pool)
 		http.SetCookie(w, &http.Cookie{
 			Name:     "sage_session",
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   isSecureRequest(r),
+			Secure:   secureCookie(r),
+			SameSite: http.SameSiteLaxMode,
 			MaxAge:   -1,
 		})
 		jsonResponse(w, map[string]string{
 			"status": "logged out",
 		})
 	}
-}
-
-func isSecureRequest(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	return r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
 func meHandler() http.HandlerFunc {
@@ -162,9 +186,11 @@ func meHandler() http.HandlerFunc {
 			return
 		}
 		response := map[string]any{
-			"id":    user.ID,
-			"email": user.Email,
-			"role":  user.Role,
+			"id":                   user.ID,
+			"email":                user.Email,
+			"role":                 user.Role,
+			"must_change_password": user.MustChangePassword,
+			"password_login":       user.HasPassword,
 		}
 		if mode, ok := r.Context().Value(authModeContextKey).(string); ok {
 			response["auth_mode"] = mode
@@ -192,6 +218,8 @@ func listUsersHandler(
 			SSOLinked     bool       `json:"sso_linked"`
 			SSOIssuer     string     `json:"sso_issuer"`
 			PasswordLogin bool       `json:"password_login"`
+			Disabled      bool       `json:"disabled"`
+			DisabledAt    *time.Time `json:"disabled_at"`
 		}
 		resp := make([]userResp, len(users))
 		for i, u := range users {
@@ -200,6 +228,7 @@ func listUsersHandler(
 				CreatedAt: u.CreatedAt, LastLogin: u.LastLogin,
 				SSOLinked: u.SSOIssuer != "", SSOIssuer: u.SSOIssuer,
 				PasswordLogin: u.PasswordLogin,
+				Disabled:      u.DisabledAt != nil, DisabledAt: u.DisabledAt,
 			}
 		}
 		jsonResponse(w, map[string]any{"users": resp})
@@ -215,11 +244,13 @@ type createUserRequest struct {
 	SSOOnly bool `json:"sso_only"`
 }
 
-// validate returns a client-facing error message, or "" when valid.
+// validate returns a client-facing error message, or "" when valid. It
+// normalizes the email (trimmed, lower case): one identity per address.
 func (req *createUserRequest) validate() string {
 	if req.Role == "" {
 		req.Role = auth.RoleViewer
 	}
+	req.Email = auth.NormalizeEmail(req.Email)
 	switch {
 	case req.SSOOnly && req.Email == "":
 		return "email required"
@@ -227,10 +258,16 @@ func (req *createUserRequest) validate() string {
 		return "an SSO-only user cannot have a password"
 	case !req.SSOOnly && (req.Email == "" || req.Password == ""):
 		return "email and password required"
-	case !req.SSOOnly && len(req.Password) < 8:
-		return "password must be at least 8 characters"
 	case !auth.IsValidRole(req.Role):
 		return "invalid role"
+	}
+	if !req.SSOOnly {
+		if err := auth.ValidatePassword(req.Email, req.Password); err != nil {
+			return err.Error()
+		}
+	}
+	if _, err := auth.ValidateEmail(req.Email); err != nil {
+		return "invalid email address"
 	}
 	return ""
 }
@@ -258,10 +295,7 @@ func createUserHandler(
 				req.Email, req.Password, req.Role)
 		}
 		if err != nil {
-			slog.Error("failed to create user",
-				"email", req.Email, "error", err)
-			jsonError(w, "failed to create user",
-				http.StatusConflict)
+			writeCreateUserError(w, r, err)
 			return
 		}
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{
@@ -276,6 +310,26 @@ func createUserHandler(
 			"sso_only": req.SSOOnly,
 		})
 	}
+}
+
+// writeCreateUserError maps a store refusal: a policy failure is 400, an
+// email already in use 409, anything else 500. Nothing logged carries the
+// email or the password.
+func writeCreateUserError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, auth.ErrPasswordPolicy):
+		jsonError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, auth.ErrEmailInUse) || isUniqueViolation(err):
+		// A unique violation is a concurrent create of the same email.
+		jsonError(w, "a user with this email already exists", http.StatusConflict)
+	default:
+		internalError(w, r, "create user", err)
+	}
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation
 }
 
 func deleteUserHandler(
@@ -301,17 +355,7 @@ func deleteUserHandler(
 		if err := auth.DeleteUserPreservingAdmin(
 			r.Context(), pool, id,
 		); err != nil {
-			switch {
-			case errors.Is(err, auth.ErrLastAdmin):
-				jsonError(w,
-					"cannot delete the last admin",
-					http.StatusForbidden)
-			case errors.Is(err, auth.ErrUserNotFound):
-				jsonError(w, "user not found",
-					http.StatusNotFound)
-			default:
-				internalError(w, r, "delete user", err)
-			}
+			writeDeleteUserError(w, r, err)
 			return
 		}
 		recordAuthEvent(r, pool, auth.AuthAuditEvent{

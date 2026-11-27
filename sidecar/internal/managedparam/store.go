@@ -68,8 +68,9 @@ func scanRecord(row pgx.Row) (Record, error) {
 
 // Upsert records p. An open proposal with the same fingerprint is
 // refreshed (created=false); a recently rejected one is returned
-// unchanged; otherwise open proposals for the same parameter and target
-// are superseded and p is inserted as pending.
+// unchanged; otherwise open proposals with another value for the same
+// parameter are superseded and p is inserted as pending. Concurrent
+// upserts of one change insert it once.
 func (s *Store) Upsert(ctx context.Context, p Proposal, findingID int64) (Record, bool, error) {
 	raw, err := json.Marshal(p)
 	if err != nil {
@@ -89,34 +90,70 @@ func (s *Store) Upsert(ctx context.Context, p Proposal, findingID int64) (Record
 	}
 	if _, err := tx.Exec(ctx, `UPDATE sage.managed_change_proposals
 		SET status = 'superseded', updated_at = now()
-		WHERE provider = $1 AND target = $2 AND parameter = $3
-		  AND status IN ('pending', 'approved')`, p.Provider, p.Target, p.Parameter); err != nil {
+		WHERE provider = $1 AND parameter = $2 AND fingerprint <> $3
+		  AND status IN ('pending', 'approved')`, p.Provider, p.Parameter,
+		p.Fingerprint); err != nil {
 		return Record{}, false, fmt.Errorf("supersede older managed changes: %w", err)
 	}
+	rec, created, err := insertOpen(ctx, tx, p, raw, findingID)
+	if err != nil {
+		return Record{}, false, err
+	}
+	return rec, created, tx.Commit(ctx)
+}
+
+// insertOpen inserts p as pending. When a concurrent upsert inserted the
+// same change first, it refreshes that one instead (created=false).
+func insertOpen(ctx context.Context, tx pgx.Tx, p Proposal, raw []byte,
+	findingID int64) (Record, bool, error) {
 	var finding any
 	if findingID > 0 {
 		finding = findingID
 	}
-	rec, err = scanRecord(tx.QueryRow(ctx, `INSERT INTO sage.managed_change_proposals
+	rec, err := scanRecord(tx.QueryRow(ctx, `INSERT INTO sage.managed_change_proposals
 		(fingerprint, provider, mechanism, target, parameter, value, reboot_required,
 		 proposal, finding_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING `+recordColumns,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (fingerprint) WHERE status IN ('pending', 'approved') DO NOTHING
+		RETURNING `+recordColumns,
 		p.Fingerprint, p.Provider, p.Mechanism, p.Target, p.Parameter, p.Value,
 		p.RebootRequired, raw, finding))
-	if err != nil {
+	if err == nil {
+		return rec, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return Record{}, false, fmt.Errorf("insert managed change: %w", err)
 	}
-	return rec, true, tx.Commit(ctx)
+	if rec, err = refresh(ctx, tx, p, raw); err != nil {
+		return Record{}, false, fmt.Errorf("refresh concurrently inserted managed change: %w",
+			err)
+	}
+	return rec, false, nil
+}
+
+// keepStored is true when the incoming proposal ($3) was built against
+// placeholders and the stored one against a resolved target: a transient
+// resolution failure must not replace a real command with placeholders.
+const keepStored = `($3::boolean AND target <> '' AND strpos(target, '<') = 0)`
+
+// refresh updates the open proposal with p's fingerprint: its proposal,
+// target and reboot flag, or only updated_at under keepStored.
+func refresh(ctx context.Context, tx pgx.Tx, p Proposal, raw []byte) (Record, error) {
+	return scanRecord(tx.QueryRow(ctx, `UPDATE sage.managed_change_proposals
+		SET proposal = CASE WHEN `+keepStored+` THEN proposal ELSE $2 END,
+		    target = CASE WHEN `+keepStored+` THEN target ELSE $4 END,
+		    reboot_required = CASE WHEN `+keepStored+` THEN reboot_required ELSE $5 END,
+		    updated_at = now()
+		WHERE fingerprint = $1 AND status IN ('pending', 'approved')
+		RETURNING `+recordColumns, p.Fingerprint, raw, p.placeholderTarget(), p.Target,
+		p.RebootRequired))
 }
 
 // existing refreshes an open proposal with p's fingerprint, or finds a
 // rejection inside the cooldown; done reports that one was found.
 func (s *Store) existing(ctx context.Context, tx pgx.Tx, p Proposal,
 	raw []byte) (Record, bool, error) {
-	rec, err := scanRecord(tx.QueryRow(ctx, `UPDATE sage.managed_change_proposals
-		SET proposal = $2, updated_at = now()
-		WHERE fingerprint = $1 AND status IN ('pending', 'approved')
-		RETURNING `+recordColumns, p.Fingerprint, raw))
+	rec, err := refresh(ctx, tx, p, raw)
 	if err == nil {
 		return rec, true, nil
 	}

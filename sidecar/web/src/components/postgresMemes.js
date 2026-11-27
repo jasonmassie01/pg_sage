@@ -1,31 +1,46 @@
+// Imported so Vite content-hashes the images into /assets/, where they are
+// served with an immutable cache header (dashboard-09).
+import distractedBoyfriend from '../assets/memes/distracted-boyfriend.jpg'
+import twoButtons from '../assets/memes/two-buttons.jpg'
+import drake from '../assets/memes/drake.jpg'
+import disasterGirl from '../assets/memes/disaster-girl.jpg'
+import changeMyMind from '../assets/memes/change-my-mind.jpg'
+import thisIsFine from '../assets/memes/this-is-fine.jpg'
+
 export const templates = {
   distracted: {
     name: 'Distracted Boyfriend', file: 'distracted-boyfriend.jpg', width: 720, height: 480,
+    src: distractedBoyfriend,
     alt: 'Distracted Boyfriend: a man looks at another woman while his girlfriend looks offended.',
     roles: ['The tempting distraction', 'The distracted person', 'The ignored partner'],
   },
   buttons: {
     name: 'Two Buttons', file: 'two-buttons.jpg', width: 475, height: 720,
+    src: twoButtons,
     alt: 'Two Buttons: a sweating man struggles to choose between two red buttons.',
     roles: ['First button', 'Second button', 'The person choosing'],
   },
   drake: {
     name: 'Drake Hotline Bling', file: 'drake.jpg', width: 720, height: 720,
+    src: drake,
     alt: 'Drake Hotline Bling: Drake rejects the top option and approves the bottom option.',
     roles: ['Drake rejects', 'Drake approves'],
   },
   disaster: {
     name: 'Disaster Girl', file: 'disaster-girl.jpg', width: 720, height: 540,
+    src: disasterGirl,
     alt: 'Disaster Girl: a girl gives the camera a knowing smile in front of a burning house.',
     roles: ['Setup', 'Punchline'],
   },
   change: {
     name: 'Change My Mind', file: 'change-my-mind.jpg', width: 720, height: 539,
+    src: changeMyMind,
     alt: 'Change My Mind: a man sits behind a table with a sign inviting people to change his mind.',
     roles: ['The sign'],
   },
   fine: {
     name: 'This Is Fine', file: 'this-is-fine.jpg', width: 720, height: 350,
+    src: thisIsFine,
     alt: 'This Is Fine: a cartoon dog sits in a burning room and says, “This is fine.”',
     roles: ['Setup', 'Punchline'],
   },

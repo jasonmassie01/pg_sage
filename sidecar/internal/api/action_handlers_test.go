@@ -71,7 +71,7 @@ func TestQueuedActionMapIncludesScriptOutputForDDL(t *testing.T) {
 		ActionType:  "create_index_concurrently",
 		ActionRisk:  "moderate",
 		Status:      "pending",
-		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders(customer_id)",
 		RollbackSQL: "DROP INDEX CONCURRENTLY idx_orders_customer",
 	}
 
@@ -125,7 +125,7 @@ func TestQueuedActionMapWithReadinessIncludesDeferReason(t *testing.T) {
 		ActionType:  "create_index_concurrently",
 		ActionRisk:  "moderate",
 		Status:      "pending",
-		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		ProposedSQL: "CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders(customer_id)",
 		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
 	}
 
@@ -186,7 +186,7 @@ func TestApproveActionHandler_BlocksDeferredActionBeforeExecution(t *testing.T) 
 	actionStore := store.NewActionStore(pool)
 	actionID, err := actionStore.ProposeWithMetadata(
 		ctx, nil, findingID,
-		"CREATE INDEX CONCURRENTLY idx_orders_customer ON orders(customer_id)",
+		"CREATE INDEX CONCURRENTLY idx_orders_customer ON public.orders(customer_id)",
 		"DROP INDEX CONCURRENTLY idx_orders_customer",
 		"moderate",
 		store.ActionProposalMetadata{
@@ -938,6 +938,9 @@ func TestRollbackActionHandler_StateTransitions(t *testing.T) {
 		Trust: config.TrustConfig{Level: "advisory"},
 	}, time.Now(),
 		func(string, string, ...any) {})
+	// The operator rollback is a standing-gate decision (policy-05); production
+	// always installs the gate.
+	exec.EnableStandingPolicyDocument(policy.UnattendedProfile(), nil)
 	handler := rollbackActionHandler(exec)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/actions/{id}/rollback", handler)
@@ -956,8 +959,9 @@ func TestRollbackActionHandler_StateTransitions(t *testing.T) {
 		t.Fatalf("already rolled back status: got %d, want 400", w.Code)
 	}
 
+	// A rollback the standing gate can type (policy-05).
 	successID := insertActionLogForRollback(t, pool, ctx,
-		stringPtr("ANALYZE"), "success")
+		stringPtr("ANALYZE "+rollbackProbeTable(t, pool, ctx)), "success")
 	w = rollbackRequest(t, mux, successID, `{"reason":"   "}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("success status: got %d, body %s",

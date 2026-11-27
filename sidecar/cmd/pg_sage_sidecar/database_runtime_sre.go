@@ -48,6 +48,15 @@ type sreInvestigatorDeps struct {
 	// conclusive graph root (roadmap 2.4); nil keeps model roots advisory.
 	rootAuthority sre.RootAuthority
 	history       probes.HistoricalSource
+	// onDetector receives the reactive detector built for the trigger
+	// source (self-configuration samples its temp-file peaks); optional.
+	onDetector func(*sre.ReactiveDetector)
+	// texts serves the plan-only EXPLAIN the collector's in-memory
+	// statement texts; nil leaves every statement text_not_cached.
+	texts sre.StatementTexts
+	// followUps delivers each incident's settled diagnosis where its page
+	// went (sre-08); nil sends none.
+	followUps sre.ConclusionSink
 }
 
 // newSREInvestigator builds one database's investigator (coordinator,
@@ -75,14 +84,18 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	icfg := sreInvestigatorConfig(d.settings, d.monitored)
+	// Only the catalog runner owns the database's probe slots; the EXPLAIN
+	// holds them too.
+	catalog, _ := d.runner.(*probes.Runner)
+	icfg := sreInvestigatorConfig(d.settings, catalog, d.texts)
 	if icfg != nil {
 		icfg.History = d.history
 	}
 	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: d.runner,
 		Triggers: triggers, Config: cc, LogFn: d.logFn, Model: model, Notices: notices,
 		Signals: d.signals, Advisor: d.advisor, RootAuthority: d.rootAuthority,
-		Investigator: icfg})
+		Investigator: icfg, Incidents: sreIncidents(d), FollowUps: sreFollowUps(d),
+		TrackedIncidents: sreTrackedIncidents(d)})
 	if err != nil {
 		return nil, fmt.Errorf("sre coordinator: %w", err)
 	}
@@ -93,6 +106,43 @@ func newSREInvestigator(d sreInvestigatorDeps) (*sre.Service, error) {
 			"(retried by the investigator loop): %v", d.name, err)
 	}
 	return sre.NewService(d.name, coord, store), nil
+}
+
+// sreIncidents reads a lock incident's detection-time root blockers from
+// the monitored database's sage.incidents, in the trigger adapter's
+// database scope (sre-05); nil without a monitored pool.
+func sreIncidents(d sreInvestigatorDeps) sre.IncidentSnapshotSource {
+	if d.monitored == nil {
+		return nil
+	}
+	return sre.NewPGTriggerSource(d.monitored, d.name)
+}
+
+// sreFollowUps is the diagnosis follow-up sink: none without one or
+// without the monitored database whose incidents it answers.
+func sreFollowUps(d sreInvestigatorDeps) sre.ConclusionSink {
+	if d.followUps == nil || d.monitored == nil {
+		return nil
+	}
+	return d.followUps
+}
+
+// sreTrackedIncidents reads the incidents conclusions answer from the
+// monitored database's sage.incidents (sre-08); nil without one.
+func sreTrackedIncidents(d sreInvestigatorDeps) sre.ConclusionIncidents {
+	if d.monitored == nil {
+		return nil
+	}
+	return sre.NewPGTriggerSource(d.monitored, d.name)
+}
+
+// statementTexts is the collector's in-memory statement texts for the
+// plan-only EXPLAIN (nil without a collector).
+func (rt *databaseRuntime) statementTexts() sre.StatementTexts {
+	if rt.collector == nil {
+		return nil
+	}
+	return rt.collector.StatementText
 }
 
 // startInvestigator runs the database's Sage SRE investigator on the
@@ -108,7 +158,8 @@ func (rt *databaseRuntime) startInvestigator() {
 		signalProbes = append(signalProbes, poolerSignalsFor(rt.cfg.SRE.Poolers, rt.spec.Name,
 			logStructuredWrapper)...)
 	}
-	rt.runwayAdvisor = newRunwayAdvisorFor(rt.spec.Pool, rt.cfg, rt.spec.Name)
+	rt.runwayAdvisor = newRunwayAdvisorFor(rt.freezeCustodian(), rt.spec.Pool, rt.cfg,
+		rt.spec.Name, rt.diskCapacity(), rt.ha)
 	specialistCustodian.register(rt.spec.Name, rt.runwayAdvisor)
 	svc, err := newSREInvestigator(sreInvestigatorDeps{control: rt.spec.ControlPool,
 		monitored: rt.spec.Pool, runner: rt.probes, name: rt.spec.Name,
@@ -116,7 +167,9 @@ func (rt *databaseRuntime) startInvestigator() {
 		logFn: logStructuredWrapper, llm: rt.generalLLM,
 		dailyTokens: rt.cfg.LLM.TokenBudgetDaily, signals: signalProbes,
 		advisor: rt.runwayAdvisor, episodes: rt.detectorIncidents(),
-		history: rt.sreHistorySource(),
+		history: rt.sreHistorySource(), texts: rt.statementTexts(),
+		followUps:  newConclusionSink(rt.dispatcher),
+		onDetector: func(d *sre.ReactiveDetector) { rt.tempDetector = d },
 		rootAuthority: registryRootAuthority{registry: processAutonomy().registry,
 			database: rt.spec.Name}})
 	if err != nil {

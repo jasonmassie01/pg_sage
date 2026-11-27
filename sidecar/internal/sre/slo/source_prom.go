@@ -21,7 +21,9 @@ func substitute(q string, d time.Duration) string {
 
 // Window evaluates the SLI over the d before now. Prometheus counters
 // handle resets themselves (increase); the optional resets query only
-// reports them. Coverage is taken as complete.
+// reports them. With a coverage query the window is partial or stale
+// like a stored series (coverage); without one coverage is taken as
+// complete and fresh (the SLO says it is unverified).
 func (s PromSource) Window(ctx context.Context, o Objective, d time.Duration,
 	now time.Time) Window {
 	w := Window{Duration: d, Coverage: 1, LatestAt: now}
@@ -46,7 +48,44 @@ func (s PromSource) Window(ctx context.Context, o Objective, d time.Duration,
 		}
 		w.Resets = int(resets)
 	}
+	if o.CoverageQuery != "" {
+		if w = s.coverage(ctx, o, w, now); w.Unknown != "" {
+			return w
+		}
+	}
 	return classify(w, o)
+}
+
+// coverage measures a window with the coverage query: its value over the
+// window is the earliest sample time; over the stale limit, a result
+// shows a sample that recent (none is stale). Prometheus resolves
+// recency to its own lookback, so a sample is fresh within the stale
+// limit plus the lookback delta.
+func (s PromSource) coverage(ctx context.Context, o Objective, w Window,
+	now time.Time) Window {
+	w.Coverage, w.LatestAt = 0, time.Time{}
+	first, err := s.Client.Query(ctx, substitute(o.CoverageQuery, w.Duration), now)
+	if err != nil {
+		w.Unknown = promReason(err)
+		return w
+	}
+	// Compared as seconds first: a huge value would overflow a time.
+	if first > float64(now.UnixNano())/1e9 {
+		w.Unknown = ReasonInvalidValue
+		return w
+	}
+	earliest := unixTime(first)
+	_, err = s.Client.Query(ctx, substitute(o.CoverageQuery, o.staleAfter()), now)
+	switch {
+	case errors.Is(err, ErrNoData):
+		w.Unknown = ReasonStale
+		return w
+	case err != nil:
+		w.Unknown = promReason(err)
+		return w
+	}
+	w.LatestAt = now
+	return judgeCoverage(w, earliest, o, now)
 }
 
 // promReason maps a connector error onto an unknown reason.

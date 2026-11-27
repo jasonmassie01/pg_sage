@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // indexOnCaseTable parses a single CREATE INDEX on a case table.
@@ -21,12 +22,14 @@ func (tb *toolbox) indexOnCaseTable(ddl string) (string, string, error) {
 	if spec.TableSchema == "" {
 		return "", "", fmt.Errorf("the table must be schema-qualified")
 	}
-	table, err := tb.caseTable(qualified(spec.TableSchema, spec.TableName))
+	table, err := tb.caseTable(sqlident.Qualified(spec.TableSchema, spec.TableName))
 	return sql, table, err
 }
 
 // whatIf: measure an index with HypoPG through the optimizer's admission
 // (validator and rejection memory included), at most maxWhatIfPerCase.
+// The case's statements are the affected queryids, so the what-if's
+// 25-statement sample always plans them.
 func (tb *toolbox) whatIf(ctx context.Context, args toolArgs) toolResult {
 	ddl, table, err := tb.indexOnCaseTable(args.DDL)
 	if err != nil {
@@ -41,7 +44,7 @@ func (tb *toolbox) whatIf(ctx context.Context, args toolArgs) toolResult {
 	}
 	tb.whatIfs++
 	adm := tb.a.deps.Indexes.Admit(ctx, optimizer.Recommendation{DDL: ddl,
-		Category: optimizer.OptimizerCategory}, tc)
+		Category: optimizer.OptimizerCategory, AffectedQueryIDs: caseStatementIDs(tb.c)}, tc)
 	verdict := map[optimizer.AdmissionOutcome]string{optimizer.AdmitInvalid: "invalid",
 		optimizer.AdmitMeasured: "already_measured",
 		optimizer.AdmitRejected: "rejected"}[adm.Outcome]
@@ -171,11 +174,13 @@ func (tb *toolbox) rehearse(ctx context.Context, args toolArgs) toolResult {
 			Text: s.Text})
 	}
 	res, err := tb.a.deps.Rehearse.Rehearse(ctx, req)
+	rec := RehearsalLadder(res, err, tb.a.now())
+	tb.cycle.recordRehearsal(ddl, rec)
 	if err != nil {
 		return refused("rehearsal failed: %v", err)
 	}
 	return toolResult{ref: table, text: fmt.Sprintf("built in %d ms", res.BuildMs),
 		fields: map[string]any{"ddl": ddl, "build_ms": res.BuildMs,
 			"size_delta_bytes": res.SizeDeltaBytes, "queries": res.Queries,
-			"note": strings.TrimSpace(res.Note)}}
+			"ladder_result": rec.Result, "note": strings.TrimSpace(res.Note)}}
 }

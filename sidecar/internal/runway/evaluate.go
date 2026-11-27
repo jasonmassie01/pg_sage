@@ -11,15 +11,28 @@ import (
 	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
-// EvalInput is what one tick evaluates: the measured trends and the
-// current tables and sequences, each with whether it could be read.
+// EvalInput is what one tick evaluates: the measured trends (and where
+// their row cap cut them), the current XID reading (nil when unreadable:
+// the wraparound trends are then held, not projected) and the current
+// tables, slots and sequences, each with whether it could be read.
 type EvalInput struct {
-	Trends      []probes.RunwayTrend
-	TrendsOK    bool
-	Tables      []probes.WraparoundTable
-	TablesOK    bool
+	XID             *probes.XIDRunway
+	Trends          []probes.RunwayTrend
+	TrendsOK        bool
+	TrendsTruncated bool
+	TrendsLastKind  string // the kind of the last trend a truncated read returned
+	Tables          []probes.WraparoundTable
+	TablesOK        bool
+	Slots           []probes.Slot
+	SlotsOK         bool
+	// OpenSlots names the slots with an open finding, read only while
+	// the slots are unreadable (such a slot may still exist).
+	OpenSlots   []string
 	Sequences   []probes.SequenceRunway
 	SequencesOK bool
+	// Capacity is this tick's disk capacity; a disk runway projected
+	// against it names its source.
+	Capacity DiskCapacity
 }
 
 // Runway is one runway that crossed its horizon: the forecast finding it
@@ -39,17 +52,18 @@ type Runway struct {
 
 // Evaluate returns the runways that crossed their horizons and the
 // categories it could evaluate completely (only those may resolve their
-// cleared findings).
+// cleared findings). A category whose trends a truncated read may have
+// cut is not evaluated; the runways of the rows returned still open.
 func Evaluate(in EvalInput, opts Options) ([]Runway, []string) {
 	var out []Runway
 	var evaluated []string
-	if in.TrendsOK && in.TablesOK {
+	if in.TrendsOK && in.TablesOK && in.trendsComplete(CategoryWraparound) {
 		evaluated = append(evaluated, CategoryWraparound)
 	}
-	if in.TrendsOK {
+	if in.TrendsOK && in.trendsComplete(CategoryWAL) {
 		evaluated = append(evaluated, CategoryWAL)
 	}
-	if in.TrendsOK && in.SequencesOK {
+	if in.TrendsOK && in.SequencesOK && in.trendsComplete(CategorySequence) {
 		evaluated = append(evaluated, CategorySequence)
 	}
 	if in.TrendsOK {
@@ -80,9 +94,7 @@ func trendRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, boo
 	var horizon, critical time.Duration
 	switch tr.Kind {
 	case probes.RunwayXID, probes.RunwayMXID:
-		r = Runway{Category: CategoryWraparound, ObjectType: "database", Identifier: tr.Kind,
-			Kind: sre.TriggerWraparound, Subject: tr.Kind}
-		horizon, critical = opts.WraparoundHorizon, opts.WraparoundCritical
+		return ageRunway(tr, in, opts)
 	case probes.RunwayDiskUsed, probes.RunwayWALSlot:
 		if !(tr.R2 >= levelMinR2) {
 			return Runway{}, false
@@ -90,7 +102,7 @@ func trendRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, boo
 		r = walRunway(tr)
 		horizon, critical = opts.DiskHorizon, opts.DiskCritical
 	case probes.RunwaySequence:
-		if cycles(in.Sequences, tr.Subject) {
+		if sq, _ := sequenceOf(in.Sequences, tr.Subject); sq.Cycle {
 			return Runway{}, false
 		}
 		r = Runway{Category: CategorySequence, ObjectType: "sequence",
@@ -100,17 +112,33 @@ func trendRunway(tr probes.RunwayTrend, in EvalInput, opts Options) (Runway, boo
 	default:
 		return Runway{}, false
 	}
+	if !project(&r, tr, horizon, critical) {
+		return Runway{}, false
+	}
+	r.Detail = trendDetail(tr, horizon)
+	source := diskSource(tr, in.Capacity)
+	if source != "" {
+		r.Detail["capacity_source"] = source
+	}
+	r.Title, r.Recommendation = trendWords(r, tr, source)
+	if sq, ok := sequenceOf(in.Sequences, tr.Subject); ok && sq.Descending() {
+		describeDescending(&r, tr)
+	}
+	return r, true
+}
+
+// project sets r's projection and severity when tr reaches its limit
+// inside horizon (critical inside critical); false when it does not.
+func project(r *Runway, tr probes.RunwayTrend, horizon, critical time.Duration) bool {
 	secs := tr.SecondsToLimit()
 	if math.IsNaN(secs) || !within(secs, horizon) {
-		return Runway{}, false
+		return false
 	}
 	r.SecondsToLimit, r.Severity = secs, SeverityWarning
 	if within(secs, critical) {
 		r.Severity = SeverityCritical
 	}
-	r.Detail = trendDetail(tr, horizon)
-	r.Title, r.Recommendation = trendWords(r, tr)
-	return r, true
+	return true
 }
 
 func walRunway(tr probes.RunwayTrend) Runway {
@@ -123,13 +151,25 @@ func walRunway(tr probes.RunwayTrend) Runway {
 		Subject: "slot " + tr.Subject}
 }
 
-func cycles(ss []probes.SequenceRunway, name string) bool {
+// sequenceOf returns the sequence name of the current reading.
+func sequenceOf(ss []probes.SequenceRunway, name string) (probes.SequenceRunway, bool) {
 	for _, s := range ss {
 		if s.Sequence == name {
-			return s.Cycle
+			return s, true
 		}
 	}
-	return false
+	return probes.SequenceRunway{}, false
+}
+
+// describeDescending shows a descending sequence's own values (its series
+// is sampled negated, see sequenceSeries) and says that it falls.
+func describeDescending(r *Runway, tr probes.RunwayTrend) {
+	r.Detail["limit"], r.Detail["last_value"] = -tr.Limit, -tr.LastValue
+	r.Detail["direction"] = "descending"
+	r.Recommendation = fmt.Sprintf("Sequence %s falls at %s per second (measured over "+
+		"%d samples). A read-only pre-incident investigation explains what drives it; "+
+		"act before its binding limit is reached.", tr.Subject,
+		probes.FormatValue(round2(tr.RatePerS)), tr.Samples)
 }
 
 func trendDetail(tr probes.RunwayTrend, horizon time.Duration) map[string]any {
@@ -149,17 +189,28 @@ func finiteOrNil(v float64) any {
 	return round2(v)
 }
 
-func trendWords(r Runway, tr probes.RunwayTrend) (string, string) {
+// diskSource is the capacity source of a disk runway whose limit is this
+// tick's capacity; a limit sampled under another capacity names none.
+func diskSource(tr probes.RunwayTrend, c DiskCapacity) string {
+	if tr.Kind != probes.RunwayDiskUsed || c.Source == "" || tr.Limit != c.Bytes {
+		return ""
+	}
+	return c.Source
+}
+
+// trendWords titles a disk, slot or sequence runway (ageWords titles the
+// wraparound ones); source names a provider-measured disk capacity.
+func trendWords(r Runway, tr probes.RunwayTrend, source string) (string, string) {
 	when := (time.Duration(r.SecondsToLimit) * time.Second).Round(time.Minute)
-	what := map[string]string{probes.RunwayXID: "The XID age",
-		probes.RunwayMXID: "The multixact age", probes.RunwayDiskUsed: "Disk usage",
+	what := map[string]string{probes.RunwayDiskUsed: "Disk usage",
 		probes.RunwayWALSlot:  fmt.Sprintf("WAL retained by slot %s", tr.Subject),
 		probes.RunwaySequence: fmt.Sprintf("Sequence %s", tr.Subject)}[tr.Kind]
-	limit := map[string]string{probes.RunwayXID: "the wraparound warning limit",
-		probes.RunwayMXID:     "the wraparound warning limit",
-		probes.RunwayDiskUsed: "the declared disk capacity",
+	limit := map[string]string{probes.RunwayDiskUsed: "the declared disk capacity",
 		probes.RunwayWALSlot:  "its configured WAL maximum",
 		probes.RunwaySequence: "its binding limit"}[tr.Kind]
+	if source == CapacityProviderTelemetry {
+		limit = "the provider-reported disk capacity"
+	}
 	title := fmt.Sprintf("%s reaches %s in about %s", what, limit, when)
 	rec := fmt.Sprintf("%s grows at %s per second (measured over %d samples). A "+
 		"read-only pre-incident investigation explains what drives it; act before "+

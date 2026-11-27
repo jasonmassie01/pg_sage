@@ -38,7 +38,7 @@ func TestRetentionRequiresDryRunBeforeConsentBackedEnforcement(t *testing.T) {
 	}
 }
 
-func TestStructuralPathologiesRouteOnlyToCloneRehearsal(t *testing.T) {
+func TestStructuralPathologiesAreRecommendationsOnly(t *testing.T) {
 	for _, kind := range []InvariantKind{InvariantEverythingText, InvariantTypeTightening} {
 		t.Run(string(kind), func(t *testing.T) {
 			fixture := newCustodianFixture(Invariant{
@@ -49,11 +49,12 @@ func TestStructuralPathologiesRouteOnlyToCloneRehearsal(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Scan: %v", err)
 			}
-			if result.Routed != 1 || len(fixture.router.items) != 1 {
+			if result.Routed != 0 || len(fixture.router.items) != 0 ||
+				len(fixture.records.items) != 1 {
 				t.Fatalf("result=%#v routes=%#v", result, fixture.router.items)
 			}
-			decision := fixture.router.items[0].Decision
-			if decision.Route != RouteCloneRehearsal ||
+			decision := fixture.records.items[0].Decision
+			if decision.Route != RouteRecommendation ||
 				decision.Disposition != DispositionRecommend ||
 				!decision.RequiresRehearsal || decision.AutoApply {
 				t.Fatalf("structural decision = %#v", decision)

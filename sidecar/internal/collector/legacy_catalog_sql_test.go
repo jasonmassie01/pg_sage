@@ -17,10 +17,23 @@ SELECT s.schemaname, s.relname,
        COALESCE(pg_table_size(c.oid), 0) AS table_bytes,
        COALESCE(pg_indexes_size(c.oid), 0) AS index_bytes,
        c.relpersistence::text,
-       age(c.relfrozenxid) AS xid_age, s.relid
+       age(c.relfrozenxid) AS xid_age,
+       pg_stat_get_blocks_fetched(c.oid) - pg_stat_get_blocks_hit(c.oid)
+         AS heap_blks_read, -- forecast-04: not in v1.8.2; pg_statio's definition
+       COALESCE(s.n_mod_since_analyze, 0), -- rules-10: not in v1.8.2
+       COALESCE((SELECT o.option_value::float8 FROM pg_options_to_table(c.reloptions) o
+                  WHERE o.option_name = 'autovacuum_analyze_threshold'),
+                current_setting('autovacuum_analyze_threshold')::float8)
+         + COALESCE((SELECT o.option_value::float8 FROM pg_options_to_table(c.reloptions) o
+                      WHERE o.option_name = 'autovacuum_analyze_scale_factor'),
+                    current_setting('autovacuum_analyze_scale_factor')::float8)
+           * GREATEST(c.reltuples, 0)::float8 AS analyze_threshold, -- rules-10: as above
+       c.reloptions, -- rules-02: not in v1.8.2; read beside the verbatim columns
+       s.relid
   FROM pg_stat_user_tables s
   JOIN pg_class c ON c.oid = s.relid
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND c.relpersistence <> 't' -- collection-03: not in v1.8.2
    AND s.relid > $1
  ORDER BY s.relid
  LIMIT $2`
@@ -39,6 +52,7 @@ SELECT s.schemaname, s.relname, s.indexrelname,
   JOIN pg_class ic ON ic.oid = s.indexrelid
   JOIN pg_am am ON am.oid = ic.relam
  WHERE s.schemaname NOT IN ('sage', 'pg_catalog', 'information_schema', 'google_ml')
+   AND ic.relpersistence <> 't' -- collection-03: not in v1.8.2
    AND s.indexrelid > $1
  ORDER BY s.indexrelid
  LIMIT $2`

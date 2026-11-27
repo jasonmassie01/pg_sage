@@ -4,15 +4,17 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/logwatch"
 )
 
 func TestLogwatchRuntimeUsesExplicitPathAndReusesOwner(t *testing.T) {
 	prepareMetaGlobals(t)
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: t.TempDir(),
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: t.TempDir(),
 		Format: "jsonlog", PollIntervalMs: 5, MaxLineLenBytes: 65536}
 	cfg.RCA.Enabled = true
 	logPath := filepath.Join(cfg.LogWatch.LogDirectory, "postgresql.json")
@@ -43,7 +45,7 @@ func TestLogwatchRuntimeUsesExplicitPathAndReusesOwner(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("canceled log drain did not terminate")
 	}
-	cfg.LogWatch.Enabled = false
+	cfg.LogWatch.Enabled = logWatchSwitch(false)
 	if (&databaseRuntime{}).clusterLogFanout() != nil {
 		t.Fatal("disabled watcher started")
 	}
@@ -59,19 +61,27 @@ func TestLogwatchRuntimeRejectsUnreadableConfiguredPath(t *testing.T) {
 	if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cfg.LogWatch = config.LogWatchConfig{Enabled: true, LogDirectory: path, Format: "jsonlog"}
+	cfg.LogWatch = config.LogWatchConfig{Enabled: logWatchSwitch(true), LogDirectory: path,
+		Format: "jsonlog"}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	set := newLogFanoutSet()
-	if set.forCluster(context.Background(), "local:5432", nil) != nil {
-		t.Fatal("file path was accepted as a log directory")
+	set.after = newFakeAfter().after
+	set.forCluster(ctx, "local:5432", nil)
+	st := set.status("local:5432")
+	if st.State != logwatch.SourceUnavailable || !strings.Contains(st.Reason, path) {
+		t.Fatalf("file path was accepted as a log directory: %+v", st)
 	}
-	if len(set.fanouts) != 0 {
-		t.Fatal("a failed watcher was cached for the cluster")
+	if drops := set.droppedLines(); len(drops) != 0 {
+		t.Fatalf("a failed watcher was counted as running: %+v", drops)
 	}
 }
 
 func TestAlertRoutingRetainsOnlyExplicitKnownDestinations(t *testing.T) {
 	c := config.DefaultConfig()
 	c.Alerting.SlackWebhookURL = "http://127.0.0.1:1/slack"
+	// Loopback fixture URLs model an on-prem relay (alerting-11).
+	c.NotificationPolicy.AllowPrivateTargets = true
 	c.Alerting.PagerDutyRoutingKey = "fixture-only"
 	c.Alerting.Webhooks = []config.WebhookConfig{{Name: "local", URL: "http://127.0.0.1:1"}}
 	c.Alerting.Routes = []config.AlertRoute{

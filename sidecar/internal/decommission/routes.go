@@ -62,9 +62,9 @@ var RemovedRoutes = []Route{
 	{"POST", agent + "agent-db-requests"}, {"GET", agent + "agent-db-requests"},
 }
 
-// LegacyTables are the 27 tables the removed provisioner created. They stay
-// in G0 so the inventory can read them; G1 drops them by this explicit list
-// (§12 step 5).
+// LegacyTables are the 27 tables the removed provisioner created. The
+// inventory reads them until an admin drops them by this explicit list
+// (DropLegacyTables, §12 step 5).
 var LegacyTables = []string{
 	"agent_identities", "agent_db_requests", "agent_db_deployments",
 	"agent_db_provider_configs", "agent_db_creation_receipts",

@@ -46,11 +46,7 @@ func (e *Executor) resumeReplace(ctx context.Context, rec *indexReplaceRecord) e
 		return e.moveReplace(ctx, rec, replaceCreateFailed,
 			"interrupted before the build registered the new index", replaceCreating)
 	case stepDropRemnant:
-		if err := e.dropInvalidIndex(ctx, rec.Plan.NewIndex); err != nil {
-			return err
-		}
-		return e.moveReplace(ctx, rec, replaceCreateFailed,
-			"interrupted during the build; its INVALID remnant was dropped", replaceCreating)
+		return e.resumeDropRemnant(ctx, rec)
 	case stepDropOld, stepComplete:
 		return e.resumeForward(ctx, rec, step)
 	case stepRestore:

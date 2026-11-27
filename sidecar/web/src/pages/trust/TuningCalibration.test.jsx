@@ -66,7 +66,7 @@ describe('TuningCalibration', () => {
     const budget = await screen.findByTestId('tuning-budget')
     expect(budget).toHaveTextContent('41000 of 60000 tokens')
     expect(budget).toHaveTextContent('12 of 12 requests')
-    expect(budget).toHaveTextContent('2 cases examined')
+    expect(budget).toHaveTextContent('2 issues examined')
     expect(budget).toHaveTextContent('5 deferred to later cycles')
     expect(budget).toHaveTextContent('Today (UTC): 480000 of 500000 tokens')
   })

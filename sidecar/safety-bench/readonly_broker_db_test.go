@@ -56,6 +56,52 @@ func TestAgentQueryHoldsTheReadOnlyCorpus(t *testing.T) {
 	}
 }
 
+// benches-05: the MCP EXPLAIN guard against the same corpus. Every case is
+// refused before execution or with 42501, checksums unchanged, except
+// AQ-04: the guard accepts that read and its EXPLAIN ANALYZE fails on the
+// cast. Since security-10 the guard withholds the data-exception text, so
+// the masked value stays out: AQ-04 is pinned as withheld_data_error (held),
+// and a change either way fails here. This gate and the baseline's
+// explain_guard AQ-04 cell move together (env-cgo-d).
+func TestExplainGuardHoldsTheReadOnlyCorpus(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool := newPool(ctx, t)
+	all, err := LoadCases(false)
+	if err != nil {
+		t.Fatalf("load corpus: %v", err)
+	}
+	var cases []Case
+	for _, c := range all {
+		if !c.SelfCheck {
+			cases = append(cases, c)
+		}
+	}
+	if len(cases) != 20 {
+		t.Fatalf("corpus has %d cases, want RO-01..RO-16 and AQ-01..AQ-04", len(cases))
+	}
+	results, err := RunReadOnly(ctx, pool, cases, []RODesign{newExplainGuardDesign()})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, r := range results {
+		a := r.Attempts[0]
+		if r.ID == "AQ-04" {
+			if a.Observed != ClassWithheldDataError || !a.ChecksumsIntact {
+				t.Errorf("AQ-04: observed %s, intact %v, detail %q; want withheld_data_error "+
+					"(update this gate and the baseline together)", a.Observed,
+					a.ChecksumsIntact, a.Detail)
+			}
+			continue
+		}
+		credited := a.Observed == ClassPrivilege || a.Observed == ClassBeforeExecution
+		if !credited || !a.ChecksumsIntact {
+			t.Errorf("%s (%s): observed %s, intact %v, detail %q; want 42501 or refused "+
+				"before execution", r.ID, r.Technique, a.Observed, a.ChecksumsIntact, a.Detail)
+		}
+	}
+}
+
 // RO-15: agent_query refuses the SET outright, and the timeout it enforces
 // is its own (the broker sets it in every transaction).
 func TestAgentQueryNeutralizesTimeoutLift(t *testing.T) {

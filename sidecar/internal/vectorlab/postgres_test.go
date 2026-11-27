@@ -159,3 +159,51 @@ func TestPostgresLockTimeoutIsBounded(t *testing.T) {
 		t.Fatal("timeout budget not enforced")
 	}
 }
+
+func settingsMap(settings [][2]string) map[string]string {
+	got := map[string]string{}
+	for _, s := range settings {
+		got[s[0]] = s[1]
+	}
+	return got
+}
+
+func TestScanSettingsDefaultsAndOverrides(t *testing.T) {
+	exact := settingsMap(scanSettings(nil))
+	if len(exact) != 2 || exact["enable_indexscan"] != "off" ||
+		exact["enable_indexonlyscan"] != "off" {
+		t.Fatalf("exact baseline settings = %v", exact)
+	}
+	got := settingsMap(scanSettings(&Variant{EFSearch: 40, IterativeScan: "strict_order"}))
+	want := map[string]string{"enable_indexscan": "on", "enable_indexonlyscan": "on",
+		"hnsw.ef_search": "40", "hnsw.iterative_scan": "strict_order",
+		"hnsw.max_scan_tuples": "20000", "hnsw.scan_mem_multiplier": "1"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("default settings = %v, want %v", got, want)
+	}
+	got = settingsMap(scanSettings(&Variant{EFSearch: 100, IterativeScan: "relaxed_order",
+		MaxScanTuples: intPtr(200000), ScanMemMultiplier: floatPtr(2.5)}))
+	if got["hnsw.max_scan_tuples"] != "200000" || got["hnsw.scan_mem_multiplier"] != "2.5" ||
+		got["hnsw.iterative_scan"] != "relaxed_order" {
+		t.Fatalf("override settings = %v", got)
+	}
+}
+
+func TestRequireVectorVersionForRelaxedOrder(t *testing.T) {
+	relaxed := validManifest()
+	relaxed.Variants[0].IterativeScan = "relaxed_order"
+	err := requireVectorVersion("0.7.4", relaxed)
+	if err == nil || !strings.Contains(err.Error(), "relaxed_order requires pgvector >= 0.8.0") ||
+		!strings.Contains(err.Error(), "0.7.4") {
+		t.Fatalf("relaxed_order on 0.7.4 = %v", err)
+	}
+	if err := requireVectorVersion("0.7.4", validManifest()); err == nil ||
+		!strings.Contains(err.Error(), "0.8.0") {
+		t.Fatalf("strict_order on 0.7.4 = %v", err)
+	}
+	for _, version := range []string{"0.8.0", "0.8.2", "1.0.0"} {
+		if err := requireVectorVersion(version, relaxed); err != nil {
+			t.Fatalf("relaxed_order on %s refused: %v", version, err)
+		}
+	}
+}

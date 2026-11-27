@@ -59,11 +59,23 @@ type fakeTarget struct {
 	executed   []string
 	rolledBack []int64
 	failVerify bool
+	// A real target records a reversible action as "monitoring" until its
+	// monitor's verdict (executor-04): the fake reports the final verdict
+	// only after settleAfter reads of it.
+	settleAfter int
+	final       map[int64][2]string
+	reads       map[int64]int
+	revert      bool
+	neverSettle bool
+	deadline    time.Duration // monitor deadline, relative to now
+	executeErr  error
+	rollbackErr error
 }
 
 func newTarget(name string, sql string) *fakeTarget {
 	t := &fakeTarget{name: name, findings: map[string]int{}, source: map[int64]SourceAction{},
-		results: map[int64][2]string{}, nextAction: 100}
+		results: map[int64][2]string{}, nextAction: 100, settleAfter: 2,
+		final: map[int64][2]string{}, reads: map[int64]int{}, deadline: time.Hour}
 	if sql != "" {
 		t.findings[sql] = 7
 	}
@@ -96,13 +108,20 @@ func (t *fakeTarget) Execute(_ context.Context, findingID int, sql, _ string,
 	if findingID != t.findings[sql] {
 		return 0, fmt.Errorf("finding %d does not recommend %q", findingID, sql)
 	}
+	if t.executeErr != nil {
+		return 0, t.executeErr
+	}
 	t.nextAction++
 	t.executed = append(t.executed, sql)
-	verdict := [2]string{"success", ""}
-	if t.failVerify {
-		verdict = [2]string{"failed", "failed"}
+	final := [2]string{"success", "success"}
+	switch {
+	case t.failVerify:
+		final = [2]string{"failed", "failed"}
+	case t.revert:
+		final = [2]string{"rolled_back", "revert"}
 	}
-	t.results[t.nextAction] = verdict
+	t.results[t.nextAction] = [2]string{"monitoring", "pending"}
+	t.final[t.nextAction] = final
 	return t.nextAction, nil
 }
 
@@ -110,7 +129,17 @@ func (t *fakeTarget) Rollback(_ context.Context, actionLogID int64, _ string) er
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.rolledBack = append(t.rolledBack, actionLogID)
-	return nil
+	return t.rollbackErr
+}
+
+func (t *fakeTarget) MonitorDeadline(_ context.Context, actionLogID int64) (time.Time,
+	error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, ok := t.results[actionLogID]; !ok {
+		return time.Time{}, errors.New("no such action")
+	}
+	return time.Now().Add(t.deadline), nil
 }
 
 func (t *fakeTarget) ActionResult(_ context.Context, actionLogID int64) (string, string,
@@ -120,6 +149,12 @@ func (t *fakeTarget) ActionResult(_ context.Context, actionLogID int64) (string,
 	r, ok := t.results[actionLogID]
 	if !ok {
 		return "", "", errors.New("no such action")
+	}
+	t.reads[actionLogID]++
+	if final, ok := t.final[actionLogID]; ok && !t.neverSettle &&
+		t.reads[actionLogID] > t.settleAfter {
+		r = final
+		t.results[actionLogID] = r
 	}
 	return r[0], r[1], nil
 }
@@ -134,12 +169,17 @@ type canaryFixture struct {
 
 func newCanaryFixture(t *testing.T, names ...string) *canaryFixture {
 	t.Helper()
-	pool := bootstrappedPool(t)
+	return newCanaryFixtureOn(t, bootstrappedPool(t), names...)
+}
+
+// newCanaryFixtureOn is newCanaryFixture on a database of the caller's.
+func newCanaryFixtureOn(t *testing.T, pool *pgxpool.Pool, names ...string) *canaryFixture {
+	t.Helper()
 	f := &canaryFixture{targets: map[string]*fakeTarget{}, runs: NewPostgresRunStore(pool)}
 	src := newTarget("source", "")
 	src.source[42] = SourceAction{SQL: canarySQL,
 		RollbackSQL: "DROP INDEX CONCURRENTLY public.idx_orders_status",
-		ActionType:  "create_index_concurrently", Outcome: "success"}
+		ActionType:  "create_index_concurrently", Outcome: "success", Verification: "success"}
 	f.targets["source"] = src
 	for _, n := range names {
 		f.targets[n] = newTarget(n, canarySQL)
@@ -150,7 +190,8 @@ func newCanaryFixture(t *testing.T, names ...string) *canaryFixture {
 			return nil, fmt.Errorf("database %q is not in the fleet", name)
 		}
 		return target, nil
-	}, f.runs, CanaryOptions{CanaryInstances: 1, RegressionLimitPct: 10})
+	}, f.runs, CanaryOptions{CanaryInstances: 1, RegressionLimitPct: 10,
+		PollEvery: time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +327,7 @@ func TestCanaryValidatesTheRequest(t *testing.T) {
 func TestCanaryStartIsAsyncAndSingleFlight(t *testing.T) {
 	f := newCanaryFixture(t, "a", "b")
 	block := make(chan struct{})
-	f.svc.settle = func(ctx context.Context) error {
+	f.svc.wait = func(ctx context.Context, _ time.Duration) error {
 		select {
 		case <-block:
 			return nil

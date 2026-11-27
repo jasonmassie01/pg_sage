@@ -2,7 +2,6 @@ package tuning
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,58 +10,88 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/clone"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlast"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Clone rehearsal: with a clone provider configured, an index is built
-// for real on a disposable clone and the case statements are planned
-// before and after. The monitored database is never touched, and the
-// clone is always destroyed.
+// for real on a disposable clone and the case statements are measured
+// before and after: executed (EXPLAIN ANALYZE, BUFFERS) when the analyze
+// guard proves them read-only and they have no parameters, planned
+// otherwise. The clone is connected only after clone.GuardedConnect shows
+// it is not production, the monitored database is never touched, and the
+// clone is always destroyed (lab-04a).
 
 // Rehearser rehearses an index build.
 type Rehearser interface {
 	Rehearse(ctx context.Context, r RehearsalRequest) (RehearsalResult, error)
 }
 
-// RehearsalStatement is a statement to plan before and after.
+// RehearsalStatement is a statement to measure before and after.
 type RehearsalStatement struct {
 	QueryID int64
 	Text    string
 }
 
-// RehearsalRequest is the index to build and the statements to plan.
+// RehearsalRequest is the index to build and the statements to measure.
 type RehearsalRequest struct {
 	DDL        string
 	Statements []RehearsalStatement
 }
 
-// RehearsedQuery is one statement's plan cost before and after.
+// RehearsedQuery is one statement's plan cost before and after, and the
+// shared blocks (hit plus read) of one execution when it was executed.
 type RehearsedQuery struct {
-	QueryID    int64   `json:"queryid,string"`
-	BeforeCost float64 `json:"before_cost"`
-	AfterCost  float64 `json:"after_cost"`
-	Error      string  `json:"error,omitempty"`
+	QueryID      int64   `json:"queryid,string"`
+	BeforeCost   float64 `json:"before_cost"`
+	AfterCost    float64 `json:"after_cost"`
+	BeforeBlocks *int64  `json:"before_blocks,omitempty"`
+	AfterBlocks  *int64  `json:"after_blocks,omitempty"`
+	// NotExecuted says why the statement was planned, not executed.
+	NotExecuted string `json:"not_executed,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
-// RehearsalResult is what the rehearsal measured.
+// RehearsalResult is what the rehearsal measured, the clone receipt and
+// the provider.
 type RehearsalResult struct {
 	BuildMs        int64            `json:"build_ms"`
 	SizeDeltaBytes int64            `json:"size_delta_bytes"`
 	Queries        []RehearsedQuery `json:"queries"`
 	Note           string           `json:"note,omitempty"`
+	ReceiptID      int64            `json:"receipt_id,omitempty"`
+	Provider       string           `json:"provider,omitempty"`
 }
 
-// RehearsalOptions bound a rehearsal.
+// RehearsalOptions bound a rehearsal. StatementTimeout and LockTimeout
+// bound the clone session (the index build included); AnalyzeTimeout
+// bounds each executed statement (0: DefaultAnalyzeTimeout).
 type RehearsalOptions struct {
 	MaxCloneAge      time.Duration
 	StatementTimeout time.Duration
 	LockTimeout      time.Duration
+	AnalyzeTimeout   time.Duration
+	// Production identifies the server a clone must not be; without it no
+	// clone is connected (clone.ErrTargetUnverified).
+	Production clone.IdentitySource
+	// Provider names the clone provider in the result (dle,
+	// lakebase_branch).
+	Provider string
+	// Inspect is the analyze guard's parser; nil: libpg_query, absent in
+	// a build without cgo, which then executes nothing.
+	Inspect func(string) (sqlast.ReadQuery, error)
 }
+
+// DefaultAnalyzeTimeout is clone.rehearsal_statement_timeout_seconds'
+// default: the longest one executed statement may run on the clone.
+const DefaultAnalyzeTimeout = 5 * time.Second
 
 // Rehearsal errors.
 var (
 	ErrCloneStale        = errors.New("tuning: the clone snapshot is too old to rehearse on")
 	ErrCloneUnavailable  = errors.New("tuning: no clone is available")
 	ErrRehearsalRefused  = errors.New("tuning: only one CREATE INDEX statement is rehearsed")
+	ErrNoStatements      = errors.New("tuning: no target statement to rehearse")
 	errNoGenericPlanning = errors.New("a parameterized statement is planned only on " +
 		"PostgreSQL 16 or later")
 )
@@ -74,6 +103,9 @@ type cloneRehearser struct {
 
 // NewCloneRehearser returns a Rehearser on clones of provider.
 func NewCloneRehearser(p clone.Provider, opts RehearsalOptions) Rehearser {
+	if opts.AnalyzeTimeout <= 0 {
+		opts.AnalyzeTimeout = DefaultAnalyzeTimeout
+	}
 	return &cloneRehearser{provider: p, opts: opts}
 }
 
@@ -84,33 +116,60 @@ func (r *cloneRehearser) Rehearse(ctx context.Context, req RehearsalRequest) (
 	if !ok || err != nil || spec.TableSchema == "" {
 		return RehearsalResult{}, ErrRehearsalRefused
 	}
-	age, err := r.provider.SnapshotAge(ctx)
-	if err != nil {
-		return RehearsalResult{}, fmt.Errorf("%w: snapshot age: %w", ErrCloneUnavailable, err)
+	if len(req.Statements) == 0 {
+		return RehearsalResult{}, ErrNoStatements
 	}
-	if r.opts.MaxCloneAge > 0 && age > r.opts.MaxCloneAge {
-		return RehearsalResult{}, fmt.Errorf("%w: %s old, limit %s", ErrCloneStale, age,
-			r.opts.MaxCloneAge)
+	if err := r.fresh(ctx); err != nil {
+		return RehearsalResult{}, err
 	}
 	cl, err := r.provider.Create(ctx, clone.CloneSpec{IncludeData: true})
 	if err != nil {
 		return RehearsalResult{}, fmt.Errorf("%w: %w", ErrCloneUnavailable, err)
 	}
-	res, err := r.onClone(ctx, cl, ddl, qualified(spec.TableSchema, spec.TableName),
+	receipt := r.receiptOf(cl)
+	res, err := r.onClone(ctx, cl, ddl, sqlident.Qualified(spec.TableSchema, spec.TableName),
 		req.Statements)
+	res.ReceiptID, res.Provider = receipt, r.opts.Provider
 	if derr := r.provider.Destroy(context.WithoutCancel(ctx), cl); derr != nil {
 		err = errors.Join(err, fmt.Errorf("destroy clone %s: %w", cl.ID, derr))
 	}
 	return res, err
 }
 
+// fresh refuses a snapshot older than MaxCloneAge.
+func (r *cloneRehearser) fresh(ctx context.Context) error {
+	age, err := r.provider.SnapshotAge(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: snapshot age: %w", ErrCloneUnavailable, err)
+	}
+	if r.opts.MaxCloneAge > 0 && age > r.opts.MaxCloneAge {
+		return fmt.Errorf("%w: %s old, limit %s", ErrCloneStale, age, r.opts.MaxCloneAge)
+	}
+	return nil
+}
+
+func (r *cloneRehearser) receiptOf(cl clone.Clone) int64 {
+	if namer, ok := r.provider.(clone.ReceiptNamer); ok {
+		if id, ok := namer.ReceiptOf(cl.ID); ok {
+			return id
+		}
+	}
+	return 0
+}
+
 func (r *cloneRehearser) onClone(ctx context.Context, cl clone.Clone, ddl, table string,
 	stmts []RehearsalStatement) (RehearsalResult, error) {
-	conn, err := pgx.Connect(ctx, cl.DSN)
+	pool, err := clone.GuardedConnect(ctx, cl, r.opts.Production)
+	if err != nil {
+		return RehearsalResult{}, err
+	}
+	defer pool.Close()
+	pc, err := pool.Acquire(ctx)
 	if err != nil {
 		return RehearsalResult{}, fmt.Errorf("%w: connect: %w", ErrCloneUnavailable, err)
 	}
-	defer func() { _ = conn.Close(context.WithoutCancel(ctx)) }()
+	defer pc.Release()
+	conn := pc.Conn()
 	if err := r.limit(ctx, conn); err != nil {
 		return RehearsalResult{}, err
 	}
@@ -119,45 +178,33 @@ func (r *cloneRehearser) onClone(ctx context.Context, cl clone.Clone, ddl, table
 		Scan(&version); err != nil {
 		return RehearsalResult{}, fmt.Errorf("clone version: %w", err)
 	}
-	res := RehearsalResult{Queries: make([]RehearsedQuery, len(stmts))}
-	for i, s := range stmts {
-		res.Queries[i].QueryID = s.QueryID
-		res.Queries[i].BeforeCost, err = planCost(ctx, conn, s.Text, version)
-		if err != nil {
-			res.Queries[i].Error = err.Error()
-		}
+	m := measurer{conn: conn, version: version, opts: r.opts}
+	res := RehearsalResult{Queries: m.before(ctx, stmts)}
+	if err := build(ctx, conn, ddl, table, &res); err != nil {
+		return RehearsalResult{}, err
 	}
+	m.after(ctx, stmts, res.Queries)
+	return res, nil
+}
+
+// build creates the index on the clone and records its time and size.
+func build(ctx context.Context, conn *pgx.Conn, ddl, table string,
+	res *RehearsalResult) error {
 	before, err := indexesSize(ctx, conn, table)
 	if err != nil {
-		return RehearsalResult{}, err
+		return err
 	}
 	start := time.Now()
 	if _, err := conn.Exec(ctx, ddl); err != nil {
-		return RehearsalResult{}, fmt.Errorf("build the index on the clone: %w", err)
+		return fmt.Errorf("build the index on the clone: %w", err)
 	}
 	res.BuildMs = max(time.Since(start).Milliseconds(), 1)
 	after, err := indexesSize(ctx, conn, table)
 	if err != nil {
-		return RehearsalResult{}, err
+		return err
 	}
 	res.SizeDeltaBytes = after - before
-	r.after(ctx, conn, stmts, version, &res)
-	return res, nil
-}
-
-func (r *cloneRehearser) after(ctx context.Context, conn *pgx.Conn,
-	stmts []RehearsalStatement, version int, res *RehearsalResult) {
-	for i, s := range stmts {
-		if res.Queries[i].Error != "" {
-			continue
-		}
-		cost, err := planCost(ctx, conn, s.Text, version)
-		if err != nil {
-			res.Queries[i].Error = err.Error()
-			continue
-		}
-		res.Queries[i].AfterCost = cost
-	}
+	return nil
 }
 
 // limit applies the statement and lock timeouts to the clone session.
@@ -182,34 +229,4 @@ func indexesSize(ctx context.Context, conn *pgx.Conn, table string) (int64, erro
 		return 0, fmt.Errorf("index size of %s on the clone: %w", table, err)
 	}
 	return n, nil
-}
-
-// planCost is the total cost of a statement's plan (EXPLAIN, never
-// ANALYZE; a generic plan for a parameterized statement on PG16+).
-func planCost(ctx context.Context, conn *pgx.Conn, text string, version int) (float64,
-	error) {
-	body, ok := singleStatement(text)
-	if !ok {
-		return 0, errMultiStatement
-	}
-	explain := "EXPLAIN (FORMAT JSON) "
-	if paramRef.MatchString(blankLiteralsAndComments(body)) {
-		if version < 160000 {
-			return 0, errNoGenericPlanning
-		}
-		explain = "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "
-	}
-	raw, err := rawSingleValue(ctx, conn.PgConn(), explain+body)
-	if err != nil {
-		return 0, err
-	}
-	var plans []struct {
-		Plan struct {
-			TotalCost float64 `json:"Total Cost"`
-		} `json:"Plan"`
-	}
-	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) == 0 {
-		return 0, fmt.Errorf("unreadable plan: %v", err)
-	}
-	return plans[0].Plan.TotalCost, nil
 }

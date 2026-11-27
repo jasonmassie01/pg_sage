@@ -83,6 +83,9 @@ var allToolsArgs = map[string]string{
 	"sre_review_investigation": `{"investigation_id":"x","verdict":"accepted"}`,
 	"list_facts":               `{}`,
 	"fleet_findings":           `{}`,
+	"get_workload_pack": `{"content_sha256":"` +
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" + `"}`,
+	"upgrade_readiness": `{"target_major":18}`,
 	"propose_fact": `{"type":"test_fixture","subject_kind":"schema","subject":"test_*",` +
 		`"evidence":"CI leaks these"}`,
 	"decide_fact":    `{"fact_id":12,"decision":"confirm"}`,

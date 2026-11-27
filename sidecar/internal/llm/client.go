@@ -1,11 +1,9 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // Client is an OpenAI-compatible LLM client with circuit breaker.
@@ -27,12 +26,18 @@ type Client struct {
 	inflightID          uint64
 	inflight            map[uint64]context.CancelFunc
 
-	// Circuit breaker state.
+	// Circuit breaker state (breaker.go). failures counts consecutive
+	// counted failures; lastClass, lastErrorAt and lastSuccessAt feed the
+	// status. retryDelays is the ladder when no Retry-After is sent.
 	mu            sync.Mutex
+	state         breakerState
 	failures      int
-	circuitOpen   bool
-	circuitOpened time.Time
+	openedAt      time.Time
 	cooldown      time.Duration
+	lastClass     errClass
+	lastErrorAt   time.Time
+	lastSuccessAt time.Time
+	retryDelays   []time.Duration
 
 	// Token budget tracking. Both fields are atomic because Chat is
 	// called concurrently from per-database analyzers/optimizers/advisors
@@ -47,10 +52,18 @@ type Client struct {
 	// allocation in fleet mode), enforced in addition to the daily
 	// budget. Set once before concurrent use via SetBudget; nil disables.
 	budget Budgeter
+	// ceiling is an optional stricter daily cap (SetCeiling) and global
+	// the optional process-wide budget (SetGlobalBudget); both are atomic
+	// because wiring may set them while other runtimes already call Chat.
+	ceiling atomic.Pointer[ceilingFunc]
+	global  atomic.Pointer[Budget]
 
 	throttleMu sync.Mutex
 	activeKeys map[string]struct{}
 	lastCalls  map[string]time.Time
+
+	// observer receives one Outcome per call (observer.go); nil is none.
+	observer atomic.Pointer[func(Outcome)]
 }
 
 // Budgeter is an optional token budget supplied by the caller — used to
@@ -97,7 +110,9 @@ type ChatResponse struct {
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		TotalTokens int `json:"total_tokens"`
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
 }
 
@@ -109,10 +124,11 @@ func New(cfg *config.LLMConfig, logFn func(string, string, ...any)) *Client {
 	snapshot := *cfg
 	return &Client{
 		cfg:                 &snapshot,
-		httpClient:          &http.Client{},
+		httpClient:          egress.HTTPClient(0),
 		logFn:               logFn,
 		authorizeDatabricks: databricksauth.Authorize,
 		cooldown:            circuitCooldown(cfg.CooldownSeconds),
+		retryDelays:         defaultRetryDelays(),
 		generation:          1,
 		inflight:            make(map[uint64]context.CancelFunc),
 		activeKeys:          make(map[string]struct{}),
@@ -126,85 +142,29 @@ func (c *Client) IsEnabled() bool {
 	return configEnabled(cfg)
 }
 
-// IsCircuitOpen returns true if the circuit breaker is open.
-func (c *Client) IsCircuitOpen() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.circuitOpen {
-		return false
-	}
-	if time.Since(c.circuitOpened) > c.cooldown {
-		c.circuitOpen = false
-		c.failures = 0
-		c.logFn("llm", "circuit breaker closed (cooldown expired)")
-		return false
-	}
-	return true
-}
-
-// Chat sends a chat completion request. A blank completion returns
-// ErrEmptyResponse (tokens are still charged); it is not counted as a
-// provider failure by the circuit breaker.
+// Chat sends a chat completion request and returns the content and the
+// tokens charged. It is ChatResult without the truncation signal; see
+// there for empty and truncated answers.
 func (c *Client) Chat(
 	ctx context.Context,
 	system string,
 	user string,
 	maxTokens int,
 ) (string, int, error) {
-	requestCtx, cfg, generation, finish := c.beginRequest(ctx)
-	defer finish()
-	if err := c.checkAvailable(cfg); err != nil {
-		return "", 0, err
-	}
-	maxTokens = normalizedMaxTokens(cfg.Model, maxTokens)
-	throttleKey := requestThrottleKey(cfg, system, user)
-	if err := c.acquireThrottle(throttleKey, cfg.CooldownSeconds); err != nil {
-		return "", 0, err
-	}
-	throttleSuccess := false
-	defer func() { c.releaseThrottle(throttleKey, throttleSuccess) }()
-	external := externalReservation(system, user, maxTokens)
-	reservation, err := c.reserveBudget(cfg, maxTokens, external)
-	if err != nil {
-		return "", 0, err
-	}
-	reconciled := false
-	defer func() {
-		if !reconciled {
-			c.releaseBudget(reservation)
-		}
-	}()
-
-	chatResp, err := c.sendChat(ctx, requestCtx, cfg, system, user, maxTokens)
-	if err != nil {
-		return "", 0, err
-	}
-	if !c.generationCurrent(generation) {
-		return "", 0, fmt.Errorf("LLM disabled or reconfigured during request")
-	}
-
-	c.recordSuccess()
-	content := chatResp.Choices[0].Message.Content
-	tokens := usageTokens(chatResp, system, user)
-	c.reconcileBudget(reservation, tokens)
-	reconciled = true
-	if strings.TrimSpace(content) == "" {
-		return "", tokens, fmt.Errorf("%w (finish_reason=%s)",
-			ErrEmptyResponse, chatResp.Choices[0].FinishReason)
-	}
-	throttleSuccess = true
-	return c.repairIfTruncated(content, chatResp.Choices[0].FinishReason, tokens),
-		tokens, nil
+	r, err := c.ChatResult(ctx, system, user, maxTokens)
+	return r.Content, r.Tokens, err
 }
 
-func (c *Client) checkAvailable(cfg config.LLMConfig) error {
+// checkAvailable admits a request: the client must be enabled and the
+// breaker must let it through. probe is the half-open probe flag the
+// caller passes to endProbe.
+func (c *Client) checkAvailable(
+	ctx context.Context, cfg config.LLMConfig,
+) (probe bool, err error) {
 	if !configEnabled(cfg) {
-		return fmt.Errorf("LLM not enabled")
+		return false, ErrLLMDisabled
 	}
-	if c.IsCircuitOpen() {
-		return fmt.Errorf("LLM circuit breaker open")
-	}
-	return nil
+	return c.admit(forcedProbe(ctx))
 }
 
 // usageTokens returns provider-reported usage, estimating it when the
@@ -218,13 +178,15 @@ func usageTokens(resp *ChatResponse, system, user string) int {
 
 // sendChat performs the HTTP exchange, adapting the request shape when
 // the provider asks (wire_compat.go), and returns a decoded response with
-// at least one choice. Provider-side failures feed the breaker.
+// at least one choice. Provider failures are classified (errclass.go);
+// the caller feeds them to the breaker once.
 func (c *Client) sendChat(
 	ctx, requestCtx context.Context,
 	cfg config.LLMConfig,
 	system, user string,
 	maxTokens int,
 ) (*ChatResponse, error) {
+	defer recordWait(ctx, time.Now())
 	var out *ChatResponse
 	err := c.withAdaptation(cfg, requestShape(cfg, false), func(shape wireShape) error {
 		req := buildChatRequest(cfg, system, user, maxTokens, shape)
@@ -243,53 +205,25 @@ func (c *Client) sendChatOnce(
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(
-		requestCtx, "POST", chatEndpoint(cfg.Endpoint), bytes.NewReader(body),
-	)
+	reply, err := c.post(ctx, requestCtx, cfg, body, maxAttempts, "LLM request")
 	if err != nil {
-		return nil, fmt.Errorf("request: %w", err)
+		return nil, err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	if cfg.Auth == "databricks" {
-		if err := c.authorizeDatabricks(httpReq); err != nil {
-			return nil, err
-		}
-	}
-
-	resp, err := c.doWithRetry(requestCtx, httpReq, body, cfg)
-	if err != nil {
-		if shouldRecordProviderFailure(ctx, requestCtx) {
-			c.recordFailure()
-		}
-		return nil, providerRequestError("LLM request", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return c.decodeChatResponse(resp, cfg, shape)
+	return c.decodeChatResponse(reply, cfg, shape)
 }
 
 func (c *Client) decodeChatResponse(
-	resp *http.Response, cfg config.LLMConfig, shape wireShape,
+	reply providerReply, cfg config.LLMConfig, shape wireShape,
 ) (*ChatResponse, error) {
-	// Cap response body at 1MB to prevent memory exhaustion.
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		c.recordFailure()
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, c.statusError(cfg, shape, false, resp.StatusCode, respBody,
-			fmt.Errorf("LLM API error %d: %s", resp.StatusCode,
-				redactProviderText(string(respBody))))
+	if reply.status != http.StatusOK {
+		return nil, c.statusError(cfg, shape, false, reply)
 	}
 	var chatResp ChatResponse
-	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		c.recordFailure()
-		return nil, fmt.Errorf("unmarshal: %w", err)
+	if err := json.Unmarshal(reply.body, &chatResp); err != nil {
+		return nil, malformed(fmt.Errorf("unmarshal: %w", err))
 	}
 	if len(chatResp.Choices) == 0 {
-		c.recordFailure()
-		return nil, fmt.Errorf("no choices in response")
+		return nil, malformed(fmt.Errorf("no choices in response"))
 	}
 	return &chatResp, nil
 }
@@ -334,16 +268,6 @@ func chatEndpoint(endpoint string) string {
 	return endpoint + "/chat/completions"
 }
 
-func (c *Client) repairIfTruncated(content, reason string, tokens int) string {
-	if reason != "length" && reason != "max_tokens" {
-		return content
-	}
-	c.logFn("llm",
-		"response truncated (finish_reason=%s, tokens=%d), "+
-			"attempting JSON repair", reason, tokens)
-	return RepairTruncatedJSON(content)
-}
-
 func shouldRecordProviderFailure(
 	callerCtx context.Context,
 	requestCtx context.Context,
@@ -355,49 +279,6 @@ func shouldRecordProviderFailure(
 		return false
 	}
 	return requestCtx.Err() == context.DeadlineExceeded
-}
-
-func (c *Client) doWithRetry(
-	ctx context.Context,
-	req *http.Request,
-	body []byte,
-	cfg config.LLMConfig,
-) (*http.Response, error) {
-	delays := []time.Duration{1 * time.Second, 4 * time.Second, 16 * time.Second}
-	var lastErr error
-
-	for i := 0; i <= len(delays); i++ {
-		if i > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(delays[i-1]):
-			}
-			// Recreate request with fresh body.
-			req = req.Clone(ctx)
-			req.Body = io.NopCloser(bytes.NewReader(body))
-			if cfg.Auth == "databricks" {
-				if err := c.authorizeDatabricks(req); err != nil {
-					return nil, err
-				}
-			} else {
-				req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-			}
-		}
-
-		resp, err := c.doRequest(req, cfg)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if resp.StatusCode == 429 || resp.StatusCode == 503 {
-			_ = resp.Body.Close()
-			lastErr = fmt.Errorf("server error %d", resp.StatusCode)
-			continue
-		}
-		return resp, nil
-	}
-	return nil, fmt.Errorf("all retries failed: %w", lastErr)
 }
 
 // doRequest keeps native workspace credentials on the request's validated
@@ -418,26 +299,9 @@ func (c *Client) doRequest(req *http.Request, cfg config.LLMConfig) (*http.Respo
 	return client.Do(req)
 }
 
-func (c *Client) recordFailure() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.failures++
-	if c.failures >= 3 {
-		c.circuitOpen = true
-		c.circuitOpened = time.Now()
-		c.logFn("llm", "circuit breaker opened after %d failures", c.failures)
-	}
-}
-
-func (c *Client) recordSuccess() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.failures = 0
-}
-
 // NewOptimizerClient creates an independent LLM client for the optimizer.
-// It inherits endpoint, API key, and model from the general LLM config
-// when the optimizer-specific fields are empty.
+// It inherits endpoint and model from the general LLM config when the
+// optimizer-specific fields are empty; the API key follows OptimizerAPIKey.
 func NewOptimizerClient(
 	parent *config.LLMConfig,
 	opt *config.OptimizerLLMConfig,
@@ -449,10 +313,7 @@ func NewOptimizerClient(
 	if endpoint == "" {
 		endpoint = parent.Endpoint
 	}
-	apiKey := opt.APIKey
-	if apiKey == "" {
-		apiKey = parent.APIKey
-	}
+	apiKey := OptimizerAPIKey(authConfig)
 	model := opt.Model
 	if model == "" {
 		model = parent.Model
@@ -499,26 +360,29 @@ func (c *Client) TokenBudgetDaily() int {
 	return cfg.TokenBudgetDaily
 }
 
-// IsBudgetExhausted returns true if the daily token budget has
-// been reached. Returns false when no budget is configured.
+// IsBudgetExhausted returns true if the effective daily token budget
+// (EffectiveTokenBudgetDaily) has been reached. Returns false when no
+// budget applies.
 func (c *Client) IsBudgetExhausted() bool {
 	cfg, _ := c.configSnapshot()
-	if cfg.TokenBudgetDaily <= 0 {
+	capacity := c.dailyLimit(cfg)
+	if !capacity.limited {
 		return false
 	}
+	used := c.tokensUsedToday.Load()
 	if budgetDay(time.Now()) != c.budgetResetDay.Load() {
-		return false
+		used = 0
 	}
-	return int(c.tokensUsedToday.Load()) >= cfg.TokenBudgetDaily
+	return used >= capacity.limit
 }
 
 // ResetBudget zeroes the daily token counter, allowing LLM calls
 // to resume immediately instead of waiting for the next calendar day.
+// Holds of calls in flight stay, so their settle cannot go negative.
 func (c *Client) ResetBudget() {
 	c.budgetMu.Lock()
 	defer c.budgetMu.Unlock()
 	c.tokensUsedToday.Store(0)
-	c.reservedTokens = 0
 	c.budgetResetDay.Store(budgetDay(time.Now()))
 }
 

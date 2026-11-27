@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   inputStyle, cardStyle, EVENT_TYPES, SEVERITIES, defaultMinSeverity,
-  FormField, ErrorBanner,
+  FormField, ConfigBadge, CONFIG_MANAGED_TITLE, isConfigManaged,
 } from './shared'
+import { ErrorBanner } from '../../components/ErrorBanner'
 
 export function RulesTab() {
   const [rules, setRules] = useState([])
@@ -34,10 +35,13 @@ export function RulesTab() {
         { credentials: 'include' })
       if (!res.ok) return
       const data = await res.json()
-      const chs = data.channels || []
+      // A Jira integration links cases; no rule routes events to it (market-14).
+      const chs = (data.channels || []).filter(ch => ch.type !== 'jira')
       setChannels(chs)
-      if (chs.length > 0 && !channelId) {
-        setChannelId(String(chs[0].id))
+      // A config channel's rules come from the config file (alerting-06b).
+      const routable = chs.filter(ch => !isConfigManaged(ch))
+      if (routable.length > 0 && !channelId) {
+        setChannelId(String(routable[0].id))
       }
     } catch { /* ignore */ }
   }, [channelId])
@@ -111,7 +115,7 @@ export function RulesTab() {
 
   return (
     <div>
-      {error && <ErrorBanner msg={error} />}
+      {error && <div className="mb-4"><ErrorBanner message={error} /></div>}
       <div className="rounded-lg p-4 mb-6"
         style={cardStyle}>
         <h2 className="text-sm font-semibold mb-3"
@@ -126,7 +130,7 @@ export function RulesTab() {
               onChange={e => setChannelId(e.target.value)}
               className="px-3 py-1.5 rounded text-sm"
               style={inputStyle}>
-              {channels.map(ch => (
+              {channels.filter(ch => !isConfigManaged(ch)).map(ch => (
                 <option key={ch.id} value={ch.id}>
                   {ch.name}
                 </option>
@@ -162,7 +166,7 @@ export function RulesTab() {
             data-testid="add-rule-submit"
             className="px-4 py-1.5 rounded text-sm font-medium"
             style={{
-              background: 'var(--accent)', color: '#fff',
+              background: 'var(--accent-solid)', color: '#fff',
             }}>
             {creating ? 'Adding...' : 'Add Rule'}
           </button>
@@ -196,7 +200,7 @@ function RuleTable({
           }}>
             {['Channel', 'Event', 'Min Severity',
               'Enabled', ''].map(h => (
-              <th key={h}
+              <th scope="col" key={h}
                 className="text-left px-4 py-2 text-xs"
                 style={{
                   color: 'var(--text-secondary)',
@@ -208,12 +212,13 @@ function RuleTable({
         </thead>
         <tbody>
           {rules.map(r => (
-            <tr key={r.id} style={{
+            <tr key={r.id} data-testid="rule-row" style={{
               borderBottom: '1px solid var(--border)',
             }}>
               <td className="px-4 py-2"
                 style={{ color: 'var(--text-primary)' }}>
                 {channelName(r.channel_id)}
+                {isConfigManaged(r) && <ConfigBadge />}
               </td>
               <td className="px-4 py-2"
                 style={{ color: 'var(--text-secondary)' }}>
@@ -225,6 +230,9 @@ function RuleTable({
               </td>
               <td className="px-4 py-2">
                 <button onClick={() => onToggle(r)}
+                  data-testid="rule-toggle-button"
+                  disabled={isConfigManaged(r)}
+                  title={isConfigManaged(r) ? CONFIG_MANAGED_TITLE : undefined}
                   className="text-xs px-2 py-1 rounded"
                   style={{
                     color: r.enabled
@@ -235,6 +243,9 @@ function RuleTable({
               </td>
               <td className="px-4 py-2 text-right">
                 <button onClick={() => onDelete(r.id)}
+                  data-testid="rule-delete-button"
+                  disabled={isConfigManaged(r)}
+                  title={isConfigManaged(r) ? CONFIG_MANAGED_TITLE : undefined}
                   className="px-2 py-1 rounded text-xs"
                   style={{ color: '#ef4444' }}>
                   Delete

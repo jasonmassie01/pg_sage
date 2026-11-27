@@ -5,6 +5,15 @@ export const SCOPES = ['read', 'propose', 'approve']
 export const MIN_DAYS = 1
 export const MAX_DAYS = 90
 
+// DEFAULT_FORM is the create form before the admin types anything. This
+// page issues operator tokens only (a person's own token, bound to an
+// operator or admin owner); a coding agent's token is minted per agent on
+// the Agents page, and the server refuses kind "agent" here (agentgov-01).
+export const DEFAULT_FORM = Object.freeze({
+  name: '', scopes: ['read'], allDatabases: true, databaseNames: '',
+  expires: '30', owner: '',
+})
+
 // errorFrom turns a failed response into an Error carrying the server's
 // {"error": "..."} message, or the HTTP status when the body is not JSON.
 async function errorFrom(res, what) {
@@ -55,10 +64,20 @@ export async function listOwners() {
   return users.filter(u => u.role === 'operator' || u.role === 'admin')
 }
 
+// PRINCIPAL_STATUS names an agent token whose principal is not active: a
+// retired agent's token is refused, a frozen agent's gets agent_frozen.
+const PRINCIPAL_STATUS = { retired: 'agent retired', frozen: 'agent frozen' }
+
 export function tokenStatus(token, now = Date.now()) {
   if (token.revoked_at) return 'revoked'
   if (new Date(token.expires_at).getTime() <= now) return 'expired'
-  return 'active'
+  return PRINCIPAL_STATUS[token.principal_status] || 'active'
+}
+
+// revocable: a token that still exists for its holder, whatever its agent's
+// state; revoking a retired or frozen agent's token is a safe cleanup.
+export function revocable(status) {
+  return status !== 'revoked' && status !== 'expired'
 }
 
 export function parseDatabaseNames(text) {
@@ -75,19 +94,20 @@ export function setupCommand(origin, secret) {
     + ` --header "Authorization: Bearer ${secret}"`
 }
 
-// requestBody builds the POST body from the form, or returns null when the
-// form is not complete. An agent token never carries approve or an owner.
+function ownerID(text) {
+  const n = Number(text)
+  return text !== '' && Number.isInteger(n) && n > 0 ? n : null
+}
+
+// requestBody builds the POST body of an operator token from the form, or
+// returns null when the form is not complete. The owner is required.
 export function requestBody(form) {
   const name = form.name.trim()
   const scopes = SCOPES.filter(s => form.scopes.includes(s))
   const databases = form.allDatabases ? ['*'] : parseDatabaseNames(form.databaseNames)
+  const owner = ownerID(form.owner)
   if (!name || scopes.length === 0 || databases.length === 0) return null
-  if (!validDays(form.expires)) return null
-  const body = { name, kind: form.kind, scopes, databases,
-    expires_in_days: Number(form.expires) }
-  if (form.kind === 'operator') {
-    if (!form.owner) return null
-    body.owner_user_id = Number(form.owner)
-  }
-  return body
+  if (!validDays(form.expires) || owner === null) return null
+  return { name, kind: 'operator', scopes, databases,
+    expires_in_days: Number(form.expires), owner_user_id: owner }
 }

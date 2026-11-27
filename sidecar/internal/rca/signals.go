@@ -7,6 +7,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // ---------------------------------------------------------------------------
@@ -43,10 +44,11 @@ func (e *Engine) detectConnectionsHigh(
 	curr, prev *collector.Snapshot,
 	cfg *config.Config,
 ) *Signal {
-	if curr.System.MaxConnections == 0 {
+	if curr.System.MaxConnections == 0 || !e.ClusterOwner() {
 		return nil
 	}
-	pct := curr.System.TotalBackends * 100 / curr.System.MaxConnections
+	used := connectionSlotsUsed(curr.System)
+	pct := used * 100 / curr.System.MaxConnections
 	threshold := cfg.RCA.ConnectionSaturationPct
 	if threshold == 0 {
 		threshold = 80
@@ -55,17 +57,23 @@ func (e *Engine) detectConnectionsHigh(
 		return nil
 	}
 	return &Signal{
-		ID:       "connections_high",
+		ID:       signalid.ConnectionsHigh,
 		FiredAt:  curr.CollectedAt,
 		Severity: severityForPct(pct, 90),
 		Metrics: map[string]any{
 			"total_backends":  curr.System.TotalBackends,
+			"client_backends": used,
 			"max_connections": curr.System.MaxConnections,
 			"pct":             pct,
 		},
 	}
 }
 
+// detectIdleInTxElevated fires when this database's longest
+// idle-in-transaction client session has been idle for
+// analyzer.idle_in_tx_timeout_minutes (rca-03: the longest, not the
+// average, so one session idle for an hour among many short ones fires).
+// It reads the system stats, collected with or without the advisor.
 func (e *Engine) detectIdleInTxElevated(
 	curr *collector.Snapshot,
 	cfg *config.Config,
@@ -74,44 +82,36 @@ func (e *Engine) detectIdleInTxElevated(
 	if threshold == 0 {
 		threshold = 5
 	}
-	if curr.ConfigData == nil {
-		return nil
-	}
-	var idleCount int
-	var maxDuration float64
-	for _, cs := range curr.ConfigData.ConnectionStates {
-		if cs.State == "idle in transaction" {
-			idleCount = cs.Count
-			maxDuration = cs.AvgDurationSeconds
-		}
-	}
-	if idleCount == 0 {
-		return nil
-	}
-	// Fire if any idle-in-tx sessions exceed the threshold.
-	if maxDuration < float64(threshold*60) {
+	idleCount := curr.System.IdleInTransaction
+	maxDuration := curr.System.IdleInTxMaxSeconds
+	if idleCount == 0 || maxDuration < float64(threshold*60) {
 		return nil
 	}
 	return &Signal{
-		ID:       "idle_in_tx_elevated",
+		ID:       signalid.IdleInTxElevated,
 		FiredAt:  curr.CollectedAt,
 		Severity: "warning",
 		Metrics: map[string]any{
 			"idle_in_tx_count":     idleCount,
-			"avg_duration_seconds": maxDuration,
+			"max_duration_seconds": maxDuration,
 		},
 	}
 }
 
+// detectCacheHitDrop fires on the cache hit ratio of the last collector
+// interval (collection-06), when it accessed enough blocks to be evidence.
+// The lifetime ratio (since the last reset, often months) barely moves
+// when a working set outgrows shared_buffers. Across a reset the interval
+// ratio is unknown: no signal (rca-03).
 func (e *Engine) detectCacheHitDrop(
-	curr, prev *collector.Snapshot,
+	curr, _ *collector.Snapshot,
 	cfg *config.Config,
 ) *Signal {
 	warnThreshold := cfg.Analyzer.CacheHitRatioWarning
 	if warnThreshold == 0 {
 		warnThreshold = 0.95
 	}
-	ratio, ok := normalizeCacheHitRatio(curr.System.CacheHitRatio)
+	ratio, blocks, ok := analyzer.IntervalCacheRatio(curr)
 	if !ok || ratio >= warnThreshold {
 		return nil
 	}
@@ -120,40 +120,24 @@ func (e *Engine) detectCacheHitDrop(
 		sev = "critical"
 	}
 	return &Signal{
-		ID:       "cache_hit_ratio_drop",
+		ID:       signalid.CacheHitRatioDrop,
 		FiredAt:  curr.CollectedAt,
 		Severity: sev,
 		Metrics: map[string]any{
-			"cache_hit_ratio": ratio,
-			"threshold":       warnThreshold,
+			"cache_hit_ratio":  ratio,
+			"blocks_accessed":  blocks,
+			"interval_seconds": curr.System.Interval.Seconds,
+			"threshold":        warnThreshold,
 		},
 	}
-}
-
-// normalizeCacheHitRatio returns the cache hit ratio as a fraction.
-// The collector has reported a percentage (0-100) and is moving to a
-// fraction (0-1); values above 1 are treated as percentages. A value of
-// zero or below means "no data" (the collector COALESCEs a missing ratio
-// to 0) and must not fire a critical signal; values above 100% are
-// invalid.
-func normalizeCacheHitRatio(v float64) (float64, bool) {
-	if v <= 0 {
-		return 0, false
-	}
-	if v > 1 {
-		v /= 100
-	}
-	if v > 1 {
-		return 0, false
-	}
-	return v, true
 }
 
 func (e *Engine) detectReplicationLag(
 	curr, prev *collector.Snapshot,
 	cfg *config.Config,
 ) *Signal {
-	if curr.Replication == nil || len(curr.Replication.Replicas) == 0 {
+	if curr.Replication == nil || len(curr.Replication.Replicas) == 0 ||
+		!e.ClusterOwner() {
 		return nil
 	}
 	thresholdS := cfg.RCA.ReplicationLagThresholdS
@@ -175,7 +159,7 @@ func (e *Engine) detectReplicationLag(
 		return nil
 	}
 	return &Signal{
-		ID:       "replication_lag_increasing",
+		ID:       signalid.ReplicationLagIncreasing,
 		FiredAt:  curr.CollectedAt,
 		Severity: severityForFloat(worstLagS, float64(thresholdS*2)),
 		Metrics: map[string]any{
@@ -213,7 +197,7 @@ func (e *Engine) detectVacuumBlocked(
 		return nil
 	}
 	return &Signal{
-		ID:       "vacuum_blocked",
+		ID:       signalid.VacuumBlocked,
 		FiredAt:  curr.CollectedAt,
 		Severity: "warning",
 		Metrics: map[string]any{
@@ -246,7 +230,7 @@ func (e *Engine) detectLockContention(
 		return nil
 	}
 	return &Signal{
-		ID:       "lock_contention",
+		ID:       signalid.LockContention,
 		FiredAt:  time.Now(),
 		Severity: worstSev,
 		Metrics: map[string]any{
@@ -257,69 +241,47 @@ func (e *Engine) detectLockContention(
 	}
 }
 
-func (e *Engine) detectWALSpike(
-	curr, prev *collector.Snapshot,
-	cfg *config.Config,
-) *Signal {
-	if prev == nil {
-		return nil
+// heldSignals are the signals this cycle cannot evaluate because the
+// collector could not read the category they need: their silence is not
+// a clear, so an open incident they back is not counted toward
+// resolution (collection-05).
+func heldSignals(curr *collector.Snapshot) map[string]bool {
+	held := map[string]bool{}
+	if curr != nil && !curr.Available("prepared_xacts") {
+		held["orphaned_prepared_tx"] = true
 	}
-	multiplier := cfg.RCA.WALSpikeMultiplier
-	if multiplier == 0 {
-		multiplier = 2.0
-	}
-	currWAL := totalWALBytes(curr)
-	prevWAL := totalWALBytes(prev)
-	if prevWAL == 0 {
-		return nil
-	}
-	ratio := float64(currWAL) / float64(prevWAL)
-	if ratio < multiplier {
-		return nil
-	}
-	return &Signal{
-		ID:       "wal_growth_spike",
-		FiredAt:  curr.CollectedAt,
-		Severity: "warning",
-		Metrics: map[string]any{
-			"current_wal_bytes":  currWAL,
-			"previous_wal_bytes": prevWAL,
-			"ratio":              ratio,
-			"multiplier":         multiplier,
-		},
-	}
+	return held
 }
 
-// detectOrphanedPreparedTx fires when pg_prepared_xacts contains any
-// transactions. Prepared transactions (2PC) survive connection drops
-// and server restarts, hold xmin and locks indefinitely, and are
-// invisible to pg_stat_activity.
+// detectOrphanedPreparedTx fires when this database has a prepared
+// transaction at least rca.prepared_xact_min_age_minutes old (rca-01:
+// two-phase commit prepares and commits transactions in normal
+// operation). Prepared transactions survive connection drops and server
+// restarts, hold xmin and locks indefinitely, and are invisible to
+// pg_stat_activity. count is every prepared transaction listed; the
+// oldest is the oldest (by XID age) past the floor.
 func (e *Engine) detectOrphanedPreparedTx(
 	curr *collector.Snapshot,
 ) *Signal {
-	if len(curr.PreparedXacts) == 0 {
+	if !curr.Available("prepared_xacts") { // unknown, not "none" (heldSignals)
 		return nil
 	}
-	var oldestGID string
-	var maxAge int64
-	for _, pt := range curr.PreparedXacts {
-		if pt.XIDAge > maxAge {
-			maxAge = pt.XIDAge
-			oldestGID = pt.GID
-		}
+	oldest, ok := agedPrepared(curr, e.cfg.PreparedXactFloor())
+	if !ok {
+		return nil
 	}
 	sev := "warning"
-	if maxAge > 100_000_000 {
+	if oldest.XIDAge > 100_000_000 {
 		sev = "critical"
 	}
 	return &Signal{
-		ID:       "orphaned_prepared_tx",
+		ID:       signalid.OrphanedPreparedTx,
 		FiredAt:  curr.CollectedAt,
 		Severity: sev,
 		Metrics: map[string]any{
 			"count":       len(curr.PreparedXacts),
-			"oldest_gid":  oldestGID,
-			"max_xid_age": maxAge,
+			"oldest_gid":  oldest.GID,
+			"max_xid_age": oldest.XIDAge,
 		},
 	}
 }

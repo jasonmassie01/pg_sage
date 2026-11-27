@@ -25,7 +25,7 @@ func (e *Executor) settleConfigChange(ctx context.Context, actionID int64, c *co
 	case readbackInEffect:
 		return true
 	case readbackPendingRestart:
-		updateActionOutcome(ctx, e.pool, actionID, "applied_pending_restart", note)
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "applied_pending_restart", note)
 		_, _ = finalizeActionVerification(ctx, e.pool, actionID, "unverifiable",
 			"pending restart: "+note)
 	case readbackUnconfirmed:
@@ -54,8 +54,16 @@ func (e *Executor) readBackConfig(
 	if c.kind == configKindDatabaseGUC {
 		return readDatabaseSetting(ctx, e.pool, c.database)
 	}
+	if c.kind == configKindRoleBudget {
+		return e.readRoleBudget(ctx, c)
+	}
+	if c.kind == configKindColumnStatistics {
+		return e.readColumnStatistics(ctx, c)
+	}
 	if c.kind == configKindGUC {
-		out := applyConfigChangeWithin(ctx, e.pool, c.sql, e.cfg.CloudEnvironment,
+		// The reload is part of the change: the role that ran ALTER SYSTEM
+		// reloads it (security-09), not the observation role.
+		out := applyConfigChangeWithin(ctx, e.actionDB(), c.sql, e.cfg.CloudEnvironment,
 			e.logFn, e.readbackWait())
 		return out.State, out.Note, map[string]any{"state": out.State,
 			"effective": out.Effective, "source": out.Source,
@@ -113,6 +121,6 @@ func (e *Executor) revertIneffective(
 		reason += "; reverted (" + rolled + ")"
 	}
 	e.logFn("executor", "config change %q %s", c.sql, reason)
-	updateActionOutcome(ctx, e.pool, actionID, "failed", reason)
+	_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "failed", reason)
 	_, _ = finalizeActionVerification(ctx, e.pool, actionID, "failed", reason)
 }

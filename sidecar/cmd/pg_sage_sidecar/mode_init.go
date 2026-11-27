@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -40,10 +42,19 @@ func initStandalone() {
 	}
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
+	learnLLMInputLimits()
 	llmMgr = newStandaloneLLMManager(llmClient)
+	startLLMUsageLedger(pool) // fleet-10: before the runtime's first call
+	dbCfg := buildDBConfig(name)
+	actionPool, err := openActionPool(cfg.Postgres.DSN(), dbCfg)
+	if err != nil {
+		logError("startup", "%v", err)
+		os.Exit(1)
+	}
+	fleetMgr = fleet.NewManager(cfg) // env-race: before any runtime worker reads it
 	rt, err := buildDatabaseRuntime(ctx, databaseRuntimeSpec{
-		Scope: "startup", Name: name, Config: buildDBConfig(name),
-		Pool: pool, ControlPool: pool, ExecMode: resolveExecutionMode(),
+		Scope: "startup", Name: name, Config: dbCfg, Pool: pool, ActionPool: actionPool,
+		ControlPool: pool, ExecMode: resolveExecutionMode(),
 		Parent: shutdownCtx, RequireChecks: true, Checks: checks, Shared: true,
 	})
 	if err != nil {
@@ -51,7 +62,6 @@ func initStandalone() {
 		os.Exit(1)
 	}
 	coll, anal, exec, actionStore = rt.collector, rt.analyzer, rt.executor, rt.actions
-	fleetMgr = fleet.NewManager(cfg)
 	rt.publish(fleetMgr)
 	logInfo("startup", "standalone mode initialized — collector=%ds, analyzer=%ds, trust=%s",
 		cfg.Collector.IntervalSeconds, cfg.Analyzer.IntervalSeconds, cfg.Trust.Level)
@@ -59,7 +69,8 @@ func initStandalone() {
 
 // initFleetMultiDB builds one runtime per YAML-configured database. The
 // first database that connects is the control database: it holds the
-// admin user, the standing policy and the notification rules.
+// admin user, the standing policy and the notification rules. A pinned
+// fleet_learning.control_database is tried first.
 func initFleetMultiDB() {
 	fleetMgr = fleet.NewManager(cfg)
 	initializeAnalyzeSemaphore()
@@ -67,6 +78,8 @@ func initFleetMultiDB() {
 	// LLM client + manager (shared across fleet).
 	llmClient = llm.New(&cfg.LLM, logStructuredWrapper)
 	registerLLMConfigOwner()
+	startBriefingRollup()
+	learnLLMInputLimits()
 	llmMgr = llm.NewManager(llmClient, nil, false)
 
 	// Per-database LLM token budget (F5): split a fleet-wide daily cap
@@ -78,10 +91,13 @@ func initFleetMultiDB() {
 	initializeFleetBudget(names)
 
 	boot := &fleetBootstrap{}
-	for _, dbCfg := range cfg.Databases {
+	for _, dbCfg := range fleetStartOrder(cfg.Databases, cfg.FleetLearning.ControlDatabase) {
 		boot.start(dbCfg)
 	}
 	registerFleetDatabasesOwner(boot)
+	// fleet-10: the control database is known only once one connected.
+	startLLMUsageLedger(boot.controlPool)
+	startPolicyExceptionSweep(shutdownCtx, boot.controlPool) // fleetpol-01a
 	// Register fleet databases in sage.databases for config API.
 	if boot.controlPool != nil {
 		registerFleetDatabases(boot.controlPool)
@@ -127,12 +143,17 @@ func upsertFleetDatabase(
 	dbCfg config.DatabaseConfig, trustLevel string,
 ) (int, error) {
 	var id int
-	err := pool.QueryRow(ctx, `
+	tags, err := json.Marshal(fleetTagMap(dbCfg.Tags))
+	if err != nil {
+		return 0, fmt.Errorf("encode tags of %q: %w", dbCfg.Name, err)
+	}
+	// Tags reach sage.databases so policy-set selectors see them.
+	err = pool.QueryRow(ctx, `
 		INSERT INTO sage.databases
 			(name, host, port, database_name, username,
 			 password_enc, sslmode, max_connections,
-			 trust_level, execution_mode)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'auto')
+			 trust_level, execution_mode, tags)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'auto', $10)
 		ON CONFLICT (name) DO UPDATE SET
 			host = EXCLUDED.host,
 			port = EXCLUDED.port,
@@ -141,13 +162,14 @@ func upsertFleetDatabase(
 			sslmode = EXCLUDED.sslmode,
 			max_connections = EXCLUDED.max_connections,
 			trust_level = EXCLUDED.trust_level,
+			tags = EXCLUDED.tags,
 			updated_at = now()
 		RETURNING id`,
 		dbCfg.Name, dbCfg.Host, dbCfg.Port,
 		dbCfg.Database, dbCfg.User,
 		[]byte{0}, // placeholder — fleet uses YAML creds
 		dbCfg.SSLMode, dbCfg.MaxConnections,
-		trustLevel,
+		trustLevel, tags,
 	).Scan(&id)
 	return id, err
 }
@@ -173,6 +195,9 @@ func buildDBConfig(name string) config.DatabaseConfig {
 		User:     cfg.Postgres.User,
 		Database: cfg.Postgres.Database,
 		SSLMode:  cfg.Postgres.SSLMode,
+		Provider: cfg.Postgres.Provider, CloudResource: cfg.Postgres.CloudResource,
+		ActionDSN: cfg.Postgres.ActionDSN,
+		CNPG:      cfg.Postgres.CNPG,
 	}
 }
 

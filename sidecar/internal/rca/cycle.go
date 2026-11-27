@@ -20,6 +20,7 @@ const (
 // detected under e.mu, and what must happen before results are merged.
 type cyclePlan struct {
 	firedIDs    map[string]bool
+	heldIDs     map[string]bool
 	incidents   []Incident
 	tier2       *tier2Request
 	actionStore ActionQuerier
@@ -66,6 +67,7 @@ func (e *Engine) prepareCycle(
 
 	plan := cyclePlan{
 		firedIDs:    firedIDs,
+		heldIDs:     heldSignals(current),
 		incidents:   incidents,
 		actionStore: e.actionStore,
 		correlator:  e.correlator,
@@ -108,8 +110,8 @@ func (e *Engine) commitCycle(plan cyclePlan, actions sageActions) []Incident {
 	if actions.ok && len(actions.recent) > 0 {
 		e.applySelfActionCorrelation(plan, actions)
 	}
-	e.autoResolve(e.consumeFastFired(plan.firedIDs))
-	e.resolveStale(time.Now())
+	e.autoResolve(withHeld(e.consumeFastFired(plan.firedIDs), plan.heldIDs))
+	e.resolveStale(e.clock())
 	e.escalate()
 	e.trimResolvedOverflow()
 	return e.activeIncidents()
@@ -147,6 +149,23 @@ func stampActionDatabase(actions []SageAction, db string) []SageAction {
 		}
 	}
 	return out
+}
+
+// withHeld counts a held signal (unknown this cycle) as still firing for
+// auto-resolution: an unknown cycle is not a clear one, so it neither
+// resolves the incident nor extends its run of clear cycles.
+func withHeld(fired, held map[string]bool) map[string]bool {
+	if len(held) == 0 {
+		return fired
+	}
+	merged := make(map[string]bool, len(fired)+len(held))
+	for id := range fired {
+		merged[id] = true
+	}
+	for id := range held {
+		merged[id] = true
+	}
+	return merged
 }
 
 // consumeFastFired adds the signals the fast path saw since the last

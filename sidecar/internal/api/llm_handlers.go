@@ -7,26 +7,31 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
 // listModelsHandler returns available LLM models from the
 // configured provider. Results are cached in the llm package.
-func listModelsHandler(
-	cfg *config.LLMConfig,
-	controllers ...*config.ConfigController,
-) http.HandlerFunc {
-	return listModelsWithDiscovery(cfg, controllers, databricksauth.ListModelServices)
+func listModelsHandler(controller *config.ConfigController) http.HandlerFunc {
+	return listModelsWithDiscovery(controller, databricksauth.ListModelServices)
 }
+
+// llmModelsHTTPClient lists models at the configured endpoint through the
+// egress floor; it is shared so its connections are reused.
+var llmModelsHTTPClient = egress.HTTPClient(0)
 
 type gatewayModelLister func(context.Context, string, string) ([]databricksauth.GatewayModel, error)
 
-func listModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.ConfigController, discover gatewayModelLister) http.HandlerFunc {
+func listModelsWithDiscovery(
+	controller *config.ConfigController, discover gatewayModelLister,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cfg := activeLLMConfig(cfg, controllers)
+		cfg := activeLLMConfig(controller)
 		if err := cfg.ValidateDatabricksApp(); err != nil {
 			jsonError(w, err.Error(), http.StatusBadRequest)
 			return
@@ -38,7 +43,7 @@ func listModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.Config
 			return
 		}
 
-		models, err := modelsForConfig(r.Context(), cfg, http.DefaultClient, discover)
+		models, err := modelsForConfig(r.Context(), cfg, llmModelsHTTPClient, discover)
 		if err != nil {
 			slog.Error("LLM list models failed", "error", err)
 			jsonError(w, "LLM request failed",
@@ -55,16 +60,8 @@ func listModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.Config
 
 // Model discovery follows committed runtime config, never a startup pointer or
 // a desired revision whose reconfiguration has not completed.
-func activeLLMConfig(
-	fallback *config.LLMConfig, controllers []*config.ConfigController,
-) config.LLMConfig {
-	if controller := firstConfigController(controllers); controller != nil {
-		return controller.Active().Config.LLM
-	}
-	if fallback != nil {
-		return *fallback
-	}
-	return config.LLMConfig{}
+func activeLLMConfig(controller *config.ConfigController) config.LLMConfig {
+	return controller.Active().Config.LLM
 }
 
 type modelDiscoveryRequest struct {
@@ -73,16 +70,15 @@ type modelDiscoveryRequest struct {
 
 // discoverModelsHandler lists models using a request-scoped LLM config
 // payload. It intentionally does not persist endpoint/API key edits.
-func discoverModelsHandler(
-	cfg *config.LLMConfig,
-	controllers ...*config.ConfigController,
-) http.HandlerFunc {
-	return discoverModelsWithDiscovery(cfg, controllers, databricksauth.ListModelServices)
+func discoverModelsHandler(controller *config.ConfigController) http.HandlerFunc {
+	return discoverModelsWithDiscovery(controller, databricksauth.ListModelServices)
 }
 
-func discoverModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.ConfigController, discover gatewayModelLister) http.HandlerFunc {
+func discoverModelsWithDiscovery(
+	controller *config.ConfigController, discover gatewayModelLister,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		discoveryCfg := activeLLMConfig(cfg, controllers)
+		discoveryCfg := activeLLMConfig(controller)
 		configuredEndpoint := discoveryCfg.Endpoint
 		configuredAuth := discoveryCfg.Auth
 		endpointSupplied := false
@@ -153,7 +149,7 @@ func discoverModelsWithDiscovery(cfg *config.LLMConfig, controllers []*config.Co
 			return
 		}
 
-		httpClient := http.DefaultClient
+		httpClient := llmModelsHTTPClient
 		if endpointSupplied {
 			httpClient = safeLLMDiscoveryHTTPClient()
 		}
@@ -204,6 +200,19 @@ type LLMBudgetRegistry interface {
 	ResetBudgets()
 }
 
+// LLMGlobalBudgetReporter is a registry that also enforces one
+// process-wide ceiling across its clients (llm.global_token_budget_daily).
+type LLMGlobalBudgetReporter interface {
+	GlobalBudget() llm.BudgetStatus
+}
+
+// LLMUsageLedgerReporter is a registry whose daily usage survives restarts
+// (fleet-10): it says when today's usage was restored from the control
+// database and when it was last flushed there (zero: not yet).
+type LLMUsageLedgerReporter interface {
+	UsageLedgerStatus() (restoredAt, lastFlushAt time.Time)
+}
+
 // llmBudgetSource prefers the process registry and falls back to the
 // shared manager; nil means no LLM is configured.
 func llmBudgetSource(
@@ -219,9 +228,35 @@ func llmBudgetSource(
 }
 
 func registerLLMBudgetRoutes(mux *http.ServeMux, budgets LLMBudgetRegistry) {
-	mux.HandleFunc("GET /api/v1/llm/status", llmStatusHandler(budgets))
-	mux.Handle("POST /api/v1/llm/budget/reset", RequireRole("admin")(
-		http.HandlerFunc(llmBudgetResetHandler(budgets))))
+	route(mux, "GET /api/v1/llm/status", gateViewer, http.HandlerFunc(llmStatusHandler(budgets)))
+	route(mux, "POST /api/v1/llm/budget/reset", gateAdmin,
+		http.HandlerFunc(llmBudgetResetHandler(budgets)))
+	route(mux, "POST /api/v1/llm/test", gateAdmin, http.HandlerFunc(llmTestHandler(budgets)))
+	route(mux, "GET /api/v1/llm/usage", gateViewer, http.HandlerFunc(llmUsageHandler(budgets)))
+}
+
+// LLMProber is a registry that can test its general client's connection
+// (llm.Client.Probe). *llm.Manager and the sidecar registry satisfy it.
+type LLMProber interface {
+	ProbeLLM(ctx context.Context) llm.ProbeResult
+}
+
+// llmTestHandler sends one tiny request through the normal path: charged
+// to the budget and admitted as the circuit breaker's half-open probe, so
+// a fixed provider closes the breaker now. It answers with the error
+// class and latency. Admin-only.
+func llmTestHandler(budgets LLMBudgetRegistry) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		prober, ok := budgets.(LLMProber)
+		if !ok || prober == nil {
+			jsonError(w, "LLM not configured", http.StatusServiceUnavailable)
+			return
+		}
+		res := prober.ProbeLLM(r.Context())
+		slog.Info("LLM connection test", "class", res.Class,
+			"latency_ms", res.LatencyMS, "model", res.Model)
+		jsonResponse(w, res)
+	}
 }
 
 // llmBudgetResetHandler zeroes the daily token counter on all
@@ -263,22 +298,43 @@ func llmStatusHandler(
 			})
 			return
 		}
-		status := mgr.TokenStatus()
-
-		// Compute an aggregate exhaustion flag so the UI can
-		// show a single banner when any client is out of budget.
-		anyExhausted := false
-		for _, s := range status {
-			if s.Exhausted {
-				anyExhausted = true
-				break
-			}
-		}
-
-		jsonResponse(w, map[string]any{
-			"clients":         status,
-			"any_exhausted":   anyExhausted,
-			"databricks_auth": databricksauth.CurrentAuthMetadata(),
-		})
+		jsonResponse(w, llmStatusPayload(mgr))
 	}
+}
+
+// llmStatusPayload reports every client and, when the registry enforces
+// one, the global ceiling. any_exhausted is the UI's single banner flag.
+func llmStatusPayload(mgr LLMBudgetRegistry) map[string]any {
+	status := mgr.TokenStatus()
+	anyExhausted := false
+	for _, s := range status {
+		if s.Exhausted {
+			anyExhausted = true
+			break
+		}
+	}
+	body := map[string]any{
+		"clients":         status,
+		"databricks_auth": databricksauth.CurrentAuthMetadata(),
+	}
+	if reporter, ok := mgr.(LLMGlobalBudgetReporter); ok {
+		global := reporter.GlobalBudget()
+		body["global"] = global
+		anyExhausted = anyExhausted || global.Exhausted
+	}
+	if reporter, ok := mgr.(LLMUsageLedgerReporter); ok {
+		restored, flushed := reporter.UsageLedgerStatus()
+		body["usage_restored_at"] = ledgerTimestamp(restored)
+		body["ledger_last_flush_at"] = ledgerTimestamp(flushed)
+	}
+	body["any_exhausted"] = anyExhausted
+	return body
+}
+
+// ledgerTimestamp is RFC 3339 in UTC, or null for a zero time.
+func ledgerTimestamp(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC().Format(time.RFC3339)
 }

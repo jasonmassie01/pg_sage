@@ -2,7 +2,6 @@ package rca
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Dogfood lifeos-1, against real PostgreSQL: "Idle-in-transaction PID
@@ -21,7 +21,7 @@ import (
 // and backend_start, and a func that ends it.
 func holdBackend(t *testing.T, ctx context.Context) (int, time.Time, func()) {
 	t.Helper()
-	conn, err := pgx.Connect(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"))
+	conn, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}

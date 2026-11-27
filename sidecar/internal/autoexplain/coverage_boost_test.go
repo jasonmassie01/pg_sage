@@ -40,7 +40,6 @@ func TestCoverage_NewCollector(t *testing.T) {
 		CollectIntervalSeconds: 30,
 		MaxPlansPerCycle:       5,
 		LogMinDurationMs:       100,
-		PreferSessionLoad:      true,
 	}
 	avail := &Availability{
 		Available: false,
@@ -72,9 +71,6 @@ func TestCoverage_NewCollector(t *testing.T) {
 			"cfg.LogMinDurationMs = %d, want 100",
 			c.cfg.LogMinDurationMs,
 		)
-	}
-	if c.cfg.PreferSessionLoad != true {
-		t.Error("PreferSessionLoad should be true")
 	}
 	if c.avail != avail {
 		t.Error("avail pointer mismatch")
@@ -113,43 +109,6 @@ func TestCoverage_RunCancelledImmediately(t *testing.T) {
 		// Run returned — good
 	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return after context cancellation")
-	}
-}
-
-func TestCoverage_RunTicksThenCancels(t *testing.T) {
-	// Use a real pool so Collect gets a real error (query on
-	// missing sage schema) rather than panicking on nil pool.
-	pool := acquireTestPool(t)
-
-	cfg := CollectorConfig{
-		CollectIntervalSeconds: 1,
-		MaxPlansPerCycle:       1,
-		LogMinDurationMs:       100,
-	}
-	avail := &Availability{Available: false, Method: "unavailable"}
-
-	var warnings int
-	logFn := func(a, b string, args ...any) {
-		warnings++
-	}
-	c := NewCollector(pool, cfg, avail, logFn)
-
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 1500*time.Millisecond,
-	)
-	defer cancel()
-
-	c.Run(ctx)
-
-	// We expect at least one WARN from the failed Collect call
-	// (sage.explain_cache doesn't exist on plain test DB).
-	if warnings < 1 {
-		// It's possible the ticker didn't fire in time; don't
-		// fail hard, just log it.
-		t.Logf(
-			"expected at least 1 warning, got %d "+
-				"(ticker may not have fired)", warnings,
-		)
 	}
 }
 
@@ -219,82 +178,6 @@ func TestCoverage_ExtractPlanMetrics_MissingPlanKey(t *testing.T) {
 	}
 	if execTime != 3.0 {
 		t.Errorf("execution_time = %f, want 3.0", execTime)
-	}
-}
-
-func TestCoverage_BuildSetStatements_OnlyAnalyze(t *testing.T) {
-	scfg := SessionConfig{
-		LogMinDurationMs: 100,
-		LogAnalyze:       true,
-		LogBuffers:       false,
-		LogNested:        false,
-	}
-	stmts := buildSetStatements(scfg)
-	if len(stmts) != 3 {
-		t.Fatalf("got %d statements, want 3", len(stmts))
-	}
-	if stmts[2] != "SET auto_explain.log_analyze = true" {
-		t.Errorf("stmts[2] = %q", stmts[2])
-	}
-}
-
-func TestCoverage_BuildSetStatements_OnlyBuffers(t *testing.T) {
-	scfg := SessionConfig{
-		LogMinDurationMs: 100,
-		LogAnalyze:       false,
-		LogBuffers:       true,
-		LogNested:        false,
-	}
-	stmts := buildSetStatements(scfg)
-	if len(stmts) != 3 {
-		t.Fatalf("got %d statements, want 3", len(stmts))
-	}
-	if stmts[2] != "SET auto_explain.log_buffers = true" {
-		t.Errorf("stmts[2] = %q", stmts[2])
-	}
-}
-
-func TestCoverage_BuildSetStatements_OnlyNested(t *testing.T) {
-	scfg := SessionConfig{
-		LogMinDurationMs: 100,
-		LogAnalyze:       false,
-		LogBuffers:       false,
-		LogNested:        true,
-	}
-	stmts := buildSetStatements(scfg)
-	if len(stmts) != 3 {
-		t.Fatalf("got %d statements, want 3", len(stmts))
-	}
-	expected := "SET auto_explain.log_nested_statements = true"
-	if stmts[2] != expected {
-		t.Errorf("stmts[2] = %q, want %q", stmts[2], expected)
-	}
-}
-
-func TestCoverage_BuildSetStatements_ZeroDuration(t *testing.T) {
-	scfg := SessionConfig{LogMinDurationMs: 0}
-	stmts := buildSetStatements(scfg)
-	expected := "SET auto_explain.log_min_duration = '0ms'"
-	if stmts[0] != expected {
-		t.Errorf("stmts[0] = %q, want %q", stmts[0], expected)
-	}
-}
-
-func TestCoverage_IsExplainable_TabPrefixed(t *testing.T) {
-	if !isExplainable("\tSELECT 1") {
-		t.Error("tab-prefixed SELECT should be explainable")
-	}
-}
-
-func TestCoverage_IsExplainable_NewlinePrefixed(t *testing.T) {
-	if !isExplainable("\nSELECT 1") {
-		t.Error("newline-prefixed SELECT should be explainable")
-	}
-}
-
-func TestCoverage_IsExplainable_MixedCaseWith(t *testing.T) {
-	if !isExplainable("With cte AS (SELECT 1) SELECT * FROM cte") {
-		t.Error("mixed-case WITH should be explainable")
 	}
 }
 
@@ -370,96 +253,6 @@ func TestCoverage_CheckSessionLoad(t *testing.T) {
 	}
 	// Result depends on permissions; just verify no error.
 	_ = canLoad
-}
-
-func TestCoverage_ConfigureTransaction_SharedPreload(t *testing.T) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	// First detect availability to decide if we can test this.
-	avail, err := Detect(ctx, pool)
-	if err != nil {
-		t.Fatalf("Detect: %v", err)
-	}
-	if !avail.Available {
-		t.Skip("skip: auto_explain not available on this instance")
-	}
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire connection: %v", err)
-	}
-	defer conn.Release()
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	scfg := DefaultSessionConfig(200)
-	if err := ConfigureTransaction(ctx, tx, avail, scfg); err != nil {
-		t.Fatalf("ConfigureTransaction: %v", err)
-	}
-	var inTx string
-	if err := tx.QueryRow(ctx,
-		"SELECT current_setting('auto_explain.log_min_duration')").Scan(&inTx); err != nil {
-		t.Fatalf("read setting in tx: %v", err)
-	}
-	if inTx != "200ms" {
-		t.Errorf("log_min_duration inside tx = %q, want 200ms", inTx)
-	}
-	if err := tx.Rollback(ctx); err != nil {
-		t.Fatalf("rollback: %v", err)
-	}
-	var after string
-	if err := conn.QueryRow(ctx,
-		"SELECT current_setting('auto_explain.log_min_duration')").Scan(&after); err != nil {
-		t.Fatalf("read setting after tx: %v", err)
-	}
-	if after != "-1" {
-		t.Errorf("log_min_duration leaked after tx: %q, want -1", after)
-	}
-}
-
-func TestCoverage_ConfigureTransaction_AllFlagsDisabled(t *testing.T) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	avail, err := Detect(ctx, pool)
-	if err != nil {
-		t.Fatalf("Detect: %v", err)
-	}
-	if !avail.Available {
-		t.Skip("skip: auto_explain not available on this instance")
-	}
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire connection: %v", err)
-	}
-	defer conn.Release()
-
-	scfg := SessionConfig{
-		LogMinDurationMs: 500,
-		LogAnalyze:       false,
-		LogBuffers:       false,
-		LogNested:        false,
-	}
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := ConfigureTransaction(ctx, tx, avail, scfg); err != nil {
-		t.Fatalf("ConfigureTransaction (flags disabled): %v", err)
-	}
-	var analyze string
-	if err := tx.QueryRow(ctx,
-		"SELECT current_setting('auto_explain.log_analyze')").Scan(&analyze); err != nil {
-		t.Fatalf("read log_analyze: %v", err)
-	}
-	if analyze != "off" {
-		t.Errorf("log_analyze = %q with LogAnalyze disabled, want off", analyze)
-	}
 }
 
 func TestCoverage_Collect_NoSageSchema(t *testing.T) {
@@ -666,8 +459,9 @@ func TestCoverage_CaptureOnDemand_SimpleSelect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read stored plan: %v", err)
 	}
-	if storedSource != "auto_explain" {
-		t.Errorf("source = %q, want auto_explain", storedSource)
+	// rca-04: a plain EXPLAIN is an estimate, not an auto_explain plan.
+	if storedSource != "explain_estimate" {
+		t.Errorf("source = %q, want explain_estimate", storedSource)
 	}
 }
 
@@ -735,34 +529,6 @@ func TestCoverage_CaptureOnDemand_BadSQL(t *testing.T) {
 	}
 }
 
-func TestCoverage_Collect_WithSageSchema(t *testing.T) {
-	pool := acquireTestPool(t)
-	bootstrapSageSchema(t, pool)
-	ctx := context.Background()
-
-	// Use a very high threshold so no queries match, exercising
-	// the successful query path with zero candidates.
-	cfg := CollectorConfig{
-		CollectIntervalSeconds: 60,
-		MaxPlansPerCycle:       5,
-		LogMinDurationMs:       999999999,
-	}
-	avail := &Availability{
-		Available: false,
-		Method:    "unavailable",
-	}
-	logFn := func(string, string, ...any) {}
-	c := NewCollector(pool, cfg, avail, logFn)
-
-	err := c.Collect(ctx)
-	if err != nil {
-		// pg_stat_statements may not exist, which is fine.
-		t.Logf(
-			"Collect with sage schema returned: %v", err,
-		)
-	}
-}
-
 func TestCoverage_Collect_WithCandidates(t *testing.T) {
 	pool := acquireTestPool(t)
 	bootstrapSageSchema(t, pool)
@@ -820,55 +586,13 @@ func TestCoverage_Collect_WithCandidates(t *testing.T) {
 	t.Logf("warnings during Collect: %d", len(warnings))
 }
 
-func TestCoverage_CaptureOnDemand_WithSessionLoad(t *testing.T) {
-	pool := acquireTestPool(t)
-	bootstrapSageSchema(t, pool)
-	ctx := context.Background()
-
-	// Force session_load availability to exercise the LOAD
-	// branch in captureOnDemand.
-	avail := &Availability{
-		SessionLoad: true,
-		Available:   true,
-		Method:      "session_load",
-	}
-
-	cfg := CollectorConfig{
-		CollectIntervalSeconds: 60,
-		MaxPlansPerCycle:       5,
-		LogMinDurationMs:       100,
-	}
-	logFn := func(string, string, ...any) {}
-	c := NewCollector(pool, cfg, avail, logFn)
-
-	queryID := int64(999999906)
-	cleanup := func() {
-		_, _ = pool.Exec(ctx,
-			"DELETE FROM sage.explain_cache WHERE queryid = $1",
-			queryID,
-		)
-	}
-	cleanup()
-	t.Cleanup(cleanup)
-
-	// This exercises the ConfigureSession path with
-	// session_load method.
-	err := c.captureOnDemand(ctx, queryID, "SELECT 1")
-	if err != nil {
-		// May fail if LOAD is not permitted; that's acceptable.
-		t.Logf(
-			"captureOnDemand with session_load: %v", err,
-		)
-	}
-}
-
 func TestCoverage_CaptureOnDemand_WithSharedPreload(t *testing.T) {
 	pool := acquireTestPool(t)
 	bootstrapSageSchema(t, pool)
 	ctx := context.Background()
 
-	// Force shared_preload availability to exercise the
-	// ConfigureSession branch.
+	// Force shared_preload availability: the
+	// capture still sends no auto_explain setting (rca-04).
 	avail := &Availability{
 		SharedPreload: true,
 		Available:     true,
@@ -911,78 +635,6 @@ func TestCoverage_CaptureOnDemand_WithSharedPreload(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected 1 plan stored, got %d", count)
 	}
-}
-
-func TestCoverage_ConfigureTransaction_SessionLoadMethod(t *testing.T) {
-	pool := acquireTestPool(t)
-	ctx := context.Background()
-
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	defer conn.Release()
-
-	// Force session_load to exercise the LOAD branch.
-	avail := &Availability{
-		SessionLoad: true,
-		Available:   true,
-		Method:      "session_load",
-	}
-	scfg := DefaultSessionConfig(200)
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin: %v", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := ConfigureTransaction(ctx, tx, avail, scfg); err != nil {
-		t.Fatalf("ConfigureTransaction with session_load: %v", err)
-	}
-	var analyze string
-	if err := tx.QueryRow(ctx,
-		"SELECT current_setting('auto_explain.log_analyze')").Scan(&analyze); err != nil {
-		t.Fatalf("read log_analyze after LOAD: %v", err)
-	}
-	if analyze != "on" {
-		t.Errorf("log_analyze inside tx = %q, want on", analyze)
-	}
-}
-
-func TestCoverage_Run_CollectErrorLogged(t *testing.T) {
-	pool := acquireTestPool(t)
-
-	cfg := CollectorConfig{
-		CollectIntervalSeconds: 1,
-		MaxPlansPerCycle:       1,
-		LogMinDurationMs:       100,
-	}
-	// Use unavailable so Collect hits the DB query on
-	// sage.explain_cache which may not exist, producing a WARN.
-	avail := &Availability{
-		Available: false,
-		Method:    "unavailable",
-	}
-
-	var warnings []string
-	logFn := func(level, scope string, args ...any) {
-		warnings = append(
-			warnings, fmt.Sprintf("%s:%s", level, scope),
-		)
-	}
-	c := NewCollector(pool, cfg, avail, logFn)
-
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 1200*time.Millisecond,
-	)
-	defer cancel()
-
-	c.Run(ctx)
-
-	// The Run loop should have ticked once and logged a warning
-	// from the failed Collect call (either missing schema or
-	// successful but no candidates).
-	t.Logf("warnings logged during Run: %d", len(warnings))
 }
 
 func TestCoverage_Collect_CancelledContext(t *testing.T) {

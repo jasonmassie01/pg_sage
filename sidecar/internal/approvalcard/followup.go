@@ -18,12 +18,25 @@ const (
 	// verdict (verification windows are hours, not weeks).
 	DefaultFollowupGiveUp = 14 * 24 * time.Hour
 	defaultFollowupBatch  = 500
+	// A card that stays open is checked again after an eighth of its age,
+	// between these bounds.
+	minFollowupDelay = time.Minute
+	maxFollowupDelay = time.Hour
 )
 
-// DeliveryStore lists cards waiting for their follow-up.
+// DeliveryStore lists cards waiting for their follow-up and claims one
+// before it is posted.
 type DeliveryStore interface {
 	PendingFollowups(ctx context.Context, limit int) ([]chatops.CardDelivery, error)
+	ClaimFollowup(ctx context.Context, id int64, fence chatops.ClaimFence) (bool, error)
 	MarkFollowedUp(ctx context.Context, id int64, verdict string) error
+	DeferFollowup(ctx context.Context, id int64, delay time.Duration) error
+}
+
+// followupDelay is how long a card of this age waits for its next check:
+// an eighth of its age, at least a minute and at most an hour.
+func followupDelay(age time.Duration) time.Duration {
+	return min(maxFollowupDelay, max(minFollowupDelay, age/8))
 }
 
 // ChannelSender posts to one channel by id.
@@ -42,10 +55,16 @@ type Followups struct {
 	GiveUp time.Duration
 	Batch  int
 	Now    func() time.Time
+	// Fence is the leader lease every post is claimed under, read again
+	// before each post; ok false (no longer the leader) skips the post.
+	// nil claims unfenced (leader election disabled).
+	Fence func() (chatops.ClaimFence, bool)
 }
 
-// RunOnce follows up every card whose outcome is final. It returns how
-// many follow-ups were posted; failed posts are retried on the next run.
+// RunOnce follows up every due card whose outcome is final. It returns how
+// many follow-ups were posted. A card that stays open (no verdict yet, or
+// its outcome or post failed) is checked again after followupDelay, so it
+// does not keep newer cards out of the batch.
 func (f *Followups) RunOnce(ctx context.Context) (int, error) {
 	if f == nil || f.Store == nil || f.Sender == nil || f.Pools == nil {
 		return 0, errors.New("approvalcard: follow-ups are not configured")
@@ -92,7 +111,14 @@ func (f *Followups) followUp(ctx context.Context, d chatops.CardDelivery) (bool,
 	if errors.Is(err, ErrNotFound) {
 		return false, f.close(ctx, d, "queue_item_missing")
 	}
-	if err != nil || !o.Final {
+	if err != nil {
+		return false, errors.Join(fmt.Errorf(
+			"approvalcard: outcome of queue item %d: %w", d.QueueID, err), f.later(ctx, d, now))
+	}
+	if !o.Final {
+		return false, f.later(ctx, d, now)
+	}
+	if claimed, err := f.claim(ctx, d); err != nil || !claimed {
 		return false, err
 	}
 	evt := notify.ApprovalOutcomeEvent(notify.ApprovalOutcome{Database: d.Database,
@@ -103,10 +129,39 @@ func (f *Followups) followUp(ctx context.Context, d chatops.CardDelivery) (bool,
 		return false, f.close(ctx, d, "channel_disabled")
 	}
 	if err != nil {
-		return false, fmt.Errorf("approvalcard: follow-up of queue item %d to channel %d: %w",
-			d.QueueID, d.ChannelID, err)
+		return false, errors.Join(fmt.Errorf(
+			"approvalcard: follow-up of queue item %d to channel %d: %w",
+			d.QueueID, d.ChannelID, err), f.later(ctx, d, now))
 	}
 	return true, f.close(ctx, d, o.Verdict)
+}
+
+// later pushes an open card's next check back by followupDelay. A card
+// closed meanwhile needs no check.
+func (f *Followups) later(ctx context.Context, d chatops.CardDelivery, now time.Time) error {
+	err := f.Store.DeferFollowup(ctx, d.ID, followupDelay(now.Sub(d.CreatedAt)))
+	if err != nil && !errors.Is(err, chatops.ErrCardUnknown) {
+		return fmt.Errorf("approvalcard: defer follow-up %d: %w", d.ID, err)
+	}
+	return nil
+}
+
+// claim takes d's follow-up for this leader's epoch, right before the
+// post; false means another leader has it or this one lost the lease.
+func (f *Followups) claim(ctx context.Context, d chatops.CardDelivery) (bool, error) {
+	fence := chatops.ClaimFence{}
+	if f.Fence != nil {
+		var ok bool
+		if fence, ok = f.Fence(); !ok {
+			return false, nil
+		}
+	}
+	claimed, err := f.Store.ClaimFollowup(ctx, d.ID, fence)
+	if err != nil {
+		return false, fmt.Errorf("approvalcard: claim follow-up %d (queue item %d): %w",
+			d.ID, d.QueueID, err)
+	}
+	return claimed, nil
 }
 
 func (f *Followups) close(ctx context.Context, d chatops.CardDelivery, verdict string) error {

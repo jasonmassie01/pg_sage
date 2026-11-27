@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 // Resolutions the engine records for incidents it stopped seeing
@@ -36,7 +36,7 @@ var holderEvidence = regexp.MustCompile(`^PID ([0-9]{1,10}) in state: idle in tr
 // incidents are about the contention, not one blocker, and have none.
 func backendSubject(inc *Incident) (BackendRef, bool) {
 	for _, l := range inc.CausalChain {
-		if l.Signal != "vacuum_blocked" {
+		if l.Signal != signalid.VacuumBlocked {
 			continue
 		}
 		if b := l.Blocker; b != nil && b.PID > 0 {
@@ -165,15 +165,4 @@ func lastSeen(inc *Incident) time.Time {
 		return inc.DetectedAt
 	}
 	return inc.LastDetectedAt
-}
-
-// xminHolder is the structured identity of the idle-in-transaction
-// session a vacuum_blocked incident names, so the incident can resolve
-// when that session ends.
-func xminHolder(l collector.LockInfo) *BlockerIdentity {
-	b := &BlockerIdentity{PID: l.PID, State: "idle in transaction"}
-	if l.BackendStart != nil {
-		b.BackendStart = *l.BackendStart
-	}
-	return b
 }

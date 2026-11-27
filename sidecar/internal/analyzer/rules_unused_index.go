@@ -14,54 +14,87 @@ import (
 // dedupe follow-up), or (PG16+) a last_idx_scan older than the window,
 // which is durable evidence of its own (G-P0-12). The evidence drives an
 // autonomous DROP INDEX, which is never automatic while standby index
-// usage is unknown (G-P0-12).
+// usage is unknown (G-P0-12). An index attached to a partitioned index is
+// never flagged (PostgreSQL refuses to drop it alone); its partitioned
+// parent is rolled up instead (rules-03).
 func ruleUnusedIndexes(
 	current *collector.Snapshot,
 	previous *collector.Snapshot,
 	cfg *config.Config,
 	extras *RuleExtras,
 ) []Finding {
-	window := time.Duration(cfg.Analyzer.UnusedIndexWindowDays) * 24 * time.Hour
-	now := extras.now()
-	epoch := relationStatsEpoch(current, extras)
-	prev := previousIndexes(previous)
-	unlogged := buildUnloggedSet(current)
-	fkRequirements := buildFKRequirements(current)
-	byTable := indexesByTable(current.Indexes)
-	standbyRisk := standbyUsageUnknown(current)
+	ev := newUnusedEval(current, previous, cfg, extras)
+	rollup := newPartitionRollup(current)
 	var findings []Finding
-
 	for _, idx := range current.Indexes {
+		since, unused := ev.evaluate(idx)
+		rollup.note(idx, unused, since)
+		if !unused || idx.ParentIndexOID != 0 {
+			continue
+		}
 		ident := idx.SchemaName + "." + idx.IndexRelName
-		if scannedWithin(idx, window, now) {
-			// Used recently: restart the observation window so a later
-			// pg_stat_reset/crash does not look like weeks of disuse.
-			extras.forgetUnused(ident)
-			continue
-		}
-		if isSystemSchema(idx.SchemaName) ||
-			idx.IsPrimary || idx.IsUnique || !idx.IsValid {
-			continue
-		}
-		// Skip indexes recently created by the executor.
-		if _, ok := extras.RecentlyCreated[idx.IndexRelName]; ok {
-			continue
-		}
-		if indexIsOnlyFKSupport(idx, byTable, fkRequirements) {
-			continue
-		}
-		since := unusedClock(extras, idx, ident, prev[ident], epoch, now)
-		if now.Sub(since) < window {
-			continue
-		}
-		f := unusedIndexFinding(idx, ident, unlogged, cfg.Analyzer.UnusedIndexWindowDays)
+		f := unusedIndexFinding(idx, ident, ev.unlogged, cfg.Analyzer.UnusedIndexWindowDays)
 		f.Detail["unused_since"] = since.UTC().Format(time.RFC3339)
-		if !epoch.IsZero() {
-			f.Detail["stats_epoch"] = epoch.UTC().Format(time.RFC3339)
+		if !ev.epoch.IsZero() {
+			f.Detail["stats_epoch"] = ev.epoch.UTC().Format(time.RFC3339)
 		}
-		findings = append(findings, withStandbyGate(f, standbyRisk))
+		findings = append(findings, WithStandbyGate(f, ev.standbyRisk))
 	}
-	return findings
+	return append(findings,
+		rollup.findings(cfg.Analyzer.UnusedIndexWindowDays, ev.standbyRisk)...)
+}
+
+// unusedEval holds what one unused-index pass reads for every index.
+type unusedEval struct {
+	extras         *RuleExtras
+	window         time.Duration
+	now, epoch     time.Time
+	prev           map[string]collector.IndexStats
+	unlogged       map[string]bool
+	fkRequirements map[tableKey][][]string
+	byTable        map[tableKey][]collector.IndexStats
+	standbyRisk    StandbyRisk
+}
+
+func newUnusedEval(
+	current, previous *collector.Snapshot, cfg *config.Config, extras *RuleExtras,
+) *unusedEval {
+	return &unusedEval{
+		extras:         extras,
+		window:         time.Duration(cfg.Analyzer.UnusedIndexWindowDays) * 24 * time.Hour,
+		now:            extras.now(),
+		epoch:          relationStatsEpoch(current, extras),
+		prev:           previousIndexes(previous),
+		unlogged:       buildUnloggedSet(current),
+		fkRequirements: buildFKRequirements(current),
+		byTable:        indexesByTable(current.Indexes),
+		standbyRisk:    StandbyUsageUnknown(current),
+	}
+}
+
+// evaluate reports whether idx has been unused for the whole window, and
+// since when, keeping its unused clock.
+func (ev *unusedEval) evaluate(idx collector.IndexStats) (time.Time, bool) {
+	ident := idx.SchemaName + "." + idx.IndexRelName
+	if scannedWithin(idx, ev.window, ev.now) {
+		// Used recently: restart the observation window so a later
+		// pg_stat_reset/crash does not look like weeks of disuse.
+		ev.extras.forgetUnused(ident)
+		return time.Time{}, false
+	}
+	if isSystemSchema(idx.SchemaName) ||
+		idx.IsPrimary || idx.IsUnique || !idx.IsValid {
+		return time.Time{}, false
+	}
+	// Skip indexes recently created by the executor.
+	if _, ok := ev.extras.RecentlyCreated[idx.IndexRelName]; ok {
+		return time.Time{}, false
+	}
+	if indexIsOnlyFKSupport(idx, ev.byTable, ev.fkRequirements) {
+		return time.Time{}, false
+	}
+	since := unusedClock(ev.extras, idx, ident, ev.prev[ident], ev.epoch, ev.now)
+	return since, ev.now.Sub(since) >= ev.window
 }
 
 // scannedWithin reports whether the index counts as used within window:
@@ -136,6 +169,9 @@ func unusedSince(
 		since = now
 	}
 	extras.FirstSeen[ident] = since
+	if extras.zeroScanSeen != nil {
+		extras.zeroScanSeen[ident] = true
+	}
 	if idx.IndexRelID != 0 {
 		extras.IndexOID[ident] = idx.IndexRelID
 	}

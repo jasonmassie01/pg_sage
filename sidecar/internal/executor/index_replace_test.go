@@ -125,9 +125,31 @@ func TestIndexReplaceSubsumption(t *testing.T) {
 	}
 }
 
+// indexes-01: the preflight took (status, created_at) as serving every
+// lookup of a pattern-ops, collation-specific or mixed-order index on
+// status, and would drop the only index that serves LIKE 'abc%' or that
+// ordering.
+func TestIndexReplaceRefusesToDropAnOpclassIndex(t *testing.T) {
+	plan, err := ParseIndexReplace(rpPair())
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, keys := range []string{"(status text_pattern_ops)", `(status COLLATE "C")`,
+		"(status DESC NULLS LAST)", "(status, created_at DESC)"} {
+		old := "CREATE INDEX orders_status_idx ON public.orders USING btree " + keys
+		if err := plan.checkSubsumes(old); !errors.Is(err, ErrReplaceNotSubsumed) {
+			t.Errorf("%s: checkSubsumes = %v, want ErrReplaceNotSubsumed", keys, err)
+		}
+	}
+	reversed := "CREATE INDEX orders_status_idx ON public.orders USING btree (status DESC)"
+	if err := plan.checkSubsumes(reversed); err != nil {
+		t.Fatalf("a reversed single-column index is served backward: %v", err)
+	}
+}
+
 func TestIndexReplaceClassification(t *testing.T) {
 	sql, _ := rpPair()
-	if got := actionTypeForProposalSQL(sql); got != ActionTypeReplaceIndex {
+	if got := ActionTypeForSQL(sql); got != ActionTypeReplaceIndex {
 		t.Fatalf("contract type = %q", got)
 	}
 	if got := categorizeAction(sql); got != ActionTypeReplaceIndex {
@@ -147,7 +169,7 @@ func TestIndexReplaceClassification(t *testing.T) {
 		t.Fatal("an index replacement moves the plans of a whole partition tree")
 	}
 	// A plain create and drop keep their own types.
-	if actionTypeForProposalSQL(rpCreate) != "create_index_concurrently" ||
+	if ActionTypeForSQL(rpCreate) != "create_index_concurrently" ||
 		categorizeAction("DROP INDEX CONCURRENTLY public.x") != "drop_index" {
 		t.Fatal("single statements are classified as before")
 	}

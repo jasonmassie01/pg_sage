@@ -8,7 +8,7 @@ import (
 // indexBuildsSQL lists tables of this database with an index build in
 // progress (CREATE INDEX [CONCURRENTLY], REINDEX [CONCURRENTLY]). A NULL
 // relname means the row is not visible to this role.
-const indexBuildsSQL = `/* pg_sage */ SELECT n.nspname, c.relname
+const indexBuildsSQL = `/* pg_sage analyzer */ SELECT n.nspname, c.relname
   FROM pg_stat_progress_create_index p
   LEFT JOIN pg_class c ON c.oid = p.relid
   LEFT JOIN pg_namespace n ON n.oid = c.relnamespace

@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"os"
 	"testing"
 	"time"
 
@@ -15,7 +14,9 @@ import (
 func TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN(t *testing.T) {
 	pool := migrationRuntimePool(t)
 	ctx := context.Background()
-	const table = "migration_rehearsal_clone_probe"
+	// Qualified as the planner emits it: executor DDL runs with search_path
+	// pinned to pg_catalog, pg_temp, so a bare name no longer resolves.
+	const table = "public.migration_rehearsal_clone_probe"
 	_, err := pool.Exec(ctx, "DROP TABLE IF EXISTS "+table+"; CREATE TABLE "+table+
 		" (id bigint NOT NULL)")
 	if err != nil {
@@ -24,8 +25,14 @@ func TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table)
 	})
-	runner := NewPostgresRehearsalRunner(time.Second, 10*time.Second)
-	measurement, err := runner.Run(ctx, os.Getenv("SAGE_TEST_DATABASE_URL"), planpkg.Plan{
+	// migration-07: Run now refuses without a production identity; this
+	// clone is checked against a production server it is not.
+	runner := NewPostgresRehearsalRunner(time.Second, 10*time.Second).
+		WithProduction(func(context.Context) (ServerIdentity, error) {
+			return ServerIdentity{Host: "production.invalid", Port: 5432,
+				StartedAt: time.Unix(1, 0), ServerPort: 5432}, nil
+		})
+	measurement, err := runner.Run(ctx, testdb.SkipUnlessLive(t), planpkg.Plan{
 		ExpandSteps: []planpkg.Step{{
 			Kind: planpkg.StepCreateUniqueIndex, RequiresTopLevel: true,
 			SQL: "CREATE UNIQUE INDEX CONCURRENTLY migration_rehearsal_probe_idx ON " +
@@ -40,7 +47,7 @@ func TestPostgresRehearsalRunnerExecutesExpandOnlyOnCloneDSN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if measurement.MaxLockDuration <= 0 {
+	if measurement.MaxStepDuration <= 0 {
 		t.Fatalf("measurement = %#v", measurement)
 	}
 	var indexExists, constraintExists bool
@@ -93,7 +100,7 @@ func TestPostgresRecorderPersistsMigrationContinuation(t *testing.T) {
 	recorder := NewPostgresRecorder(pool)
 	record := Record{
 		Request: request(), Verdict: VerdictExpanded, EvidenceID: "ev_runtime_record",
-		ContractNotBeforeCycle: 2,
+		ContractDelay: time.Hour,
 	}
 	if err := recorder.Record(context.Background(), record); err != nil {
 		t.Fatalf("Record: %v", err)
@@ -125,4 +132,41 @@ func migrationRuntimePool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("bootstrap schema: %v", err)
 	}
 	return pool
+}
+
+// migration-03: a conflict on evidence_id refreshes source_sql_hash and
+// reason, so the row describes the latest run instead of the first one.
+func TestPostgresRecorderRefreshesHashAndReasonOnConflict(t *testing.T) {
+	pool := migrationRuntimePool(t)
+	ctx := context.Background()
+	recorder := NewPostgresRecorder(pool)
+	first := Record{Request: request(), Verdict: VerdictParked,
+		EvidenceID: "ev_runtime_refresh", Reason: "rehearsal lock ceiling exceeded"}
+	if err := recorder.Record(ctx, first); err != nil {
+		t.Fatalf("Record(first): %v", err)
+	}
+	second := first
+	second.Request.SQL = "ALTER TABLE public.users ADD CONSTRAINT users_name_key UNIQUE (name)"
+	second.Verdict = VerdictRecommendOnly
+	second.Reason = "operator approval required"
+	if err := recorder.Record(ctx, second); err != nil {
+		t.Fatalf("Record(second): %v", err)
+	}
+	var count int
+	var verdict, hash, reason string
+	err := pool.QueryRow(ctx, `SELECT count(*) OVER (), verdict, source_sql_hash, reason
+		FROM sage.migration_run WHERE evidence_id=$1`, first.EvidenceID).Scan(
+		&count, &verdict, &hash, &reason)
+	if err != nil {
+		t.Fatalf("read migration continuation: %v", err)
+	}
+	if count != 1 || verdict != "recommend_only" {
+		t.Fatalf("rows=%d verdict=%q, want one recommend_only row", count, verdict)
+	}
+	if hash != migrationHash(second.Request.SQL) || hash == migrationHash(first.Request.SQL) {
+		t.Fatalf("source_sql_hash=%q, want the second run's hash", hash)
+	}
+	if reason != second.Reason {
+		t.Fatalf("reason=%q, want %q", reason, second.Reason)
+	}
 }

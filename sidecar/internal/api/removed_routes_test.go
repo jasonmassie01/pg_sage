@@ -17,7 +17,7 @@ func TestRemovedProvisioningRoutes_Return404AndNeedAuth(t *testing.T) {
 			len(decommission.RemovedRoutes))
 	}
 	for _, rc := range routerConfigs() {
-		h := rc.build(t)
+		h := rc.build(t, injectCharRole)
 		for _, r := range decommission.RemovedRoutes {
 			p := routeProbe{method: r.Method, path: r.Path}
 			if code, body := serveProbe(h, p, "admin"); code != http.StatusNotFound {
@@ -46,7 +46,7 @@ func TestRemovedProvisioningRoutes_AnonymousIsUnauthorized(t *testing.T) {
 
 // The decommission inventory and acknowledgement are admin-only (§8.3).
 func TestDecommissionRoutes_AdminOnly(t *testing.T) {
-	h := buildStandaloneRouter(t)
+	h := buildStandaloneRouter(t, injectCharRole)
 	for _, p := range []routeProbe{
 		{http.MethodGet, decommission.InventoryPath},
 		{http.MethodPost, decommission.AckPath},
@@ -64,7 +64,7 @@ func TestDecommissionRoutes_AdminOnly(t *testing.T) {
 			t.Errorf("admin %s %s = %d %s, want the handler", p.method, p.path, code, body)
 		}
 	}
-	bare := buildBareRouter(t)
+	bare := buildBareRouter(t, injectCharRole)
 	if code, _ := serveProbe(bare, routeProbe{http.MethodGet, decommission.InventoryPath},
 		"admin"); code != http.StatusNotFound {
 		t.Errorf("without a control pool the inventory route = %d, want 404", code)

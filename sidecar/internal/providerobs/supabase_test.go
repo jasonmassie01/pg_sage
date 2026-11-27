@@ -40,7 +40,7 @@ func TestSupabaseLogsPreserveIdentityAndMetadata(t *testing.T) {
 		{"timestamp":"2026-09-07T12:00:02Z","database":"other","event_message":"secret"}]}`
 	c := fixtureClient(t, 200, body)
 	from := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
-	entries, err := c.Logs(context.Background(), "postgres", from, from.Add(time.Minute))
+	entries, _, err := c.Logs(context.Background(), "postgres", from, from.Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,18 +52,21 @@ func TestSupabaseLogsPreserveIdentityAndMetadata(t *testing.T) {
 }
 
 func TestSupabaseLogsRejectInvalidOrFailedResponses(t *testing.T) {
+	// A malformed row is skipped, not a failed response
+	// (TestSupabaseLogsSkipMalformedTimestamp).
 	for _, body := range []string{`{`, `{"error":"denied","result":[]}`,
-		`{"result":[{"database":"postgres","timestamp":"wrong"}]}`,
 		`{}`, `{"result":null}`} {
 		c := fixtureClient(t, 200, body)
-		_, err := c.Logs(context.Background(), "postgres", time.Now().Add(-time.Minute), time.Now())
+		_, _, err := c.Logs(context.Background(), "postgres",
+			time.Now().Add(-time.Minute), time.Now())
 		if err == nil {
 			t.Errorf("accepted %s", body)
 		}
 	}
 	for _, status := range []int{301, 401, 402, 403, 429, 500} {
 		c := fixtureClient(t, status, "credential-secret-response")
-		_, err := c.Logs(context.Background(), "postgres", time.Now().Add(-time.Minute), time.Now())
+		_, _, err := c.Logs(context.Background(), "postgres",
+			time.Now().Add(-time.Minute), time.Now())
 		if err == nil || !strings.Contains(err.Error(), fmt.Sprint(status)) ||
 			strings.Contains(err.Error(), "credential-secret-response") {
 			t.Errorf("status %d: %v", status, err)
@@ -75,15 +78,15 @@ func TestSupabaseLogsWindowAndEmpty(t *testing.T) {
 	c := fixtureClient(t, 200, `{"result":[]}`)
 	now := time.Now().UTC().Truncate(time.Minute)
 	for _, span := range []time.Duration{0, -time.Minute, 25 * time.Hour} {
-		if _, err := c.Logs(context.Background(), "postgres", now, now.Add(span)); err == nil {
+		if _, _, err := c.Logs(context.Background(), "postgres", now, now.Add(span)); err == nil {
 			t.Errorf("accepted window %s", span)
 		}
 	}
-	entries, err := c.Logs(context.Background(), "postgres", now, now.Add(time.Minute))
+	entries, _, err := c.Logs(context.Background(), "postgres", now, now.Add(time.Minute))
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("empty = %#v %v", entries, err)
 	}
-	if _, err := c.Logs(context.Background(), "", now, now.Add(time.Minute)); err == nil {
+	if _, _, err := c.Logs(context.Background(), "", now, now.Add(time.Minute)); err == nil {
 		t.Fatal("accepted unknown database")
 	}
 }

@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"context"
+	"math"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 		windowDays = 7
 	}
 	rows, err := a.catalog().Query(ctx,
-		`/* pg_sage */ SELECT sql_executed, executed_at FROM sage.action_log
+		`/* pg_sage analyzer */ SELECT sql_executed, executed_at FROM sage.action_log
 		 WHERE sql_executed ILIKE 'CREATE INDEX%'
 		   AND outcome = 'success'
 		   AND executed_at > now() - make_interval(days => $1)`,
@@ -45,7 +46,7 @@ func (a *Analyzer) loadRecentlyCreatedIndexes(ctx context.Context) {
 func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 	var xidAge int64
 	err := a.catalog().QueryRow(ctx,
-		`/* pg_sage */ SELECT age(datfrozenxid) FROM pg_database
+		`/* pg_sage analyzer */ SELECT age(datfrozenxid) FROM pg_database
 		 WHERE datname = current_database()`,
 	).Scan(&xidAge)
 	if err != nil {
@@ -58,7 +59,7 @@ func (a *Analyzer) checkXIDWraparound(ctx context.Context) []Finding {
 
 func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	rows, err := a.catalog().Query(ctx,
-		`/* pg_sage */ SELECT pid, usename, application_name, state,
+		`/* pg_sage analyzer */ SELECT pid, usename, application_name, state,
 		        (now() - state_change)::text AS idle_duration
 		 FROM pg_stat_activity
 		 WHERE state = 'idle in transaction'
@@ -94,33 +95,53 @@ func (a *Analyzer) checkConnectionLeaks(ctx context.Context) []Finding {
 	return ruleConnectionLeaks(leaked)
 }
 
-// computeIOUtilPct estimates I/O utilization as the ratio of
-// combined I/O wait time (blk_read_time + blk_write_time from
-// pg_stat_database) to total query execution time. Returns 0-100.
+// computeIOUtilPct estimates I/O utilization over the last collector
+// interval (collection-06): the interval's database I/O wait
+// (blk_read_time + blk_write_time of pg_stat_database) over the
+// interval's execution time of the statements present in both snapshots
+// under the same pg_stat_statements epoch. Returns 0-100, and 0 when
+// either side is unknown; lifetime totals from two different resets are
+// not a ratio.
 //
 // When I/O wait dominates execution time, aggressive vacuum
 // recommendations would make things worse on an already I/O-bound
 // system.
-func computeIOUtilPct(snap *collector.Snapshot) float64 {
-	if snap == nil {
+func computeIOUtilPct(cur, prev *collector.Snapshot) float64 {
+	if cur == nil || cur.System.Interval == nil {
 		return 0
 	}
-	ioWait := snap.System.BlkReadTime + snap.System.BlkWriteTime
-	if ioWait <= 0 {
+	iv := cur.System.Interval
+	if iv.BlkReadTimeMs == nil || iv.BlkWriteTimeMs == nil {
 		return 0
 	}
-	var totalExecTime float64
-	for _, q := range snap.Queries {
-		totalExecTime += q.TotalExecTime
-	}
-	if totalExecTime <= 0 {
+	ioWait := *iv.BlkReadTimeMs + *iv.BlkWriteTimeMs
+	execDelta := intervalExecTime(cur, prev)
+	if ioWait <= 0 || execDelta <= 0 {
 		return 0
 	}
-	pct := ioWait / totalExecTime * 100
-	if pct > 100 {
-		pct = 100
+	return math.Min(ioWait/execDelta*100, 100)
+}
+
+// intervalExecTime is the total_exec_time the statements present in both
+// snapshots added between them; 0 across a statements reset or an
+// unknown epoch. A statement whose total fell was evicted and re-entered,
+// so it is left out.
+func intervalExecTime(cur, prev *collector.Snapshot) float64 {
+	if prev == nil || cur.StatsReset || cur.StatsEpoch.IsZero() ||
+		!cur.StatsEpoch.Equal(prev.StatsEpoch) {
+		return 0
 	}
-	return pct
+	before := make(map[int64]float64, len(prev.Queries))
+	for _, q := range prev.Queries {
+		before[q.QueryID] = q.TotalExecTime
+	}
+	var delta float64
+	for _, q := range cur.Queries {
+		if was, ok := before[q.QueryID]; ok && q.TotalExecTime >= was {
+			delta += q.TotalExecTime - was
+		}
+	}
+	return delta
 }
 
 // canonicalTable normalizes a table reference (e.g. "orders" or
@@ -146,7 +167,7 @@ func canonicalTable(ref string) string {
 // the other two) lets idx_findings_category_status, which holds only
 // open findings, serve it instead of a scan of every finding ever
 // recorded (performance gate).
-const openIndexFindingsSQL = `/* pg_sage */ SELECT DISTINCT object_identifier
+const openIndexFindingsSQL = `/* pg_sage analyzer */ SELECT DISTINCT object_identifier
 	FROM sage.findings
 	WHERE category ILIKE '%index%' AND status = 'open'`
 
@@ -188,7 +209,7 @@ func (a *Analyzer) openIndexRecommendationTables(
 // statsEpochSQL returns the instant since which cumulative index counters
 // have been accumulating: the later of the last pg_stat_reset for this
 // database and the postmaster start (crash recovery discards stats).
-const statsEpochSQL = `/* pg_sage */ SELECT GREATEST(
+const statsEpochSQL = `/* pg_sage analyzer */ SELECT GREATEST(
     COALESCE(d.stats_reset, '-infinity'::timestamptz),
     pg_postmaster_start_time())
   FROM pg_stat_database d

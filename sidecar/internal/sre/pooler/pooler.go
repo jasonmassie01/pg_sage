@@ -121,7 +121,7 @@ func (s *Source) Probe(ctx context.Context, args probes.Args) probes.Result {
 	switch {
 	case s == nil:
 		return failed(res, probes.StatusError, "not_configured")
-	case args != (probes.Args{}):
+	case !args.IsZero():
 		return failed(res, probes.StatusError, "invalid_args")
 	case ctx.Err() != nil:
 		return failed(res, probes.StatusError, "canceled")

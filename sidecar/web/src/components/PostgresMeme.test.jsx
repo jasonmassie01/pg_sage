@@ -23,7 +23,7 @@ describe('PostgresMeme', () => {
   it('shows a familiar image, accessible HTML captions and rotation controls', () => {
     setup()
     expect(screen.getByRole('figure', { name: 'PostgreSQL meme for Ask Sage' })).toBeInTheDocument()
-    expect(screen.getByRole('img')).toHaveAttribute('src', '/memes/drake.jpg')
+    expect(screen.getByRole('img').getAttribute('src')).toMatch(/\/assets\/memes\/drake\.jpg$/)
     expect(screen.getByText('Drake rejects:')).toHaveClass('sr-only')
     expect(screen.getByText('Drake approves:')).toHaveClass('sr-only')
     expect(screen.getByText(/50 in the mix/)).toBeVisible()
@@ -90,7 +90,7 @@ describe('PostgresMeme', () => {
   })
   it.each(routes)('has an eagerly loaded local image and captions on %s', route => {
     const { container } = setup(route)
-    expect(screen.getByRole('img')).toHaveAttribute('src', expect.stringMatching(/^\/memes\/[a-z-]+\.jpg$/))
+    expect(screen.getByRole('img')).toHaveAttribute('src', expect.stringMatching(/^\/(?!memes\/)[\w/.-]+\.jpg$/))
     expect(screen.getByRole('img')).toHaveAttribute('loading', 'eager')
     expect(screen.getByRole('img')).toHaveAttribute('decoding', 'async')
     expect(container.querySelectorAll('.postgres-meme-label').length).toBeGreaterThan(0)

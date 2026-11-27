@@ -1,10 +1,11 @@
+import { formatTime } from '../../lib/time'
 /* eslint-disable react-refresh/only-export-components */
 // Shared styles and small pieces of the Agents page.
 
 export const card = { background: 'var(--bg-card)', border: '1px solid var(--border)' }
 export const errorStyle = {
   background: 'rgba(239,68,68,0.1)',
-  color: '#ef4444',
+  color: 'var(--red)',
   border: '1px solid rgba(239,68,68,0.3)',
 }
 export const inputStyle = {
@@ -24,16 +25,27 @@ export function Section({ title, testId, children }) {
   )
 }
 
-export function ErrorBox({ testId, error }) {
+// ErrorText is an API error's message, reason code and fix, unboxed, for a
+// place that already frames it (a ConfirmDialog's error, dashboard-10b).
+export function ErrorText({ testId, error }) {
   if (!error) return null
   return (
-    <div data-testid={testId} role="alert" className="text-sm p-3 rounded mb-3"
-      style={errorStyle}>
+    <span data-testid={testId}>
       {error.message}
       {error.reason && <span className="ml-1">({error.reason})</span>}
       {error.fix && (
         <pre className="mt-2 text-xs whitespace-pre-wrap break-all">{error.fix}</pre>
       )}
+    </span>
+  )
+}
+
+export function ErrorBox({ testId, error }) {
+  if (!error) return null
+  return (
+    <div data-testid={testId} role="alert" className="text-sm p-3 rounded mb-3"
+      style={errorStyle}>
+      <ErrorText error={error} />
     </div>
   )
 }
@@ -62,5 +74,5 @@ export function TextInput({ testId, value, onChange, placeholder, label }) {
 export function when(iso) {
   if (!iso) return ''
   const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString()
+  return Number.isNaN(d.getTime()) ? '' : formatTime(d)
 }

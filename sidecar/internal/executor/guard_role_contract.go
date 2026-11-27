@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/pg-sage/sidecar/internal/policy"
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
 // Agent role contracts (spec §6.3, §6.6). The agent governance
@@ -16,11 +17,13 @@ const (
 )
 
 // guardProviders are the providers every agent governance action supports
-// (§6.3: self-managed, RDS/Aurora, Cloud SQL/AlloyDB, Azure, Supabase,
-// Neon).
+// (§6.3: self-managed, RDS/Aurora, Cloud SQL/AlloyDB, Azure flexible
+// server and Cosmos DB for PostgreSQL, Supabase, Neon, and CloudNativePG,
+// whose roles are plain SQL roles of self-managed PostgreSQL). Lakebase is
+// left out on purpose: agent roles are not verified there.
 func guardProviders() []string {
-	return []string{"postgres", "rds", "aurora", "cloud-sql", "alloydb", "azure",
-		"supabase", "neon"}
+	return []string{prov.Postgres, prov.RDS, prov.Aurora, prov.CloudSQL, prov.AlloyDB,
+		prov.Azure, prov.AzureCosmos, prov.Supabase, prov.Neon, prov.CNPG}
 }
 
 // guardRoleEnsureContract creates or re-asserts an agent's two cluster

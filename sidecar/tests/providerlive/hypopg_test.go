@@ -14,7 +14,7 @@ import (
 )
 
 func checkHypoPG(t *testing.T, f fixture) {
-	h := optimizer.NewHypoPG(f.pool, 1, func(string, string, ...any) {})
+	h := optimizer.NewHypoPG(f.pool, func(string, string, ...any) {})
 	if !h.IsAvailable(t.Context()) {
 		t.Skip("HypoPG extension unavailable; hypothetical-index capability NOT verified")
 	}
@@ -37,18 +37,19 @@ func checkHypoPG(t *testing.T, f fixture) {
 	if baseline != "17s" {
 		t.Fatal("provider did not retain explicit session timeout")
 	}
-	h = optimizer.NewHypoPG(pool, 1, func(string, string, ...any) {})
+	h = optimizer.NewHypoPG(pool, func(string, string, ...any) {})
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	rec := optimizer.Recommendation{DDL: "CREATE INDEX candidate ON " + f.table("hypo_items") +
 		" (category)"}
 	queries := []optimizer.QueryInfo{{QueryID: 1,
 		Text: "SELECT id FROM " + f.table("hypo_items") + " WHERE category=$1"}}
-	ok, improvement, size, err := h.Validate(ctx, rec, queries)
+	// The verdict is the caller's; 1% is the threshold this check always used.
+	res, err := h.Validate(ctx, rec, queries)
 	checkError(t, "validate hypothetical index on one session", err)
-	if !ok || improvement <= 1 || size <= 0 {
-		t.Fatalf("missing hypothetical evidence: accepted=%t improvement=%f size=%d",
-			ok, improvement, size)
+	if res.Measured != 1 || res.Failed != 0 || res.Improvement <= 1 || res.SizeBytes <= 0 {
+		t.Fatalf("missing hypothetical evidence: measured=%d failed=%d improvement=%f size=%d",
+			res.Measured, res.Failed, res.Improvement, res.SizeBytes)
 	}
 	checkHypoPGCleanup(t, pool)
 }

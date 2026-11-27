@@ -30,7 +30,7 @@ func (m investigatorModel) ChatWithTools(ctx context.Context, msgs []llm.Message
 	}
 	s.lease = lease
 	callCtx, stop := s.c.keepAlive(ctx, s.lease)
-	res, err := s.reservedCall(callCtx, msgs, tools, opts)
+	res, err := s.call(callCtx, msgs, tools, opts)
 	lease, hbErr := stop()
 	s.lease = lease
 	switch {
@@ -50,18 +50,64 @@ func (m investigatorModel) ChatWithTools(ctx context.Context, msgs []llm.Message
 	return res, err
 }
 
+// minFinalTokens is the smallest answer a final-only retry asks for.
+const minFinalTokens = 256
+
+// reasoning is the reasoning allowance each call reserves: the loop's
+// ReasoningPerCall and the reservation share it.
+func (s *investigatorSession) reasoning() int {
+	if s.c.model.ThinkingModel() {
+		return maxInvestigatorReasoning
+	}
+	return 0
+}
+
+// call is one reserved model call. A call the investigation's own cap
+// refuses while it offered more than the final tool (a resumed run finds
+// earlier runs' tokens held, which its loop does not count) is asked once
+// more as final-only, its answer capped at what remains above the
+// estimate (at least minFinalTokens). A daily-allocation refusal, JSON
+// actions and a call that was already final-only stop on the budget.
+func (s *investigatorSession) call(ctx context.Context, msgs []llm.Message,
+	tools []llm.ToolSpec, opts llm.ToolOptions) (llm.ToolResult, error) {
+	res, err := s.reservedCall(ctx, msgs, tools, opts)
+	var refused *capRefusal
+	if !errors.As(err, &refused) || opts.ToolChoice == llm.ToolChoiceRequired {
+		return res, err
+	}
+	final := finalTool(tools)
+	if final == nil {
+		return res, err
+	}
+	left := int(refused.Cap-refused.Held) - agentloop.EstimateTokens(msgs, final, 0) -
+		s.reasoning()
+	opts.MaxTokens = min(opts.MaxTokens, max(minFinalTokens, left))
+	opts.ToolChoice = llm.ToolChoiceRequired
+	s.c.logFn("INFO", "sre: investigation %s: %v; asking once for the conclusion "+
+		"within %d answer tokens", s.inv.ID, err, opts.MaxTokens)
+	return s.reservedCall(ctx, msgs, final, opts)
+}
+
+// finalTool is the conclusion tool among those offered, if any.
+func finalTool(tools []llm.ToolSpec) []llm.ToolSpec {
+	for _, t := range tools {
+		if t.Name == ToolSubmit {
+			return []llm.ToolSpec{t}
+		}
+	}
+	return nil
+}
+
 // reservedCall reserves the call exactly as the loop estimated it, calls
 // the model bounded by the reservation and settles it.
+//
+//llm:transport internal/agentloop.systemPrompt
 func (s *investigatorSession) reservedCall(ctx context.Context, msgs []llm.Message,
 	tools []llm.ToolSpec, opts llm.ToolOptions) (llm.ToolResult, error) {
 	s.calls++
 	input := int64(max(1, agentloop.EstimateTokens(msgs, tools, 0)))
-	var reasoning int64
-	if s.c.model.ThinkingModel() {
-		reasoning = maxInvestigatorReasoning
-	}
 	res, err := s.c.invStore.ReserveInvestigator(ctx, s.lease, TokenRequest{
-		Input: input, Output: int64(max(1, opts.MaxTokens)), Reasoning: reasoning,
+		Input: input, Output: int64(max(1, opts.MaxTokens)), Reasoning: int64(s.reasoning()),
 		RequestKey: fmt.Sprintf("inv-f%d-%d", s.lease.Fence, s.calls)}, s.plan.MaxTokens)
 	if err != nil {
 		return llm.ToolResult{}, err
@@ -72,7 +118,8 @@ func (s *investigatorSession) reservedCall(ctx context.Context, msgs []llm.Messa
 	budget := NewCallBudget(res)
 	opts.Budget, opts.MaxTokens = budget, int(res.Output)
 	opts.ReasoningTokens = int(res.Reasoning)
-	result, callErr := s.c.model.ChatWithTools(ctx, msgs, tools, opts)
+	pctx := llm.WithPurpose(ctx, "sre_investigation") // llm-04: usage ledger label
+	result, callErr := s.c.model.ChatWithTools(pctx, msgs, tools, opts)
 	_, settleErr := s.c.store.SettleModel(context.WithoutCancel(ctx), s.lease.Scope, res,
 		usageOf(budget, result, callErr, res))
 	return result, errors.Join(callErr, settleErr)

@@ -1,0 +1,56 @@
+{
+  "kind": "sql#instance",
+  "state": "RUNNABLE",
+  "databaseVersion": "POSTGRES_16",
+  "settings": {
+    "authorizedGcpApplications": [],
+    "tier": "db-custom-4-16384",
+    "kind": "sql#settings",
+    "availabilityType": "REGIONAL",
+    "pricingPlan": "PER_USE",
+    "replicationType": "SYNCHRONOUS",
+    "activationPolicy": "ALWAYS",
+    "ipConfiguration": {
+      "privateNetwork": "projects/acme-prod-1234/global/networks/default",
+      "authorizedNetworks": [],
+      "ipv4Enabled": true,
+      "sslMode": "ENCRYPTED_ONLY"
+    },
+    "dataDiskType": "PD_SSD",
+    "backupConfiguration": {
+      "startTime": "06:00",
+      "kind": "sql#backupConfiguration",
+      "enabled": true,
+      "pointInTimeRecoveryEnabled": true
+    },
+    "settingsVersion": "41",
+    "storageAutoResizeLimit": "0",
+    "storageAutoResize": true,
+    "dataDiskSizeGb": "500",
+    "deletionProtectionEnabled": true,
+    "userLabels": {
+      "team": "shop"
+    },
+    "edition": "ENTERPRISE"
+  },
+  "etag": "8a4f3c2e",
+  "ipAddresses": [
+    {
+      "type": "PRIMARY",
+      "ipAddress": "34.1.2.3"
+    },
+    {
+      "type": "PRIVATE",
+      "ipAddress": "10.0.0.5"
+    }
+  ],
+  "instanceType": "CLOUD_SQL_INSTANCE",
+  "project": "acme-prod-1234",
+  "backendType": "SECOND_GEN",
+  "selfLink": "https://sqladmin.googleapis.com/v1/projects/acme-prod-1234/instances/shop",
+  "connectionName": "acme-prod-1234:us-central1:shop",
+  "name": "shop",
+  "region": "us-central1",
+  "gceZone": "us-central1-a",
+  "createTime": "2025-03-04T10:11:12.000Z"
+}

@@ -34,6 +34,9 @@ type ChangeRow struct {
 	Service    string
 	OccurredAt time.Time
 	AgeS       float64
+	// Attribution is operator, provider or unknown on a restart,
+	// failover, version or host change (guard-02b), empty otherwise.
+	Attribution string
 }
 
 // ChangeRows decodes a change_feed result.
@@ -47,7 +50,8 @@ func ChangeRows(res Result) ([]ChangeRow, error) {
 		c := ChangeRow{Kind: strField(r, "kind"), Source: strField(r, "source"),
 			Summary: strField(r, "summary"), Signature: strField(r, "signature"),
 			EventID: strField(r, "event_id"), Service: strField(r, "service"),
-			OccurredAt: timeField(r, "occurred_at"), AgeS: floatField(r, "age_s")}
+			OccurredAt: timeField(r, "occurred_at"), AgeS: floatField(r, "age_s"),
+			Attribution: strField(r, "attribution")}
 		if c.Kind == "" {
 			return nil, fmt.Errorf("change_feed row %d: %w", i+1, errNoKey("kind"))
 		}

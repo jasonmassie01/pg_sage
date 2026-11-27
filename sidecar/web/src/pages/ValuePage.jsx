@@ -1,4 +1,9 @@
 import { useAPI } from '../hooks/useAPI'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
+import { CostCard } from '../components/CostCard'
+import { ReviewScorecard } from '../components/review/ReviewScorecard'
+import { useReviewScorecard } from '../hooks/useReviewScorecard'
 
 const valuePollIntervalMs = 60000
 
@@ -34,7 +39,7 @@ function ErrorState({ error, onRetry }) {
       <p className="mt-1 text-sm">{error}</p>
       <button type="button" onClick={onRetry}
         className="mt-3 rounded px-3 py-1.5 text-sm"
-        style={{ background: 'var(--accent)', color: '#fff' }}>
+        style={{ background: 'var(--accent-solid)', color: '#fff' }}>
         Retry
       </button>
     </div>
@@ -50,6 +55,15 @@ function EmptyState() {
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
           Verified successful actions earn credit once their outcome is proven.
         </p>
+        <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+          The first credit comes from the first verified change: an action
+          pg_sage ran, with your approval or within its autonomy, whose
+          outcome it then measured and verified.
+        </p>
+        <a href="#/" className="mt-3 inline-block text-sm underline"
+          style={{ color: 'var(--accent)' }}>
+          Start with the first look
+        </a>
       </div>
       <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
         No pending potential savings.
@@ -93,7 +107,7 @@ function PotentialValue({ hours }) {
       <h2 className="text-lg font-semibold">Potential savings</h2>
       <p className="mt-1 text-2xl font-semibold">{formatHours(hours)}</p>
       <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        Pending recommendations only. Not included in DBA hours saved.
+        Pending changes only. Not included in DBA hours saved.
       </p>
     </section>
   )
@@ -203,12 +217,12 @@ function IncidentsAvoided({ incidents }) {
                 style={{ color: 'var(--text-secondary)' }}>
                 {humanize(item.severity)}
               </span>
-              {/* No ledger route exists yet, so show the id for lookup
-                  (MCP get_ledger) instead of a dead link (SURF-14). */}
-              <span className="ml-3 text-xs font-mono"
+              {/* The outcome ledger lists the changes this evidence cites. */}
+              <a className="ml-3 text-xs font-mono underline"
+                href={`#/ledger?evidence=${encodeURIComponent(item.evidence_id)}`}
                 style={{ color: 'var(--text-secondary)' }}>
                 Evidence {item.evidence_id}
-              </span>
+              </a>
             </li>
           ))}
         </ul>
@@ -242,23 +256,33 @@ function isEmptyValue(data) {
   )
 }
 
-export function ValuePage({ database }) {
-  const { data, loading, error, refetch } = useAPI(
-    valueURL(database), valuePollIntervalMs,
-  )
+// embedded: the page is the ledger's Value section (ux-11), so its title
+// is a section heading rather than the page's.
+export function ValuePage({ database, user, embedded = false }) {
+  const Heading = embedded ? 'h2' : 'h1'
+  // Read before the value, so the value stays this page's last read.
+  const scorecard = useReviewScorecard(database)
+  const value = useAPI(valueURL(database), valuePollIntervalMs)
+  const { data } = value
 
-  if (loading) return <LoadingState />
-  if (error) return <ErrorState error={error} onRetry={refetch} />
+  if (queryBlocked(value)) {
+    return <QueryState query={value} skeleton={<LoadingState />}
+      failure={<ErrorState error={value.error} onRetry={value.refetch} />} />
+  }
 
   return (
-    <div className="space-y-6" data-testid="value-page">
+    <QueryState query={value}><div className="space-y-6" data-testid="value-page">
       <div>
-        <h1 className="text-2xl font-semibold">Value delivered</h1>
+        <Heading className={embedded ? 'text-lg font-semibold' : 'text-2xl font-semibold'}>
+          Value delivered
+        </Heading>
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
           Verified work completed and incidents prevented by pg_sage.
         </p>
       </div>
       {data?.partial && <PartialWarning unavailable={data.unavailable} />}
+      <CostCard cost={data?.cost} />
+      <ReviewScorecard query={scorecard} database={database} user={user} compact />
       {isEmptyValue(data) ? <EmptyState /> : (
         <>
           <RealizedValue savings={data.dba_hours_saved || {}} />
@@ -269,6 +293,6 @@ export function ValuePage({ database }) {
           <IncidentsAvoided incidents={data.incidents_avoided} />
         </>
       )}
-    </div>
+    </div></QueryState>
   )
 }

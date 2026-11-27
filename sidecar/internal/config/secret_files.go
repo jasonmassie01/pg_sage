@@ -43,8 +43,10 @@ var secretEnvTargets = []struct {
 		func(c *Config) *string { return &c.OAuth.BreakGlass.PasswordHash }},
 	{"SAGE_LLM_API_KEY", func(c *Config) *string { return &c.LLM.APIKey }},
 	{"SAGE_OPTIMIZER_LLM_API_KEY", func(c *Config) *string { return &c.LLM.OptimizerLLM.APIKey }},
+	{"SAGE_REVIEW_LLM_API_KEY", func(c *Config) *string { return &c.LLM.ReviewLLM.APIKey }},
 	{"SAGE_OAUTH_CLIENT_SECRET", func(c *Config) *string { return &c.OAuth.ClientSecret }},
 	{"SAGE_CLONE_DLE_TOKEN", func(c *Config) *string { return &c.Clone.DLEToken }},
+	{"SAGE_CLONE_NEON_API_KEY", func(c *Config) *string { return &c.Clone.Neon.APIKey }},
 	{"SAGE_API_KEY", func(c *Config) *string { return &c.APIKey }},
 }
 

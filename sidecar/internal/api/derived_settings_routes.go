@@ -20,21 +20,21 @@ import (
 const derivedSettingsPath = "/api/v1/derived-settings"
 
 const derivedSettingsMeaning = "pg_sage derives these settings per database from " +
-	"evidence (catalog size, scan times, connection limit, temp-file rate, its own " +
-	"cost) when the operator leaves them unset, within bounds that never widen " +
+	"evidence (catalog size, scan times, connection limit, temp-file rate, the " +
+	"collector's measured statement time) when the operator leaves them unset, within " +
+	"bounds that never widen " +
 	"authority or spend. A new value soaks in shadow and is promoted only when its " +
 	"comparison with the active value is not worse; restart-bound keys take effect at " +
 	"the next start. A value the operator set always wins; a pinned value ignores " +
 	"new evidence until it is unpinned."
 
 func registerDerivedSettingsRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	viewer := RequireRole("admin", "operator", "viewer")
-	admin := RequireRole("admin")
-	mux.Handle("GET "+derivedSettingsPath, viewer(derivedSettingsHandler(mgr)))
-	mux.Handle("POST "+derivedSettingsPath+"/{key}/pin",
-		admin(derivedSettingPinHandler(mgr, true)))
-	mux.Handle("POST "+derivedSettingsPath+"/{key}/unpin",
-		admin(derivedSettingPinHandler(mgr, false)))
+	routeAggregate(mux, "GET "+derivedSettingsPath, gateViewer, mgr,
+		aggregateHandler(derivedSettingsHandler))
+	route(mux, "POST "+derivedSettingsPath+"/{key}/pin", gateAdmin,
+		derivedSettingPinHandler(mgr, true))
+	route(mux, "POST "+derivedSettingsPath+"/{key}/unpin", gateAdmin,
+		derivedSettingPinHandler(mgr, false))
 }
 
 type derivedShadowView struct {
@@ -121,8 +121,9 @@ func derivedViews(settings []selfconfig.Setting, soak int) []derivedSettingView 
 	for _, rule := range selfconfig.Rules() {
 		v := derivedSettingView{Key: rule.Key, Unit: rule.Unit, Summary: rule.Summary,
 			Default: rule.Get(def), Rule: rule.Name, RuleVersion: rule.Version,
-			Lifecycle: lifecycleOf(rule.Key), Status: string(selfconfig.StatusDefault),
-			Value: rule.Get(def), Bounds: rule.Bounds(def),
+			Lifecycle: selfconfig.DerivedLifecycle(rule.Key),
+			Status:    string(selfconfig.StatusDefault),
+			Value:     rule.Get(def), Bounds: rule.Bounds(def),
 			Evidence: []selfconfig.Citation{}, History: []selfconfig.LedgerEntry{},
 			Note: "not derived yet on this database"}
 		if class, ok := config.KeyClassOf(rule.Key); ok {
@@ -157,13 +158,6 @@ func fillDerivedView(v *derivedSettingView, s selfconfig.Setting, soak int) {
 	if s.Pinned != nil {
 		v.Pinned = &derivedPinView{Value: *s.Pinned, By: s.PinnedBy, At: s.PinnedAt}
 	}
-}
-
-func lifecycleOf(key string) string {
-	if f, ok := config.LookupFieldLifecycle(key); ok {
-		return string(f.Lifecycle)
-	}
-	return string(config.LifecycleRestart)
 }
 
 func derivedSettingPinHandler(mgr *fleet.DatabaseManager, pin bool) http.HandlerFunc {

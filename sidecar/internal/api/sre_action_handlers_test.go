@@ -151,7 +151,10 @@ func actionInstance(t *testing.T, mgr *fleet.DatabaseManager, name, trust string
 	if err != nil {
 		t.Fatal(err)
 	}
-	exec.SetApprovedActionRunner(f.actions)
+	if err := exec.AddApprovedActionRunner(sreaction.RunnerName,
+		sreaction.RunnerKeyPrefixes(), f.actions); err != nil {
+		t.Fatal(err)
+	}
 	f.inv = inv
 	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: name, Pool: pool, Executor: exec,
 		Status: &fleet.InstanceStatus{}, Investigations: svc, Actions: f.actions})
@@ -168,7 +171,7 @@ func actionRouter(t *testing.T, mgr *fleet.DatabaseManager, user *auth.User) htt
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(mgr, config.DefaultConfig(), nil,
+	return newTestRouter(mgr, config.DefaultConfig(), nil,
 		&ActionDeps{Fleet: mgr}, nil, nil, nil, inject)
 }
 

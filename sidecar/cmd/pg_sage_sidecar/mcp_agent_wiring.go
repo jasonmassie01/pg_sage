@@ -42,7 +42,9 @@ func agentToolOptions(c *config.Config) agenttools.Options {
 	}}
 	if c != nil {
 		opts.Explain = &c.Explain
+		opts.PlanMaxAgeMinutes = c.Tuner.PlanMaxAgeMinutes
 		opts.VerifyWindow = time.Duration(c.Verify.WindowMinutes) * time.Minute
+		opts.DDLRowThreshold = c.Migration.DDLRowThreshold
 	}
 	return opts
 }
@@ -53,7 +55,10 @@ type fleetAgentTools struct {
 	options agenttools.Options
 }
 
-var _ mcp.AgentToolBackend = fleetAgentTools{}
+var (
+	_ mcp.AgentToolBackend  = fleetAgentTools{}
+	_ mcp.AgentExplainTools = fleetAgentTools{}
+)
 
 func (b fleetAgentTools) tools(ctx context.Context) (*agenttools.Tools, error) {
 	name, ok := mcp.DatabaseFromContext(ctx)
@@ -91,6 +96,17 @@ func (b fleetAgentTools) ExplainQuery(ctx context.Context,
 		return agenttools.ExplainResult{}, err
 	}
 	return t.ExplainQuery(ctx, r)
+}
+
+// ExplainAsAgent serves an agent's explain_query on the resolved database:
+// plan runs it as the agent's own role (security-02).
+func (b fleetAgentTools) ExplainAsAgent(ctx context.Context, r agenttools.ExplainRequest,
+	plan agenttools.AgentPlanner) (agenttools.ExplainResult, error) {
+	t, err := b.tools(ctx)
+	if err != nil {
+		return agenttools.ExplainResult{}, err
+	}
+	return t.ExplainAsAgent(ctx, r, plan)
 }
 
 func (b fleetAgentTools) WhatIfIndex(ctx context.Context,

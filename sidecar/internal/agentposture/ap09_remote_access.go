@@ -44,6 +44,7 @@ ORDER BY 1
 LIMIT $1`)
 
 func (ap09) Detect(ctx context.Context, in Input) ([]Finding, error) {
+	in.noteVia()
 	out, err := ap09Dblink(ctx, in)
 	if err != nil {
 		return nil, err
@@ -61,32 +62,36 @@ func (ap09) Detect(ctx context.Context, in Input) ([]Finding, error) {
 
 // ap09Dblink is one finding for the dblink functions exposed roles can run.
 func ap09Dblink(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap09DblinkSQL, apbMaxRows)
+	lim := in.capRows("dblink", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap09DblinkSQL, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read dblink function privileges: %w", err)
 	}
 	defer rows.Close()
 	var fix []string
 	var ev []Evidence
+	var ps []Path
 	var reached, granted []Role
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var fn string
 		var exec, usage []uint32
 		if err := rows.Scan(&fn, &exec, &usage); err != nil {
 			return nil, fmt.Errorf("read dblink function privileges: %w", err)
 		}
-		who := reaching(exposedHolders(in.Env, exec), usage)
+		who := reaching(in.Env, exposedHolders(in.Env, exec), usage)
 		if len(who) == 0 {
 			continue
 		}
-		targets := revokeTargets(who, exec)
+		targets := revokeTargets(in.Env, who, exec)
 		for _, r := range targets {
 			fix = append(fix, "REVOKE EXECUTE ON FUNCTION "+fn+" FROM "+revokeTarget(r)+";")
 		}
 		granted = mergeRoles(granted, targets)
 		reached = mergeRoles(reached, who)
+		p := in.Env.paths(who, exec)
+		ps = append(ps, p...)
 		ev = append(ev, Evidence{Source: "pg_proc.proacl", Ref: fn,
-			Detail: "executable by " + roleText(who)})
+			Detail: "executable by " + roleText(who) + viaText(p)})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read dblink function privileges: %w", err)
@@ -101,7 +106,7 @@ func ap09Dblink(ctx context.Context, in Input) ([]Finding, error) {
 			"one.", roleText(reached), len(ev), roleText(granted)),
 		Recommendation: "Revoke EXECUTE on the dblink functions from exposed roles; " +
 			"grant them only to the roles that need remote queries.",
-		FixScript: strings.Join(fix, "\n"), Evidence: ev}}, nil
+		FixScript: strings.Join(fix, "\n"), Caveat: groupCaveat(ps), Evidence: ev}}, nil
 }
 
 // mergeRoles adds the roles of add not yet in rs.

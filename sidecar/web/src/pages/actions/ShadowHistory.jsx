@@ -13,7 +13,7 @@ export function ShadowHistory({ history }) {
       {' '}{s.incorrect || 0} incorrect · {s.neutral || 0} neutral ·
       {' '}{s.unscored || 0} unscored · {s.pending || 0} pending
       {history.this_proposal && (
-        <span>. pg_sage recorded this proposal as a shadow decision: your decision
+        <span>. pg_sage recorded this change as a shadow decision: your decision
           scores it.</span>
       )}
     </div>

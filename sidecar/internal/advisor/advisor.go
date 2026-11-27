@@ -15,9 +15,7 @@ import (
 
 // Advisor orchestrates all configuration advisory features.
 type Advisor struct {
-	pool   *pgxpool.Pool
 	cfg    *config.Config
-	coll   *collector.Collector
 	llmMgr *llm.Manager
 	logFn  func(string, string, ...any)
 
@@ -25,6 +23,8 @@ type Advisor struct {
 	// back to cfg.CloudEnvironment / cfg.Postgres.Database.
 	cloudEnv string
 	dbName   string
+	// pgMajor is the reviewed server's major version (0: unknown).
+	pgMajor int
 
 	// hostMemoryBytes is operator-supplied host RAM. PostgreSQL exposes
 	// no RAM figure; without it shared_buffers changes stay advisory.
@@ -34,10 +34,29 @@ type Advisor struct {
 
 	// facts renders the confirmed facts for prompts (roadmap 2.3); nil: none.
 	facts FactSource
+	// instanceOwner says whether this database owns its instance's
+	// settings in fleet mode (advisors-08); nil: it does.
+	instanceOwner InstanceOwner
+
+	snaps    snapshotSource
+	connHist connHistorySource // nil: the connection history is unknown
+	hist     windowHistory     // nil: the WAL and bloat window is unknown
+	open     openFindingStore
+	runs     runStore
+	schedule runSchedule
+	streaks  clearStreaks
+	now      func() time.Time
 
 	mu        sync.Mutex
-	lastRunAt time.Time
 	findings  []analyzer.Finding
+	evaluated []string
+}
+
+// snapshotSource is the collector's view the advisor reviews. The window
+// it compares with is read from the history store (advisors-05), not the
+// collector's previous snapshot.
+type snapshotSource interface {
+	LatestSnapshot() *collector.Snapshot
 }
 
 func New(
@@ -47,13 +66,23 @@ func New(
 	llmMgr *llm.Manager,
 	logFn func(string, string, ...any),
 ) *Advisor {
-	return &Advisor{
-		pool:   pool,
+	a := &Advisor{
 		cfg:    cfg,
-		coll:   coll,
 		llmMgr: llmMgr,
 		logFn:  logFn,
+		open:   noOpenFindings{},
+		runs:   newMemRunStore(),
+		now:    time.Now,
 	}
+	if coll != nil {
+		a.snaps = coll
+	}
+	if pool != nil {
+		a.open, a.runs = pgOpenFindings{pool}, pgRunStore{pool}
+		a.connHist = pgConnHistory{db: pool}
+		a.hist = pgWindowHistory{db: pool}
+	}
+	return a
 }
 
 // WithCloudEnv sets the cloud environment for this advisor instance.
@@ -74,12 +103,6 @@ func (a *Advisor) WithDatabaseName(name string) {
 	a.dbName = name
 }
 
-func (a *Advisor) ShouldRun() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return time.Since(a.lastRunAt) > a.cfg.Advisor.Interval()
-}
-
 // subAdvisor is one LLM sub-advisor and the category it owns. Vacuum and
 // memory tuning belong to the tuning agent (roadmap 2.2); the advisor
 // keeps instance capacity and maintenance advice.
@@ -89,103 +112,165 @@ type subAdvisor struct {
 	run            func(context.Context) ([]analyzer.Finding, error)
 }
 
-func (a *Advisor) subAdvisors(snap, prev *collector.Snapshot) []subAdvisor {
+func (a *Advisor) subAdvisors(snap *collector.Snapshot) []subAdvisor {
 	c := a.cfg.Advisor
 	return []subAdvisor{
 		{"wal", "wal_tuning", c.WALEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {
-			return analyzeWAL(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+			return analyzeWAL(a.windowContext(ctx), a.llmMgr, snap, a.cfg, a.logFn)
 		}},
 		{"connections", "connection_tuning", c.ConnectionEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {
-			return analyzeConnections(ctx, a.llmMgr, snap, a.cfg, a.logFn)
+			return analyzeConnections(a.connectionContext(ctx), a.llmMgr, snap, a.cfg,
+				a.logFn)
 		}},
 		{"rewrites", "query_rewrite", c.RewriteEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {
-			return analyzeQueryRewrites(ctx, a.pool, a.llmMgr, snap, a.cfg, a.logFn)
+			return analyzeQueryRewrites(ctx, a.llmMgr, snap, a.cfg, a.logFn)
 		}},
 		{"bloat", "bloat_remediation", c.BloatEnabled, func(ctx context.Context) (
 			[]analyzer.Finding, error) {
-			return analyzeBloat(ctx, a.llmMgr, snap, prev, a.cfg, a.logFn)
+			return analyzeBloat(a.windowContext(ctx), a.llmMgr, snap, a.cfg, a.logFn)
 		}},
 	}
 }
 
-// runSubAdvisors runs the enabled sub-advisors whose category has no open
-// finding; it returns their findings and how many hit the token budget.
-func (a *Advisor) runSubAdvisors(ctx context.Context, snap, prev *collector.Snapshot) (
-	[]analyzer.Finding, int) {
-	var all []analyzer.Finding
-	budgetErrors := 0
-	for _, sa := range a.subAdvisors(snap, prev) {
-		if !sa.enabled {
+// Analyze re-checks the open advisor findings and runs the due
+// sub-advisors on the latest snapshot.
+func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
+	if !a.cfg.Advisor.Enabled {
+		// Disabled on purpose: the degraded warning no longer applies.
+		a.setEvaluated([]string{"advisor_degraded"})
+		return nil, nil
+	}
+	var snap *collector.Snapshot
+	if a.snaps != nil {
+		snap = a.snaps.LatestSnapshot()
+	}
+	return a.analyzeSnapshot(ctx, snap), nil
+}
+
+// analyzeSnapshot is one advisor cycle on snap. The deterministic re-check
+// runs with the LLM on or off; only the sub-advisors need the model.
+func (a *Advisor) analyzeSnapshot(ctx context.Context, snap *collector.Snapshot,
+) []analyzer.Finding {
+	var out []analyzer.Finding
+	var evaluated []string
+	llmOn := a.cfg.LLM.Enabled
+	if llmOn {
+		evaluated = append(evaluated, "advisor_degraded")
+	} else {
+		out = append(out, advisorDegradedFinding())
+	}
+	if snap == nil || snap.ConfigData == nil {
+		a.logFn("DEBUG", "advisor: no config snapshot yet")
+		return a.finish(out, evaluated)
+	}
+	own := a.ownership()
+	if io, ok := a.ioSettingsCycle(snap, own); ok {
+		out, evaluated = append(out, io...), append(evaluated, ioSettingsCategory)
+	}
+	open, err := a.open.OpenFindings(ctx, advisorCategories)
+	if err != nil {
+		// Fail closed on spend: without the open set the gate is unknown.
+		a.logFn("WARN", "advisor: open findings unreadable, sub-advisors skipped "+
+			"this cycle: %v", err)
+		return a.finish(out, evaluated)
+	}
+	checked, aside := splitInstanceOpen(open, own)
+	res := a.resolveOpen(snap, checked)
+	out = append(out, res.kept...)
+	var r subRun
+	if llmOn {
+		r = a.review(withOwnership(withOpenGate(ctx, res.gate), own), snap)
+		for c := range r.failed {
+			res.evaluated[c] = false
+		}
+	}
+	out = append(append(out, keepAside(aside, r, own)...), r.findings...)
+	for _, c := range advisorCategories {
+		// A non-owner leaves its open instance rows to the owner: they are
+		// neither re-checked nor resolved here.
+		if res.evaluated[c] && (!own.defers() || !instanceCategories[c]) {
+			evaluated = append(evaluated, c)
+		}
+	}
+	return a.finish(out, evaluated)
+}
+
+// finish publishes one cycle's findings and evaluated categories.
+func (a *Advisor) finish(out []analyzer.Finding, evaluated []string) []analyzer.Finding {
+	a.setEvaluated(evaluated)
+	a.mu.Lock()
+	a.findings = out
+	a.mu.Unlock()
+	a.logFn("INFO", "advisor: %d findings (%d categories re-checked)", len(out),
+		len(evaluated))
+	return out
+}
+
+func (a *Advisor) setEvaluated(categories []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.evaluated = categories
+}
+
+// LastEvaluatedCategories are the categories the latest cycle fully
+// re-checked (analyzer.EvaluatedCategoryReporter): their open findings
+// that the cycle did not re-emit resolve. A category whose evidence was
+// missing, or whose sub-advisor failed, is not among them.
+func (a *Advisor) LastEvaluatedCategories() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.evaluated...)
+}
+
+// subRun is what the due sub-advisors produced in one cycle.
+type subRun struct {
+	findings     []analyzer.Finding
+	budgetErrors int
+	failed       map[string]bool // categories whose sub-advisor failed
+	ran          map[string]bool // categories whose sub-advisor ran and answered
+}
+
+// runSubAdvisors runs each enabled sub-advisor that is due and claimed.
+// A failure (model error, token budget) backs the sub-advisor off and
+// leaves its category unevaluated; new findings about an object that is
+// already open are dropped.
+func (a *Advisor) runSubAdvisors(ctx context.Context, snap *collector.Snapshot,
+) subRun {
+	r := subRun{failed: map[string]bool{}, ran: map[string]bool{}}
+	gate := openGateFrom(ctx)
+	now := a.now()
+	a.loadSchedule(ctx)
+	own := ownershipFrom(ctx)
+	for _, sa := range a.subAdvisors(snap) {
+		if own.defers() && instanceCategories[sa.category] {
+			a.logFn("DEBUG", "advisor: %s: instance settings are managed from "+
+				"database %s", sa.name, own.owner)
 			continue
 		}
-		if a.hasOpenFindings(ctx, sa.category) {
-			a.logFn("DEBUG", "advisor: %s: skipping, open findings exist", sa.name)
+		if !sa.enabled || !a.claim(ctx, sa.name, now) {
 			continue
 		}
 		findings, err := sa.run(ctx)
+		a.record(ctx, sa.name, now, err)
 		if err != nil {
 			a.logFn("WARN", "advisor: %s: %v", sa.name, err)
+			r.failed[sa.category] = true
 			if isBudgetError(err) {
-				budgetErrors++
+				r.budgetErrors++
 			}
 			continue
 		}
-		all = append(all, findings...)
+		r.ran[sa.category] = true
+		r.findings = append(r.findings, gate.dropOpen(sa.category, findings, a.logFn)...)
 	}
-	return all, budgetErrors
-}
-
-// Analyze runs all enabled sub-advisors and returns findings.
-func (a *Advisor) Analyze(ctx context.Context) ([]analyzer.Finding, error) {
-	if !a.cfg.Advisor.Enabled {
-		return nil, nil
+	if r.budgetErrors > 0 {
+		a.logFn("WARN", "advisor: %d sub-advisors skipped: daily token budget exhausted",
+			r.budgetErrors)
 	}
-	if !a.cfg.LLM.Enabled {
-		return []analyzer.Finding{advisorDegradedFinding()}, nil
-	}
-	if !a.ShouldRun() {
-		return nil, nil
-	}
-
-	a.logFn("INFO", "advisor: starting configuration review")
-	ctx = a.factsContext(ctx)
-
-	snap := a.coll.LatestSnapshot()
-	prev := a.coll.PreviousSnapshot()
-	if snap == nil || snap.ConfigData == nil {
-		a.logFn("DEBUG", "advisor: no config snapshot yet")
-		return nil, nil
-	}
-
-	all, budgetErrors := a.runSubAdvisors(ctx, snap, prev)
-	cloudEnv := a.cloudEnv
-	if cloudEnv == "" {
-		cloudEnv = a.cfg.CloudEnvironment
-	}
-	dbName := a.dbName
-	if dbName == "" {
-		dbName = a.cfg.Postgres.Database
-	}
-	all = GateConfigFindingsHost(all, a.hostMemory(), cloudEnv, dbName,
-		snap.ConfigData.PGSettings)
-
-	a.mu.Lock()
-	a.lastRunAt = time.Now()
-	a.findings = all
-	a.mu.Unlock()
-
-	if budgetErrors > 0 {
-		a.logFn("WARN",
-			"advisor: produced %d findings "+
-				"(%d sub-advisors skipped: daily token budget exhausted)",
-			len(all), budgetErrors)
-	} else {
-		a.logFn("INFO", "advisor: produced %d findings", len(all))
-	}
-	return all, nil
+	return r
 }
 
 func advisorDegradedFinding() analyzer.Finding {
@@ -219,26 +304,4 @@ func (a *Advisor) LatestFindings() []analyzer.Finding {
 	out := make([]analyzer.Finding, len(a.findings))
 	copy(out, a.findings)
 	return out
-}
-
-// hasOpenFindings returns true if sage.findings already has open
-// findings for the given category, avoiding redundant LLM calls.
-func (a *Advisor) hasOpenFindings(
-	ctx context.Context, category string,
-) bool {
-	if a.pool == nil {
-		return false
-	}
-	var count int
-	err := a.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT count(*) FROM sage.findings
-		 WHERE category = $1
-		   AND status = 'open'
-		   AND acted_on_at IS NULL`,
-		category,
-	).Scan(&count)
-	if err != nil {
-		return false
-	}
-	return count > 0
 }

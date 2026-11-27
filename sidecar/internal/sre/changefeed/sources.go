@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 )
 
 // cursorBatch bounds the rows a cursor source reads per poll; the rest
@@ -13,16 +15,17 @@ import (
 const cursorBatch = 100
 
 func (p *Poller) sources() []source {
-	return []source{
+	if p.providerOnly {
+		return p.providerSources()
+	}
+	out := []source{
 		{name: "sage_actions", poll: pollActions},
 		{name: "config_audit", control: true, poll: p.pollConfigAudit},
 		{name: "migration_findings", poll: pollMigrationFindings},
 		{name: "pg_stat_statements", poll: pollStatsReset},
-		{name: "postmaster", poll: pollPostmaster},
-		{name: "recovery_role", poll: pollRecoveryRole},
-		{name: "timeline", poll: pollTimeline},
-		{name: "extensions", poll: pollExtensions},
 	}
+	out = append(out, p.providerSources()...)
+	return append(out, source{name: "extensions", poll: pollExtensions})
 }
 
 type cursorState struct {
@@ -167,10 +170,19 @@ func parseUTC(s string, fallback time.Time) time.Time {
 	return t
 }
 
+// scanStatsReset reads pg_stat_statements_info.stats_reset through the
+// view's qualified name.
+func scanStatsReset(ctx context.Context, q querier) (string, error) {
+	rel, err := extschema.StatementsRel(ctx, q, "pg_stat_statements_info")
+	if err != nil {
+		return "", err
+	}
+	return scanTime(`/* pg_sage sre:change_feed */ SELECT stats_reset FROM `+rel)(ctx, q)
+}
+
 func pollStatsReset(ctx context.Context, q querier, prev []byte, now time.Time) ([]Event,
 	any, error) {
-	return snapshot(ctx, q, prev, "stats_reset", scanTime(
-		`/* pg_sage sre:change_feed */ SELECT stats_reset FROM pg_stat_statements_info`),
+	return snapshot(ctx, q, prev, "stats_reset", scanStatsReset,
 		func(_, cur string) Event {
 			return internalEvent(KindStatsReset, "pgss_reset:"+cur,
 				"pg_stat_statements statistics were reset", parseUTC(cur, now), now)

@@ -39,6 +39,9 @@ type ActionPolicyDecision struct {
 	TrustedVerdict string `json:"trusted_verdict,omitempty"`
 	TrustedReason  string `json:"trusted_reason,omitempty"`
 	TrustedDetail  string `json:"trusted_detail,omitempty"`
+	// WindowOnly marks an operator approval the maintenance window alone
+	// withholds: it can be scheduled for the next window (policy-04).
+	WindowOnly bool `json:"window_only,omitempty"`
 }
 
 func inMaintenanceWindowForPolicy(

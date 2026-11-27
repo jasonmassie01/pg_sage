@@ -21,7 +21,7 @@ type oldIndexInfo struct {
 	Partial     bool
 }
 
-const oldIndexSQL = `/* pg_sage */ SELECT i.indexrelid::bigint,
+const oldIndexSQL = `/* pg_sage executor */ SELECT i.indexrelid::bigint,
 	pg_get_indexdef(i.indexrelid),
 	i.indisunique OR i.indisprimary OR i.indisexclusion OR EXISTS (
 	    SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid),
@@ -35,7 +35,9 @@ const oldIndexSQL = `/* pg_sage */ SELECT i.indexrelid::bigint,
 // readOldIndex reads the old index; a missing one is an identity change.
 func (e *Executor) readOldIndex(ctx context.Context, p IndexReplace) (oldIndexInfo, error) {
 	var o oldIndexInfo
-	err := e.pool.QueryRow(ctx, oldIndexSQL, p.OldIndex, p.Table).Scan(&o.OID,
+	// Pinned like the undo's re-create, so a definition it could not
+	// resolve never matches the plan's recreate text.
+	err := queryRowPinned(ctx, e.pool, oldIndexSQL, []any{p.OldIndex, p.Table}, &o.OID,
 		&o.Definition, &o.Constrained, &o.OnTable, &o.Partial, &o.Lead)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return o, fmt.Errorf("%w: %s no longer exists", ErrReplaceIdentityChanged, p.OldIndex)
@@ -86,7 +88,7 @@ func sameDefinition(a, b string) bool {
 // the old index supports without a supporting index.
 func (e *Executor) checkForeignKeys(ctx context.Context, p IndexReplace,
 	old oldIndexInfo) error {
-	rows, err := e.pool.Query(ctx, `/* pg_sage */ SELECT c.conname,
+	rows, err := e.pool.Query(ctx, `/* pg_sage executor */ SELECT c.conname,
 		ARRAY(SELECT a.attname::text FROM unnest(c.conkey) k(attnum)
 		      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum)
 		FROM pg_constraint c WHERE c.contype = 'f' AND c.conrelid = to_regclass($1)`,
@@ -134,7 +136,7 @@ func newIndexLead(create string) ([]string, bool) {
 func (e *Executor) replaceCatalogView(ctx context.Context, p IndexReplace) (
 	replaceCatalog, error) {
 	var c replaceCatalog
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT
 		n.indexrelid IS NOT NULL, COALESCE(n.indisvalid AND n.indisready, false),
 		o.indexrelid IS NOT NULL, COALESCE(o.indisvalid AND o.indisready, false)
 		FROM (SELECT 1) x
@@ -150,7 +152,8 @@ func (e *Executor) replaceCatalogView(ctx context.Context, p IndexReplace) (
 // indexOID is an index's OID (0 when absent).
 func (e *Executor) indexOID(ctx context.Context, qualified string) (int64, error) {
 	var oid int64
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(to_regclass($1)::oid::bigint,
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */
+SELECT COALESCE(to_regclass($1)::oid::bigint,
 		0)`, qualified).Scan(&oid)
 	if err != nil {
 		return 0, fmt.Errorf("look up %s: %w", qualified, err)

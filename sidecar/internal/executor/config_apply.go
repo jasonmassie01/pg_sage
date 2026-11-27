@@ -8,19 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/pgconf"
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
-
-// managedProviders are platforms where ALTER SYSTEM is disallowed; config
-// changes must go through the provider's parameter group / database flags
-// (and the provider reloads automatically), not ALTER SYSTEM.
-var managedProviders = map[string]bool{
-	"rds": true, "aurora": true, "aws": true,
-	"cloud-sql": true, "cloudsql": true, "gcp": true,
-	"alloydb": true, "neon": true, "supabase": true,
-	"azure": true, "azure-flexible": true, "azure-single": true,
-	"azure-cosmos": true,
-	"lakebase":     true,
-}
 
 // outcomeStatus maps whether a config change is live to an action_log
 // outcome: "success" when in effect, "applied_pending_restart" when the
@@ -33,9 +22,10 @@ func outcomeStatus(inEffect bool) string {
 }
 
 // isManagedProvider reports whether the cloud environment is a managed
-// PostgreSQL service where ALTER SYSTEM is blocked.
+// PostgreSQL service where ALTER SYSTEM is blocked; config changes go
+// through the provider's parameter group, flags or console instead.
 func isManagedProvider(env string) bool {
-	return managedProviders[strings.ToLower(strings.TrimSpace(env))]
+	return prov.IsManaged(env)
 }
 
 // isAlterSystem reports whether sql is an ALTER SYSTEM SET/RESET statement.
@@ -89,7 +79,7 @@ func applyConfigChangeWithin(
 		return configApplyOutcome{State: readbackUnconfirmed,
 			Note: "cannot parse the ALTER SYSTEM statement to read it back"}
 	}
-	if _, err := pool.Exec(ctx, "/* pg_sage */ SELECT pg_reload_conf()"); err != nil {
+	if _, err := pool.Exec(ctx, "/* pg_sage executor */ SELECT pg_reload_conf()"); err != nil {
 		if logFn != nil {
 			logFn("executor", "pg_reload_conf after %s failed: %v", param, err)
 		}

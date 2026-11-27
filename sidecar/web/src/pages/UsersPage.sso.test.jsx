@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsersPage } from './UsersPage'
+import { answerConfirm } from '../test/confirmDialog'
 
 // D7: admins see which users are bound to SSO, can unlink them, can issue a
 // one-time link grant, and can create SSO-only users without a password.
@@ -29,7 +30,6 @@ describe('UsersPage SSO controls', () => {
       if (url === '/api/v1/users') return Promise.resolve(ok({ users }))
       return Promise.resolve(ok({ status: 'ok' }))
     })
-    globalThis.confirm = vi.fn(() => true)
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -62,18 +62,18 @@ describe('UsersPage SSO controls', () => {
     expect(within(rowFor('admin@x.test')).queryByTestId('user-sso-badge')).toBeNull()
 
     fireEvent.click(within(row).getByTestId('user-sso-unlink'))
+    expect(await answerConfirm()).toBe('Unlink SSO from linked@x.test')
     await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/v1/users/5/oidc',
       expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
     ))
-    expect(globalThis.confirm).toHaveBeenCalled()
   })
 
   it('does not unlink when the admin cancels', async () => {
-    globalThis.confirm = vi.fn(() => false)
     render(<UsersPage currentUser={{ id: 1, role: 'admin' }} />)
     await screen.findByText('linked@x.test')
     fireEvent.click(within(rowFor('linked@x.test')).getByTestId('user-sso-unlink'))
+    await answerConfirm('cancel')
     const methods = globalThis.fetch.mock.calls.map(call => call[1]?.method)
     expect(methods).not.toContain('DELETE')
   })

@@ -109,7 +109,7 @@ func captureReloptions(
 	ctx context.Context, pool *pgxpool.Pool, table string,
 ) (main, toast map[string]string, err error) {
 	var mainOpts, toastOpts []string
-	err = pool.QueryRow(ctx, `/* pg_sage */ SELECT COALESCE(c.reloptions, '{}'),
+	err = pool.QueryRow(ctx, `/* pg_sage executor */ SELECT COALESCE(c.reloptions, '{}'),
 		COALESCE(t.reloptions, '{}')
 		FROM pg_class c LEFT JOIN pg_class t ON t.oid = c.reltoastrelid
 		WHERE c.oid = to_regclass($1)`, table).Scan(&mainOpts, &toastOpts)

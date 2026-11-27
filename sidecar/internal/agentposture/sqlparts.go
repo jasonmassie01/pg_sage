@@ -3,6 +3,8 @@ package agentposture
 import (
 	"slices"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // userSchemaFilter keeps user schemas: no system schema and not pg_sage's.
@@ -21,19 +23,17 @@ const notExtensionMember = `NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend e
   WHERE e.classid = 'pg_catalog.pg_class'::pg_catalog.regclass AND e.objid = c.oid
     AND e.objsubid = 0 AND e.deptype = 'e')`
 
-// maxRows bounds each detector's catalog read.
-const maxRows = 50000
+// maxRows bounds each AP-01..AP-08 catalog read; a variable so tests can
+// reach the limit with a few rows.
+var maxRows = 50000
 
 // reachingRoles lists the exposed roles that hold a privilege granted to
-// grantees (directly or through PUBLIC) and USAGE on its schema (granted
-// to them or to PUBLIC). Membership in other roles is not followed: the
-// check reads ACLs as aclexplode reports them.
+// grantees and USAGE on its schema (usage lists its grantees): each
+// directly, through PUBLIC or through a group role they inherit.
 func reachingRoles(env Env, grantees, usage []uint32) []Role {
 	var out []Role
 	for _, e := range env.Exposed {
-		holds := slices.Contains(grantees, e.OID) || slices.Contains(grantees, PublicOID)
-		uses := slices.Contains(usage, e.OID) || slices.Contains(usage, PublicOID)
-		if holds && uses {
+		if env.holds(e, grantees) && env.holds(e, usage) {
 			out = append(out, e)
 		}
 	}
@@ -64,7 +64,7 @@ func grantTarget(r Role) string {
 	if r.OID == PublicOID {
 		return "PUBLIC"
 	}
-	return QuoteIdent(r.Name)
+	return sqlident.Ident(r.Name)
 }
 
 func containsOID(xs []uint32, x uint32) bool { return slices.Contains(xs, x) }

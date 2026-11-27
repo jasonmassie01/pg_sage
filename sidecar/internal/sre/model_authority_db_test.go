@@ -27,8 +27,8 @@ type fakeAuthority struct {
 	blockOn chan struct{}
 }
 
-func (f *fakeAuthority) ModelRootAuthority(ctx context.Context, family string) (RootGrant,
-	error) {
+func (f *fakeAuthority) ModelRootAuthority(ctx context.Context, family, _ string) (
+	RootGrant, error) {
 	f.mu.Lock()
 	f.asked = append(f.asked, family)
 	f.mu.Unlock()

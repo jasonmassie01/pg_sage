@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // captureProxy forwards TCP connections to target and records every byte
@@ -87,7 +89,7 @@ func (p *captureProxy) clientBytes() []byte {
 // pg_stat_statements and pg_stat_activity show it as pg_sage's.
 func TestTestFromConnString_IdentifiesItselfAsPgSage(t *testing.T) {
 	_, _ = phase2RequireDB(t)
-	u, err := url.Parse(phase2DSN())
+	u, err := url.Parse(testdb.SkipUnlessLive(t))
 	if err != nil || u.Host == "" {
 		t.Fatalf("test DSN is not a URL: %v", err)
 	}

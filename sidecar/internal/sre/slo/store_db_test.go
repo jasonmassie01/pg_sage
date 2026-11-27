@@ -22,7 +22,20 @@ import (
 
 func livePool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	dsn := testdb.SkipUnlessLive(t)
+	return livePoolOn(t, testdb.SkipUnlessLive(t))
+}
+
+// exclusivePool is livePool on a fresh database of the exclusive test
+// server, held for t alone (testdb.Exclusive): for tests that read
+// cluster-wide state other packages move on the shared server.
+func exclusivePool(t *testing.T, reason string) (*pgxpool.Pool, context.Context) {
+	t.Helper()
+	return livePoolOn(t, testdb.Exclusive(t, reason))
+}
+
+// livePoolOn is livePool on the database dsn names.
+func livePoolOn(t *testing.T, dsn string) (*pgxpool.Pool, context.Context) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	t.Cleanup(cancel)
 	pool, err := pgxpool.New(ctx, dsn)

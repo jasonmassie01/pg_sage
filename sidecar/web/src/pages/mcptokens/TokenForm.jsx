@@ -1,12 +1,8 @@
-// MCP v2: the create-token form. An agent token can never hold "approve";
-// an operator token needs an owner who is an operator or admin.
-import { useEffect, useState } from 'react'
-import { MAX_DAYS, MIN_DAYS, SCOPES, listOwners, requestBody } from './tokenApi'
-
-const EMPTY_FORM = {
-  name: '', kind: 'agent', scopes: ['read'], allDatabases: true,
-  databaseNames: '', expires: '30', owner: '',
-}
+// MCP v2: the create-token form. It issues operator tokens only: each
+// needs an owner who is an operator or admin, and acts for that owner. A
+// coding agent's token is minted per agent on the Agents page (agentgov-01).
+import { useState } from 'react'
+import { DEFAULT_FORM, MAX_DAYS, MIN_DAYS, SCOPES, requestBody } from './tokenApi'
 
 const inputStyle = {
   background: 'var(--bg-main)',
@@ -28,19 +24,13 @@ function ScopeFields({ form, onToggle }) {
     <fieldset className="flex items-center gap-3 text-xs"
       style={{ color: 'var(--text-secondary)' }}>
       <legend className="mb-1">Scopes</legend>
-      {SCOPES.map(scope => {
-        const locked = scope === 'approve' && form.kind !== 'operator'
-        return (
-          <label key={scope} className="flex items-center gap-1"
-            title={locked ? 'Only operator tokens can approve actions' : undefined}
-            style={{ opacity: locked ? 0.5 : 1 }}>
-            <input type="checkbox" data-testid={`mcp-token-scope-${scope}`}
-              checked={!locked && form.scopes.includes(scope)} disabled={locked}
-              onChange={() => onToggle(scope)} />
-            {scope}
-          </label>
-        )
-      })}
+      {SCOPES.map(scope => (
+        <label key={scope} className="flex items-center gap-1">
+          <input type="checkbox" data-testid={`mcp-token-scope-${scope}`}
+            checked={form.scopes.includes(scope)} onChange={() => onToggle(scope)} />
+          {scope}
+        </label>
+      ))}
     </fieldset>
   )
 }
@@ -67,22 +57,7 @@ function DatabaseFields({ form, set }) {
   )
 }
 
-function useOwners(needed) {
-  const [state, setState] = useState({ owners: null, error: null })
-  useEffect(() => {
-    if (!needed || state.owners || state.error) return
-    let live = true
-    listOwners()
-      .then(owners => { if (live) setState({ owners, error: null }) })
-      .catch(err => { if (live) setState({ owners: null, error: err.message }) })
-    return () => { live = false }
-  }, [needed, state.owners, state.error])
-  return state
-}
-
-function OwnerField({ form, set }) {
-  const { owners, error } = useOwners(form.kind === 'operator')
-  if (form.kind !== 'operator') return null
+function OwnerField({ form, set, owners, error }) {
   const hint = error ? `Could not load users: ${error}`
     : owners && owners.length === 0
       ? 'No operator or admin users exist; add one on the Users page first.'
@@ -90,7 +65,7 @@ function OwnerField({ form, set }) {
   return (
     <div>
       <Field label="Owner">
-        <select data-testid="mcp-token-owner" value={form.owner}
+        <select data-testid="mcp-token-owner" value={form.owner} required
           onChange={e => set({ owner: e.target.value })}
           className="px-3 py-1.5 rounded text-sm" style={inputStyle}>
           <option value="">Choose an owner</option>
@@ -108,22 +83,20 @@ function OwnerField({ form, set }) {
 }
 
 function useTokenForm() {
-  const [form, setForm] = useState(EMPTY_FORM)
+  const [form, setForm] = useState(DEFAULT_FORM)
   const set = patch => setForm(prev => ({ ...prev, ...patch }))
-  const setKind = kind => setForm(prev => kind === 'operator'
-    ? { ...prev, kind }
-    : { ...prev, kind, owner: '', scopes: prev.scopes.filter(s => s !== 'approve') })
   const toggleScope = scope => setForm(prev => ({
     ...prev,
     scopes: prev.scopes.includes(scope)
       ? prev.scopes.filter(s => s !== scope) : [...prev.scopes, scope],
   }))
-  const reset = () => setForm(EMPTY_FORM)
-  return { form, set, setKind, toggleScope, reset }
+  const reset = () => setForm(DEFAULT_FORM)
+  return { form, set, toggleScope, reset }
 }
 
-export function TokenForm({ onCreate, creating, error }) {
-  const { form, set, setKind, toggleScope, reset } = useTokenForm()
+// owners is useOwners()'s state: the users who may own the token.
+export function TokenForm({ onCreate, creating, error, owners }) {
+  const { form, set, toggleScope, reset } = useTokenForm()
   const body = requestBody(form)
 
   async function handleSubmit(e) {
@@ -138,17 +111,9 @@ export function TokenForm({ onCreate, creating, error }) {
       <div className="flex items-end gap-3 flex-wrap">
         <Field label="Name">
           <input type="text" data-testid="mcp-token-name" value={form.name}
-            placeholder="claude-code-laptop" maxLength={100}
+            placeholder="oncall-claude-code" maxLength={100}
             onChange={e => set({ name: e.target.value })}
             className="px-3 py-1.5 rounded text-sm" style={inputStyle} />
-        </Field>
-        <Field label="Kind">
-          <select data-testid="mcp-token-kind" value={form.kind}
-            onChange={e => setKind(e.target.value)}
-            className="px-3 py-1.5 rounded text-sm" style={inputStyle}>
-            <option value="agent">agent</option>
-            <option value="operator">operator</option>
-          </select>
         </Field>
         <Field label={`Expires in days (${MIN_DAYS}-${MAX_DAYS})`}>
           <input type="number" data-testid="mcp-token-expires" value={form.expires}
@@ -156,7 +121,8 @@ export function TokenForm({ onCreate, creating, error }) {
             onChange={e => set({ expires: e.target.value })}
             className="px-3 py-1.5 rounded text-sm w-24" style={inputStyle} />
         </Field>
-        <OwnerField form={form} set={set} />
+        <OwnerField form={form} set={set} owners={owners?.owners}
+          error={owners?.error} />
       </div>
       <ScopeFields form={form} onToggle={toggleScope} />
       <DatabaseFields form={form} set={set} />
@@ -169,7 +135,7 @@ export function TokenForm({ onCreate, creating, error }) {
       <div>
         <button type="submit" data-testid="mcp-token-submit" disabled={!body || creating}
           className="px-4 py-1.5 rounded text-sm font-medium"
-          style={{ background: 'var(--accent)', color: '#fff',
+          style={{ background: 'var(--accent-solid)', color: '#fff',
             opacity: !body || creating ? 0.6 : 1 }}>
           {creating ? 'Creating...' : 'Create token'}
         </button>

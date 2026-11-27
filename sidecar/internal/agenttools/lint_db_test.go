@@ -103,15 +103,55 @@ func TestLintMigrationSafeConcurrentIndexWithTimeout(t *testing.T) {
 	require.False(t, f.relationExists(f.q("i2")))
 }
 
+// migration-04a: a statement outside the additive allowlist that no rule
+// recognized is review, not safe (a SELECT can call a function that does
+// DDL).
 func TestLintMigrationNothingRecognized(t *testing.T) {
 	f := newFixture(t)
 	res, err := New(f.pool, Options{}).LintMigration(f.ctx, LintRequest{SQL: "SELECT 1"})
 	require.NoError(t, err)
 	require.Len(t, res.Statements, 0)
-	require.Equal(t, "safe", res.Verdict)
+	require.Equal(t, "review", res.Verdict)
 	require.Equal(t, 0.0, res.MaxRiskScore)
 	require.True(t, strings.Contains(strings.ToLower(res.Note), "recogni"),
 		"note must say nothing was recognized: %q", res.Note)
+}
+
+// SET LOGGED/UNLOGGED rewrites the table under ACCESS EXCLUSIVE: lint
+// must not call it safe (migration-04a). The parse-tree classifier names
+// the rule (migration-04); a build without the parser reports the
+// statement as unrecognized instead. Either way the verdict is review.
+func TestLintMigrationUnrecognizedDDLIsReview(t *testing.T) {
+	f := newFixture(t)
+	table := lintTable(f)
+	for sql, rule := range map[string]string{
+		"ALTER TABLE " + table + " SET LOGGED":            "ddl_set_logged",
+		"ALTER TABLE " + table + " SET UNLOGGED":          "ddl_set_logged",
+		"ALTER TABLE " + table + " RENAME COLUMN a TO a2": "ddl_rename",
+	} {
+		res, err := New(f.pool, Options{}).LintMigration(f.ctx, LintRequest{SQL: sql})
+		require.NoError(t, err)
+		require.Equal(t, "review", res.Verdict, "SQL %q", sql)
+		requireRuleOrUnrecognized(t, res, rule)
+	}
+	var persistence string
+	f.scalar(&persistence, "SELECT relpersistence::text FROM pg_class WHERE oid = $1::regclass",
+		table)
+	require.Equal(t, "p", persistence, "linting ran SET UNLOGGED")
+}
+
+// The allowlist keeps plain additive DDL safe on a real table.
+func TestLintMigrationAllowlistedDDLIsSafe(t *testing.T) {
+	f := newFixture(t)
+	table := lintTable(f)
+	sql := "SET lock_timeout = '5s'; CREATE TABLE " + f.q("n") + " (id int); " +
+		"ALTER TABLE " + table + " ADD COLUMN c int DEFAULT 0"
+	res, err := New(f.pool, Options{}).LintMigration(f.ctx, LintRequest{SQL: sql})
+	require.NoError(t, err)
+	require.Len(t, res.Statements, 0)
+	require.Equal(t, "safe", res.Verdict)
+	require.NotContains(t, res.Note, "allowlist")
+	require.False(t, f.relationExists(f.q("n")), "linting created the table")
 }
 
 // Linting is text analysis only: a destructive migration is never run.

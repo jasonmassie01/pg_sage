@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -35,6 +34,8 @@ type Watcher struct {
 	current  *Config
 	loader   func() (*Config, error)
 	onChange func(*Config) error
+	// lastAttempt is owned by Start and then by the run goroutine.
+	lastAttempt fileFingerprint
 
 	lifecycleMu sync.Mutex
 	state       watcherState
@@ -86,6 +87,7 @@ func (w *Watcher) Start() error {
 		_ = watcher.Close()
 		return fmt.Errorf("watch %s: %w", watchDir, err)
 	}
+	w.lastAttempt = w.startFingerprint()
 	w.state = watcherStarted
 	go w.run(watcher)
 	return nil
@@ -116,7 +118,9 @@ func (w *Watcher) Done() <-chan struct{} {
 }
 
 func (w *Watcher) run(watcher *fsnotify.Watcher) {
+	debounce := newDebouncer()
 	defer func() {
+		debounce.stop()
 		_ = watcher.Close()
 		w.lifecycleMu.Lock()
 		w.state = watcherStopped
@@ -125,30 +129,54 @@ func (w *Watcher) run(watcher *fsnotify.Watcher) {
 	}()
 	for {
 		select {
-		case event, ok := <-watcher.Events:
+		case _, ok := <-watcher.Events:
 			if !ok {
 				return
 			}
-			if w.isConfigEvent(event) {
-				w.reload()
-			}
+			// Any event in the directory is only a hint: a ConfigMap swap
+			// renames ..data and never names config.yaml itself.
+			debounce.arm(time.Now())
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return
 			}
 			log.Printf("[WARN] [config-watcher] error: %v", err)
+		case <-debounce.timer.C:
+			debounce.fired()
+			if w.stopRequested() {
+				return
+			}
+			w.reloadIfChanged()
 		case <-w.stop:
 			return
 		}
 	}
 }
 
-func (w *Watcher) isConfigEvent(event fsnotify.Event) bool {
-	if !samePath(normalizedPath(event.Name), w.path) {
+func (w *Watcher) stopRequested() bool {
+	select {
+	case <-w.stop:
+		return true
+	default:
 		return false
 	}
-	return event.Has(fsnotify.Write) || event.Has(fsnotify.Create) ||
-		event.Has(fsnotify.Rename)
+}
+
+// reloadIfChanged runs reload only when the resolved file differs from the
+// last attempted one, so a rejected file is retried after an edit or touch
+// but not on every unrelated event in the directory.
+func (w *Watcher) reloadIfChanged() {
+	fingerprint, err := fingerprintFile(w.path)
+	if err != nil {
+		log.Printf("[DEBUG] [config-watcher] %v; keeping previous config "+
+			"until the next change", err)
+		return
+	}
+	if fingerprint == w.lastAttempt {
+		return
+	}
+	w.lastAttempt = fingerprint
+	w.reload()
 }
 
 func (w *Watcher) reload() {
@@ -160,7 +188,7 @@ func (w *Watcher) reload() {
 		log.Printf("[WARN] [config-watcher] parse failed: %v", err)
 		return
 	}
-	if err := fresh.validate(); err != nil {
+	if err := fresh.validateEffective(); err != nil {
 		log.Printf("[WARN] [config-watcher] invalid config, keeping previous: %v", err)
 		return
 	}
@@ -213,13 +241,6 @@ func normalizedPath(path string) string {
 	return filepath.Clean(path)
 }
 
-func samePath(left, right string) bool {
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-	return left == right
-}
-
 // warnNonReloadable logs warnings for fields that changed but require restart.
 func warnNonReloadable(current, fresh *Config) {
 	if fresh.Postgres.Host != "" && fresh.Postgres.Host != current.Postgres.Host {
@@ -237,6 +258,9 @@ func warnNonReloadable(current, fresh *Config) {
 		log.Printf(
 			"[WARN] [config-watcher] prometheus.listen_addr changed — restart required",
 		)
+	}
+	if fresh.Prometheus.ServeOnAPI != current.Prometheus.ServeOnAPI {
+		log.Printf("[WARN] [config-watcher] prometheus.serve_on_api changed — restart required")
 	}
 	if fresh.Mode != "" && fresh.Mode != current.Mode {
 		log.Printf("[WARN] [config-watcher] mode changed — restart required")

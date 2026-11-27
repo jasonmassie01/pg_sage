@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/approvalcard"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/inbox"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -28,26 +29,52 @@ const (
 )
 
 // approvalCardHandlers serve the cards of the fleet's databases, each with
-// its class trust from the trust ledgers (nil: none).
+// its class trust from the trust ledgers (nil: none). remoteCap is
+// notification_policy.chat_approval_max_tier, which caps an approval made
+// with an API token (the CLI) as it caps one made from chat (D7).
 type approvalCardHandlers struct {
 	mgr     *fleet.DatabaseManager
 	ledgers *earned.Registry
+	// allower resolves a database's ledger for allow-always (ux-07a); nil
+	// reads ledgers.
+	allower   func(database string) (alwaysAllower, bool)
+	remoteCap string
 }
 
 func registerApprovalCardRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	ledgers *earned.Registry) {
-	operatorUp := RequireRole("admin", "operator")
-	h := &approvalCardHandlers{mgr: mgr, ledgers: ledgers}
-	mux.Handle("GET /api/v1/approvals", operatorUp(http.HandlerFunc(h.list)))
-	mux.Handle("GET /api/v1/approvals/{id}", operatorUp(http.HandlerFunc(h.get)))
-	mux.Handle("POST /api/v1/approvals/{id}/approve", operatorUp(http.HandlerFunc(h.approve)))
-	mux.Handle("POST /api/v1/approvals/{id}/reject", operatorUp(http.HandlerFunc(h.reject)))
-	mux.Handle("POST /api/v1/approvals/{id}/snooze", operatorUp(http.HandlerFunc(h.snooze)))
+	ledgers *earned.Registry, remoteCap string) {
+	h := &approvalCardHandlers{mgr: mgr, ledgers: ledgers, remoteCap: remoteCap}
+	view := func(read func(*approvalCardHandlers, http.ResponseWriter, *http.Request)) func(
+		*fleet.DatabaseManager) http.Handler {
+		return func(m *fleet.DatabaseManager) http.Handler {
+			v := &approvalCardHandlers{mgr: m, ledgers: ledgers}
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { read(v, w, r) })
+		}
+	}
+	routeAggregate(mux, "GET /api/v1/approvals", gateOperator, mgr,
+		view((*approvalCardHandlers).list))
+	routeAggregate(mux, "GET /api/v1/approvals/{id}", gateOperator, mgr,
+		view((*approvalCardHandlers).get))
+	card := approvalCardDatabase(mgr)
+	routeDB(mux, "POST /api/v1/approvals/{id}/approve", gateOperator, card,
+		timeDecision(inbox.KindChangeApproval, actionWaitingSince(fleetActions(mgr)),
+			http.HandlerFunc(h.approve)))
+	routeDB(mux, "POST /api/v1/approvals/{id}/reject", gateOperator, card,
+		http.HandlerFunc(h.reject))
+	routeDB(mux, "POST /api/v1/approvals/{id}/snooze", gateOperator, card,
+		http.HandlerFunc(h.snooze))
+	// It grants autonomy too, so it is an admin's, like a promotion (an
+	// admin is never database-scoped; the handler resolves ?database=).
+	route(mux, "POST /api/v1/approvals/{id}/approve-and-allow", gateAdmin,
+		http.HandlerFunc(h.approveAndAllow))
+	// One request, several databases: fleet-wide (apiauth-08), ux-07b.
+	route(mux, "POST "+bulkApprovePath, gateOperator, http.HandlerFunc(h.bulkApprove))
 }
 
 // cardLoader reads one database's cards with its executor's trust level
 // and its class trust from the ledgers.
-func (h *approvalCardHandlers) cardLoader(inst *fleet.DatabaseInstance) approvalcard.Loader {
+func (h *approvalCardHandlers) cardLoader(ctx context.Context,
+	inst *fleet.DatabaseInstance) approvalcard.Loader {
 	l := approvalcard.Loader{Pool: inst.Pool, Database: inst.Name}
 	if h.ledgers != nil {
 		l.Trust = h.ledgers
@@ -55,6 +82,11 @@ func (h *approvalCardHandlers) cardLoader(inst *fleet.DatabaseInstance) approval
 	if inst.Executor != nil {
 		l.TrustLevel = inst.Executor.TrustLevel()
 		l.Waits = inst.Executor.VerificationWaits()
+		if h.ledgers != nil {
+			ceil := inst.Executor.AutonomyCeiling(ctx,
+				inst.SnapshotStatus().Capabilities.IsReplica)
+			l.Ceiling = &ceil
+		}
 	}
 	return l
 }
@@ -70,13 +102,14 @@ func (h *approvalCardHandlers) list(w http.ResponseWriter, r *http.Request) {
 		if inst == nil || inst.Pool == nil || (db != "" && db != "all" && inst.Name != db) {
 			continue
 		}
-		got, err := h.cardLoader(inst).Pending(r.Context())
+		got, err := h.cardLoader(r.Context(), inst).Pending(r.Context())
 		if err != nil {
 			failures = append(failures, fleetReadFailure(inst.Name, "list approval cards", err))
 			continue
 		}
-		cards = append(cards, got...)
+		cards = append(cards, offerAllowAlways(r, got)...)
 	}
+	withApprovalPRNotes(r.Context(), cards) // cli-02b
 	jsonResponse(w, map[string]any{"cards": cards, "total": len(cards), "errors": failures})
 }
 
@@ -101,7 +134,7 @@ func (h *approvalCardHandlers) cardTarget(w http.ResponseWriter,
 		db = instances[0].Name
 	}
 	inst := h.mgr.GetInstance(db)
-	if inst == nil || inst.Pool == nil || inst.Executor == nil {
+	if inst == nil || inst.Pool == nil || inst.Executor == nil || !tokenMayUse(r, db) {
 		sreErrorCode(w, "database not found", "not_found", http.StatusNotFound)
 		return nil, 0, false
 	}
@@ -111,7 +144,7 @@ func (h *approvalCardHandlers) cardTarget(w http.ResponseWriter,
 // loadCard reads the card of a target, answering 404 when it is missing.
 func (h *approvalCardHandlers) loadCard(w http.ResponseWriter, r *http.Request,
 	inst *fleet.DatabaseInstance, id int) (approvalcard.Card, bool) {
-	c, err := h.cardLoader(inst).Card(r.Context(), id)
+	c, err := h.cardLoader(r.Context(), inst).Card(r.Context(), id)
 	switch {
 	case errors.Is(err, approvalcard.ErrNotFound):
 		sreErrorCode(w, "queue item not found", "not_found", http.StatusNotFound)
@@ -132,15 +165,24 @@ func (h *approvalCardHandlers) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	c = offerAllowAlways(r, []approvalcard.Card{c})[0]
 	body := map[string]any{"card": c, "eligible": false}
-	if a, err := store.NewActionStore(inst.Pool).GetByID(r.Context(), id); err == nil &&
-		a.Status == "pending" {
+	a, err := store.NewActionStore(inst.Pool).GetByID(r.Context(), id)
+	if err == nil && a.Status == "pending" {
 		readiness := inst.Executor.ApprovalReadiness(*a, time.Now().UTC())
 		body["eligible"] = readiness.Eligible
 		if readiness.DeferReason != "" {
 			body["defer_reason"] = readiness.DeferReason
 		}
 	}
+	if err == nil && a.Status == "scheduled" {
+		body["schedule"] = cardSchedule(*a, time.Now())
+	}
+	if err != nil {
+		a = nil
+	}
+	c.ApprovalPR = approvalPRNote(r.Context(), inst.Name, c, a) // cli-02b
+	body["card"] = c
 	jsonResponse(w, body)
 }
 
@@ -192,7 +234,7 @@ func (h *approvalCardHandlers) approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, ok := h.pendingCard(w, r, inst, id, req.CardHash, true)
-	if !ok {
+	if !ok || !h.remoteApprovalAllowed(w, r, inst, id) {
 		return
 	}
 	user := UserFromContext(r.Context())

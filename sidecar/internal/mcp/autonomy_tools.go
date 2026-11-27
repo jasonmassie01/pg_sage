@@ -52,33 +52,18 @@ func autonomyTools() []Tool {
 	}
 	db := `"database":{"type":"string","description":"fleet database name"}`
 	return []Tool{
-		{Name: "sre_get_autonomy", Description: "Read pg_sage's earned autonomy: the " +
-			"level per incident family and action class (L0-L3), its cap, the level " +
-			"its evidence supports, active downgrades, pending promotions and history",
-			InputSchema: schema(`{`+db+`}`, `[]`)},
-		{Name: "sre_downgrade_autonomy", Description: "Lower pg_sage's autonomy for a " +
-			"family and action class (\"*\" for every class of the family). Restricting " +
-			"is always allowed; raising autonomy needs a human approval in pg_sage",
-			InputSchema: schema(`{`+db+`,"family":{"type":"string"},`+
-				`"action_class":{"type":"string"},"level":{"type":"string",`+
-				`"enum":["L0","L1","L2"]},"reason":{"type":"string","maxLength":1000}}`,
-				`["family","action_class","level","reason"]`)},
-		{Name: "sre_review_investigation", Description: "Review a concluded or " +
-			"inconclusive Sage SRE investigation: accept or reject its diagnosis, " +
-			"optionally with a note and the actual root cause (a causal-graph node id " +
-			"or free text). Records the review and the investigation outcome. A review " +
-			"made here is kept but never counts toward promotion: only a person's " +
-			"review in the UI or REST API does. It never approves a promotion",
+		{Name: "sre_get_autonomy", InputSchema: schema(`{`+db+`}`, `[]`)},
+		{Name: "sre_downgrade_autonomy", InputSchema: schema(`{`+db+`,"family":{"type":"string"},`+
+			`"action_class":{"type":"string"},"level":{"type":"string",`+
+			`"enum":["L0","L1","L2"]},"reason":{"type":"string","maxLength":1000}}`,
+			`["family","action_class","level","reason"]`)},
+		{Name: "sre_review_investigation",
 			InputSchema: schema(`{`+db+`,"investigation_id":{"type":"string"},`+
 				`"verdict":{"type":"string","enum":["accepted","rejected"]},`+
 				`"note":{"type":"string","maxLength":1500},`+
 				`"actual_root_cause":{"type":"string","maxLength":400}}`,
 				`["investigation_id","verdict"]`)},
-		{Name: "sre_evaluate_autonomy", Description: "Ask pg_sage to propose the " +
-			"promotions its evidence supports now; returns the proposals created and, " +
-			"for every other family and action class, why not (each unmet check with " +
-			"how to meet it). An admin still approves every promotion",
-			InputSchema: schema(`{`+db+`}`, `[]`)},
+		{Name: "sre_evaluate_autonomy", InputSchema: schema(`{`+db+`}`, `[]`)},
 	}
 }
 

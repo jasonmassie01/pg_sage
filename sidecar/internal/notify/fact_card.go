@@ -40,9 +40,11 @@ type FactTokenIssuer interface {
 }
 
 // FactProposedEvent is the card of one proposed fact; body carries the
-// evidence.
+// evidence. It asks a human to decide, so it carries the warning severity
+// of every approval card and reaches rules with the default min_severity
+// (alerting-03).
 func FactProposedEvent(ref FactCardRef, body string) Event {
-	return Event{Type: "approval_needed", Severity: "info",
+	return Event{Type: "approval_needed", Severity: "warning",
 		Subject: "Confirm a fact: " + ref.Title, Body: body,
 		Data: map[string]any{dataFactCard: ref, "database": ref.Database,
 			"fact_id": ref.FactID, "title": ref.Title},

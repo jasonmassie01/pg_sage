@@ -67,7 +67,6 @@ llm:
     min_query_calls: 1
     max_indexes_per_table: 10
     max_include_columns: 3
-    over_indexed_ratio_pct: 150
     write_heavy_ratio_pct: 70
 
 advisor:
@@ -92,13 +91,18 @@ alerting:
   webhooks:
     - name: test
       url: http://localhost:9999/alert-hook
+  # Alerting must route somewhere when enabled (alerting-08).
+  routes:
+    - severity: critical
+      channels: [test]
+    - severity: warning
+      channels: [test]
 
 auto_explain:
   enabled: true
   log_min_duration_ms: 500
   collect_interval_seconds: 30
   max_plans_per_cycle: 50
-  prefer_session_load: true
 
 forecaster:
   enabled: true
@@ -106,8 +110,6 @@ forecaster:
   disk_warn_growth_gb_day: 0.1
   connection_warn_pct: 50
   cache_warn_threshold: 0.99
-  sequence_warn_days: 90
-  sequence_critical_days: 30
 
 tuner:
   enabled: true
@@ -129,3 +131,8 @@ prometheus:
 
 api:
   listen_addr: ":18080"
+
+# The alert hook is a local plain-http test listener, which the
+# notification target policy refuses by default (alerting-11).
+notification_policy:
+  allow_private_targets: true

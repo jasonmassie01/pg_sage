@@ -122,6 +122,7 @@ func (c *Collector) readIndexPage(
 			&idx.IndexBytes,
 			&idx.IsUnique, &idx.IsPrimary, &idx.IsValid,
 			&idx.IndexType, &idx.IndexRelID, &idx.LastIdxScan, &version,
+			&idx.ParentIndexOID,
 		); err != nil {
 			return nil, nil, err
 		}

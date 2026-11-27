@@ -46,6 +46,11 @@ type State struct {
 	FirstFindingAt     *time.Time  `json:"first_finding_at,omitempty"`
 	FirstFindingSource string      `json:"first_finding_source,omitempty"`
 	TTFFSeconds        *float64    `json:"time_to_first_finding_seconds,omitempty"`
+	// When the setup wizard's model, channel and autonomy steps were first
+	// finished (ux-04b); nil until then.
+	ModelConfiguredAt   *time.Time `json:"model_configured_at,omitempty"`
+	ChannelConfiguredAt *time.Time `json:"channel_configured_at,omitempty"`
+	AutonomyChosenAt    *time.Time `json:"autonomy_chosen_at,omitempty"`
 }
 
 func check(pool *pgxpool.Pool, database string) error {
@@ -93,6 +98,7 @@ func Init(ctx context.Context, pool *pgxpool.Pool, database string) (State, erro
 	if !found {
 		return State{}, fmt.Errorf("record onboarding of %q: %w", database, ErrNotInitialized)
 	}
+	ObserveSetup(st)
 	return st, nil
 }
 
@@ -104,9 +110,11 @@ func Get(ctx context.Context, pool *pgxpool.Pool, database string) (State, bool,
 	st := State{Database: database}
 	var ttff *int64
 	err := pool.QueryRow(ctx, `SELECT install_kind, installed_at, first_look_at,
-		first_finding_at, first_finding_source, ttff_ms FROM sage.onboarding
+		first_finding_at, first_finding_source, ttff_ms, model_configured_at,
+		channel_configured_at, autonomy_chosen_at FROM sage.onboarding
 		WHERE database_name = $1`, database).Scan(&st.InstallKind, &st.InstalledAt,
-		&st.FirstLookAt, &st.FirstFindingAt, &st.FirstFindingSource, &ttff)
+		&st.FirstLookAt, &st.FirstFindingAt, &st.FirstFindingSource, &ttff,
+		&st.ModelConfiguredAt, &st.ChannelConfiguredAt, &st.AutonomyChosenAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return State{}, false, nil
 	}
@@ -162,14 +170,17 @@ func recordOnce(ctx context.Context, pool *pgxpool.Pool, database, update string
 	return changed, nil
 }
 
-// HasOpenFinding reports whether the analyzer has an open finding.
+// HasOpenFinding reports whether the analyzer has an open finding of
+// severity warning or critical, exactly as stored: what firstlook.CountItems
+// counts as a finding. An info note (or a legacy upper-case severity) is not
+// one, so the time to first finding measures the first thing to act on.
 func HasOpenFinding(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	if pool == nil {
 		return false, ErrNoPool
 	}
 	var open bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM sage.findings
-		WHERE status = 'open')`).Scan(&open); err != nil {
+		WHERE status = 'open' AND severity IN ('warning', 'critical'))`).Scan(&open); err != nil {
 		return false, fmt.Errorf("read open findings: %w", err)
 	}
 	return open, nil

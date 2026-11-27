@@ -1,6 +1,6 @@
 // ConfigTooltip.test.jsx — unit coverage for ConfigTooltip.
 //
-// Plan reference: docs/plan_v0.8.5.md §7.5 CHECK-T18 (component
+// Plan reference: reviews/archive/docs-internal/plan_v0.8.5.md §7.5 CHECK-T18 (component
 // coverage) and CHECK-T19 (graceful degradation on unknown key).
 //
 // Test categories per global CLAUDE.md §5:

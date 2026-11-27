@@ -24,7 +24,6 @@ func newClassification(r ruleDefinition, sql string) DDLClassification {
 		LockLevel:       r.LockLevel,
 		RequiresRewrite: r.RequiresRewrite,
 		SafeAlternative: r.SafeAltTemplate,
-		MinPGVersion:    r.MinPGVersion,
 		Description:     r.Description,
 	}
 }

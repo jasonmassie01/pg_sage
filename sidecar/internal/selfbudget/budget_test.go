@@ -185,3 +185,23 @@ func TestUsageFromCost_UnknownWindows(t *testing.T) {
 		}
 	}
 }
+
+// footprint-02: the usage carries the period its rates are per (the
+// database's collector period), known or not, so /metrics can derive that
+// database's inherited budget.
+func TestFromCost_CarriesCycleSeconds(t *testing.T) {
+	known := FromCost(selfcost.Cost{Known: true, DBTimeKnown: true, CycleSeconds: 120,
+		DBTimeMsPerCycle: 10, BlocksPerCycle: 4})
+	if known.CycleSeconds != 120 || !known.DBKnown || known.DBTimeMsPerHour != 300 ||
+		known.BlocksPerHour != 120 {
+		t.Fatalf("FromCost(120 s) = %+v, want 120 s, 300 ms/h, 120 blocks/h", known)
+	}
+	firstCycle := FromCost(selfcost.Cost{CycleSeconds: 60, SchemaBytes: 8192})
+	if firstCycle.CycleSeconds != 60 || firstCycle.DBKnown || !firstCycle.StorageKnown {
+		t.Fatalf("FromCost(first cycle) = %+v, want 60 s, DB unknown, storage known",
+			firstCycle)
+	}
+	if none := FromCost(selfcost.Cost{}); none.CycleSeconds != 0 || none.DBKnown {
+		t.Fatalf("FromCost(zero) = %+v, want no period and nothing known", none)
+	}
+}

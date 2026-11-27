@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/api"
@@ -24,24 +25,47 @@ func (r *llmClientRegistry) TokenStatus() map[string]llm.ClientStatus {
 	return status
 }
 
-// ResetBudgets zeroes every tracked client and the fleet budget.
+// ResetBudgets zeroes every tracked client, the global ceiling's spend
+// and the fleet budget, and clears today's usage ledger rows so a restart
+// does not undo the reset.
 func (r *llmClientRegistry) ResetBudgets() {
+	if ledger := activeLLMUsageLedger.Load(); ledger != nil {
+		ledger.reset(context.Background(), r.resetLocalBudgets)
+		return
+	}
+	r.resetLocalBudgets()
+}
+
+func (r *llmClientRegistry) resetLocalBudgets() {
 	r.mu.Lock()
 	entries := append([]llmRegistryEntry(nil), r.entries...)
+	global := r.global
 	r.mu.Unlock()
 	for _, entry := range entries {
 		entry.client.ResetBudget()
 	}
+	global.Reset()
 	if fleetLLMBudget != nil {
 		fleetLLMBudget.ResetDaily()
 	}
 }
 
-func llmStatusKey(entry llmRegistryEntry) string {
-	role := "general"
-	if entry.role == llmRoleOptimizer {
-		role = "optimizer"
+// ProbeLLM tests the process-wide general client (POST /api/v1/llm/test).
+func (r *llmClientRegistry) ProbeLLM(ctx context.Context) llm.ProbeResult {
+	r.mu.Lock()
+	var general *llm.Client
+	for _, entry := range r.entries {
+		if entry.role == llmRoleGeneral && entry.database == "" {
+			general = entry.client
+			break
+		}
 	}
+	r.mu.Unlock()
+	return general.Probe(ctx)
+}
+
+func llmStatusKey(entry llmRegistryEntry) string {
+	role := entry.role.String()
 	if entry.database == "" {
 		return role
 	}

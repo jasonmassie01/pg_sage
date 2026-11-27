@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/ask"
@@ -12,13 +13,15 @@ import (
 // Ask Sage over MCP (roadmap phase 3). ask_sage needs the read scope; the
 // run may open an investigation or queue a finding for a person's
 // approval only when the principal holds the propose scope. There is no
-// approve path: an agent token can ask and propose, never approve.
+// approve path: an agent token can ask and propose, never approve. A
+// read_only question drops the propose right for that question.
 
 // AskRequest are the typed arguments of ask_sage.
 type AskRequest struct {
 	Database       string `json:"database,omitempty"`
 	Question       string `json:"question"`
 	ConversationID string `json:"conversation_id,omitempty"`
+	ReadOnly       bool   `json:"read_only,omitempty"`
 }
 
 // AskBackend answers ask_sage for the resolved database.
@@ -30,17 +33,13 @@ type AskBackend interface {
 var askToolNames = map[string]bool{"ask_sage": true}
 
 func askTools() []Tool {
-	return []Tool{{Name: "ask_sage", Description: "Ask pg_sage's DBA a question about a " +
-		"database. The answer is built only from evidence it reads (findings, actions and " +
-		"their verification outcomes, the trust ledger, facts, incidents, investigations, " +
-		"the catalog, configuration); every statement cites that evidence and what it " +
-		"could not verify is said. With the propose scope it may open an investigation, " +
-		"queue one of pg_sage's findings for a person's approval or propose a fact a " +
-		"person confirms; it never executes, approves or confirms",
+	return []Tool{{Name: "ask_sage",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"database":{"type":` +
 			`"string","description":"fleet database name"},"question":{"type":"string",` +
 			`"minLength":1,"maxLength":2000},"conversation_id":{"type":"string",` +
-			`"description":"continue a conversation (its id from an earlier answer)"}},` +
+			`"description":"continue a conversation (its id from an earlier answer)"},` +
+			`"read_only":{"type":"boolean","description":"answer only: open, queue and ` +
+			`propose nothing for this question"}},` +
 			`"required":["question"],"additionalProperties":false}`)}}
 }
 
@@ -49,10 +48,9 @@ func askTools() []Tool {
 func askCaller(ctx context.Context) ask.Caller {
 	p, bound := PrincipalFromContext(ctx)
 	if !bound {
-		return ask.Caller{Actor: unboundActor, Agent: true}
+		return ask.Caller{Actor: unboundActor}
 	}
-	return ask.Caller{Actor: ActorFromContext(ctx), MayPropose: p.Has(ScopePropose),
-		Agent: p.Kind == KindAgent}
+	return ask.Caller{Actor: ActorFromContext(ctx), MayPropose: p.Has(ScopePropose)}
 }
 
 func (s *Server) callAskTool(ctx context.Context, _ string, raw json.RawMessage) (any,
@@ -69,8 +67,9 @@ func (s *Server) callAskTool(ctx context.Context, _ string, raw json.RawMessage)
 	if database == "" {
 		database = req.Database
 	}
-	answer, err := backend.AskSage(ctx, database, askCaller(ctx),
-		ask.Request{Question: req.Question, ConversationID: req.ConversationID})
+	r := ask.Request{Question: req.Question, ConversationID: req.ConversationID,
+		ReadOnly: req.ReadOnly}
+	answer, err := backend.AskSage(ctx, database, askCaller(ctx).For(r), r)
 	if err != nil {
 		return nil, askFailure(err)
 	}
@@ -84,9 +83,12 @@ func askFailure(err error) *rpcError {
 	case errors.Is(err, ask.ErrNotFound):
 		return failure(codeNotFound, "not found")
 	case errors.Is(err, ask.ErrDisabled):
-		return failure(codeUnavailable, "Ask Sage is disabled (ask.enabled: false)")
+		return unconfigured("Ask Sage is disabled (ask.enabled: false)")
+	case errors.Is(err, ask.ErrUnavailable):
+		return failure(codeUnavailable, "Ask Sage is temporarily unavailable; retry later")
 	}
-	return failure(codeInternal, "Ask Sage is unavailable")
+	slog.Error("ask_sage failed", "error", err)
+	return failure(codeInternal, "internal error")
 }
 
 // AskSage serves ask_sage through ProductionDependencies.Ask.

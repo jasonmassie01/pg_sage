@@ -76,7 +76,7 @@ function AdmissionRow({ status }) {
       <BaselineProgress status={status} />
       {withheld > 0 && (
         <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-          {withheld} {withheld === 1 ? 'finding' : 'findings'} withheld
+          {withheld} {withheld === 1 ? 'issue' : 'issues'} withheld
         </div>
       )}
     </li>

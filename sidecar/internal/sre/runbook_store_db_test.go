@@ -13,8 +13,9 @@ import (
 // Durable, versioned runbooks (AI-SRE-SPEC §7.1, §10 sre_runbooks)
 // against real PostgreSQL. A version's content never changes; editing
 // appends a draft version; a signature binds one version's exact content
-// hash; only the latest version, signed, unretired and still matching its
-// hash, is runnable. Every row is scoped to one database.
+// hash; the newest version whose signature is valid runs, unretired and
+// still matching its hash, while a newer draft stages beside it. Every row
+// is scoped to one database.
 
 func TestRunbookStore_CreateStoresAnUnsignedDraft(t *testing.T) {
 	st, _, ctx := liveStore(t, DefaultLimits())
@@ -100,7 +101,7 @@ func TestRunbookStore_SignBindsTheExactHash(t *testing.T) {
 	}
 }
 
-func TestRunbookStore_EditingInvalidatesTheSignature(t *testing.T) {
+func TestRunbookStore_EditingStagesADraftBesideTheSignedVersion(t *testing.T) {
 	st, _, ctx := liveStore(t, DefaultLimits())
 	scope := testScope(t, ctx, st)
 	rb := signedRunbook(t, ctx, st, scope, idleRunbook())
@@ -112,13 +113,13 @@ func TestRunbookStore_EditingInvalidatesTheSignature(t *testing.T) {
 		t.Fatalf("revise on a stale base = %v, want ErrVersionConflict", err)
 	}
 	v2, err := st.ReviseRunbook(ctx, scope, rb.ID, 1, draftOf(edited))
-	if err != nil || v2.LatestVersion != 2 || v2.Status != RunbookDraft || v2.Runnable ||
-		v2.Latest.ContentHash != hashOf(t, edited) {
-		t.Fatalf("revised = %+v, %v; want an unsigned, unrunnable v2", v2, err)
+	if err != nil || v2.LatestVersion != 2 || v2.Status != RunbookDraft || !v2.Runnable ||
+		v2.RunningVersion != 1 || v2.Latest.ContentHash != hashOf(t, edited) {
+		t.Fatalf("revised = %+v, %v; want an unsigned v2 staged beside running v1", v2, err)
 	}
-	if runnable, _ := st.RunnableRunbooks(ctx, scope); len(runnable) != 0 {
-		t.Fatalf("runnable after the edit = %+v; the signed v1 must not keep running",
-			runnable)
+	if runnable, _ := st.RunnableRunbooks(ctx, scope); len(runnable) != 1 ||
+		runnable[0].RunningVersion != 1 {
+		t.Fatalf("runnable after the edit = %+v; the signed v1 keeps running", runnable)
 	}
 	got, _ := st.GetRunbook(ctx, scope, rb.ID)
 	if len(got.Versions) != 2 || got.Versions[0].Version != 2 ||
@@ -322,8 +323,9 @@ func TestRunbookStore_SignRacingAnEditNeverLeavesAStaleRunnable(t *testing.T) {
 			return err
 		})
 		got, err := st.GetRunbook(ctx, scope, rb.ID)
-		if err != nil || got.LatestVersion != 2 || got.Runnable {
-			t.Fatalf("round %d: %+v, %v; the edited draft must be latest and unrunnable",
+		if err != nil || got.LatestVersion != 2 || got.Latest.SignedAt != nil ||
+			(got.Runnable && got.RunningVersion != 1) {
+			t.Fatalf("round %d: %+v, %v; the edited draft must be latest and never run",
 				round, got, err)
 		}
 	}

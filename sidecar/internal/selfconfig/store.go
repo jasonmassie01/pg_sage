@@ -61,7 +61,8 @@ type Setting struct {
 
 const stateColumns = `key, status, value, pending_value, active_value, shadow_value,
 	shadow_since, shadow_reason, shadow_outcome, samples, pinned_value, pinned_by,
-	pinned_at, operator_value, note, rule, rule_version, evidence, bounds, updated_at`
+	pinned_at, operator_value, note, rule, rule_version, evidence, bounds, updated_at,
+	derivations`
 
 func (s *Store) begin(ctx context.Context) (pgx.Tx, error) {
 	if s == nil || s.pool == nil {
@@ -107,10 +108,11 @@ func scanState(rows pgx.Rows) (State, error) {
 	var st State
 	var since, pinnedAt *time.Time
 	var outcome string
-	var samples, evidence, bounds []byte
+	var samples, evidence, bounds, derivations []byte
 	err := rows.Scan(&st.Key, &st.Status, &st.Value, &st.Pending, &st.Active, &st.Shadow,
 		&since, &st.ShadowReason, &outcome, &samples, &st.Pinned, &st.PinnedBy, &pinnedAt,
-		&st.Operator, &st.Note, &st.Rule, &st.RuleVersion, &evidence, &bounds, &st.UpdatedAt)
+		&st.Operator, &st.Note, &st.Rule, &st.RuleVersion, &evidence, &bounds, &st.UpdatedAt,
+		&derivations)
 	if err != nil {
 		return st, fmt.Errorf("selfconfig: scan derivation state: %w", err)
 	}
@@ -124,7 +126,8 @@ func scanState(rows pgx.Rows) (State, error) {
 	for _, part := range []struct {
 		raw []byte
 		dst any
-	}{{samples, &st.Samples}, {evidence, &st.Evidence}, {bounds, &st.Bounds}} {
+	}{{samples, &st.Samples}, {evidence, &st.Evidence}, {bounds, &st.Bounds},
+		{derivations, &st.Derivations}} {
 		if err := json.Unmarshal(part.raw, part.dst); err != nil {
 			return st, fmt.Errorf("selfconfig: decode state of %s: %w", st.Key, err)
 		}
@@ -141,11 +144,12 @@ func nullTime(t time.Time) *time.Time {
 
 func saveState(ctx context.Context, tx pgx.Tx, st State) error {
 	samples, _ := json.Marshal(nonNil(st.Samples))
+	derivations, _ := json.Marshal(nonNil(st.Derivations))
 	evidence, _ := json.Marshal(nonNilCites(st.Evidence))
 	bounds, _ := json.Marshal(st.Bounds)
 	_, err := tx.Exec(ctx, `INSERT INTO sage.config_derived_setting (`+stateColumns+`)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-		        $17, $18, $19, $20)
+		        $17, $18, $19, $20, $21)
 		ON CONFLICT (key) DO UPDATE SET status = EXCLUDED.status, value = EXCLUDED.value,
 		  pending_value = EXCLUDED.pending_value, active_value = EXCLUDED.active_value,
 		  shadow_value = EXCLUDED.shadow_value, shadow_since = EXCLUDED.shadow_since,
@@ -155,11 +159,11 @@ func saveState(ctx context.Context, tx pgx.Tx, st State) error {
 		  operator_value = EXCLUDED.operator_value, note = EXCLUDED.note,
 		  rule = EXCLUDED.rule, rule_version = EXCLUDED.rule_version,
 		  evidence = EXCLUDED.evidence, bounds = EXCLUDED.bounds,
-		  updated_at = EXCLUDED.updated_at`,
+		  updated_at = EXCLUDED.updated_at, derivations = EXCLUDED.derivations`,
 		st.Key, st.Status, st.Value, st.Pending, st.Active, st.Shadow,
 		nullTime(st.ShadowSince), st.ShadowReason, string(st.ShadowOutcome), samples,
 		st.Pinned, st.PinnedBy, nullTime(st.PinnedAt), st.Operator, st.Note, st.Rule,
-		max(st.RuleVersion, 1), evidence, bounds, st.UpdatedAt)
+		max(st.RuleVersion, 1), evidence, bounds, st.UpdatedAt, derivations)
 	if err != nil {
 		return fmt.Errorf("selfconfig: save state of %s: %w", st.Key, err)
 	}

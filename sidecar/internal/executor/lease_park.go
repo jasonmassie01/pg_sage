@@ -97,12 +97,16 @@ func leaseEvidence(err error) map[string]any {
 
 // recordLeaseVerdictSQL records the conflict as a new ledger decision
 // derived from the execute decision it replaces, linked through
-// evidence.<parked|refused>_decision_id.
-const recordLeaseVerdictSQL = `/* pg_sage */
+// evidence.<parked|refused>_decision_id. It keeps that decision's policy
+// version and hash, guardrails and deadline override (policy-03), and its
+// candidate key, so the candidate's next execute takes the park off the
+// open withheld decisions (policy-07).
+const recordLeaseVerdictSQL = `/* pg_sage executor */
 INSERT INTO sage.decision
-    (database_id, feature, intent, target_objects, policy_id, policy_version,
-     verdict, risk_tier, reason, guardrails, evidence, evidence_id)
-SELECT database_id, feature, intent, target_objects, policy_id, policy_version,
-       $4, risk_tier, $2, guardrails,
-       evidence || jsonb_build_object($5::text, id) || $6::jsonb, $3
+    (database_id, feature, intent, target_objects, policy_version, policy_doc_sha256,
+     verdict, risk_tier, reason, guardrails, off_window_ok, evidence, evidence_id,
+     candidate_key)
+SELECT database_id, feature, intent, target_objects, policy_version, policy_doc_sha256,
+       $4, risk_tier, $2, guardrails, off_window_ok,
+       evidence || jsonb_build_object($5::text, id) || $6::jsonb, $3, candidate_key
   FROM sage.decision WHERE id = $1`

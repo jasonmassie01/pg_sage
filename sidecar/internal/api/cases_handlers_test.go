@@ -59,24 +59,6 @@ func TestCasesRouteRegistered(t *testing.T) {
 	}
 }
 
-func TestShadowReportHandlerEmptyWhenNoFleet(t *testing.T) {
-	req := httptest.NewRequest("GET", "/api/v1/shadow-report", nil)
-	rr := httptest.NewRecorder()
-
-	shadowReportHandler(nil).ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body["total_cases"].(float64) != 0 {
-		t.Fatalf("total_cases = %v, want 0", body["total_cases"])
-	}
-}
-
 // caseGateExecutor is an executor with a real standing gate over an
 // in-memory unattended policy (windows always open) and no emergency stop.
 func caseGateExecutor(cfg *config.Config) *executor.Executor {
@@ -231,13 +213,16 @@ func TestSourceIncidentFromMapProjectsPlaybookCandidate(t *testing.T) {
 	if projected.SourceType != cases.SourceIncidentType {
 		t.Fatalf("SourceType = %q", projected.SourceType)
 	}
-	if len(projected.ActionCandidates) != 3 {
-		t.Fatalf("ActionCandidates = %d, want 3",
+	// playbooks-01: the PID here is prose, not a structured blocker, so the
+	// playbook is the diagnostic plus a blocked cancel (no terminate).
+	if len(projected.ActionCandidates) != 2 {
+		t.Fatalf("ActionCandidates = %d, want 2",
 			len(projected.ActionCandidates))
 	}
-	if projected.ActionCandidates[1].ActionType != "cancel_backend" {
-		t.Fatalf("second candidate = %q",
-			projected.ActionCandidates[1].ActionType)
+	cancel := projected.ActionCandidates[1]
+	if cancel.ActionType != "cancel_backend" || cancel.BlockedReason == "" ||
+		cancel.ProposedSQL != "" {
+		t.Fatalf("second candidate = %+v, want a blocked cancel_backend", cancel)
 	}
 }
 

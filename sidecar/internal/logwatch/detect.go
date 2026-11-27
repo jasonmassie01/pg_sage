@@ -12,11 +12,13 @@ import (
 
 // settingsQuery fetches log-relevant settings from PostgreSQL.
 const settingsQuery = `SELECT name, setting FROM pg_settings
-WHERE name IN ('log_directory', 'data_directory', 'log_destination')`
+WHERE name IN ('log_directory', 'data_directory', 'log_destination',
+  'logging_collector')`
 
 // DetectLogSettings queries pg_settings to resolve the log directory
 // and log format. Returns an error if the log_destination is not
-// csvlog or jsonlog, or if the resolved directory does not exist.
+// csvlog or jsonlog, if logging_collector is off, or if the resolved
+// directory does not exist; each error names the setting to change.
 func DetectLogSettings(
 	ctx context.Context, pool *pgxpool.Pool,
 ) (dir string, format string, err error) {
@@ -29,6 +31,9 @@ func DetectLogSettings(
 	if err != nil {
 		return "", "", err
 	}
+	if err := checkCollector(settings["logging_collector"]); err != nil {
+		return "", "", err
+	}
 
 	dir, err = resolveLogDir(
 		settings["log_directory"], settings["data_directory"])
@@ -37,8 +42,10 @@ func DetectLogSettings(
 	}
 
 	if _, statErr := os.Stat(dir); statErr != nil {
-		return "", "", fmt.Errorf(
-			"logwatch detect: directory does not exist: %s", dir)
+		return "", "", fmt.Errorf("logwatch detect: log_directory %s is not "+
+			"visible to the sidecar (%v): mount the server's log_directory "+
+			"read-only into the sidecar at the same path, or set "+
+			"logwatch.log_directory", dir, statErr)
 	}
 	return dir, format, nil
 }
@@ -77,17 +84,30 @@ func resolveFormat(logDest string) (string, error) {
 	if strings.Contains(logDest, "csvlog") {
 		return "csvlog", nil
 	}
-	return "", fmt.Errorf(
-		"logwatch detect: unsupported log_destination %q "+
-			"(need jsonlog or csvlog)", logDest)
+	return "", fmt.Errorf("%w: log_destination is %q; pg_sage reads only "+
+		"jsonlog (PostgreSQL 15+) or csvlog files: set log_destination = "+
+		"'stderr,jsonlog' (or 'stderr,csvlog') with logging_collector = on, "+
+		"then reload PostgreSQL", ErrLogSourceUnsupported, logDest)
+}
+
+// checkCollector rejects a server whose logging collector is off: csvlog
+// and jsonlog files are written only by the collector.
+func checkCollector(setting string) error {
+	if setting == "on" {
+		return nil
+	}
+	return fmt.Errorf("%w: logging_collector is %q; csvlog and jsonlog files "+
+		"are written only with logging_collector = on (a restart is needed)",
+		ErrLogSourceUnsupported, setting)
 }
 
 // resolveLogDir returns an absolute path for the log directory.
 // If log_directory is relative, it is joined with data_directory.
 func resolveLogDir(logDir, dataDir string) (string, error) {
 	if logDir == "" {
-		return "", fmt.Errorf(
-			"logwatch detect: log_directory is empty")
+		return "", fmt.Errorf("logwatch detect: log_directory is empty or not " +
+			"visible to the pg_sage role: grant it pg_read_all_settings (or " +
+			"pg_monitor), or set logwatch.log_directory")
 	}
 	if filepath.IsAbs(logDir) {
 		return logDir, nil

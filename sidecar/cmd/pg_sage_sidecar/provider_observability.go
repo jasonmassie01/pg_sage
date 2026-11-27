@@ -32,6 +32,13 @@ func supabaseObservabilityProject(host, user string) string {
 	return ref
 }
 
+// providerLogRCA reports whether RCA reads a configured provider log sink:
+// with logwatch.enabled at auto the sink counts as a detected source
+// (rca-09b), and explicit false keeps it off.
+func providerLogRCA(cfg *config.Config) bool {
+	return cfg.RCA.Enabled && cfg.LogWatch.IsActive(true)
+}
+
 func buildProviderObservability(
 	pool *pgxpool.Pool, cfg *config.Config, token string,
 ) (*providerobs.Runtime, *providerobs.LogSink, error) {
@@ -55,38 +62,47 @@ func buildProviderObservability(
 		logWarn("provider", "auto_explain record rejected: %s (count %d)", reason, count)
 	})
 	var handler providerobs.LogHandler
-	if cfg.AutoExplain.Enabled || (cfg.LogWatch.Enabled && cfg.RCA.Enabled) {
+	if cfg.AutoExplain.Enabled || providerLogRCA(cfg) {
 		handler = sink.Handle
 	}
 	runtime, err := providerobs.NewRuntime(api, conn.Database, handler)
 	return runtime, sink, err
 }
 
+// startProviderObservability starts Supabase observability when a token
+// and a Supabase endpoint select it. It returns the running runtime (nil:
+// not started) for the memory gates and the telemetry status, and whether
+// it became the RCA engine's log source.
 func startProviderObservability(
 	ctx context.Context, workers *sync.WaitGroup, pool *pgxpool.Pool,
 	cfg *config.Config, exec *executor.Executor, rcaEngine *rca.Engine,
-) {
+) (*providerobs.Runtime, bool) {
 	token, err := config.LookupSecretEnv("SAGE_SUPABASE_OBSERVABILITY_TOKEN")
 	if err != nil {
 		logWarn("provider", "observability unavailable: %v", err)
-		return
+		return nil, false
 	}
 	runtime, sink, err := buildProviderObservability(pool, cfg, token)
 	if err != nil {
 		logWarn("provider", "observability unavailable: %v", err)
-		return
+		return nil, false
 	}
 	if runtime == nil {
-		return
+		return nil, false
 	}
 	if err := sink.Start(ctx); err != nil {
 		logWarn("provider", "observability log source unavailable: %v", err)
-		return
+		return nil, false
 	}
+	runtime.SetRejectionReporter(func(rejected int, total uint64) {
+		logWarn("provider", "skipped %d malformed Supabase log record(s) this poll "+
+			"(%d since start)", rejected, total)
+	})
 	if exec != nil {
 		exec.WithHostCPUReader(runtime)
 	}
-	if rcaEngine != nil && cfg.LogWatch.Enabled {
+	logs := rcaEngine != nil && providerLogRCA(cfg)
+	if logs {
 		rcaEngine.SetLogSource(sink)
 	}
 	startInstanceWorker(workers, func() {
@@ -95,6 +111,7 @@ func startProviderObservability(
 			logWarn("provider", "observability collection failed: %v", err)
 		})
 	})
+	return runtime, logs
 }
 
 func waitProviderWorkers(ctx context.Context, workers *sync.WaitGroup) bool {

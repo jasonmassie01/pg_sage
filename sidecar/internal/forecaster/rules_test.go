@@ -98,7 +98,7 @@ func TestForecastConnectionSaturation_Insufficient(t *testing.T) {
 func TestForecastCachePressure_Declining(t *testing.T) {
 	aggs := makeSysAggs(14, func(i int) DaySystemAgg {
 		return DaySystemAgg{
-			AvgCacheHitRatio: 99.0 - float64(i)*1.5,
+			CacheHitRatio: 99.0 - float64(i)*1.5,
 		}
 	})
 	cfg := ForecasterConfig{CacheWarnThreshold: 0.90}
@@ -110,7 +110,7 @@ func TestForecastCachePressure_Declining(t *testing.T) {
 
 func TestForecastCachePressure_Stable(t *testing.T) {
 	aggs := makeSysAggs(14, func(_ int) DaySystemAgg {
-		return DaySystemAgg{AvgCacheHitRatio: 99.5}
+		return DaySystemAgg{CacheHitRatio: 99.5}
 	})
 	cfg := ForecasterConfig{CacheWarnThreshold: 0.90}
 	findings := forecastCachePressure(aggs, cfg)
@@ -121,7 +121,7 @@ func TestForecastCachePressure_Stable(t *testing.T) {
 
 func TestForecastCachePressure_Insufficient(t *testing.T) {
 	aggs := makeSysAggs(3, func(_ int) DaySystemAgg {
-		return DaySystemAgg{AvgCacheHitRatio: 80}
+		return DaySystemAgg{CacheHitRatio: 80}
 	})
 	cfg := ForecasterConfig{CacheWarnThreshold: 0.90}
 	findings := forecastCachePressure(aggs, cfg)
@@ -131,54 +131,6 @@ func TestForecastCachePressure_Insufficient(t *testing.T) {
 }
 
 // --- sequence exhaustion ---
-
-func TestForecastSequenceExhaustion_Growing(t *testing.T) {
-	seqAggs := makeSeqAggs("public.orders_id_seq", 14,
-		func(i int) float64 { return 80 + float64(i)*0.5 },
-	)
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	findings := forecastSequenceExhaustion(seqAggs, cfg)
-	if len(findings) == 0 {
-		t.Fatal("expected sequence exhaustion finding")
-	}
-	if findings[0].ObjectIdentifier != "public.orders_id_seq" {
-		t.Errorf(
-			"identifier = %q",
-			findings[0].ObjectIdentifier,
-		)
-	}
-}
-
-func TestForecastSequenceExhaustion_Flat(t *testing.T) {
-	seqAggs := makeSeqAggs("public.orders_id_seq", 14,
-		func(_ int) float64 { return 10 },
-	)
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	findings := forecastSequenceExhaustion(seqAggs, cfg)
-	if len(findings) != 0 {
-		t.Error("expected no findings for flat sequence")
-	}
-}
-
-func TestForecastSequenceExhaustion_Insufficient(t *testing.T) {
-	seqAggs := makeSeqAggs("public.orders_id_seq", 3,
-		func(i int) float64 { return 90 + float64(i)*5 },
-	)
-	cfg := ForecasterConfig{
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
-	}
-	findings := forecastSequenceExhaustion(seqAggs, cfg)
-	if len(findings) != 0 {
-		t.Error("expected no findings for insufficient data")
-	}
-}
 
 // --- query volume ---
 
@@ -240,14 +192,13 @@ func TestForecastQueryVolume_Insufficient(t *testing.T) {
 
 // --- checkpoint pressure ---
 
+// forecast-03 replaced the fixtures below: they gave only a total count
+// (10 a day is impossible: the timed counter alone adds 288 a day at the
+// default checkpoint_timeout), and the rule now reads the requested count.
+
 func TestForecastCheckpointPressure_High(t *testing.T) {
-	aggs := makeSysAggs(10, func(i int) DaySystemAgg {
-		return DaySystemAgg{
-			TotalCheckpoints: float64(i) * 400,
-		}
-	})
-	cfg := ForecasterConfig{}
-	findings := forecastCheckpointPressure(aggs, cfg)
+	aggs := ckptHistory(10, 288, 120) // 5 requested per hour
+	findings := forecastCheckpointPressure(aggs, ForecasterConfig{})
 	if len(findings) == 0 {
 		t.Fatal("expected checkpoint pressure finding")
 	}
@@ -258,26 +209,16 @@ func TestForecastCheckpointPressure_High(t *testing.T) {
 }
 
 func TestForecastCheckpointPressure_Low(t *testing.T) {
-	aggs := makeSysAggs(10, func(i int) DaySystemAgg {
-		return DaySystemAgg{
-			TotalCheckpoints: float64(i) * 10,
-		}
-	})
-	cfg := ForecasterConfig{}
-	findings := forecastCheckpointPressure(aggs, cfg)
+	aggs := ckptHistory(10, 288, 0)
+	findings := forecastCheckpointPressure(aggs, ForecasterConfig{})
 	if len(findings) != 0 {
-		t.Error("expected no findings for low checkpoint rate")
+		t.Error("expected no findings for timed-only checkpoints")
 	}
 }
 
 func TestForecastCheckpointPressure_Insufficient(t *testing.T) {
-	aggs := makeSysAggs(3, func(i int) DaySystemAgg {
-		return DaySystemAgg{
-			TotalCheckpoints: float64(i) * 1000,
-		}
-	})
-	cfg := ForecasterConfig{}
-	findings := forecastCheckpointPressure(aggs, cfg)
+	aggs := ckptHistory(3, 288, 1000)
+	findings := forecastCheckpointPressure(aggs, ForecasterConfig{})
 	if len(findings) != 0 {
 		t.Error("expected no findings for insufficient data")
 	}
@@ -304,20 +245,6 @@ func makeQueryAggs(
 		aggs[i] = DayQueryAgg{
 			Day:        time.Now().AddDate(0, 0, -n+i),
 			TotalCalls: fill(i),
-		}
-	}
-	return aggs
-}
-
-func makeSeqAggs(
-	name string, n int, pctFn func(int) float64,
-) []DaySeqAgg {
-	aggs := make([]DaySeqAgg, n)
-	for i := range aggs {
-		aggs[i] = DaySeqAgg{
-			Day:     time.Now().AddDate(0, 0, -n+i),
-			SeqName: name,
-			PctUsed: pctFn(i),
 		}
 	}
 	return aggs

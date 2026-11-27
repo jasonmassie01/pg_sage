@@ -25,6 +25,16 @@ type Lease struct {
 	Holder    string
 	Epoch     int64
 	ExpiresAt time.Time
+	// Control names the database the lease row lives in.
+	Control ControlIdentity
+}
+
+// ControlIdentity identifies a control database: its cluster's
+// pg_control_system() system_identifier (empty where a managed provider
+// restricts that function) and its datname.
+type ControlIdentity struct {
+	SystemIdentifier string
+	Datname          string
 }
 
 // Store acquires, renews and releases leases. Acquire returns the lease
@@ -53,6 +63,14 @@ func WithLogger(log func(string, string, ...any)) Option {
 	return func(e *Elector) { e.log = log }
 }
 
+// WithForeignHolderRefusal makes the elector refuse leadership for the run
+// once it sees another live sidecar take or renew the lease; reason says
+// why sharing the lease is unsafe. A lease left behind by a sidecar that
+// died is not live: it never renews, so it is taken over once it expires.
+func WithForeignHolderRefusal(reason string) Option {
+	return func(e *Elector) { e.refuseForeign = reason }
+}
+
 // Elector holds or follows one scope's lease. A nil *Elector means
 // election is disabled: IsLeader is always true.
 type Elector struct {
@@ -63,13 +81,21 @@ type Elector struct {
 	now    func() time.Time
 	log    func(string, string, ...any)
 
+	refuseForeign string
+
 	mu          sync.Mutex
+	refused     string
+	lastForeign Lease
+	control     ControlIdentity
 	held        bool
+	wasLeader   bool
 	epoch       int64
 	deadline    time.Time
 	current     string
 	lastErr     string
 	transitions int
+	created     time.Time
+	lastRenew   time.Time
 }
 
 // NewElector returns an elector for scope as holder; ttl <= 0 is DefaultTTL.
@@ -83,35 +109,52 @@ func NewElector(store Store, scope, holder string, ttl time.Duration,
 	for _, o := range opts {
 		o(e)
 	}
+	e.created = e.now()
 	return e
 }
 
 // TTL is the lease duration.
 func (e *Elector) TTL() time.Duration { return e.ttl }
 
-// Tick acquires or renews the lease once.
+// Holder is the holder id this elector leads as.
+func (e *Elector) Holder() string { return e.holder }
+
+// Tick acquires or renews the lease once. The store call is bounded by
+// ttl/3 (pool acquire and every query), so a half-open connection or an
+// exhausted pool costs one renewal interval, not the TCP timeout. A
+// refused elector makes no store call: it never takes the lease again.
 func (e *Elector) Tick(ctx context.Context) error {
 	if e.store == nil || e.scope == "" || e.holder == "" {
 		return errors.New("leader: elector needs a store, a scope and a holder")
 	}
+	if e.Refused() {
+		return nil
+	}
 	start := e.now()
-	lease, held, err := e.store.Acquire(ctx, e.scope, e.holder, e.ttl)
+	tctx, cancel := context.WithTimeout(ctx, e.ttl/3)
+	lease, held, err := e.store.Acquire(tctx, e.scope, e.holder, e.ttl)
+	cancel()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if err != nil {
 		e.lastErr = err.Error()
+		e.noteLapseLocked(err)
 		return fmt.Errorf("leader: renew lease of %s: %w", e.scope, err)
 	}
+	e.noteLapseLocked(errRenewedLate)
 	e.lastErr = ""
-	e.current = lease.Holder
-	was := e.leaderLocked()
-	if held {
-		e.held, e.epoch = true, lease.Epoch
+	e.lastRenew = start
+	e.current, e.control = lease.Holder, lease.Control
+	e.held = held && e.refused == ""
+	if e.held {
+		e.epoch, e.lastForeign = lease.Epoch, Lease{}
 		e.deadline = start.Add(e.ttl - e.ttl/SafetyDivisor)
-	} else {
-		e.held = false
+	} else if e.refuseForeign != "" && e.foreignLiveLocked(lease) {
+		e.refuseLocked(fmt.Sprintf("sidecar %s also holds the lease of %s: %s",
+			lease.Holder, e.scope, e.refuseForeign))
 	}
-	if now := e.leaderLocked(); now != was {
+	if now := e.leaderLocked(); now != e.wasLeader {
+		e.wasLeader = now
 		e.transitions++
 		e.log("INFO", "leader: %s %s for %s (epoch %d, holder %s)", e.holder,
 			map[bool]string{true: "became leader", false: "is a follower"}[now],
@@ -120,8 +163,63 @@ func (e *Elector) Tick(ctx context.Context) error {
 	return nil
 }
 
+// foreignLiveLocked reports whether another holder's lease, seen now,
+// changed since the last foreign lease this elector saw: a new holder or
+// a later expiry means a live sidecar took or renewed it.
+func (e *Elector) foreignLiveLocked(l Lease) bool {
+	prev := e.lastForeign
+	e.lastForeign = l
+	return prev.Holder != "" && (prev.Holder != l.Holder || l.ExpiresAt.After(prev.ExpiresAt))
+}
+
+// Refuse makes this sidecar a follower for the rest of the run: it never
+// takes the lease again. reason is reported by Status and logged once.
+func (e *Elector) Refuse(reason string) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.refuseLocked(reason)
+}
+
+func (e *Elector) refuseLocked(reason string) {
+	if e.refused != "" {
+		return
+	}
+	e.refused, e.held = reason, false
+	e.log("ERROR", "leader: %s refuses leadership of %s for this run: %s", e.holder,
+		e.scope, reason)
+}
+
+// Refused reports whether this sidecar refused leadership for the run.
+func (e *Elector) Refused() bool {
+	if e == nil {
+		return false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.refused != ""
+}
+
+// errRenewedLate is the lapse cause when a renewal answered, but only
+// after the local deadline had already passed.
+var errRenewedLate = errors.New("renewal answered after the local deadline")
+
+// noteLapseLocked counts and logs, once, the moment a sidecar that last
+// saw itself as leader finds its local deadline passed.
+func (e *Elector) noteLapseLocked(cause error) {
+	if !e.wasLeader || e.leaderLocked() {
+		return
+	}
+	e.wasLeader = false
+	e.transitions++
+	e.log("WARN", "leader: lease of %s lapsed, renewal overdue by %s: %v", e.scope,
+		e.now().Sub(e.deadline), cause)
+}
+
 func (e *Elector) leaderLocked() bool {
-	return e.held && e.now().Before(e.deadline)
+	return e.refused == "" && e.held && e.now().Before(e.deadline)
 }
 
 // IsLeader reports whether this sidecar may run fleet-wide jobs now.
@@ -134,24 +232,34 @@ func (e *Elector) IsLeader() bool {
 	return e.leaderLocked()
 }
 
-// Fence is the holder and epoch writes must still hold; ok is false when
-// this sidecar is not the leader (or election is disabled).
-func (e *Elector) Fence() (string, int64, bool) {
+// Token is the lease a fenced write must still hold: the scope the lease
+// row is stored under, its holder and its epoch.
+type Token struct {
+	Scope  string
+	Holder string
+	Epoch  int64
+}
+
+// Fence is the lease this elector holds, scope included, so writers fence
+// on the row the elector renews and never on a scope recomputed from
+// config. ok is false, with the zero Token, when this sidecar is not the
+// leader (or election is disabled).
+func (e *Elector) Fence() (Token, bool) {
 	if e == nil {
-		return "", 0, false
+		return Token{}, false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if !e.leaderLocked() {
-		return "", 0, false
+		return Token{}, false
 	}
-	return e.holder, e.epoch, true
+	return Token{Scope: e.scope, Holder: e.holder, Epoch: e.epoch}, true
 }
 
 // Release gives the lease up so a successor takes over at once.
 func (e *Elector) Release(ctx context.Context) error {
 	e.mu.Lock()
-	e.held = false
+	e.held, e.wasLeader = false, false
 	e.mu.Unlock()
 	if e.store == nil {
 		return nil
@@ -195,6 +303,13 @@ type Status struct {
 	LeaseTTL    string    `json:"lease_ttl,omitempty"`
 	LastError   string    `json:"last_error,omitempty"`
 	Transitions int       `json:"transitions"`
+	LastRenew   time.Time `json:"last_renew,omitempty"`
+	// ControlSystemIdentifier is a decimal string: system identifiers
+	// exceed the integers JSON readers keep exact.
+	ControlSystemIdentifier string `json:"control_system_identifier,omitempty"`
+	ControlDatname          string `json:"control_datname,omitempty"`
+	LeadershipRefused       bool   `json:"leadership_refused"`
+	RefusedReason           string `json:"refused_reason,omitempty"`
 }
 
 // Status reports the elector's state; a nil elector is disabled.
@@ -206,11 +321,30 @@ func (e *Elector) Status() Status {
 	defer e.mu.Unlock()
 	s := Status{Enabled: true, Scope: e.scope, Self: e.holder, Holder: e.current,
 		Leader: e.leaderLocked(), LeaseTTL: e.ttl.String(), LastError: e.lastErr,
-		Transitions: e.transitions}
+		Transitions: e.transitions, LastRenew: e.lastRenew,
+		ControlSystemIdentifier: e.control.SystemIdentifier,
+		ControlDatname:          e.control.Datname,
+		LeadershipRefused:       e.refused != "", RefusedReason: e.refused}
 	if s.Leader {
 		s.Epoch, s.Deadline = e.epoch, e.deadline
 	}
 	return s
+}
+
+// LastRenewAge is the time since the last successful round trip to the
+// lease store (renewal or follower read), or since the elector was
+// created when none has succeeded yet; zero for a nil elector.
+func (e *Elector) LastRenewAge() time.Duration {
+	if e == nil {
+		return 0
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	since := e.lastRenew
+	if since.IsZero() {
+		since = e.created
+	}
+	return e.now().Sub(since)
 }
 
 // HolderID is a unique holder identity: host, process and a random suffix.

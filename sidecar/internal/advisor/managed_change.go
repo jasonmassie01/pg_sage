@@ -9,8 +9,9 @@ import (
 )
 
 // withManagedIntent records, on a finding whose setting SQL cannot change
-// on RDS, Aurora or Cloud SQL, the typed managed change it needs (a
-// parameter group or database flag). The managed-change worker turns it
+// on RDS, Aurora, Cloud SQL, AlloyDB or Azure flexible server, the typed
+// managed change it needs (a parameter group, database flag or server
+// parameter). The managed-change worker turns it
 // into a proposal an operator approves and applies; pg_sage never
 // applies it. Other platforms and unparseable SQL are left unchanged.
 func withManagedIntent(f analyzer.Finding, platform, sql, why string) analyzer.Finding {
@@ -36,8 +37,13 @@ func withManagedIntent(f analyzer.Finding, platform, sql, why string) analyzer.F
 }
 
 func mechanismLabel(platform string) string {
-	if managedparam.NormalizeProvider(platform) == "cloud-sql" {
+	switch managedparam.NormalizeProvider(platform) {
+	case "cloud-sql", "alloydb":
 		return "database flag"
+	case "azure":
+		return "server parameter"
+	case "cnpg":
+		return "Cluster spec parameter"
 	}
 	return "parameter group"
 }

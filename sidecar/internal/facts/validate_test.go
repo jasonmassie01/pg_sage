@@ -95,7 +95,7 @@ func TestValidateValues(t *testing.T) {
 		slot(map[string]string{"consumer": "debezium (orders CDC)"}),
 		window(map[string]string{"kind": "maintenance", "window": "weekends"}),
 		{Type: TypeAppMigrations, Kind: KindSchema, Subject: "app", Source: SourceOperator,
-			Value: map[string]string{"repo": "github.com/acme/app", "path": "db/migrate"}},
+			Value: map[string]string{"note": "created by db/migrate"}},
 	}
 	for _, p := range good {
 		if _, err := Validate(p); err != nil {
@@ -218,5 +218,25 @@ func TestFactDescribeAndHash(t *testing.T) {
 	g.Proposals = 9
 	if h1 != g.Hash() {
 		t.Fatal("hash must not change with the proposal count")
+	}
+}
+
+// facts-09: repo and path were accepted for owned_by_app_migrations but
+// nothing read them and the form could not set them; a new proposal with
+// either is refused, and note is still taken.
+func TestValidateRefusesTheRetiredRepoAndPathKeys(t *testing.T) {
+	for _, value := range []map[string]string{{"repo": "github.com/acme/app"},
+		{"path": "db/migrate"}, {"note": "ok", "repo": "github.com/acme/app"}} {
+		p := Proposal{Type: TypeAppMigrations, Kind: KindSchema, Subject: "app",
+			Source: SourceOperator, Value: value}
+		_, err := Validate(p)
+		if !errors.Is(err, ErrInvalidValue) {
+			t.Fatalf("%v: err = %v, want ErrInvalidValue", value, err)
+		}
+	}
+	got, err := Validate(Proposal{Type: TypeAppMigrations, Kind: KindSchema, Subject: "app",
+		Source: SourceOperator, Value: map[string]string{"note": " from migrations "}})
+	if err != nil || got.Value["note"] != "from migrations" || len(got.Value) != 1 {
+		t.Fatalf("note: %+v %v", got.Value, err)
 	}
 }

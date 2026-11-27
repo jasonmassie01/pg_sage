@@ -40,8 +40,11 @@ func wrapDDLError(err error) error {
 
 // ExecConcurrently executes a SQL statement that requires
 // CONCURRENTLY semantics (e.g., CREATE INDEX CONCURRENTLY).
-// It acquires a raw connection from the pool, sets timeouts,
-// executes outside a transaction, and returns the connection.
+// It acquires a raw connection from the pool, sets timeouts, pins
+// search_path (pg_catalog, pg_temp), executes outside a transaction,
+// and returns the connection with every setting reset. A bare extension
+// operator class in a CREATE INDEX is run with its schema named
+// (qualifyIndexOpclasses).
 func ExecConcurrently(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -52,20 +55,27 @@ func ExecConcurrently(
 	if err := ValidateExecutorSQL(sql); err != nil {
 		return fmt.Errorf("SQL validation: %w", err)
 	}
+	run, err := pinnedStatements(ctx, pool, sql)
+	if err != nil {
+		return stoppedStatement(ctx, sql, err)
+	}
 
 	o := applyDDLOpts(opts)
 
-	return withTopLevelSession(ctx, pool, timeout, o, func(conn pooledExecutor) error {
-		_, execErr := conn.Exec(ctx, sql)
+	err = withTopLevelSession(ctx, pool, run[0], timeout, o, func(conn pooledExecutor) error {
+		reportBackendPID(conn, o)
+		_, execErr := conn.Exec(ctx, run[0])
 		if execErr != nil {
 			return wrapDDLError(execErr)
 		}
 		return nil
 	})
+	return stoppedStatement(ctx, run[0], err)
 }
 
 // ExecInTransaction executes a SQL statement within a transaction
-// for atomicity. Sets statement_timeout and lock_timeout.
+// for atomicity. Sets statement_timeout and lock_timeout and pins
+// search_path (pg_catalog, pg_temp), so targets must be schema-qualified.
 func ExecInTransaction(
 	ctx context.Context,
 	pool *pgxpool.Pool,
@@ -80,10 +90,24 @@ func ExecInTransaction(
 }
 
 // execStatementsInTransaction runs already validated statements in one
-// transaction under statement_timeout and lock_timeout: all or none.
+// transaction under statement_timeout and lock_timeout, with search_path
+// pinned to pg_catalog: all or none. A bare extension operator class in a
+// CREATE INDEX runs with its schema named. An emergency stop cancels them
+// while they run.
 func execStatementsInTransaction(
 	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration, o ddlOpts,
 	statements ...string,
+) error {
+	run, err := pinnedStatements(ctx, pool, statements...)
+	if err == nil {
+		err = execTransaction(ctx, pool, timeout, o, run)
+	}
+	return stoppedStatement(ctx, strings.Join(statements, "; "), err)
+}
+
+func execTransaction(
+	ctx context.Context, pool *pgxpool.Pool, timeout time.Duration, o ddlOpts,
+	statements []string,
 ) error {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -94,27 +118,15 @@ func execStatementsInTransaction(
 		defer cancel()
 		_ = tx.Rollback(rollbackCtx)
 	}()
-
-	timeoutMs := int(timeout.Milliseconds())
-	_, err = tx.Exec(ctx,
-		fmt.Sprintf(
-			"SET LOCAL statement_timeout = %d", timeoutMs,
-		),
-	)
+	// Deferred after the rollback, so it runs first (see runTopLevelSession).
+	unwatch, err := watchStatement(ctx, tx.Conn().PgConn(), strings.Join(statements, "; "))
 	if err != nil {
-		return fmt.Errorf("setting statement_timeout: %w", err)
+		return err
 	}
-
-	if o.lockTimeoutMs > 0 {
-		_, err = tx.Exec(ctx, fmt.Sprintf(
-			"SET LOCAL lock_timeout = '%dms'",
-			o.lockTimeoutMs,
-		))
-		if err != nil {
-			return fmt.Errorf("setting lock_timeout: %w", err)
-		}
+	defer unwatch()
+	if err := setLocalSessionScope(ctx, tx, timeout, o); err != nil {
+		return err
 	}
-
 	if o.before != nil {
 		if err := o.before(ctx, tx); err != nil {
 			return err
@@ -138,6 +150,30 @@ func execStatementsInTransaction(
 	return nil
 }
 
+// setLocalSessionScope sets the transaction's statement and lock timeouts
+// and pins its search_path (and names its decision); every setting ends
+// with the transaction.
+func setLocalSessionScope(
+	ctx context.Context, tx pooledExecutor, timeout time.Duration, o ddlOpts,
+) error {
+	if _, err := tx.Exec(ctx, fmt.Sprintf(
+		"SET LOCAL statement_timeout = %d", timeout.Milliseconds(),
+	)); err != nil {
+		return fmt.Errorf("setting statement_timeout: %w", err)
+	}
+	if o.lockTimeoutMs > 0 {
+		if _, err := tx.Exec(ctx, fmt.Sprintf(
+			"SET LOCAL lock_timeout = '%dms'", o.lockTimeoutMs,
+		)); err != nil {
+			return fmt.Errorf("setting lock_timeout: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL search_path = "+executorSearchPath); err != nil {
+		return fmt.Errorf("setting search_path: %w", err)
+	}
+	return setActionTag(ctx, tx, "SET LOCAL", o)
+}
+
 // DDLOption configures DDL execution behavior.
 type DDLOption func(*ddlOpts)
 
@@ -145,6 +181,15 @@ type ddlOpts struct {
 	lockTimeoutMs int
 	before        func(context.Context, pgx.Tx) error
 	after         func(context.Context, pgx.Tx) error
+	// onBackendPID receives the server process of a top-level statement
+	// just before it runs (the remnant tracker watches that build).
+	onBackendPID func(uint32)
+	// actionTag is the decision the statement runs for (0: none); its
+	// session's application_name names it (audit-06).
+	actionTag int64
+	// resetCostDelay resets vacuum_cost_delay with the session's other
+	// settings: an emergency VACUUM sets it to 0 (vacuum-05b).
+	resetCostDelay bool
 }
 
 func applyDDLOpts(opts []DDLOption) ddlOpts {
@@ -155,6 +200,22 @@ func applyDDLOpts(opts []DDLOption) ddlOpts {
 	return o
 }
 
+// withBackendPID reports the backend a top-level statement runs on.
+func withBackendPID(fn func(uint32)) DDLOption {
+	return func(o *ddlOpts) {
+		o.onBackendPID = fn
+	}
+}
+
+func reportBackendPID(conn pooledExecutor, o ddlOpts) {
+	if o.onBackendPID == nil {
+		return
+	}
+	if ps, ok := conn.(pooledSession); ok {
+		o.onBackendPID(ps.Conn.Conn().PgConn().PID())
+	}
+}
+
 // WithLockTimeout sets lock_timeout for DDL execution.
 func WithLockTimeout(ms int) DDLOption {
 	return func(o *ddlOpts) {
@@ -162,17 +223,40 @@ func WithLockTimeout(ms int) DDLOption {
 	}
 }
 
-// NeedsConcurrently returns true if the SQL statement contains the
-// CONCURRENTLY keyword, indicating it cannot run inside a transaction.
-func NeedsConcurrently(sql string) bool {
-	return strings.Contains(strings.ToUpper(sql), "CONCURRENTLY")
+// WithActionTag names decisionID in the session's application_name
+// ('pg_sage action:<id>') while the statement runs, so its pgaudit records
+// are tied to the decision. A decision id of 0 or below tags nothing.
+func WithActionTag(decisionID int64) DDLOption {
+	return func(o *ddlOpts) {
+		if decisionID > 0 {
+			o.actionTag = decisionID
+		}
+	}
 }
 
-// NeedsTopLevel returns true if the SQL statement cannot run inside a
-// transaction block. VACUUM and ALTER SYSTEM both raise errors when
-// attempted inside a transaction.
-func NeedsTopLevel(sql string) bool {
-	upper := strings.TrimSpace(strings.ToUpper(sql))
-	return strings.HasPrefix(upper, "VACUUM") ||
-		strings.HasPrefix(upper, "ALTER SYSTEM")
+// execMode is how a statement runs: inside a transaction block (under the
+// policy lock ceiling) or top-level, outside one.
+type execMode int
+
+const (
+	execInTransaction execMode = iota
+	execTopLevel
+)
+
+// executionMode routes a statement by its typed action (executor-08), never
+// by a keyword anywhere in its text: only the CONCURRENTLY index builds and
+// drops, a one-table VACUUM and ALTER SYSTEM cannot run in a transaction
+// block. Every other type, and an unclassified statement, runs in one.
+func executionMode(actionType string) execMode {
+	switch actionType {
+	case "create_index_concurrently", "reindex_concurrently", "drop_unused_index",
+		"revert_created_index", "vacuum_table", "alter_system_guc":
+		return execTopLevel
+	}
+	return execInTransaction
+}
+
+// statementRunsTopLevel is the route of sql's typed action.
+func statementRunsTopLevel(sql string) bool {
+	return executionMode(ActionTypeForSQL(sql)) == execTopLevel
 }

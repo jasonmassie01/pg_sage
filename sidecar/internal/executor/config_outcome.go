@@ -19,6 +19,8 @@ const (
 	metricTempSpills = "temp_spills" // work_mem: temp files per second
 	metricDeadTuples = "dead_tuples" // autovacuum knobs: dead-tuple ratio
 	metricHotUpdates = "hot_updates" // fillfactor: share of HOT updates
+	// max_wal_size, checkpoint_timeout: requested share of checkpoints
+	metricRequestedCheckpoints = "requested_checkpoints"
 )
 
 const (
@@ -51,6 +53,8 @@ func outcomeMetricFor(c *configChange) (metric, table string) {
 			return metricTempSpills, ""
 		case vacuumKnob(c.guc.Name):
 			return metricDeadTuples, ""
+		case c.guc.Name == "max_wal_size" || c.guc.Name == "checkpoint_timeout":
+			return metricRequestedCheckpoints, ""
 		}
 		return "", ""
 	}
@@ -72,24 +76,27 @@ func vacuumKnob(name string) bool {
 
 // outcomeQueries read each metric's counters; $1 is the table, if any.
 var outcomeQueries = map[string]string{
-	metricTempSpills: `/* pg_sage */ SELECT temp_files::float8, temp_files::float8 /
+	metricTempSpills: `/* pg_sage executor */ SELECT temp_files::float8, temp_files::float8 /
 		GREATEST(EXTRACT(EPOCH FROM now() - COALESCE(stats_reset,
 		pg_postmaster_start_time())), 1)::float8
 		FROM pg_stat_database WHERE datname = current_database()`,
-	metricDeadTuples + ":table": `/* pg_sage */ SELECT n_dead_tup::float8,
+	metricDeadTuples + ":table": `/* pg_sage executor */ SELECT n_dead_tup::float8,
 		n_live_tup::float8, autovacuum_count::float8
 		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
-	metricDeadTuples: `/* pg_sage */ SELECT COALESCE(sum(n_dead_tup), 0)::float8,
+	metricDeadTuples: `/* pg_sage executor */ SELECT COALESCE(sum(n_dead_tup), 0)::float8,
 		COALESCE(sum(n_live_tup), 0)::float8, COALESCE(sum(autovacuum_count), 0)::float8
 		FROM pg_stat_user_tables`,
-	metricHotUpdates + ":table": `/* pg_sage */ SELECT n_tup_upd::float8,
+	metricHotUpdates + ":table": `/* pg_sage executor */ SELECT n_tup_upd::float8,
 		n_tup_hot_upd::float8 FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
+	checkpointCountersKey14: checkpointCountersSQL14,
+	checkpointCountersKey17: checkpointCountersSQL17,
 }
 
 var outcomeColumns = map[string][]string{
-	metricTempSpills: {"temp_files", "rate_per_sec"},
-	metricDeadTuples: {"n_dead_tup", "n_live_tup", "autovacuum_count"},
-	metricHotUpdates: {"n_tup_upd", "n_tup_hot_upd"},
+	metricTempSpills:           {"temp_files", "rate_per_sec"},
+	metricDeadTuples:           {"n_dead_tup", "n_live_tup", "autovacuum_count"},
+	metricHotUpdates:           {"n_tup_upd", "n_tup_hot_upd"},
+	metricRequestedCheckpoints: {"requested", "timed", "epoch"},
 }
 
 // readOutcomeCounters reads the metric's counters now.
@@ -99,6 +106,12 @@ func readOutcomeCounters(
 	key, args := metric, []any{}
 	if table != "" {
 		key, args = metric+":table", []any{table}
+	}
+	if metric == metricRequestedCheckpoints {
+		var err error
+		if key, err = checkpointCountersKey(ctx, pool); err != nil {
+			return nil, err
+		}
 	}
 	query, ok := outcomeQueries[key]
 	cols := outcomeColumns[metric]
@@ -120,15 +133,16 @@ func readOutcomeCounters(
 	return out, nil
 }
 
-// captureOutcomeBaseline records the metric's counters at apply time.
+// captureOutcomeBaseline records the metric's counters at apply time, at:
+// the database clock the monitor judges the window by (executor-31).
 func captureOutcomeBaseline(
-	ctx context.Context, pool *pgxpool.Pool, metric, table string,
+	ctx context.Context, pool *pgxpool.Pool, metric, table string, at time.Time,
 ) (*outcomeBaseline, error) {
 	counters, err := readOutcomeCounters(ctx, pool, metric, table)
 	if err != nil {
 		return nil, err
 	}
-	return &outcomeBaseline{Metric: metric, Table: table, At: time.Now().UTC(),
+	return &outcomeBaseline{Metric: metric, Table: table, At: at.UTC(),
 		Counters: counters}, nil
 }
 
@@ -142,6 +156,8 @@ func judgeOutcome(b outcomeBaseline, now map[string]float64, at time.Time) metri
 		j = judgeDeadTuples(b.Counters, now)
 	case metricHotUpdates:
 		j = judgeHotUpdates(b.Counters, now)
+	case metricRequestedCheckpoints:
+		j = judgeRequestedCheckpoints(b.Counters, now)
 	default:
 		j = metricJudgement{Verdict: verify.OutcomeUnverifiable, Terminal: true,
 			Reason: fmt.Sprintf("no targeted metric %q to verify the change", b.Metric)}
@@ -163,6 +179,9 @@ func configPrediction(metric string) verify.Prediction {
 	case metricHotUpdates:
 		return ruleBasedPrediction("", metric, 5,
 			"the share of HOT updates rises by 5 points")
+	case metricRequestedCheckpoints:
+		return ruleBasedPrediction("", metric, -50,
+			"the requested share of checkpoints halves or falls under 20%")
 	}
 	return verify.NoPrediction("", "no targeted metric to verify this change")
 }

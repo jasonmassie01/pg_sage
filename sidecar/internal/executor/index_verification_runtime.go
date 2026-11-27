@@ -41,9 +41,12 @@ func (v *postgresIndexVerifier) ResumeDue(
 	results, err := v.engine.ResumeDueResults(ctx)
 	resumed := make([]resumedIndexVerification, 0, len(results))
 	for _, result := range results {
+		// One action's missing rollback SQL must not withhold the others'
+		// verdicts: it is reported, and its claim lease retries it.
 		rollbackSQL, lookupErr := v.rollbackSQL(ctx, result.ActionID)
 		if lookupErr != nil {
-			return resumed, lookupErr
+			err = errors.Join(err, lookupErr)
+			continue
 		}
 		resumed = append(resumed, resumedIndexVerification{
 			ActionID: result.ActionID, RollbackSQL: rollbackSQL,
@@ -102,7 +105,7 @@ func (a *executorIndexActions) Revert(
 	exec := a.exec
 	recordVerdict(ctx, exec.pool, exec.engineOutcome(ctx, actionID, verdict), exec.logFn)
 	if exec.checkEmergencyStop(ctx) {
-		updateActionOutcome(ctx, exec.pool, actionID, "rollback_skipped",
+		_ = recordActionOutcome(ctx, exec.pool, exec.logFn, actionID, "rollback_skipped",
 			"emergency stop active; automatic rollback withheld")
 		return errors.New("emergency stop withheld verified index rollback")
 	}
@@ -130,7 +133,7 @@ func (e *Executor) dropCreatedIndex(
 ) error {
 	dropSQL := "DROP INDEX CONCURRENTLY IF EXISTS " + qualified
 	if !e.authorizeCreatedIndexRevert(ctx, dropSQL, qualified) {
-		updateActionOutcome(ctx, e.pool, actionID, "rollback_skipped",
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
 			"standing policy withheld automatic rollback")
 		return errors.New("standing policy withheld verified index rollback")
 	}
@@ -145,8 +148,8 @@ func (e *Executor) dropCreatedIndex(
 	if cfg != nil {
 		lockOpt, timeout = WithLockTimeout(cfg.Safety.LockTimeout()), cfg.Safety.DDLTimeout()
 	}
-	if err := ExecConcurrently(ctx, e.pool, dropSQL, timeout, lockOpt); err != nil {
-		updateActionOutcome(ctx, e.pool, actionID, "rollback_failed", err.Error())
+	if err := ExecConcurrently(ctx, e.actionDB(), dropSQL, timeout, lockOpt); err != nil {
+		_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_failed", err.Error())
 		return fmt.Errorf("revert verified index action %d: %w", actionID, err)
 	}
 	e.finishRevert(ctx, actionID, verdict.Reason)
@@ -154,18 +157,69 @@ func (e *Executor) dropCreatedIndex(
 }
 
 func (e *Executor) finishRevert(ctx context.Context, actionID int64, reason string) {
-	updateActionOutcome(ctx, e.pool, actionID, "rolled_back", reason)
+	_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rolled_back", reason)
 	e.completeVerificationRevert(ctx, actionID)
 	_, _ = value.NewPostgresRepository(e.pool).ZeroCreditOnRevert(ctx, actionID, "rolled_back")
+}
+
+// revertRefusedPrefix starts the reason of a revert abandoned because the
+// index is not provably pg_sage's; an operator retry is refused too.
+const revertRefusedPrefix = "revert refused: "
+
+// refusedRevertRetry refuses a retry of a revert abandoned for identity:
+// its DROP would hit an object pg_sage did not create (executor-07).
+func refusedRevertRetry(outcome, reason string) error {
+	if outcome != "rollback_skipped" || !strings.HasPrefix(reason, revertRefusedPrefix) {
+		return nil
+	}
+	return fmt.Errorf("rollback refused: the automatic revert was abandoned (%s); "+
+		"check the object and change it by hand", reason)
 }
 
 // abandonRevert records a revert that can never be performed safely and
 // closes the verification so it is not retried against the wrong object.
 func (e *Executor) abandonRevert(ctx context.Context, actionID int64, reason string) error {
-	updateActionOutcome(ctx, e.pool, actionID, "rollback_skipped",
-		"revert refused: "+reason)
+	_ = recordActionOutcome(ctx, e.pool, e.logFn, actionID, "rollback_skipped",
+		revertRefusedPrefix+reason)
 	e.completeVerificationRevert(ctx, actionID)
 	return fmt.Errorf("revert of action %d refused: %s", actionID, reason)
+}
+
+// resumeIndexVerification resumes due index watches, but only after the
+// startup sweep has succeeded: before it, a pre-fix transient unverifiable
+// row would replay its revert and drop an index nothing has disproved.
+func (e *Executor) resumeIndexVerification(ctx context.Context) {
+	if err := e.reopenObservationRetries(ctx); err != nil {
+		e.logFn("executor", "index verification resume withheld (indexes kept), "+
+			"retried next cycle: %v", err)
+		return
+	}
+	if err := e.indexVerification.ResumeDue(ctx); err != nil {
+		e.logFn("executor", "resume index verification: %v", err)
+	}
+}
+
+// reopenObservationRetries runs at startup, before the first resume, and
+// again each cycle until it succeeds: an index watch that a transient read
+// error or a shutdown closed before observation retries existed is observed
+// again instead of replaying its revert. One past its hard deadline still
+// reverts.
+func (e *Executor) reopenObservationRetries(ctx context.Context) error {
+	if e == nil || e.pool == nil || e.indexVerification == nil || e.retriesReopened.Load() {
+		return nil
+	}
+	sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	reopened, err := verify.NewPostgresStateStore(e.pool, 1).ReopenObservationRetries(sweepCtx)
+	if err != nil {
+		return fmt.Errorf("reopen index verifications closed by a transient error: %w", err)
+	}
+	e.retriesReopened.Store(true)
+	if reopened > 0 {
+		e.logFn("executor", "reopened %d index verification(s) closed by a transient "+
+			"error; they are observed again", reopened)
+	}
+	return nil
 }
 
 func (e *Executor) configureIndexVerification() {
@@ -182,6 +236,9 @@ func (e *Executor) configureIndexVerification() {
 	if err != nil {
 		e.logFn("executor", "index verification unavailable: %v", err)
 		return
+	}
+	if err := engine.EnableV2(e.verificationV2Options()); err != nil {
+		e.logFn("executor", "verification v2 unavailable (v1 judges): %v", err)
 	}
 	verifier := &postgresIndexVerifier{engine: engine, exec: e}
 	e.indexVerification = newVerifiedIndexLifecycle(
@@ -212,13 +269,14 @@ func verificationOptions(cfg *config.Config) verify.Options {
 	return withAdmissionOptions(options, cfg)
 }
 
-// withAdmissionOptions maps load-admission config. The IO ceilings are
-// separate keys and never inherit the CPU ceiling. The baseline is
+// withAdmissionOptions maps load-admission config. The host CPU ceiling
+// is safety.host_cpu_ceiling_pct (cpu_ceiling_pct while unset); the IO
+// ceilings are separate keys and never inherit a CPU ceiling. The baseline is
 // io_baseline_hours when set, else io_baseline_days as configured: an
 // explicit 0 (with no hours) disables the learned baseline.
 func withAdmissionOptions(options verify.Options, cfg *config.Config) verify.Options {
-	if cfg.Safety.CPUCeilingPct > 0 {
-		options.CPUCeilingPct = float64(cfg.Safety.CPUCeilingPct)
+	if pct := cfg.Safety.EffectiveHostCPUCeilingPct(); pct > 0 {
+		options.CPUCeilingPct = float64(pct)
 	}
 	if cfg.Safety.DataIOCeilingPct > 0 {
 		options.DataIOCeilingPct = float64(cfg.Safety.DataIOCeilingPct)

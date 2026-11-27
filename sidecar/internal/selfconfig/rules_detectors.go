@@ -21,17 +21,30 @@ func tempMiBPerWindow(ev Evidence, cfg *config.Config) (float64, bool) {
 	return ev.TempBytesPerSecond.Value * window / mib, true
 }
 
+// tempWindowSample is the soak sample: the largest temp-file traffic the
+// reactive detector measured within one window since the previous pass,
+// or, without a detector reading, the average per window.
+func tempWindowSample(ev Evidence, cfg *config.Config) (float64, bool) {
+	if usable(ev.TempWindowPeakBytes) {
+		return ev.TempWindowPeakBytes.Value / mib, true
+	}
+	return tempMiBPerWindow(ev, cfg)
+}
+
 func tempFileRule() Rule {
 	return Rule{
 		Key: "sre.detectors.temp_file_mb", Name: "temp_threshold_by_workload", Version: 1,
 		Unit: "MiB", Summary: "Temp-file explosion threshold at 4x this database's normal " +
 			"temp traffic per detector window, so routine sorts and hashes are not incidents.",
 		EvidenceDoc: "pg_stat_database.temp_bytes rate (since the previous sample, or " +
-			"since the statistics reset) over sre.detectors.window_seconds.",
+			"since the statistics reset) over sre.detectors.window_seconds; each soak " +
+			"sample is the reactive detector's peak window since the previous pass " +
+			"(the average when the detector has not polled).",
 		OutcomeDoc: "share of soak windows over each threshold: raise only when >=10% " +
 			"cross the active one and <=5% cross the candidate",
 		Widens: WidensWhenLower, Cap: CapAtDefault, Step: 256, HardMin: 1024, HardMax: 65536,
-		Cites: []string{"temp_bytes_per_second", "temp_bytes", "stats_age_seconds"},
+		Cites: []string{"temp_bytes_per_second", "temp_bytes", "stats_age_seconds",
+			"temp_window_peak_bytes"},
 		Derive: func(ev Evidence, cfg *config.Config) Derivation {
 			perWindow, ok := tempMiBPerWindow(ev, cfg)
 			if !ok {
@@ -41,7 +54,7 @@ func tempFileRule() Rule {
 				"this database writes %.0f MiB of temp files per %ds window; the "+
 					"threshold is 4x that", perWindow, cfg.SRE.Detectors.WindowSeconds)}
 		},
-		Observe: tempMiBPerWindow,
+		Observe: tempWindowSample,
 		Compare: func(active, candidate float64, samples []float64, _ *config.Config) Verdict {
 			overActive := shareAbove(samples, active)
 			overCandidate := shareAbove(samples, candidate)

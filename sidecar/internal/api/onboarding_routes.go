@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,13 +20,19 @@ import (
 
 // registerOnboardingRoutes serves the first-run checklist, the first look
 // and the trust guide to every signed-in role; which MCP tokens and
-// notification channels exist stays visible to admins only.
+// notification channels exist stays visible to admins only. Operators and
+// admins may re-check a database's first look. Admins record the setup
+// wizard's steps (ux-04b); budgets is where the Model step reads the model.
 func registerOnboardingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
-	cfg *config.Config, control *pgxpool.Pool) {
-	reader := newFleetOnboardingReader(mgr, cfg, control)
-	mux.Handle("GET /api/v1/onboarding", onboardingHandler(reader))
-	mux.Handle("GET /api/v1/onboarding/trust", trustGuideHandler(reader))
-	mux.Handle("GET /api/v1/first-look", firstLookHandler(reader))
+	cfg *config.Config, control *pgxpool.Pool, budgets LLMBudgetRegistry) {
+	reader := newFleetOnboardingReader(mgr, cfg, control, budgets)
+	route(mux, "GET /api/v1/onboarding", gateViewer, onboardingHandler(reader))
+	route(mux, "POST /api/v1/onboarding/setup", gateAdmin,
+		onboardingSetupHandler(reader, time.Now))
+	route(mux, "GET /api/v1/onboarding/trust", gateViewer, trustGuideHandler(reader))
+	route(mux, "GET /api/v1/first-look", gateViewer, firstLookHandler(reader))
+	registerFirstLookRecheck(mux, fleetRecheckSource{mgr: mgr},
+		newRecheckLimiter(firstLookRecheckEvery, time.Now))
 }
 
 // fleetOnboardingReader reads onboarding state from each database's
@@ -34,14 +41,15 @@ type fleetOnboardingReader struct {
 	mgr     *fleet.DatabaseManager
 	cfg     *config.Config
 	control *pgxpool.Pool
+	budgets LLMBudgetRegistry
 }
 
 func newFleetOnboardingReader(mgr *fleet.DatabaseManager, cfg *config.Config,
-	control *pgxpool.Pool) onboardingReader {
+	control *pgxpool.Pool, budgets LLMBudgetRegistry) onboardingReader {
 	if mgr == nil || cfg == nil {
 		return nil
 	}
-	return &fleetOnboardingReader{mgr: mgr, cfg: cfg, control: control}
+	return &fleetOnboardingReader{mgr: mgr, cfg: cfg, control: control, budgets: budgets}
 }
 
 func (f *fleetOnboardingReader) Names(database string) ([]string, bool) {
@@ -60,38 +68,56 @@ func (f *fleetOnboardingReader) Names(database string) ([]string, bool) {
 func (f *fleetOnboardingReader) instance(name string) (*fleet.DatabaseInstance, error) {
 	inst := f.mgr.GetInstance(name)
 	if inst == nil || inst.Pool == nil {
-		return nil, fmt.Errorf("database %q has no runtime", name)
+		return nil, fmt.Errorf("database %q: %w", name, errNoRuntime)
 	}
 	return inst, nil
 }
 
+// Database reads the status snapshot first, so a database whose reads
+// fail is still named with its connection status and trust level.
 func (f *fleetOnboardingReader) Database(ctx context.Context, name string) (
 	onboardingDatabase, error) {
-	inst, err := f.instance(name)
-	if err != nil {
-		return onboardingDatabase{}, err
+	db := onboardingDatabase{Name: name}
+	inst := f.mgr.GetInstance(name)
+	if inst == nil {
+		return db, fmt.Errorf("database %q: %w", name, errNoRuntime)
 	}
 	status := inst.SnapshotStatus()
-	db := onboardingDatabase{Name: name, Connected: status.Connected,
-		TrustLevel: status.TrustLevel}
+	db.Connected, db.TrustLevel = status.Connected, status.TrustLevel
 	if inst.Executor != nil {
 		db.TrustLevel = inst.Executor.TrustLevel()
 	}
+	if inst.Pool == nil {
+		return db, fmt.Errorf("database %q: %w", name, errNoRuntime)
+	}
 	st, found, err := onboarding.Get(ctx, inst.Pool, name)
 	if err != nil {
-		return onboardingDatabase{}, err
+		return db, err
 	}
 	if found {
 		db.State = &st
 	}
-	report, found, err := firstlook.NewStore(inst.Pool).Latest(ctx, name)
+	look, found, err := firstlook.NewStore(inst.Pool).LatestSummary(ctx, name)
 	if err != nil {
-		return onboardingDatabase{}, err
+		return db, err
 	}
 	if found {
-		db.FirstLook = &report
+		db.FirstLook = &look
 	}
 	return db, nil
+}
+
+func (f *fleetOnboardingReader) FirstLook(ctx context.Context, name string) (
+	*firstlook.Report, error) {
+	inst, err := f.instance(name)
+	if err != nil {
+		return nil, err
+	}
+	report, found, err := firstlook.NewStore(inst.Pool).Latest(ctx, name)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &report, nil
 }
 
 func isAdmin(ctx context.Context) bool {
@@ -109,9 +135,9 @@ func (f *fleetOnboardingReader) MCP(ctx context.Context) (bool, *bool) {
 }
 
 func (f *fleetOnboardingReader) Notifications(ctx context.Context) *bool {
-	a := f.cfg.Alerting
-	if a.Enabled && (a.SlackWebhookURL != "" || a.PagerDutyRoutingKey != "" ||
-		len(a.Webhooks) > 0) {
+	// Configured means alerting is on and a route reaches a usable channel,
+	// not merely that a URL or key is set (alerting-08).
+	if a := f.cfg.Alerting; a.Enabled && a.HasUsableRoute() {
 		yes := true
 		return &yes
 	}
@@ -153,6 +179,14 @@ func (f *fleetOnboardingReader) Guide(ctx context.Context, name string) (
 	if in.Grants, err = onboarding.CheckGrants(ctx, inst.Pool); err != nil {
 		return onboarding.GuideInput{}, grantTarget{}, err
 	}
+	if inst.ActionPool != nil { // the action identity's grants (security-09)
+		action, err := onboarding.CheckGrants(ctx, inst.ActionPool)
+		if err != nil {
+			return onboarding.GuideInput{}, grantTarget{}, fmt.Errorf(
+				"read the action identity's grants: %w", err)
+		}
+		in.ActionGrants = &action
+	}
 	return in, f.target(inst), nil
 }
 
@@ -163,6 +197,7 @@ func (f *fleetOnboardingReader) target(inst *fleet.DatabaseInstance) grantTarget
 	switch {
 	case f.cfg.HasMetaDB() && inst.DatabaseID > 0:
 		t.ConfigURL = fmt.Sprintf("/api/v1/config/databases/%d", inst.DatabaseID)
+		t.ExecutionModeWritable = true
 	case f.cfg.IsFleet():
 		t = grantTarget{Method: "yaml", Key: "trust.level"}
 	}

@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -38,7 +36,6 @@ Each element: {"object_identifier":"queryid:NNN","severity":"info",` +
 
 func analyzeQueryRewrites(
 	ctx context.Context,
-	pool *pgxpool.Pool,
 	mgr *llm.Manager,
 	snap *collector.Snapshot,
 	cfg *config.Config,
@@ -49,25 +46,19 @@ func analyzeQueryRewrites(
 		return nil, nil
 	}
 
-	// Per-query dedup: skip candidates that already have an open
-	// query_rewrite finding in sage.findings. The object_identifier
-	// is stored as "queryid:NNN" so we extract known queryids.
-	if pool != nil {
-		existing := openRewriteQueryIDs(ctx, pool, logFn)
-		if len(existing) > 0 {
-			var filtered []rewriteCandidate
-			for _, c := range unique {
-				if existing[c.query.QueryID] {
-					logFn("DEBUG",
-						"advisor: rewrite: skipping queryid %d, open finding exists",
-						c.query.QueryID)
-					continue
-				}
-				filtered = append(filtered, c)
-			}
-			unique = filtered
+	// Per-query gate: a queryid with an open query_rewrite finding is not
+	// asked about again while that finding is open (advisors-02).
+	gate := openGateFrom(ctx)
+	var filtered []rewriteCandidate
+	for _, c := range unique {
+		if gate.queryIDs[c.query.QueryID] {
+			logFn("DEBUG", "advisor: rewrite: skipping queryid %d, open finding exists",
+				c.query.QueryID)
+			continue
 		}
+		filtered = append(filtered, c)
 	}
+	unique = filtered
 
 	if len(unique) == 0 {
 		return nil, nil
@@ -100,10 +91,13 @@ func analyzeQueryRewrites(
 		return nil, err
 	}
 
-	parsed := parseLLMFindings(resp, "query_rewrite", logFn)
-	// Filter out CREATE INDEX suggestions — those belong in the
-	// optimizer, not query_rewrite. Check both suggested_rewrite
-	// and recommended_sql in the detail map.
+	return rewriteFindings(parseLLMFindings(resp, "query_rewrite", logFn)), nil
+}
+
+// rewriteFindings keeps the parsed rewrite suggestions as advisory
+// findings. CREATE INDEX suggestions are dropped: those belong in the
+// optimizer, not query_rewrite.
+func rewriteFindings(parsed []analyzer.Finding) []analyzer.Finding {
 	var findings []analyzer.Finding
 	for _, f := range parsed {
 		if isCreateIndexRewrite(f) {
@@ -118,7 +112,7 @@ func analyzeQueryRewrites(
 		f.ActionRisk = ""
 		findings = append(findings, f)
 	}
-	return findings, nil
+	return findings
 }
 
 // rewriteCandidate is a statement offered to the rewrite advisor, with
@@ -158,59 +152,15 @@ func selectRewriteCandidates(snap *collector.Snapshot) []rewriteCandidate {
 	return unique
 }
 
-// openRewriteQueryIDs returns the set of queryids that already have
-// open query_rewrite findings. The object_identifier is stored as
-// "queryid:NNN", so we parse the numeric suffix.
-func openRewriteQueryIDs(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	logFn func(string, string, ...any),
-) map[int64]bool {
-	rows, err := pool.Query(ctx,
-		`/* pg_sage */ SELECT object_identifier FROM sage.findings
-		 WHERE category = 'query_rewrite'
-		   AND status = 'open'
-		   AND acted_on_at IS NULL`,
-	)
-	if err != nil {
-		logFn("WARN",
-			"advisor: rewrite dedup query failed: %v", err)
-		return nil
-	}
-	defer rows.Close()
-
-	ids := make(map[int64]bool)
-	for rows.Next() {
-		var ident string
-		if err := rows.Scan(&ident); err != nil {
-			continue
-		}
-		after, found := strings.CutPrefix(ident, "queryid:")
-		if !found {
-			continue
-		}
-		qid, err := strconv.ParseInt(
-			strings.TrimSpace(after), 10, 64,
-		)
-		if err != nil {
-			continue
-		}
-		ids[qid] = true
-	}
-	return ids
-}
-
-// isCreateIndexRewrite returns true if the finding's suggested
-// rewrite or recommended_sql is a CREATE INDEX statement. These
-// overlap with optimizer recommendations and should be filtered.
+// isCreateIndexRewrite returns true if the finding's SQL, or the
+// suggested_rewrite or recommended_sql in its detail, is a CREATE INDEX
+// statement. These overlap with optimizer recommendations and should be
+// filtered; reading RecommendedSQL keeps the filter independent of the
+// detail layout.
 func isCreateIndexRewrite(f analyzer.Finding) bool {
-	if f.Detail == nil {
-		return false
-	}
-	for _, key := range []string{
-		"suggested_rewrite", "recommended_sql",
-	} {
-		val, _ := f.Detail[key].(string)
+	suggested, _ := f.Detail["suggested_rewrite"].(string)
+	recommended, _ := f.Detail["recommended_sql"].(string)
+	for _, val := range []string{f.RecommendedSQL, suggested, recommended} {
 		if val == "" {
 			continue
 		}

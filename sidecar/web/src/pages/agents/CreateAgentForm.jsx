@@ -1,8 +1,10 @@
 // Create an agent principal (admin): a name, an accountable sponsor (an
-// operator or admin), a profile, an environment ceiling and an optional
-// tenant.
+// operator or admin), a profile picked from those the server ships
+// (agentgov-06), an environment ceiling and an optional tenant.
 import { useState } from 'react'
-import { DEFAULT_PROFILE, ENVIRONMENTS, createAgent, createBody } from './agentsApi'
+import {
+  DEFAULT_PROFILE, ENVIRONMENTS, createAgent, createBody, profileNames,
+} from './agentsApi'
 import { Button, ErrorBox, TextInput, card, inputStyle, muted } from './ui'
 
 const empty = { name: '', sponsor: '', profile: DEFAULT_PROFILE, ceiling: 'dev',
@@ -18,13 +20,20 @@ function Select({ testId, value, onChange, label, children }) {
   )
 }
 
-export function CreateAgentForm({ users, onCreated }) {
+function profileLabel(name, profiles) {
+  const p = Array.isArray(profiles) ? profiles.find(x => x?.name === name) : null
+  return p?.env_ceiling ? `${name} (up to ${p.env_ceiling})` : name
+}
+
+export function CreateAgentForm({ users, profiles, onCreated }) {
   const [form, setForm] = useState(empty)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [done, setDone] = useState('')
   const set = key => value => setForm(prev => ({ ...prev, [key]: value }))
-  const body = createBody(form)
+  const names = profileNames(profiles)
+  const profile = names.includes(form.profile) ? form.profile : names[0]
+  const body = createBody({ ...form, profile })
   const sponsors = (users || []).filter(u => u.role === 'admin' || u.role === 'operator')
   async function submit() {
     setBusy(true)
@@ -54,8 +63,10 @@ export function CreateAgentForm({ users, onCreated }) {
           <option value="">Sponsor…</option>
           {sponsors.map(u => <option key={u.id} value={String(u.id)}>{u.email}</option>)}
         </Select>
-        <TextInput testId="agent-create-profile" value={form.profile}
-          onChange={set('profile')} placeholder="profile" />
+        <Select testId="agent-create-profile" value={profile}
+          onChange={set('profile')} label="Profile">
+          {names.map(n => <option key={n} value={n}>{profileLabel(n, profiles)}</option>)}
+        </Select>
         <Select testId="agent-create-ceiling" value={form.ceiling}
           onChange={set('ceiling')} label="Environment ceiling">
           {ENVIRONMENTS.map(e => <option key={e} value={e}>{e}</option>)}

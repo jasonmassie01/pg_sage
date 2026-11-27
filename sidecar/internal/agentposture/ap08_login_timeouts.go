@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/provider"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap08{}) }
@@ -19,12 +22,11 @@ type ap08 struct{}
 
 func (ap08) Spec() Spec {
 	return Spec{ID: "AP-08", Title: "Login roles without session timeouts",
-		Severity: Info}
+		Severity: Info, ReadsSessions: true}
 }
 
 // providerAdminRoles are managed-service administration logins.
-const providerAdminRoles = `^(rdsadmin|rdsrepladmin|rds_|cloudsqladmin|cloudsqlreplica|` +
-	`azure_superuser|azuresu|alloydbadmin|alloydbreplica)`
+const providerAdminRoles = provider.AdminRolePattern
 
 // ap08SQL reports, per candidate role, whether each timeout is covered.
 var ap08SQL = Statement("AP-08", `WITH db AS (
@@ -63,13 +65,14 @@ const (
 )
 
 func (ap08) Detect(ctx context.Context, in Input) ([]Finding, error) {
-	rows, err := in.Q.Query(ctx, ap08SQL, in.Env.Self.OID, providerAdminRoles, maxRows)
+	lim := in.capRows("login roles", maxRows)
+	rows, err := in.Q.Query(ctx, ap08SQL, in.Env.Self.OID, providerAdminRoles, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read login role timeouts: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var oid uint32
 		var name string
 		var stmt, idle bool
@@ -87,7 +90,7 @@ func (ap08) Detect(ctx context.Context, in Input) ([]Finding, error) {
 
 func ap08Finding(name string, stmt, idle, agent bool) Finding {
 	var missing, fix []string
-	role := QuoteIdent(name)
+	role := sqlident.Ident(name)
 	if !stmt {
 		missing = append(missing, "statement_timeout")
 		fix = append(fix, fmt.Sprintf("ALTER ROLE %s SET statement_timeout = '%s';", role,

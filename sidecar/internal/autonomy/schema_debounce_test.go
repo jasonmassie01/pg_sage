@@ -131,17 +131,17 @@ func TestDDLDebounceDefaultsWhenUnset(t *testing.T) {
 	}
 }
 
-// TriggerSchemaGuard is an explicit, synchronous request (preflight and
-// operators): it is never debounced.
-func TestExplicitTriggerIsNotDebounced(t *testing.T) {
+// The debounce applies only to DDL-requested scans: a scan run directly
+// (the gate a worker cycle takes) is never debounced.
+func TestDirectScanIsNotDebounced(t *testing.T) {
 	guard := &recordingSchemaGuard{}
 	supervisor := debounceSupervisor(t, guard, time.Hour, make(chan time.Time))
 	for i := 0; i < 3; i++ {
-		if err := supervisor.TriggerSchemaGuard(context.Background(), "orders"); err != nil {
-			t.Fatalf("TriggerSchemaGuard: %v", err)
+		if err := runSchemaGuardNow(context.Background(), supervisor, "orders"); err != nil {
+			t.Fatalf("runSchemaGuardNow: %v", err)
 		}
 	}
 	if got := guard.callCount(); got != 3 {
-		t.Fatalf("explicit triggers ran %d scans, want 3", got)
+		t.Fatalf("direct scans ran %d, want 3", got)
 	}
 }

@@ -22,7 +22,7 @@ func TestPreparedExplainArgs(t *testing.T) {
 // the pooled connection (prepared statements survive rollback).
 func TestExplainPreparedPlansAndCleansUp(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	s, err := openHypoPGSession(t.Context(), pool)
+	s, err := openHypoPGSession(t.Context(), pool, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

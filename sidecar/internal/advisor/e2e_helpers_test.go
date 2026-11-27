@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/collector"
-	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 )
 
@@ -43,29 +42,6 @@ func e2ePool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("expand synthetic advisor fixture: %v", err)
 	}
 	return pool
-}
-
-func e2eLLMConfig(getenv func(string) string) (*config.LLMConfig, error) {
-	cfg := &config.LLMConfig{
-		Enabled:          true,
-		TimeoutSeconds:   60,
-		TokenBudgetDaily: 100000,
-		CooldownSeconds:  10,
-	}
-	if getenv("PG_SAGE_LIVE_LLM") == "1" && getenv("SAGE_LLM_AUTH") == "databricks" {
-		cfg.Auth = "databricks"
-		cfg.Endpoint, cfg.Model = getenv("SAGE_LLM_ENDPOINT"), getenv("SAGE_LLM_MODEL")
-		if strings.TrimSpace(cfg.Endpoint) == "" || strings.TrimSpace(cfg.Model) == "" {
-			return nil, fmt.Errorf("native advisor E2E requires explicit SAGE_LLM_ENDPOINT and SAGE_LLM_MODEL")
-		}
-		return cfg, nil
-	}
-	if cfg.APIKey = getenv("SAGE_GEMINI_API_KEY"); cfg.APIKey == "" {
-		return nil, nil
-	}
-	cfg.Model = "gemini-2.5-flash"
-	cfg.Endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
-	return cfg, nil
 }
 
 func e2eLLMManager(t *testing.T) *llm.Manager {

@@ -189,59 +189,6 @@ func TestShouldExecute_AllCombinations(t *testing.T) {
 	}
 }
 
-func TestNeedsConcurrently(t *testing.T) {
-	tests := []struct {
-		sql  string
-		want bool
-	}{
-		{"CREATE INDEX CONCURRENTLY idx ON t (c)", true},
-		{"create index concurrently idx on t (c)", true},
-		{"CREATE INDEX idx ON t (c)", false},
-		{"DROP INDEX CONCURRENTLY idx", true},
-		{"VACUUM FULL t", false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.sql, func(t *testing.T) {
-			got := NeedsConcurrently(tc.sql)
-			if got != tc.want {
-				t.Errorf("NeedsConcurrently(%q) = %v, want %v",
-					tc.sql, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestNeedsTopLevel(t *testing.T) {
-	tests := []struct {
-		sql  string
-		want bool
-	}{
-		{"VACUUM t", true},
-		{"VACUUM FULL t", true},
-		{"VACUUM (VERBOSE) public.large_table", true},
-		{"vacuum analyze t", true},
-		{"  VACUUM t", true},
-		{"ALTER SYSTEM SET work_mem = '64MB'", true},
-		{"alter system set max_wal_size = '4GB'", true},
-		{`ALTER DATABASE "mydb" SET work_mem = '64MB'`, false},
-		{"CREATE INDEX idx ON t (c)", false},
-		{"ANALYZE t", false},
-		{"SELECT pg_terminate_backend(123)", false},
-		{"DROP INDEX idx", false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.sql, func(t *testing.T) {
-			got := NeedsTopLevel(tc.sql)
-			if got != tc.want {
-				t.Errorf("NeedsTopLevel(%q) = %v, want %v",
-					tc.sql, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestCategorizeAction(t *testing.T) {
 	tests := []struct {
 		sql  string

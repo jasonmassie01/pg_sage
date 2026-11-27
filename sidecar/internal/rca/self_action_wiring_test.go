@@ -164,9 +164,12 @@ func TestAnalyze_RollbackHistoryError_DoesNotPanic(t *testing.T) {
 	snap := quietSnapshot()
 	cfg := testConfig()
 
-	// Should not panic.
-	incidents := eng.Analyze(snap, snap, cfg, nil)
-	_ = incidents // no crash is the assertion
+	// Should not panic, and the failing lookup must have been reached:
+	// without the call the error path is not exercised (ci-11).
+	_ = eng.Analyze(snap, snap, cfg, nil)
+	if store.rollbackCalls != 1 {
+		t.Errorf("RollbackHistory called %d times, want 1", store.rollbackCalls)
+	}
 }
 
 // ---------------------------------------------------------------------------

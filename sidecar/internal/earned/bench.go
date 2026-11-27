@@ -9,7 +9,11 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"time"
+	"unicode"
+
+	"github.com/pg-sage/sidecar/internal/modellift"
 )
 
 // BenchSchema is the PGIncidentBench JSON schema the ledger reads
@@ -18,6 +22,9 @@ const BenchSchema = "pg_sage.pgincidentbench.v1"
 
 // MaxReportBytes bounds an ingested report.
 const MaxReportBytes = 8 << 20
+
+// maxModelBytes bounds a report's llm.model.
+const maxModelBytes = 256
 
 // maxReportFutureSkew tolerates clock skew between the bench host and us.
 const maxReportFutureSkew = 5 * time.Minute
@@ -52,9 +59,11 @@ type wireReport struct {
 	Gated          []string   `json:"gated_arms"`
 	Cells          []wireCell `json:"cells"`
 	// Revision 2 (roadmap 2.4): the model mode, a live run's budget and
-	// the held-out model lift.
+	// the held-out model lift. The model is an authority input (llm-01):
+	// a measurement counts only for an investigator running that model.
 	LLM struct {
-		Mode string `json:"mode"`
+		Mode  string `json:"mode"`
+		Model string `json:"model"`
 	} `json:"llm"`
 	Budget *struct {
 		Exhausted bool `json:"exhausted"`
@@ -99,6 +108,7 @@ func ParseBenchReport(raw []byte, now time.Time) (EvalRun, error) {
 	run.SchemaRevision = w.SchemaRevision
 	if len(w.ModelLift) > 0 {
 		run.ModelLift = &ModelLift{Mode: w.LLM.Mode,
+			Model:           modellift.NormalizeModel(w.LLM.Model),
 			BudgetExhausted: w.Budget != nil && w.Budget.Exhausted, Records: w.ModelLift}
 	}
 	return run, nil
@@ -120,6 +130,9 @@ func (w wireReport) validate(now time.Time) error {
 	case len(w.ModelLift) > maxLiftRecords:
 		return fmt.Errorf("%w: %d model lift records (at most %d)", ErrInvalidReport,
 			len(w.ModelLift), maxLiftRecords)
+	}
+	if err := validModel(w.LLM.Model); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidReport, err)
 	}
 	for i, r := range w.ModelLift {
 		if err := r.validate(w.LLM.Mode); err != nil {
@@ -158,3 +171,15 @@ func (c wireCell) validate() error {
 }
 
 func consistent(m wireMetric) bool { return m.N >= 0 && m.K >= 0 && m.K <= m.N }
+
+// validModel checks a report's llm.model: bounded and printable (it is
+// shown to operators and compared with the running model).
+func validModel(model string) error {
+	switch {
+	case len(model) > maxModelBytes:
+		return fmt.Errorf("llm.model is %d bytes (at most %d)", len(model), maxModelBytes)
+	case strings.IndexFunc(model, unicode.IsControl) >= 0:
+		return fmt.Errorf("llm.model %q has a control character", model)
+	}
+	return nil
+}

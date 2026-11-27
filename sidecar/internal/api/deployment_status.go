@@ -13,15 +13,19 @@ import (
 )
 
 func registerDeploymentStatusRoutes(mux *http.ServeMux, cfg *config.Config, rt RuntimeDeps, clients LLMBudgetRegistry) {
-	mux.Handle("GET /api/v1/deployment/status", RequireRole(auth.RoleAdmin)(deploymentStatusHandler(cfg, rt, clients)))
-	mux.Handle("GET /api/v1/lakebase-observability/history", RequireRole(auth.RoleAdmin)(telemetryHistoryHandler(rt)))
-	mux.Handle("GET /api/v1/lakebase-observability/status", RequireRole(auth.RoleAdmin, auth.RoleOperator, auth.RoleViewer)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if rt.TelemetryStatus == nil {
-			jsonResponse(w, map[string]any{"enabled": false, "state": "not_configured", "mode": "metadata_only"})
-			return
-		}
-		jsonResponse(w, rt.TelemetryStatus())
-	})))
+	route(mux, "GET /api/v1/deployment/status", gateAdmin,
+		deploymentStatusHandler(cfg, rt, clients))
+	route(mux, "GET /api/v1/lakebase-observability/history", gateAdmin, telemetryHistoryHandler(rt))
+	route(mux, "GET /api/v1/lakebase-observability/status", gateViewer,
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if rt.TelemetryStatus == nil {
+				jsonResponse(w, map[string]any{
+					"enabled": false, "state": "not_configured", "mode": "metadata_only",
+				})
+				return
+			}
+			jsonResponse(w, rt.TelemetryStatus())
+		}))
 }
 
 func telemetryHistoryHandler(rt RuntimeDeps) http.Handler {
@@ -61,14 +65,14 @@ func telemetryHistoryHandler(rt RuntimeDeps) http.Handler {
 			jsonError(w, "historical telemetry unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		jsonResponse(w, result)
 	})
 }
 
 // This is deliberately an allowlist, not Config serialization/redaction. It
-// describes global configuration; runtime liveness and per-database overrides
-// must be checked separately before asserting that a reader is running/stopped.
+// describes global configuration plus the Databricks runtime signals in the
+// databricks block (runtime_liveness "partial"); other readers' liveness and
+// per-database overrides must be checked separately.
 func deploymentStatusHandler(fallback *config.Config, rt RuntimeDeps, clients LLMBudgetRegistry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		var cfg *config.Config
@@ -97,7 +101,7 @@ func deploymentStatusHandler(fallback *config.Config, rt RuntimeDeps, clients LL
 		}
 		result := map[string]any{
 			"scope": "global_configuration", "source": source, "generation": generation,
-			"runtime_liveness": "not_reported", "per_database_overrides": "not_included",
+			"runtime_liveness": "partial", "per_database_overrides": "not_included",
 			"auth_mode": mode, "databricks_auth": databricksauth.CurrentAuthMetadata(),
 			"ai": map[string]any{
 				"general":     map[string]any{"enabled": llm.Enabled, "auth": llm.Auth, "endpoint_origin": statusOrigin(llm.Endpoint), "model": llm.Model, "api_key_configured": llm.APIKey != ""},
@@ -115,14 +119,14 @@ func deploymentStatusHandler(fallback *config.Config, rt RuntimeDeps, clients LL
 				"autonomy_enforced": sre.Autonomy.Enforce, "game_days_enabled": sre.Autonomy.GameDays.Enabled,
 			},
 			"external_sinks":     map[string]any{"alerting_enabled": cfg.Alerting.Enabled, "slack_configured": cfg.Alerting.SlackWebhookURL != "", "pagerduty_configured": cfg.Alerting.PagerDutyRoutingKey != "", "webhook_count": len(cfg.Alerting.Webhooks), "siem_sink_count": len(cfg.Audit.SIEM.Sinks), "specialist_pagerduty_result_configured": cfg.Specialist.PagerDuty.APIURL != "", "specialist_webhook_result_configured": cfg.Specialist.Webhook.ResultURL != ""},
-			"readers":            map[string]any{"cloud_telemetry_enabled": cfg.CloudTelemetry.IsEnabled(), "logwatch_enabled": cfg.LogWatch.Enabled, "auto_explain_enabled": cfg.AutoExplain.Enabled, "lakebase_observability_enabled": cfg.LakebaseObservability.Enabled, "lakebase_observability_allow_payload": cfg.LakebaseObservability.AllowPayload, "lakebase_observability_binding_count": len(cfg.LakebaseObservability.Bindings)},
+			"readers":            map[string]any{"cloud_telemetry_enabled": cfg.CloudTelemetry.IsEnabled(), "logwatch_enabled": cfg.LogWatch.Mode() != config.LogWatchOff, "logwatch_mode": cfg.LogWatch.Mode(), "auto_explain_enabled": cfg.AutoExplain.Enabled, "lakebase_observability_enabled": cfg.LakebaseObservability.Enabled, "lakebase_observability_allow_payload": cfg.LakebaseObservability.AllowPayload, "lakebase_observability_binding_count": len(cfg.LakebaseObservability.Bindings)},
 			"optional_protocols": map[string]any{"mcp_configured": cfg.MCP.Enabled, "mcp_transport": cfg.MCP.Transport, "specialist_configured": cfg.Specialist.Enabled, "supported_in_app": false, "refused_in_current_profile": rt.DatabricksAppAuth},
 			"trust_level":        cfg.Trust.Level,
+			"databricks":         databricksStatus(cfg, rt),
 		}
 		if clients != nil {
 			result["registered_ai_clients"] = clients.TokenStatus()
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		jsonResponse(w, result)
 	})
 }

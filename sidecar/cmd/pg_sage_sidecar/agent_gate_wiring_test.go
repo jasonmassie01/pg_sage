@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -14,6 +14,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // spec §6.2.1 wiring: the decider and the §6.2.7 hold are read at
@@ -80,10 +81,7 @@ func TestFleetRecoveryUnknownDatabaseHasNoPITR(t *testing.T) {
 }
 
 func TestWALArchivedReadsSettings(t *testing.T) {
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SAGE_TEST_DATABASE_URL not set; real-Postgres recovery posture")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -135,5 +133,72 @@ func TestAllObjectsNeedsEveryCheckerToPass(t *testing.T) {
 	if d, ok := agentguard.IsDenied(err); !ok || d.Reason != "agent_classification" ||
 		calls != 2 {
 		t.Fatalf("a denial wins and stops: err %v after %d calls", err, calls)
+	}
+}
+
+// drill-01a (market-07 CHECK-17): D7's drill time is the last passed
+// restore drill, on both PITR paths; zero only when no drill passed.
+
+type drillTimes struct {
+	last  time.Time
+	err   error
+	calls []string
+}
+
+func (d *drillTimes) LastPassed(_ context.Context, database string) (time.Time, error) {
+	d.calls = append(d.calls, database)
+	return d.last, d.err
+}
+
+func pitrOn(string) *bool { on := true; return &on }
+
+func TestFleetRecoveryCloudPostureReturnsTheLastPassedDrill(t *testing.T) {
+	passed := time.Date(2026, 11, 10, 3, 4, 5, 0, time.UTC)
+	drills := &drillTimes{last: passed}
+	pitr, drill, err := fleetRecovery{drills: drills, cloudPITR: pitrOn}.
+		Recovery(context.Background(), "orders")
+	if err != nil || !pitr || !drill.Equal(passed) {
+		t.Fatalf("cloud posture = (%v, %v, %v), want PITR and the drill time %v", pitr,
+			drill, err, passed)
+	}
+	if len(drills.calls) != 1 || drills.calls[0] != "orders" {
+		t.Fatalf("drills read for %v, want orders", drills.calls)
+	}
+}
+
+func TestFleetRecoveryWithoutAPassedDrillIsZero(t *testing.T) {
+	for name, drills := range map[string]drillHistory{"no store": nil,
+		"never passed": &drillTimes{},
+		"read error":   &drillTimes{err: errors.New("connection refused")}} {
+		pitr, drill, err := fleetRecovery{drills: drills, cloudPITR: pitrOn}.
+			Recovery(context.Background(), "orders")
+		if err != nil || !pitr || !drill.IsZero() {
+			t.Errorf("%s = (%v, %v, %v), want PITR with a zero drill time (L2 cap)", name,
+				pitr, drill, err)
+		}
+	}
+}
+
+func TestFleetRecoveryWALPathReturnsTheLastPassedDrill(t *testing.T) {
+	dsn := testdb.SkipUnlessLive(t)
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	mgr := fleet.NewManager(&config.Config{Mode: "fleet"})
+	mgr.RegisterInstance(&fleet.DatabaseInstance{Name: "live", Pool: pool,
+		Config: config.DatabaseConfig{Name: "live"}, Status: &fleet.InstanceStatus{}})
+	passed := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	noCloud := func(string) *bool { return nil }
+	_, drill, err := fleetRecovery{mgr: mgr, drills: &drillTimes{last: passed},
+		cloudPITR: noCloud}.Recovery(context.Background(), "live")
+	if err != nil || !drill.Equal(passed) {
+		t.Fatalf("WAL path drill = %v (%v), want %v", drill, err, passed)
+	}
+	_, drill, err = fleetRecovery{mgr: mgr, drills: &drillTimes{}, cloudPITR: noCloud}.
+		Recovery(context.Background(), "live")
+	if err != nil || !drill.IsZero() {
+		t.Fatalf("WAL path without a pass = %v (%v), want zero", drill, err)
 	}
 }

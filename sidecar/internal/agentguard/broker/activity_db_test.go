@@ -14,6 +14,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/agentguard/envbind"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -53,7 +54,7 @@ func (f *fixture) runTagged(t *testing.T, n int) []string {
 }
 
 func TestActivityAttributesEveryStatementByRole(t *testing.T) {
-	f := newFixture(t, envbind.EnvProd)
+	f := newAttributionFixture(t, envbind.EnvProd)
 	ensurePSS(t, f.super)
 	tags := f.runTagged(t, 3)
 	blocked := f.query(t, "SELECT pg_sleep(0)")
@@ -93,7 +94,7 @@ func TestActivityAttributesEveryStatementByRole(t *testing.T) {
 // Entries removed for the role (as a partial reset or an eviction would)
 // are detected by the coverage check, and the view falls back to the audit.
 func TestActivityFallsBackWhenEntriesAreMissing(t *testing.T) {
-	f := newFixture(t, envbind.EnvProd)
+	f := newAttributionFixture(t, envbind.EnvProd)
 	ensurePSS(t, f.super)
 	f.runTagged(t, 2)
 	exec(t, f.super, fmt.Sprintf("SELECT pg_stat_statements_reset(to_regrole('%s')::oid, "+
@@ -155,7 +156,8 @@ func TestActivityReportsDeallocAndFallsBack(t *testing.T) {
 	f := newFixtureOn(t, pool, envbind.EnvProd)
 	// Bootstrap and the fixture alone overflow 100 entries; start the
 	// attribution window from a clean slate (this server is the test's own).
-	exec(t, pool, "SELECT pg_stat_statements_reset()")
+	_, err = testdb.ResetStatements(ctx, pool)
+	require.NoError(t, err)
 	f.runTagged(t, 2)
 	if a := f.activity(t); a.Attribution.Dropped {
 		t.Fatalf("before eviction: %+v, want complete", a.Attribution)

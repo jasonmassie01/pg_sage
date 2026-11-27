@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,8 +19,9 @@ import (
 // proposals (?status=pending,approved,...; default all). POST
 // /api/v1/managed-changes/{id}/approve|reject?database= records an
 // operator's decision: approval means the operator applies the change,
-// pg_sage never does. GET /api/v1/cloud-telemetry serves each database's
-// host telemetry, its admission withhold reasons and parameter drift.
+// pg_sage never does. GET /api/v1/cloud-telemetry serves each provider
+// instance's host telemetry once, naming its member databases, with its
+// admission withhold reasons and parameter drift.
 
 const managedChangesMeaning = "Settings SQL cannot change on RDS, Aurora or Cloud SQL " +
 	"(restart-required or provider-restricted) are proposed as the exact parameter-group " +
@@ -28,19 +30,23 @@ const managedChangesMeaning = "Settings SQL cannot change on RDS, Aurora or Clou
 	"a proposal applied once PostgreSQL runs the new value."
 
 func registerManagedCloudRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	viewer := RequireRole("admin", "operator", "viewer")
-	operator := RequireRole("admin", "operator")
-	mux.Handle("GET /api/v1/managed-changes", viewer(managedChangesHandler(mgr)))
-	mux.Handle("POST /api/v1/managed-changes/{id}/approve",
-		operator(managedChangeDecisionHandler(mgr, true)))
-	mux.Handle("POST /api/v1/managed-changes/{id}/reject",
-		operator(managedChangeDecisionHandler(mgr, false)))
-	mux.Handle("GET /api/v1/cloud-telemetry", viewer(cloudTelemetryHandler(mgr)))
+	routeAggregate(mux, "GET /api/v1/managed-changes", gateViewer, mgr,
+		aggregateHandler(managedChangesHandler))
+	routeDB(mux, "POST /api/v1/managed-changes/{id}/approve", gateOperator, queryDatabase,
+		managedChangeDecisionHandler(mgr, true))
+	routeDB(mux, "POST /api/v1/managed-changes/{id}/reject", gateOperator, queryDatabase,
+		managedChangeDecisionHandler(mgr, false))
+	routeAggregate(mux, "GET /api/v1/cloud-telemetry", gateViewer, mgr,
+		aggregateHandler(cloudTelemetryHandler))
 }
 
+// managedChangeDatabase is one database's proposals. MemberDatabases are
+// the databases on the same provider instance (clouds-08): a change one
+// of them holds is not proposed again by the others.
 type managedChangeDatabase struct {
-	Database  string                `json:"database"`
-	Proposals []managedparam.Record `json:"proposals"`
+	Database        string                `json:"database"`
+	MemberDatabases []string              `json:"member_databases,omitempty"`
+	Proposals       []managedparam.Record `json:"proposals"`
 }
 
 func managedChangesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
@@ -69,7 +75,8 @@ func managedChangesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 				internalError(w, r, "read managed changes of "+np.name, err)
 				return
 			}
-			out = append(out, managedChangeDatabase{Database: np.name, Proposals: recs})
+			out = append(out, managedChangeDatabase{Database: np.name,
+				MemberDatabases: managedparam.PeerDatabases(np.name), Proposals: recs})
 		}
 		jsonResponse(w, map[string]any{"databases": out, "meaning": managedChangesMeaning})
 	}
@@ -162,10 +169,40 @@ func cloudTelemetryHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
 		}
 		out := []cloudtel.Status{}
 		for _, st := range cloudtel.Statuses() {
-			if database == "" || database == "all" || st.Database == database {
+			if database == "" || database == "all" || slices.Contains(st.Databases, database) {
 				out = append(out, st)
 			}
 		}
+		if visible, scoped := visibleDatabasesFrom(r.Context()); scoped {
+			out = visibleTelemetry(out, visible)
+		}
 		jsonResponse(w, map[string]any{"databases": out})
 	}
+}
+
+// visibleTelemetry narrows statuses to a scoped caller's visible databases
+// (apiauth-08b). The telemetry registry is process-wide, not the fleet
+// view the handler was built over, and a shared instance names all its
+// members: each status keeps only visible members, and one with none is
+// dropped. statuses is not modified.
+func visibleTelemetry(statuses []cloudtel.Status, visible map[string]bool) []cloudtel.Status {
+	out := []cloudtel.Status{}
+	for _, st := range statuses {
+		members := st.Databases
+		if len(members) == 0 {
+			members = []string{st.Database}
+		}
+		kept := []string{}
+		for _, db := range members {
+			if visible[db] {
+				kept = append(kept, db)
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		st.Database, st.Databases = kept[0], kept
+		out = append(out, st)
+	}
+	return out
 }

@@ -16,8 +16,8 @@ import (
 // may not signal it (gone, protected, another database, a replica).
 func (a *ActionService) sampleTarget(ctx context.Context, pid int32,
 	backendStart time.Time) (BackendTarget, *Ineligible) {
-	res := a.targets.Run(ctx, probes.SignalTarget, probes.Args{PID: pid,
-		BackendStart: backendStart})
+	res := a.targets.Run(probes.WithCaller(ctx, probes.CallerActionTarget),
+		probes.SignalTarget, probes.Args{PID: pid, BackendStart: backendStart})
 	if !res.Status.Usable() {
 		return BackendTarget{}, ineligible(ReasonTargetProbeFailed,
 			"the target probe returned %s (%s)", res.Status, res.Reason)

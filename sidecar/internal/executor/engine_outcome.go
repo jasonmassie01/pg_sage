@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -24,22 +25,19 @@ func (e *Executor) engineOutcome(
 		verdict = verify.OutcomeUnverifiable
 	}
 	comparison, _ := v.Evidence["comparison"].(map[string]any)
-	reason, _ := comparison["reason"].(string)
-	if v.Reason != "" {
-		reason = strings.TrimSuffix(v.Reason+": "+reason, ": ")
-	}
 	now := time.Now()
 	o := verify.Outcome{ActionLogID: actionID, Class: verify.ClassIndexCreate,
-		Verdict: verdict, Reason: nonEmpty(reason, v.Status), Evidence: v.Evidence,
+		Verdict: verdict, Reason: outcomeReason(v), Evidence: v.Evidence,
 		WindowEnd: &now, Observed: verify.Observed{Metric: verify.MetricMeanExecTime,
 			Before: evidenceMean(comparison, "before"), After: evidenceMean(comparison, "after"),
 			ChangePct: v.ObservedPct}}
 	if o.Evidence == nil {
 		o.Evidence = map[string]any{}
 	}
+	withVerifier(&o, v)
 	var executedAt time.Time
 	var predicted []byte
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT executed_at,
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT executed_at,
 		before_state->'predicted_effect' FROM sage.action_log WHERE id = $1`, actionID).
 		Scan(&executedAt, &predicted)
 	if err != nil {
@@ -57,4 +55,26 @@ func evidenceMean(comparison map[string]any, side string) float64 {
 	m, _ := comparison[side].(map[string]any)
 	mean, _ := m["mean_ms"].(float64)
 	return mean
+}
+
+// outcomeReason is the verdict reason, then the comparison's, then the
+// status. A table write cost over its threshold is named with its table:
+// the cause of a write_impact revert, or evidence beside a query reason
+// that came first (executor-03b).
+func outcomeReason(v verify.Verdict) string {
+	comparison, _ := v.Evidence["comparison"].(map[string]any)
+	reason, _ := comparison["reason"].(string)
+	if v.Reason != "" {
+		reason = strings.TrimSuffix(v.Reason+": "+reason, ": ")
+	}
+	reason = nonEmpty(reason, v.Status)
+	signal, _ := v.Evidence["write_signal"].(map[string]any)
+	if exceeds, _ := signal["exceeds_threshold"].(bool); !exceeds {
+		return reason
+	}
+	delta, _ := signal["delta_pct"].(float64)
+	threshold, _ := signal["threshold_pct"].(float64)
+	table, _ := signal["table"].(string)
+	return fmt.Sprintf("%s; WAL bytes per tuple written to %s %+.1f%% (over the %g%% "+
+		"write_impact_pct)", reason, table, delta, threshold)
 }

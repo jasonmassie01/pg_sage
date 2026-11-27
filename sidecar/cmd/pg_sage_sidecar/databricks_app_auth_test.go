@@ -31,7 +31,9 @@ func TestDatabricksAppBootstrapAndRouterUsePlatformIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			appAuth := &auth.DatabricksAppConfig{Workspace: "https://workspace.cloud.databricks.com", AdminEmail: "owner@example.com"}
-			result := wireRouter(WireParams{Cfg: config.DefaultConfig(), Pool: p, DatabricksAppAuth: appAuth})
+			result := testWireRouter(WireParams{
+				Cfg: config.DefaultConfig(), Pool: p, DatabricksAppAuth: appAuth,
+			})
 			for _, email := range []string{"owner@example.com", "viewer@example.com", ""} {
 				r := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 				if email != "" {

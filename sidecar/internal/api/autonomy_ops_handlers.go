@@ -51,10 +51,16 @@ func (h autonomyHandlers) outcome(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]any{"ok": true})
 }
 
-// bench ingests an uploaded PGIncidentBench JSON report.
+// bench ingests an uploaded PGIncidentBench JSON report: a JSON body is
+// an unsigned operator report, a multipart/form-data upload a signed
+// release report (benchUploadSigned).
 func (h autonomyHandlers) bench(w http.ResponseWriter, r *http.Request) {
 	e, _, ok := h.ledger(w, r.URL.Query().Get("database"))
 	if !ok {
+		return
+	}
+	if isMultipartUpload(r) {
+		h.benchUploadSigned(w, r, e)
 		return
 	}
 	raw, err := io.ReadAll(r.Body)
@@ -70,6 +76,11 @@ func (h autonomyHandlers) bench(w http.ResponseWriter, r *http.Request) {
 		autonomyError(w, r, err)
 		return
 	}
+	writeBenchRun(w, run)
+}
+
+// writeBenchRun answers 201 with a new run, 200 with a duplicate.
+func writeBenchRun(w http.ResponseWriter, run earned.EvalRun) {
 	if !run.Duplicate {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)

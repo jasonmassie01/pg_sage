@@ -97,12 +97,18 @@ advisor:
 # addresses (loopback, RFC 1918, ULA, CGNAT) and plain http are refused
 # unless allowed here, e.g. for an internal SMTP relay. Link-local and
 # cloud metadata addresses are always refused. YAML only; requires restart.
+# chat_approval_max_tier is the highest risk tier a chat card may approve:
+# safe, moderate (default) or none; high is approved in pg_sage only.
+# ask_batch_minutes batches one database's Ask notifications (0: send each
+# alone; at most 10 items per message).
 # notification_policy:
 #   allow_private_targets: false
+#   chat_approval_max_tier: moderate
+#   ask_batch_minutes: 15
 
 # Prometheus metrics endpoint
 prometheus:
-  listen_addr: "0.0.0.0:9187"
+  listen_addr: "0.0.0.0:8187"
 
 # REST API + Dashboard (web UI)
 api:

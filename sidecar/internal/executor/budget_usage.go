@@ -74,7 +74,7 @@ func timeOrZero(at *time.Time) time.Time {
 // action holds its budget slot when nothing releases it (a crash): Apply's
 // two bounded stages, the waits and the run.
 func (e *Executor) budgetHoldHorizon() time.Duration {
-	return 2 * e.applyTimeout()
+	return 2 * e.maxApplyTimeout()
 }
 
 // releaseBudget ends the budget hold of execute authorizations once the
@@ -93,7 +93,7 @@ func (e *Executor) releaseBudget(ctx context.Context, decisionIDs ...int64) {
 	}
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if _, err := e.pool.Exec(releaseCtx, `/* pg_sage */ UPDATE sage.decision
+	if _, err := e.pool.Exec(releaseCtx, `/* pg_sage executor */ UPDATE sage.decision
 		SET evidence = evidence || jsonb_build_object('`+budgetReleasedKey+`', now())
 		WHERE id = ANY($1) AND verdict = 'execute'
 		  AND NOT evidence ? '`+budgetReleasedKey+`'`, ids); err != nil {
@@ -141,7 +141,7 @@ func stampBudgetEvidence(
 // of the same change; a change authorized twice (before and after its
 // waits) is held once. Targets are split at "|": the recommendation
 // identity of an index is "<schema>.<table>|<definition>".
-const standingUsageSQL = `/* pg_sage */
+const standingUsageSQL = `/* pg_sage executor */
 WITH executed AS (
 	SELECT d.target_objects AS targets, al.executed_at AS spent_at, d.evidence
 	  FROM sage.action_log al

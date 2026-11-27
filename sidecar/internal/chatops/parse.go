@@ -21,10 +21,12 @@ const (
 	DecisionSnooze Decision = "snooze"
 )
 
-// Slack button action ids of an approval message.
+// Slack action ids of the retired Sage SRE proposal buttons (policy-08).
+// They are recognised for one release only, so a press is answered as
+// outdated; nothing renders them any more.
 const (
-	SlackApproveAction = "sage_approve"
-	SlackDenyAction    = "sage_deny"
+	LegacySlackApproveAction = "sage_approve"
+	LegacySlackDenyAction    = "sage_deny"
 )
 
 var (
@@ -46,9 +48,11 @@ type Action struct {
 	UserID      string
 	UserName    string
 	Decision    Decision
-	ProposalID  string // a Sage SRE proposal button
+	Outdated    bool   // a retired proposal button: answered, never applied
 	CardToken   string // an approval-card button
 	FactToken   string // a fact-card button (roadmap 2.3)
+	PlanToken   string // a plan-card button (plan-03b)
+	PlanChoice  PlanChoice
 	Nonce       string // replay key, unique per delivery
 	ResponseURL string // Slack follow-up URL
 	CallbackID  string // Telegram callback query id
@@ -114,9 +118,12 @@ var slackCardActions = map[string]Decision{
 	SlackCardSnoozeAction:  DecisionSnooze,
 }
 
-// setSlackDecision reads a button: a card button carries a card token, a
-// proposal button a proposal id.
+// setSlackDecision reads a button: a card button carries a card token; a
+// retired proposal button (a proposal id) is marked outdated.
 func (out *Action) setSlackDecision(actionID, value string) error {
+	if c, ok := slackPlanActions[actionID]; ok {
+		return out.setPlan(c, value)
+	}
 	if d, ok := slackFactActions[actionID]; ok {
 		if !ValidCardToken(value) {
 			return fmt.Errorf("%w: bad fact card token", ErrMalformed)
@@ -132,9 +139,9 @@ func (out *Action) setSlackDecision(actionID, value string) error {
 		return nil
 	}
 	switch actionID {
-	case SlackApproveAction:
+	case LegacySlackApproveAction:
 		out.Decision = DecisionApprove
-	case SlackDenyAction:
+	case LegacySlackDenyAction:
 		out.Decision = DecisionDeny
 	default:
 		return fmt.Errorf("%w: unknown action", ErrMalformed)
@@ -142,7 +149,7 @@ func (out *Action) setSlackDecision(actionID, value string) error {
 	if !uuidPattern.MatchString(value) {
 		return fmt.Errorf("%w: bad proposal id", ErrMalformed)
 	}
-	out.ProposalID = strings.ToLower(value)
+	out.Outdated = true
 	return nil
 }
 
@@ -164,8 +171,8 @@ type telegramEnvelope struct {
 	} `json:"callback_query"`
 }
 
-// ParseTelegram reads a webhook update. Only callback queries carrying
-// CallbackData are decisions; other updates are ErrNotCallback.
+// ParseTelegram reads a webhook update. Only callback queries are
+// decisions; other updates are ErrNotCallback.
 func ParseTelegram(body []byte) (Action, error) {
 	var u telegramEnvelope
 	if err := json.Unmarshal(body, &u); err != nil {
@@ -187,8 +194,11 @@ func ParseTelegram(body []byte) (Action, error) {
 		err = a.setFactData(c.Data)
 	case strings.HasPrefix(c.Data, cardDataPrefix):
 		err = a.setCardData(c.Data)
+	case strings.HasPrefix(c.Data, planDataPrefix):
+		err = a.setPlanData(c.Data)
 	default:
-		a.Decision, a.ProposalID, err = parseCallbackData(c.Data)
+		a.Decision, err = parseLegacyData(c.Data)
+		a.Outdated = err == nil
 	}
 	if err != nil {
 		return Action{}, err
@@ -200,20 +210,12 @@ func ParseTelegram(body []byte) (Action, error) {
 	return a, nil
 }
 
-// CallbackData is the Telegram button payload of a decision (at most 64
-// bytes): "sage:a:<proposal id>" or "sage:d:<proposal id>".
-func CallbackData(d Decision, proposalID string) string {
-	verb := "d"
-	if d == DecisionApprove {
-		verb = "a"
-	}
-	return "sage:" + verb + ":" + proposalID
-}
-
-func parseCallbackData(data string) (Decision, string, error) {
+// parseLegacyData reads a retired proposal button's callback data,
+// "sage:a:<proposal id>" or "sage:d:<proposal id>" (policy-08).
+func parseLegacyData(data string) (Decision, error) {
 	rest, ok := strings.CutPrefix(data, "sage:")
 	if !ok || len(rest) < 3 || rest[1] != ':' {
-		return "", "", fmt.Errorf("%w: unknown callback data", ErrMalformed)
+		return "", fmt.Errorf("%w: unknown callback data", ErrMalformed)
 	}
 	var d Decision
 	switch rest[0] {
@@ -222,11 +224,10 @@ func parseCallbackData(data string) (Decision, string, error) {
 	case 'd':
 		d = DecisionDeny
 	default:
-		return "", "", fmt.Errorf("%w: unknown decision", ErrMalformed)
+		return "", fmt.Errorf("%w: unknown decision", ErrMalformed)
 	}
-	id := rest[2:]
-	if !uuidPattern.MatchString(id) {
-		return "", "", fmt.Errorf("%w: bad proposal id", ErrMalformed)
+	if !uuidPattern.MatchString(rest[2:]) {
+		return "", fmt.Errorf("%w: bad proposal id", ErrMalformed)
 	}
-	return d, strings.ToLower(id), nil
+	return d, nil
 }

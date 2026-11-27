@@ -29,6 +29,7 @@ const (
 	MemorySourceInstanceClass       = "instance_class"
 	MemorySourceCloudMonitoring     = "cloud_monitoring"
 	MemorySourceMachineTier         = "machine_tier"
+	MemorySourceSupabaseMetrics     = "supabase_metrics"
 )
 
 var (
@@ -37,11 +38,14 @@ var (
 	ErrUnavailable   = errors.New("cloud telemetry unavailable")
 	ErrNoCredentials = fmt.Errorf("%w: no credentials", ErrUnavailable)
 	ErrIdentity      = fmt.Errorf("%w: database identity unknown", ErrUnavailable)
-	ErrAuth          = errors.New("cloud telemetry access denied")
-	ErrThrottled     = errors.New("cloud telemetry throttled")
-	ErrClockSkew     = errors.New("cloud telemetry clock skew")
-	ErrMalformed     = errors.New("cloud telemetry response malformed")
-	ErrProvider      = errors.New("cloud telemetry provider error")
+	// ErrUnbounded: the provider grows storage without a bound (Aurora,
+	// Cloud SQL auto-resize without a limit), so no capacity exists.
+	ErrUnbounded = fmt.Errorf("%w: storage grows without a bound", ErrUnavailable)
+	ErrAuth      = errors.New("cloud telemetry access denied")
+	ErrThrottled = errors.New("cloud telemetry throttled")
+	ErrClockSkew = errors.New("cloud telemetry clock skew")
+	ErrMalformed = errors.New("cloud telemetry response malformed")
+	ErrProvider  = errors.New("cloud telemetry provider error")
 )
 
 // Point is one measurement and when the provider measured it.
@@ -80,6 +84,12 @@ type Sample struct {
 	DBLoad                *Point             `json:"db_load,omitempty"`
 	DBLoadByWait          map[string]float64 `json:"db_load_by_wait,omitempty"`
 	MemoryTotalSource     string             `json:"memory_total_source,omitempty"`
+	// InstanceClass is the provider's size name (RDS DB instance class,
+	// Cloud SQL tier); VCPUs its documented vCPU count (0: unknown, never a
+	// guess). Serverless capacity scales, so it has no fixed size.
+	InstanceClass string `json:"instance_class,omitempty"`
+	VCPUs         int    `json:"vcpus,omitempty"`
+	Serverless    bool   `json:"serverless,omitempty"`
 	// StorageAutoGrows: the provider grows storage without a bound pg_sage
 	// knows (Aurora's cluster volume, unlimited Cloud SQL auto-resize).
 	StorageAutoGrows bool     `json:"storage_auto_grows"`

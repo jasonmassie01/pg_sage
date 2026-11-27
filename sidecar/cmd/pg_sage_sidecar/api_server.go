@@ -17,6 +17,11 @@ func initFleetAndAPI() {
 	if fleetMgr == nil {
 		fleetMgr = fleet.NewManager(cfg)
 	}
+	// fleet-09: follow stops and resumes made in SQL (sage.emergency_stop)
+	// and retry stops that could not be saved.
+	go fleetMgr.RunStopReconcile(shutdownCtx, fleet.StopReconcileInterval)
+	// footprint-07: the process CPU budget is checked once, not per database.
+	startProcessCPUWatch(shutdownCtx, fleetMgr)
 
 	// Every mode's init registered its database runtimes.
 	startMCPRuntime()
@@ -44,7 +49,7 @@ func startAPIServer(rl *RateLimiter) {
 	}
 
 	configureAPIProcessHooks()
-	result := wireRouter(WireParams{
+	result, err := wireRouter(WireParams{
 		DatabricksAppAuth: databricksAppAuth,
 		Cfg:               cfg,
 		Pool:              pool,
@@ -65,7 +70,19 @@ func startAPIServer(rl *RateLimiter) {
 		LLMBudgets:       llmBudgetRegistry(),
 		MCPHandler:       mcpHTTPHandler(),
 	})
+	if err != nil {
+		logError("api", "refusing to start API server: %v", err)
+		os.Exit(1)
+	}
+	if err := checkMetricsOnAPI(cfg, result.AuthPool); err != nil {
+		logError("startup", "%v", err)
+		os.Exit(1)
+	}
 	startAuthPoolServices(result.AuthPool)
+	if result.Canary != nil {
+		go recoverInterruptedCanaries(result.Canary, result.AuthPool)
+	}
+	startTLSExpiryWatch(shutdownCtx, apiTLS, tlsExpiryCheckInterval)
 	serveAPI(addr, result.Handler)
 }
 
@@ -121,8 +138,16 @@ func startAuthPoolServices(authPool *pgxpool.Pool) {
 	if authPool != nil {
 		// Election first: the leader-only loops below read its result.
 		startFleetLearning(shutdownCtx, authPool, fleetMgr)
+		startReviewFleet(shutdownCtx, authPool, fleetMgr)
 		startAgentGovernance(shutdownCtx, authPool, fleetMgr)
+		startGitopsReconciler(shutdownCtx, authPool, fleetMgr) // cli-02a, after election
+		startApprovalPRs(shutdownCtx, authPool, fleetMgr)      // cli-02b, after election
+		startCloneReaper(shutdownCtx, cfg, fleetMgr, globalMetaState)
+		startCommandDrillReaper(shutdownCtx, cfg, fleetMgr, globalMetaState)
 		startAgentGate(cfg, fleetMgr, globalMetaState, agentEnvSvc)
+		// After the gate: a pass shortens the cadence when D7 needs a drill.
+		startRestoreDrills(shutdownCtx, cfg, fleetMgr, globalMetaState)
+		setReviewDrillPools(cfg, fleetMgr, globalMetaState)
 		startAuditJobs(shutdownCtx, authPool, fleetMgr)
 		startAgentKill(shutdownCtx, cfg, fleetMgr, globalMetaState)
 		startDecommissionReport(shutdownCtx, authPool, cfg.ConfigPath)

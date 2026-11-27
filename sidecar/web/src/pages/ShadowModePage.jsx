@@ -1,6 +1,19 @@
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
+import { ShadowDecisions } from './trust/ShadowDecisions'
+
+// Shadow Mode reads the shadow ledger (GET /api/v1/shadow-decisions): below
+// a class's earned trust level pg_sage records every action it would have
+// taken, runs none of them, and scores each later from what happened. Per
+// class: the decisions, how they scored, how many count as shadow evidence,
+// and the toil minutes the counted correct ones would have saved
+// (potential, never credited; the Value page prices verified outcomes).
+
+const muted = { color: 'var(--text-secondary)' }
+const strong = { color: 'var(--text-primary)' }
+const card = { background: 'var(--bg-card)', borderColor: 'var(--border)' }
 
 function dbParam(database) {
   return database && database !== 'all'
@@ -8,92 +21,125 @@ function dbParam(database) {
     : ''
 }
 
-function Stat({ label, value }) {
+function potential(minutes) {
+  return Number.isFinite(minutes) ? `${minutes} min potential` : 'not modelled'
+}
+
+const COLUMNS = [
+  ['total', 'Decisions'], ['pending', 'Pending'], ['correct', 'Correct'],
+  ['incorrect', 'Incorrect'], ['counted', 'Counted'],
+]
+
+function ClassRow({ database, row }) {
   return (
-    <div className="rounded border p-3"
-      style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-      <div className="text-2xl font-semibold"
-        style={{ color: 'var(--text-primary)' }}>
-        {value}
-      </div>
-      <div className="text-xs mt-1"
-        style={{ color: 'var(--text-secondary)' }}>
-        {label}
-      </div>
+    <tr data-testid={`shadow-class-${database}-${row.class}`}
+      style={{ borderTop: '1px solid var(--border)' }}>
+      <td className="py-1 pr-3 align-top">
+        <div style={strong}>{row.class}</div>
+        <div className="text-xs" style={muted}>{row.family}</div>
+        <ShadowDecisions database={database} cls={row.class} />
+      </td>
+      {COLUMNS.map(([key]) => (
+        <td key={key} className="py-1 pr-3 align-top" data-testid={`shadow-${key}`}>
+          {row[key] || 0}
+        </td>
+      ))}
+      <td className="py-1 align-top" data-testid="shadow-potential">
+        {potential(row.potential_minutes)}
+      </td>
+    </tr>
+  )
+}
+
+function DatabaseLedger({ db }) {
+  return (
+    <div className="rounded border p-3 text-sm overflow-x-auto" style={card}>
+      <div className="font-medium mb-1" style={strong}>{db.database}</div>
+      <table className="w-full text-left">
+        <thead>
+          <tr className="text-xs" style={muted}>
+            <th scope="col" className="pr-3 font-normal">Class</th>
+            {COLUMNS.map(([key, label]) => (
+              <th scope="col" key={key} className="pr-3 font-normal">{label}</th>
+            ))}
+            <th scope="col" className="font-normal">Potential minutes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {db.summary.map(row => (
+            <ClassRow key={row.class} database={db.database} row={row} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// levelOf is a trust row's effective level (the one the gate holds it
+// to), else its stored one. The API serves labels ("L3"); an unreadable
+// level is -1, so it never counts as L3.
+function levelOf(row) {
+  const m = /^L?([0-4])$/i.exec(String(row.effective ?? row.level ?? ''))
+  return m ? Number(m[1]) : -1
+}
+
+// emptyReason says why nothing was shadowed, from the trust ledger: it is
+// not enforced, every self-initiated class is already at L3 (nothing is
+// below its earned level), or nothing has been recorded yet.
+function emptyReason(trust) {
+  if (!trust.data && trust.loading) {
+    return 'Reading the trust ledger for the reason.'
+  }
+  if (!trust.data) {
+    return `The trust ledger could not be read${trust.error ? ` (${trust.error})` : ''}; `
+      + 'pg_sage shadows only classes below their earned level in that ledger.'
+  }
+  if (trust.data.enforced === false) {
+    return 'sre.autonomy.enforce is off: the trust ledger grants no levels, so no class '
+      + 'is below one and nothing is shadowed.'
+  }
+  const rows = (trust.data.databases || []).flatMap(db => db.rows || [])
+    .filter(row => row.kind === 'self_initiated')
+  if (rows.length > 0 && rows.every(row => levelOf(row) >= 3)) {
+    return 'Every class is already at L3 (unattended), so none is below its earned '
+      + 'level and nothing is shadowed.'
+  }
+  return 'Nothing recorded yet: pg_sage records a shadow decision when it withholds an '
+    + 'action below a class\'s earned level.'
+}
+
+function EmptyLedger({ trust }) {
+  return (
+    <div data-testid="shadow-empty" className="rounded border p-3 text-sm" style={card}>
+      <div style={strong}>No shadow decisions yet.</div>
+      <div style={muted}>{emptyReason(trust)}</div>
     </div>
   )
 }
 
 export function ShadowModePage({ database }) {
-  const { data, loading, error, refetch } = useAPI(
-    `/api/v1/shadow-report${dbParam(database)}`,
-    30000,
-  )
+  const ledger = useAPI(`/api/v1/shadow-decisions${dbParam(database)}`, 30000)
+  const trust = useAPI(`/api/v1/trust${dbParam(database)}`, 30000)
 
-  if (loading) return <LoadingSpinner />
-  if (error) return <ErrorBanner message={error} onRetry={refetch} />
-
+  if (queryBlocked(ledger)) {
+    return <QueryState query={ledger} skeleton={<LoadingSpinner />} />
+  }
+  const databases = (ledger.data?.databases || [])
+    .map(db => ({ ...db, summary: db.summary || [] }))
+    .filter(db => db.summary.length > 0)
   return (
-    <section className="space-y-4" data-testid="shadow-mode-report">
+    <QueryState query={ledger}><section className="space-y-4" data-testid="shadow-mode-report">
       <div>
-        <h2 className="text-sm font-semibold"
-          style={{ color: 'var(--text-primary)' }}>
-          Shadow Mode
-        </h2>
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          What pg_sage would have handled under auto-safe policy.
+        <h2 className="text-sm font-semibold" style={strong}>Shadow Mode</h2>
+        <p className="text-sm" style={muted}>
+          What pg_sage would have done below each class&apos;s earned autonomy, and how
+          it scored. Nothing here ran. The potential column prices the counted correct
+          decisions with the toil model; only verified outcomes count on the Value page.
         </p>
       </div>
-      <div className="grid gap-3 md:grid-cols-4">
-        <Stat label="Cases detected" value={data?.total_cases ?? 0} />
-        <Stat label="Would auto-resolve"
-          value={data?.would_auto_resolve ?? 0} />
-        <Stat label="Needs approval" value={data?.requires_approval ?? 0} />
-        <Stat label="Avoided toil"
-          value={`${data?.estimated_toil_minutes ?? 0} min`} />
-      </div>
-      {(data?.blocked_reasons || []).length > 0 && (
-        <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          Blocked: {data.blocked_reasons.join(', ')}
-        </div>
-      )}
-      {(data?.proof || []).length > 0 && (
-        <div className="space-y-2">
-          {data.proof.map(item => (
-            <ShadowProofRow key={`${item.case_id}-${item.action_type}`}
-              item={item} />
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function ShadowProofRow({ item }) {
-  return (
-    <div className="rounded border p-3 text-sm"
-      style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-      <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
-        {item.title}
-      </div>
-      <div className="mt-1 flex flex-wrap gap-2 text-xs"
-        style={{ color: 'var(--text-secondary)' }}>
-        <span>{item.action_type}</span>
-        {item.action_id && <span>Action: {item.action_id}</span>}
-        <span>Policy: {item.policy_decision}</span>
-        {item.lifecycle_state && (
-          <span>Lifecycle: {item.lifecycle_state}</span>
-        )}
-        {item.status && <span>Status: {item.status}</span>}
-        {item.verification_status && (
-          <span>Verification: {item.verification_status}</span>
-        )}
-        {item.proposed_at && <span>Proposed: {item.proposed_at}</span>}
-        <span>Toil: {item.estimated_toil_minutes} min</span>
-        {item.blocked_reason && (
-          <span>Blocked: {item.blocked_reason}</span>
-        )}
-      </div>
-    </div>
+      {databases.length === 0
+        ? <EmptyLedger trust={trust} />
+        : databases.map(db => <DatabaseLedger key={db.database} db={db} />)}
+    </section></QueryState>
   )
 }

@@ -39,11 +39,14 @@ type ApprovalItem struct {
 	ProposalID      sre.UUID
 	InvestigationID sre.UUID
 	PID             int32
-	SQL             string
-	Title           string
-	Detail          string
-	Database        string
-	ExpiresAt       time.Time
+	// BackendStart is the target incarnation's start: with the pid it is
+	// the identity an approval card is bound to (policy-08).
+	BackendStart time.Time
+	SQL          string
+	Title        string
+	Detail       string
+	Database     string
+	ExpiresAt    time.Time
 }
 
 // QueuedItem is a proposal's approval item; Created is false when it
@@ -91,6 +94,9 @@ func (i ApprovalItem) validate() error {
 	switch {
 	case i.PID <= 0:
 		return fmt.Errorf("%w: approval item without a pid", sre.ErrInvalidRequest)
+	case i.BackendStart.IsZero():
+		return fmt.Errorf("%w: approval item for pid %d without its backend start",
+			sre.ErrInvalidRequest, i.PID)
 	case i.SQL != fmt.Sprintf("SELECT pg_cancel_backend(%d)", i.PID):
 		return fmt.Errorf("%w: approval SQL %q is not the cancel of pid %d",
 			sre.ErrInvalidRequest, i.SQL, i.PID)
@@ -134,7 +140,9 @@ func (q *PGApprovalQueue) insertItem(ctx context.Context, tx pgx.Tx, key string,
 	item ApprovalItem, out *QueuedItem) error {
 	detail, err := json.Marshal(map[string]any{"proposal_id": string(item.ProposalID),
 		"investigation_id": string(item.InvestigationID), "database": item.Database,
-		"summary": item.Detail, "source": "sage_sre"})
+		"summary": item.Detail, "source": "sage_sre",
+		"signal_target": map[string]any{"pid": item.PID,
+			"backend_start": item.BackendStart.UTC().Format(time.RFC3339Nano)}})
 	if err != nil {
 		return err
 	}
@@ -208,4 +216,14 @@ func (q *PGApprovalQueue) Resolve(ctx context.Context, queueID int) error {
 		return fmt.Errorf("%w: approval item %d", ErrProposalNotFound, queueID)
 	}
 	return nil
+}
+
+// RunnerName names the Sage SRE runner among the executor's approved-action
+// runners (executor.AddApprovedActionRunner).
+const RunnerName = "sre"
+
+// RunnerKeyPrefixes are the queue identity keys the Sage SRE runner owns:
+// its proposals' approval items and operator maintenance.
+func RunnerKeyPrefixes() []string {
+	return []string{ApprovalIdentityPrefix, MaintenanceIdentityPrefix}
 }

@@ -23,7 +23,9 @@ import "strings"
 // Each step checks the catalog first, so a re-run takes no lock on any
 // table; a build pauses only pg_sage's own writes to that table, once, at
 // startup. An INVALID index (a failed build by hand) is rebuilt unless a
-// build is still running. Idempotent.
+// build is still running. Idempotent. On a table of a million rows or more
+// these indexes are left to the background builder (deferred_index.go,
+// config-04c): the boot runs this step without them.
 
 type ledgerIndex struct{ name, table, definition string }
 
@@ -35,8 +37,6 @@ var ledgerIndexes = []ledgerIndex{
 		"(action_log_id) WHERE action_log_id IS NOT NULL"},
 	{"idx_decision_queue", "decision",
 		"INDEX %I ON sage.decision (queue_id) WHERE queue_id IS NOT NULL"},
-	{"idx_decision_policy", "decision",
-		"INDEX %I ON sage.decision (policy_id) WHERE policy_id IS NOT NULL"},
 	{"idx_verification_decision", "verification",
 		"INDEX %I ON sage.verification (decision_id)"},
 	{"idx_change_lease_decision", "change_lease",
@@ -75,16 +75,25 @@ const ddlDecisionLedgerIndexLoop = `
 
 // ddlDecisionLedger is the ledger migration: columns, then indexes.
 func ddlDecisionLedger() string {
-	values := make([]string, 0, len(ledgerIndexes))
-	for _, index := range ledgerIndexes {
+	return ledgerIndexBlock(ddlDecisionLedgerColumns, ledgerIndexes)
+}
+
+// ledgerIndexBlock is one DO block: the columns step, then each index
+// built (or an INVALID one rebuilt) by the index loop. With no index (a
+// variant whose indexes are all deferred, config-04c) it has no loop.
+func ledgerIndexBlock(columns string, indexes []ledgerIndex) string {
+	if len(indexes) == 0 {
+		return "DO $$\nDECLARE spec record;\nBEGIN" + columns + "\nEND $$;"
+	}
+	values := make([]string, 0, len(indexes))
+	for _, index := range indexes {
 		values = append(values, "("+sqlLiteral(index.name)+", "+sqlLiteral(index.table)+
 			", "+sqlLiteral(index.definition)+")")
 	}
 	loop := strings.Replace(ddlDecisionLedgerIndexLoop, "%s",
 		strings.Join(values, ",\n            "), 1)
 	loop = strings.ReplaceAll(loop, "%%", "%")
-	return "DO $$\nDECLARE spec record;\nBEGIN" + ddlDecisionLedgerColumns + loop +
-		"\nEND $$;"
+	return "DO $$\nDECLARE spec record;\nBEGIN" + columns + loop + "\nEND $$;"
 }
 
 func sqlLiteral(value string) string {

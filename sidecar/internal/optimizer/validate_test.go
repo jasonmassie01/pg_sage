@@ -93,6 +93,7 @@ func TestCheckColumnExistence_HallucinatedColumn(t *testing.T) {
 		Columns: []ColumnInfo{
 			{Name: "name", Type: "text"},
 		},
+		ColumnsKnown: true,
 	}
 	ok, reason := v.checkColumnExistence(rec, tc)
 	if ok {
@@ -135,9 +136,11 @@ func TestCheckColumnExistence_EmptyTableColumns(t *testing.T) {
 	v := newTestValidator(nil)
 	rec := Recommendation{DDL: "CREATE INDEX CONCURRENTLY idx ON t (name)"}
 	tc := TableContext{Columns: []ColumnInfo{}}
-	ok, _ := v.checkColumnExistence(rec, tc)
-	if ok {
-		t.Fatal("expected rejected when tc has no columns")
+	// indexes-02: an empty list (a failed or privilege-filtered read) is no
+	// evidence that the column does not exist.
+	ok, reason := v.checkColumnExistence(rec, tc)
+	if !ok {
+		t.Fatalf("rejected on an empty column list: %s", reason)
 	}
 }
 
@@ -303,7 +306,7 @@ func TestCheckWriteImpact_BoundaryWriteRate(t *testing.T) {
 func TestCheckMaxIndexes_AtLimit(t *testing.T) {
 	v := newTestValidator(&config.OptimizerConfig{MaxIndexesPerTable: 10})
 	tc := TableContext{IndexCount: 10}
-	ok, _ := v.checkMaxIndexes(tc)
+	ok, _ := v.checkMaxIndexes(Recommendation{}, tc)
 	if ok {
 		t.Fatal("expected rejected when IndexCount >= max")
 	}
@@ -312,7 +315,7 @@ func TestCheckMaxIndexes_AtLimit(t *testing.T) {
 func TestCheckMaxIndexes_BelowLimit(t *testing.T) {
 	v := newTestValidator(&config.OptimizerConfig{MaxIndexesPerTable: 10})
 	tc := TableContext{IndexCount: 5}
-	ok, reason := v.checkMaxIndexes(tc)
+	ok, reason := v.checkMaxIndexes(Recommendation{}, tc)
 	if !ok {
 		t.Fatalf("expected accepted below limit, got: %s", reason)
 	}
@@ -321,7 +324,7 @@ func TestCheckMaxIndexes_BelowLimit(t *testing.T) {
 func TestCheckMaxIndexes_AboveLimit(t *testing.T) {
 	v := newTestValidator(&config.OptimizerConfig{MaxIndexesPerTable: 10})
 	tc := TableContext{IndexCount: 15}
-	ok, _ := v.checkMaxIndexes(tc)
+	ok, _ := v.checkMaxIndexes(Recommendation{}, tc)
 	if ok {
 		t.Fatal("expected rejected when IndexCount > max")
 	}
@@ -330,7 +333,7 @@ func TestCheckMaxIndexes_AboveLimit(t *testing.T) {
 func TestCheckMaxIndexes_ZeroConfigDefaults(t *testing.T) {
 	v := newTestValidator(&config.OptimizerConfig{MaxIndexesPerTable: 0})
 	tc := TableContext{IndexCount: 10}
-	ok, _ := v.checkMaxIndexes(tc)
+	ok, _ := v.checkMaxIndexes(Recommendation{}, tc)
 	if ok {
 		t.Fatal("expected rejected: max defaults to 10, IndexCount=10 >= 10")
 	}

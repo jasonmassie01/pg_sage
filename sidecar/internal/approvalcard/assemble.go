@@ -19,12 +19,14 @@ func Assemble(in Inputs) Card {
 	a := in.Action
 	c := Card{QueueID: a.ID, Database: in.Database, ActionType: actionTypeOf(a),
 		Status: a.Status, SQL: a.ProposedSQL, ProposedAt: a.ProposedAt,
-		ExpiresAt: a.ExpiresAt, CardHash: ContentHash(a)}
+		ExpiresAt: a.ExpiresAt, CardHash: cardHash(a, in.Finding)}
 	c.Title = cardTitle(in, c.ActionType)
 	c.Finding = findingRef(in.Finding)
 	c.Recommendation = recommendationRef(a)
 	c.Targets = targetsOf(in.Finding)
 	c.Evidence = evidenceOf(in)
+	c.HintEvidence = hintEvidenceOf(in, c.ActionType)
+	c.Ladder, c.LadderNote = ladderOf(in)
 	c.Rationale = rationaleOf(in)
 	c.Predicted = predictedOf(in)
 	c.Rollback = rollbackOf(a, in.Contract)
@@ -62,6 +64,13 @@ func actionTypeOf(a store.QueuedAction) string {
 		if strings.HasPrefix(sql, p.prefix) {
 			return p.typ
 		}
+	}
+	// An untyped backend signal keeps its class (policy-08 card limits).
+	switch {
+	case strings.Contains(sql, "PG_CANCEL_BACKEND"):
+		return "cancel_backend"
+	case strings.Contains(sql, "PG_TERMINATE_BACKEND"):
+		return "terminate_backend"
 	}
 	return ""
 }
@@ -107,6 +116,14 @@ func targetsOf(f *FindingRow) []string {
 	if f == nil {
 		return out
 	}
+	// A Sage SRE finding's object is its proposal key; its target is the
+	// backend incarnation.
+	if t, ok := signalTargetOf(f); ok {
+		return []string{t.String()}
+	}
+	if f.Category == "sre_action" {
+		return out
+	}
 	add := func(s string) {
 		s = strings.TrimSpace(s)
 		for _, have := range out {
@@ -138,6 +155,9 @@ func rationaleOf(in Inputs) *Rationale {
 	recommendation := ""
 	if in.Finding != nil {
 		detail, recommendation = in.Finding.Detail, in.Finding.Recommendation
+	}
+	if r := sreRationale(detail); r != nil {
+		return r
 	}
 	for _, key := range []string{"llm_rationale", "rationale", "narrative",
 		"rewrite_rationale"} {
@@ -181,6 +201,11 @@ func predictedOf(in Inputs) Predicted {
 	p.QueryIDs = queryIDs(detail["queryids"])
 	p.WhatIfVerdict, _ = detail["what_if_verdict"].(string)
 	p.WhatIfReason, _ = detail["what_if_reason"].(string)
+	if measured, ok := number(detail["what_if_measured"]); ok {
+		n := int(measured)
+		p.WhatIfMeasured = &n
+	}
+	p.WhatIfUnplannedQueryIDs = queryIDs(detail["what_if_unplanned_queryids"])
 	validated, _ := detail["hypopg_validated"].(bool)
 	switch {
 	case p.WhatIfVerdict == "verified" || validated:

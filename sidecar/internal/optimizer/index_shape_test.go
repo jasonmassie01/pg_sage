@@ -19,7 +19,8 @@ func TestParseIndexKeys_Expressions(t *testing.T) {
 		want []indexKey
 	}{
 		{"CREATE INDEX CONCURRENTLY i ON t (a, b DESC NULLS LAST)",
-			[]indexKey{{column: "a"}, {column: "b"}}},
+			[]indexKey{{column: "a"},
+				{column: "b", decor: keyDecor{order: "desc", nulls: "last"}}}},
 		{"CREATE INDEX CONCURRENTLY i ON t ((lower(email)))",
 			[]indexKey{{expr: "(lower(email))", refs: []string{"email"}}}},
 		{"CREATE INDEX CONCURRENTLY i ON t (lower(email))",
@@ -29,10 +30,13 @@ func TestParseIndexKeys_Expressions(t *testing.T) {
 		{"CREATE INDEX CONCURRENTLY i ON t (date_trunc('day', created_at), id)",
 			[]indexKey{{expr: "date_trunc('day',created_at)", refs: []string{"created_at"}},
 				{column: "id"}}},
+		// indexes-01: these two cases used to expect the opclass and the order
+		// stripped, which made a pattern-ops index a duplicate of a plain one.
 		{"CREATE INDEX CONCURRENTLY i ON t USING gin (payload jsonb_path_ops)",
-			[]indexKey{{column: "payload"}}},
+			[]indexKey{{column: "payload", decor: keyDecor{opclass: "jsonb_path_ops"}}}},
 		{"CREATE INDEX CONCURRENTLY i ON t (name text_pattern_ops DESC)",
-			[]indexKey{{column: "name"}}},
+			[]indexKey{{column: "name",
+				decor: keyDecor{opclass: "text_pattern_ops", order: "desc"}}}},
 		{`CREATE INDEX CONCURRENTLY i ON t ("Mixed Case", (("Weird"::text)))`,
 			[]indexKey{{column: "Mixed Case"},
 				{expr: `(("Weird"::text))`, refs: []string{"Weird"}}}},

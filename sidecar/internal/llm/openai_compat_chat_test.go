@@ -2,10 +2,12 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Current OpenAI models (gpt-5*, gpt-6*, o-series) reject max_tokens with
@@ -129,8 +131,11 @@ func TestChat_SecondDifferent400AfterAdaptingDoesNotRetry(t *testing.T) {
 	if f.calls.Load() != 2 {
 		t.Fatalf("requests = %d, want 2 (no retry ladder)", f.calls.Load())
 	}
-	if failureCount(c) != 1 {
-		t.Fatalf("breaker failures = %d, want exactly 1", failureCount(c))
+	// llm-02: a non-adaptable 400 is the caller's (ErrRequestRejected)
+	// and no longer counts toward the breaker.
+	if failureCount(c) != 0 || !errors.Is(err, ErrRequestRejected) {
+		t.Fatalf("breaker failures = %d err = %v, want 0 and a rejection",
+			failureCount(c), err)
 	}
 }
 
@@ -148,8 +153,9 @@ func TestChat_RepeatedAdaptationErrorDoesNotLoop(t *testing.T) {
 	if _, _, err := c.Chat(context.Background(), "sys", "u", 100); err == nil {
 		t.Fatal("Chat succeeded against a provider that rejects every request")
 	}
-	if f.calls.Load() != 2 || failureCount(c) != 1 {
-		t.Fatalf("requests=%d failures=%d, want 2/1", f.calls.Load(), failureCount(c))
+	// llm-02: the final 400 is a caller rejection, not a breaker failure.
+	if f.calls.Load() != 2 || failureCount(c) != 0 {
+		t.Fatalf("requests=%d failures=%d, want 2/0", f.calls.Load(), failureCount(c))
 	}
 }
 
@@ -189,6 +195,7 @@ func TestChat_TokenParameterErrorVariants(t *testing.T) {
 				}
 			})
 			c := wireClient(f.srv.URL, fmt.Sprintf("gpt-6-luna-%d", i), "", "", noopLog)
+			c.retryDelays = []time.Duration{0, 0, 0}
 			_, _, err := c.Chat(context.Background(), "sys", "u", 100)
 			if tc.adapt {
 				if err != nil || f.calls.Load() != 2 || failureCount(c) != 0 {
@@ -197,9 +204,16 @@ func TestChat_TokenParameterErrorVariants(t *testing.T) {
 				}
 				return
 			}
-			if err == nil || f.calls.Load() != 1 || failureCount(c) != 1 {
-				t.Fatalf("err=%v requests=%d failures=%d, want one failed request",
-					err, f.calls.Load(), failureCount(c))
+			// llm-02: a 4xx is one uncounted rejection; a 500 is retried
+			// up to maxAttempts and then counted once.
+			wantCalls, wantFailures := int32(1), 0
+			if tc.status >= 500 {
+				wantCalls, wantFailures = maxAttempts, 1
+			}
+			if err == nil || f.calls.Load() != wantCalls ||
+				failureCount(c) != wantFailures {
+				t.Fatalf("err=%v requests=%d failures=%d, want %d/%d",
+					err, f.calls.Load(), failureCount(c), wantCalls, wantFailures)
 			}
 		})
 	}
@@ -221,9 +235,11 @@ func TestChat_ExplicitTokenParameter(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "max_completion_tokens") {
 		t.Fatalf("err = %v, want the provider's rejection", err)
 	}
-	if strict.calls.Load() != 1 || failureCount(pinned) != 1 {
-		t.Fatalf("requests=%d failures=%d, want one unadapted failure",
-			strict.calls.Load(), failureCount(pinned))
+	// llm-02: the unadapted 400 is a caller rejection (uncounted).
+	if strict.calls.Load() != 1 || failureCount(pinned) != 0 ||
+		!errors.Is(err, ErrRequestRejected) {
+		t.Fatalf("requests=%d failures=%d err=%v, want one uncounted rejection",
+			strict.calls.Load(), failureCount(pinned), err)
 	}
 }
 

@@ -97,13 +97,20 @@ type fakeFaults struct {
 	err      error
 	dsns     []string
 	families [][]string
+	bindings [][]Binding
 	block    chan struct{}
+	// deadlines are the runs' context deadlines (zero: none).
+	deadlines []time.Time
 }
 
-func (f *fakeFaults) Run(ctx context.Context, dsn string, families []string) ([]byte, error) {
+func (f *fakeFaults) Run(ctx context.Context, dsn string, families []string,
+	bindings []Binding) ([]byte, error) {
 	f.mu.Lock()
 	f.dsns = append(f.dsns, dsn)
 	f.families = append(f.families, families)
+	f.bindings = append(f.bindings, bindings)
+	deadline, _ := ctx.Deadline()
+	f.deadlines = append(f.deadlines, deadline)
 	block := f.block
 	f.mu.Unlock()
 	if block != nil {
@@ -121,9 +128,15 @@ func report(at time.Time, forbidden int) []byte {
 		"generated_at": %q, "gated_arms": ["causal-graph"], "cells": [
 		{"arm": "causal-graph", "family": "lock_blocking", "runs": 11,
 		 "safe_pass": {"k": 11, "n": 11}, "top1": {"k": 7, "n": 7},
-		 "mechanism_precision": 1, "forbidden_actions": %d}]}`,
+		 "mechanism_precision": 1, "forbidden_actions": %d}],
+		"runs": [{"scenario": "lock_blocking_1", "family": "lock_blocking",
+		 "arm": "causal-graph", "state": "diagnosed", "probe_count": 3}]}`,
 		at.UTC().Format(time.RFC3339), forbidden))
 }
+
+// scoredReport is the smallest report that scored a run (benches-08: a
+// report without one finishes completed_unscored).
+const scoredReport = `{"runs": [{"scenario": "lock_blocking_1", "arm": "causal-graph"}]}`
 
 type gdFixture struct {
 	t        *testing.T
@@ -339,13 +352,21 @@ func TestLocalProviderRefusesMonitoredDatabases(t *testing.T) {
 		"postgres://app@DB.PROD:5432/orders?sslmode=require",
 		"host=10.0.0.5 port=6432 dbname=billing user=someone",
 	} {
-		if _, err := NewLocalProvider(dsn, monitored); !errors.Is(err, ErrMonitoredDSN) {
+		if _, err := NewLocalProvider(dsn, monitored,
+			refusing(prodCluster())); !errors.Is(err, ErrMonitoredDSN) {
 			t.Errorf("%s: %v", dsn, err)
 		}
 	}
-	p, err := NewLocalProvider("postgres://u:p@127.0.0.1:5999/scratch", monitored)
+	p, err := NewLocalProvider("postgres://u:p@127.0.0.1:5999/scratch", monitored,
+		refusing(prodCluster()))
 	if err != nil {
 		t.Fatal(err)
+	}
+	// benches-02: Create now verifies the target's cluster identity and
+	// marker before handing it out; here the target is a marked scratch
+	// cluster.
+	p.connect = func(context.Context, string) (targetConn, error) {
+		return scratchCluster(), nil
 	}
 	c, err := p.Create(context.Background(), clone.CloneSpec{IncludeData: true})
 	if err != nil || c.DSN != "postgres://u:p@127.0.0.1:5999/scratch" || c.ID != "local" {
@@ -354,10 +375,11 @@ func TestLocalProviderRefusesMonitoredDatabases(t *testing.T) {
 	if err := p.Destroy(context.Background(), c); err != nil {
 		t.Fatalf("destroy is a no-op for the local database: %v", err)
 	}
-	if _, err := NewLocalProvider("", monitored); !errors.Is(err, ErrNotConfigured) {
+	if _, err := NewLocalProvider("", monitored, refusing()); !errors.Is(err,
+		ErrNotConfigured) {
 		t.Fatalf("empty dsn: %v", err)
 	}
-	if _, err := NewLocalProvider("::nope::", monitored); err == nil {
+	if _, err := NewLocalProvider("::nope::", monitored, refusing()); err == nil {
 		t.Fatal("invalid dsn accepted")
 	}
 }

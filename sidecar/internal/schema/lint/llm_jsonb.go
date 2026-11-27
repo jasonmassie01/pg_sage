@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
@@ -38,13 +39,16 @@ Return ONLY a JSON array of objects: ` +
 Return an empty array [] if no JSONB columns are used in joins or where clauses.
 ` + llm.UntrustedDataRule
 
-var slowQuerySQL = `
+// rel is the qualified pg_stat_statements view.
+func slowQuerySQL(rel string) string {
+	return `
 SELECT query, calls, mean_exec_time, rows
-  FROM pg_stat_statements
+  FROM ` + rel + `
  WHERE query ~* any($1)
    AND ` + workload.AdviceSQL("query") + `
  ORDER BY mean_exec_time DESC
  LIMIT 50`
+}
 
 // Enhance enriches JSONB-related findings with LLM analysis.
 // If the LLM is unavailable the original findings are returned.
@@ -113,7 +117,8 @@ func (a *LLMJsonbAnalyzer) queryAndAnalyze(
 	llmCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	raw, _, err := a.llmClient.Chat(llmCtx, jsonbSystemPrompt, userPrompt, 4096)
+	pctx := llm.WithPurpose(llmCtx, "schema_lint") // llm-04: usage ledger label
+	raw, _, err := a.llmClient.Chat(pctx, jsonbSystemPrompt, userPrompt, 4096)
 	if err != nil {
 		return nil, fmt.Errorf("llm chat: %w", err)
 	}
@@ -139,7 +144,11 @@ func (a *LLMJsonbAnalyzer) fetchSlowQueries(
 		patterns[i] = `\m` + t + `\M`
 	}
 
-	rows, err := a.pool.Query(ctx, slowQuerySQL, patterns)
+	rel, err := extschema.StatementsRel(ctx, a.pool, "pg_stat_statements")
+	if err != nil {
+		return nil, fmt.Errorf("pg_stat_statements query: %w", err)
+	}
+	rows, err := a.pool.Query(ctx, slowQuerySQL(rel), patterns)
 	if err != nil {
 		return nil, fmt.Errorf("pg_stat_statements query: %w", err)
 	}

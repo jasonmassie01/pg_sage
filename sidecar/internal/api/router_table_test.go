@@ -40,13 +40,13 @@ type routeProbe struct{ method, path string }
 
 type routerConfig struct {
 	name  string
-	build func(t *testing.T) http.Handler
+	build func(t *testing.T, mw func(http.Handler) http.Handler) http.Handler
 }
 
 func TestRouterTable_MatchesGolden(t *testing.T) {
 	var out bytes.Buffer
 	for _, rc := range routerConfigs() {
-		h := rc.build(t)
+		h := rc.build(t, injectCharRole)
 		for _, p := range routeProbes {
 			fmt.Fprintf(&out, "%s %s %s => %s\n", rc.name, p.method, p.path,
 				classifyRoute(h, p))
@@ -163,16 +163,18 @@ func routerConfigs() []routerConfig {
 		{"standalone", buildStandaloneRouter},
 		{"fleet-readonly", buildFleetReadOnlyRouter},
 		{"store-only-actions", buildStoreOnlyActionsRouter},
+		{"optional", buildOptionalRouter},
+		{"databricks-app", buildDatabricksAppRouter},
 	}
 }
 
-func buildBareRouter(t *testing.T) http.Handler {
+func buildBareRouter(t *testing.T, mw func(http.Handler) http.Handler) http.Handler {
 	cfg := config.DefaultConfig()
 	mgr := fleet.NewManager(cfg)
-	return NewRouterFullRuntime(mgr, cfg, nil, nil, nil, nil, nil, injectCharRole)
+	return newTestRouter(mgr, cfg, nil, nil, nil, nil, nil, mw)
 }
 
-func buildStandaloneRouter(t *testing.T) http.Handler {
+func buildStandaloneRouter(t *testing.T, mw func(http.Handler) http.Handler) http.Handler {
 	cfg := config.DefaultConfig()
 	cfg.MCP.Enabled, cfg.MCP.Transport = true, "http"
 	mgr := fleet.NewManager(cfg)
@@ -189,10 +191,10 @@ func buildStandaloneRouter(t *testing.T) http.Handler {
 		MCPHandler: mcp,
 		Autonomy:   &AutonomyDeps{Ledgers: earned.NewRegistry(false)},
 	}
-	return NewRouterFullRuntime(mgr, cfg, pool, actions, nil, nil, rt, injectCharRole)
+	return newTestRouter(mgr, cfg, pool, actions, nil, nil, rt, mw)
 }
 
-func buildFleetReadOnlyRouter(t *testing.T) http.Handler {
+func buildFleetReadOnlyRouter(t *testing.T, mw func(http.Handler) http.Handler) http.Handler {
 	cfg := config.DefaultConfig()
 	cfg.Mode = "fleet"
 	mgr := fleet.NewManager(cfg)
@@ -200,12 +202,12 @@ func buildFleetReadOnlyRouter(t *testing.T) http.Handler {
 	actions := &ActionDeps{Fleet: mgr}
 	dbDeps := &DatabaseDeps{Store: &store.DatabaseStore{}, Fleet: mgr}
 	rt := &RuntimeDeps{DisableConfigWrites: true}
-	return NewRouterFullRuntime(mgr, cfg, pool, actions, dbDeps, nil, rt, injectCharRole)
+	return newTestRouter(mgr, cfg, pool, actions, dbDeps, nil, rt, mw)
 }
 
-func buildStoreOnlyActionsRouter(t *testing.T) http.Handler {
+func buildStoreOnlyActionsRouter(t *testing.T, mw func(http.Handler) http.Handler) http.Handler {
 	cfg := config.DefaultConfig()
 	mgr := fleet.NewManager(cfg)
 	actions := &ActionDeps{Store: store.NewActionStore(nil)}
-	return NewRouterFullRuntime(mgr, cfg, nil, actions, nil, nil, nil, injectCharRole)
+	return newTestRouter(mgr, cfg, nil, actions, nil, nil, nil, mw)
 }

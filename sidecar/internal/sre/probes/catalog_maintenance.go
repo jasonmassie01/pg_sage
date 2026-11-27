@@ -44,19 +44,25 @@ LIMIT $1`
 // window when the plan did not change; "before" only counts samples of
 // the previous plan. Queries without fingerprints are not reported.
 // $3 scopes the read to one queryid (0 reads every statement).
-const planRegressionsSQL = `/* pg_sage sre:plan_regressions v1 */
+//
+// v2 (collection-09): a fingerprint is compared only with the previous
+// fingerprint of the same version (the text before ':'), so the planhash
+// v1 to v2 upgrade and unresolved v2u captures are never a plan flip.
+const planRegressionsSQL = `/* pg_sage sre:plan_regressions v2 */
 WITH s AS (
     SELECT q.id, q.queryid, q.captured_at, q.plan_hash,
            (q.calls - lag(q.calls) OVER w)::float8 AS d_calls,
            q.total_exec_time - lag(q.total_exec_time) OVER w AS d_ms,
-           lag(q.plan_hash) OVER w AS prev_hash,
+           lag(q.plan_hash) OVER wv AS prev_hash,
            q.stats_epoch IS NOT DISTINCT FROM lag(q.stats_epoch) OVER w AS same_epoch
     FROM sage.query_store q
     WHERE {db:q} AND q.captured_at >= pg_catalog.now()
               - pg_catalog.make_interval(secs => $2)
       AND q.plan_hash IS NOT NULL
       AND ($3::int8 = 0 OR q.queryid = $3::int8)
-    WINDOW w AS (PARTITION BY q.queryid ORDER BY q.captured_at, q.id)
+    WINDOW w AS (PARTITION BY q.queryid ORDER BY q.captured_at, q.id),
+           wv AS (PARTITION BY q.queryid, pg_catalog.split_part(q.plan_hash, ':', 1)
+                  ORDER BY q.captured_at, q.id)
 ), flip AS (
     SELECT DISTINCT ON (queryid) queryid, captured_at AS flipped_at, prev_hash
     FROM s WHERE prev_hash IS NOT NULL AND prev_hash <> plan_hash
@@ -111,6 +117,7 @@ func vacuumProgressSpec() Spec {
 func planRegressionsSpec() Spec {
 	s := spec(PlanRegressions, FamilyPlans, ArgsWindow,
 		Variant{MinVersion: 140000, SQL: planRegressionsSQL})
+	s.Version = "v2"
 	s.QueryScoped = true
 	s.History = true
 	return s

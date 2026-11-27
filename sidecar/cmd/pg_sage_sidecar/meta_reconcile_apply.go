@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -20,6 +21,7 @@ type metaPlan struct {
 	kind      string // added, removed, rebuilt, updated or "" (unchanged)
 	rec       store.DatabaseRecord
 	connStr   string
+	action    memberAction // the stored action identity (security-09b)
 	current   *fleet.DatabaseInstance
 	candidate *fleet.DatabaseInstance
 	buildErr  error
@@ -37,7 +39,8 @@ func classifyMetaRecord(
 ) (metaPlan, error) {
 	plan := metaPlan{id: id, current: current}
 	rec, err := state.Store.Get(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !rec.Enabled) {
+	// A disabled or observe-only member has no runtime (fleetpol-01d).
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !rec.RunsRuntime()) {
 		if current != nil {
 			plan.kind = "removed"
 		}
@@ -50,15 +53,34 @@ func classifyMetaRecord(
 	if plan.connStr, err = state.Store.GetConnectionString(ctx, id); err != nil {
 		return plan, err
 	}
-	switch {
-	case current == nil:
-		plan.kind = "added"
-	case metaNeedsRebuild(plan.rec, current, plan.connStr):
-		plan.kind = "rebuilt"
-	case metaPolicyChanged(plan.rec, current):
-		plan.kind = "updated"
+	if plan.action, err = readMemberAction(ctx, state.Store, plan.rec, plan.connStr); err != nil {
+		return plan, err
+	}
+	plan.kind = metaChangeKind(plan.rec, current, plan.connStr)
+	if plan.kind != "rebuilt" && metaActionChanged(current, plan.action) {
+		plan.kind = "rebuilt" // adding, changing or removing the action identity
 	}
 	return plan, nil
+}
+
+// metaChangeKind classifies a record against its running generation: added,
+// rebuilt, updated (applied in place) or "" (unchanged). A tag edit is an
+// in-place update whether or not the runtime has an executor, so the next
+// fleet-learning cycle sees the new tenant boundary.
+func metaChangeKind(
+	rec store.DatabaseRecord, current *fleet.DatabaseInstance, connStr string,
+) string {
+	switch {
+	case current == nil:
+		return "added"
+	case metaNeedsRebuild(rec, current, connStr):
+		return "rebuilt"
+	case metaPolicyChanged(rec, current):
+		return "updated"
+	case !config.SameTags(recordTags(rec.Tags), current.ConfigSnapshot().Tags):
+		return "updated"
+	}
+	return ""
 }
 
 // metaNeedsRebuild compares the record with the running generation. A
@@ -68,10 +90,10 @@ func metaNeedsRebuild(
 	rec store.DatabaseRecord, current *fleet.DatabaseInstance, connStr string,
 ) bool {
 	if current.Pool == nil {
-		return !reflect.DeepEqual(storeRecordToDBConfig(rec), current.Config)
+		return !reflect.DeepEqual(storeRecordToDBConfig(rec), current.ConfigSnapshot())
 	}
 	return rec.Name != current.Name ||
-		rec.MaxConnections != current.Config.MaxConnections ||
+		rec.MaxConnections != current.ConfigSnapshot().MaxConnections ||
 		current.Pool.Config().ConnString() != connStr
 }
 
@@ -89,7 +111,7 @@ func (p *metaPlan) build(ctx context.Context) {
 	if p.kind != "added" && p.kind != "rebuilt" {
 		return
 	}
-	inst, err := prepareStoreDatabaseConnection(ctx, p.rec, p.connStr)
+	inst, err := prepareStoreDatabaseConnection(ctx, p.rec, p.connStr, p.action)
 	if err == nil {
 		if checkErr := healthCheckStoreDatabase(ctx, inst); checkErr != nil {
 			err = errors.Join(checkErr, cleanupManagedCandidate(inst))
@@ -105,7 +127,7 @@ func (p *metaPlan) discard() {
 		logWarn("meta-db", "db %q: unpublished candidate drain: %v", p.rec.Name, err)
 	}
 	if p.kind == "added" && fleetMgr != nil && fleetMgr.GetInstance(p.rec.Name) == nil {
-		unregisterFleetBudget(p.rec.Name)
+		forgetRemovedDatabase(p.rec.Name)
 	}
 	p.candidate = nil
 }
@@ -121,7 +143,7 @@ func (p *metaPlan) publish(
 		return metaOutcome{}, err
 	}
 	if fresh.kind != p.kind || fresh.current != p.current || fresh.connStr != p.connStr ||
-		!reflect.DeepEqual(fresh.rec, p.rec) {
+		fresh.action.dsn != p.action.dsn || !reflect.DeepEqual(fresh.rec, p.rec) {
 		return metaOutcome{}, nil
 	}
 	switch p.kind {
@@ -181,16 +203,26 @@ func (p *metaPlan) candidateError() error {
 	return fmt.Errorf("%w: db %q: %w", errMetaRuntimeCandidate, p.rec.Name, p.buildErr)
 }
 
-// applyMetaPolicy adopts a record's trust level and execution mode in
+// applyMetaPolicy adopts a record's tags, trust level and execution mode in
 // place. sage.databases is the durable policy; the settings API writes it
-// and applies it under the same lifecycle reservation.
+// and applies it under the same lifecycle reservation. A runtime without an
+// executor takes the config (tags included) and has no policy to apply.
 func applyMetaPolicy(
 	op *fleet.LifecycleMutation, rec store.DatabaseRecord, current *fleet.DatabaseInstance,
 ) error {
-	previous := current.Executor.TrustLevel()
 	if err := op.UpdateMetadata(current, storeRecordToDBConfig(rec)); err != nil {
 		return err
 	}
+	if current.Executor == nil {
+		return nil
+	}
+	return applyMetaExecutorPolicy(rec, current)
+}
+
+// applyMetaExecutorPolicy moves the executor to the record's trust level and
+// execution mode, logging any raise in trust.
+func applyMetaExecutorPolicy(rec store.DatabaseRecord, current *fleet.DatabaseInstance) error {
+	previous := current.Executor.TrustLevel()
 	if rec.TrustLevel != "" {
 		if err := current.Executor.SetTrustLevel(rec.TrustLevel); err != nil {
 			return fmt.Errorf("db %q: %w", rec.Name, err)
@@ -200,7 +232,7 @@ func applyMetaPolicy(
 	current.SetTrustLevelOverride(true)
 	level := current.Executor.TrustLevel()
 	current.UpdateStatus(func(status *fleet.InstanceStatus) { status.TrustLevel = level })
-	if trustRank(level) > trustRank(previous) {
+	if config.TrustRank(level) > config.TrustRank(previous) {
 		logWarn("meta-db", "db %q: trust raised %s -> %s from sage.databases",
 			rec.Name, previous, level)
 	}
@@ -214,6 +246,9 @@ func failedStoreInstance(rec store.DatabaseRecord, errMsg string) *fleet.Databas
 		Name:       rec.Name,
 		DatabaseID: rec.ID,
 		Config:     storeRecordToDBConfig(rec),
-		Status:     &fleet.InstanceStatus{Error: errMsg, LastSeen: time.Now()},
+		Status: &fleet.InstanceStatus{Error: errMsg, LastSeen: time.Now(),
+			// Never read, so unknown rather than zero (cases-11).
+			IncidentsCritical: fleet.IncidentsUnknown,
+			IncidentsWarning:  fleet.IncidentsUnknown},
 	}
 }

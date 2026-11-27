@@ -8,6 +8,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/selfcost"
 )
 
 // floor is the sage schema size below which the footprint is never a
@@ -191,5 +192,48 @@ func TestCheckSageFootprint_DisabledResolves(t *testing.T) {
 	if got := a.checkSageFootprint(cancelled, snapshotWithDBSize(1)); got != nil ||
 		!a.eval.ok["sage_footprint"] || a.eval.failed["sage_footprint"] {
 		t.Fatalf("disabled: findings %v, eval %+v", got, a.eval)
+	}
+}
+
+// Parity: one sage-size reading per cycle. The footprint check and the
+// self-cost meter (and the storage budget behind it) use the same reading:
+// a doctored reading shows in both, and the schema is read once per cycle,
+// not twice.
+func TestSageSchema_OneReadingPerCycle(t *testing.T) {
+	a := footprintAnalyzer(t, 10)
+	a.cfg.Analyzer.SelfCostBudgetMs = 0
+	reads := 0
+	a.readSageSchema = func(ctx context.Context, q selfcost.Querier) (selfcost.Schema, error) {
+		reads++
+		sc, err := selfcost.ReadSchema(ctx, q)
+		sc.Bytes = 3 * floor // over the floor and over 10% of the database below
+		sc.Tables = append([]selfcost.TableSize{{Name: "sage.doctored", Bytes: 3 * floor}},
+			sc.Tables...)
+		return sc, err
+	}
+	ctx := context.Background()
+	for cycle := 1; cycle <= 2; cycle++ {
+		a.eval = newCycleEval()
+		fp := a.checkSageFootprint(ctx, snapshotWithDBSize(10*floor))
+		a.checkSelfCost(ctx)
+		if reads != cycle {
+			t.Fatalf("cycle %d: the sage schema was read %d times in all, want %d",
+				cycle, reads, cycle)
+		}
+		if len(fp) != 1 || fp[0].Detail["sage_bytes"] != int64(3*floor) {
+			t.Fatalf("cycle %d: footprint findings %+v, want the reading's 3x floor", cycle, fp)
+		}
+		if got := a.SelfCost().SchemaBytes; got != 3*floor {
+			t.Fatalf("cycle %d: self-cost schema bytes %d, want the same reading's %d",
+				cycle, got, int64(3*floor))
+		}
+	}
+	// Without a cycle (no evaluation state) every read is fresh.
+	a.eval = nil
+	if _, err := a.measureSageFootprint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.measureSageFootprint(ctx); err != nil || reads != 4 {
+		t.Fatalf("reads outside a cycle = %d (err %v), want each one fresh", reads, err)
 	}
 }

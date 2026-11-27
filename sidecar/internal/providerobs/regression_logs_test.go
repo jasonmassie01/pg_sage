@@ -28,15 +28,15 @@ func (w *windowAPI) Metrics(context.Context) (string, error) {
 }
 
 func (w *windowAPI) Logs(_ context.Context, _ string, from, to time.Time) (
-	[]logwatch.LogEntry, error,
+	[]logwatch.LogEntry, int, error,
 ) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.windows = append(w.windows, window{from, to})
 	if w.fail != nil {
-		return nil, w.fail(from, to)
+		return nil, 0, w.fail(from, to)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 
 func (w *windowAPI) last() window {

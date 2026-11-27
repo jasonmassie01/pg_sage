@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/notify"
 )
 
@@ -19,6 +20,7 @@ type NotificationStore struct {
 	pool       *pgxpool.Pool
 	dispatcher *notify.Dispatcher
 	secretKey  []byte
+	keyring    *crypto.Keyring
 	policy     notify.TargetPolicy
 }
 
@@ -40,6 +42,21 @@ func NewNotificationStore(
 // channels must use notify.NewPoolStore with the same key.
 func (s *NotificationStore) WithSecretKey(key []byte) *NotificationStore {
 	s.secretKey = key
+	s.keyring = notify.SecretKeyring(key, nil)
+	return s
+}
+
+// WithPreviousSecretKey also opens channel secrets sealed under the
+// previous key of a rotation, so ResealChannelSecrets can move them to the
+// active key (security-08). Call it after WithSecretKey. Without an active
+// key, or with an unusable previous key, the keyring is unchanged.
+func (s *NotificationStore) WithPreviousSecretKey(previous []byte) *NotificationStore {
+	if s.keyring == nil || len(previous) == 0 {
+		return s
+	}
+	if kr := notify.SecretKeyring(s.secretKey, previous); kr != nil {
+		s.keyring = kr
+	}
 	return s
 }
 
@@ -60,6 +77,11 @@ type NotificationLogEntry struct {
 	Status    string    `json:"status"`
 	Error     string    `json:"error"`
 	SentAt    time.Time `json:"sent_at"`
+	// Database is the database the delivery was for; "unknown" for a
+	// fleet-wide event or a row written before alerting-06c.
+	Database string `json:"database"`
+	// DedupKey is the event's dedup key; empty for rows before alerting-06c.
+	DedupKey string `json:"dedup_key"`
 }
 
 // CreateChannel inserts a new notification channel.
@@ -72,25 +94,32 @@ func (s *NotificationStore) CreateChannel(
 	if err := validateChannelType(typ); err != nil {
 		return 0, err
 	}
+	if err := validateAPIChannelName(name); err != nil {
+		return 0, err
+	}
 	if err := s.validateChannel(typ, config); err != nil {
 		return 0, err
 	}
-	cfgJSON, err := s.encodeConfig(config)
-	if err != nil {
-		return 0, err
-	}
-
 	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	// The id comes first so sealed secrets can be bound to the channel.
 	var id int
-	err = s.pool.QueryRow(qctx,
+	if err := s.pool.QueryRow(qctx, `/* pg_sage */ SELECT
+		nextval(pg_get_serial_sequence('sage.notification_channels', 'id'))::int`,
+	).Scan(&id); err != nil {
+		return 0, fmt.Errorf("allocating channel id: %w", err)
+	}
+	cfgJSON, err := s.encodeConfig(config, id)
+	if err != nil {
+		return 0, err
+	}
+	_, err = s.pool.Exec(qctx,
 		`/* pg_sage */ INSERT INTO sage.notification_channels
-		    (name, type, config, created_by)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id`,
-		name, typ, cfgJSON, userID,
-	).Scan(&id)
+		    (id, name, type, config, created_by)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		id, name, typ, cfgJSON, userID,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("inserting channel: %w", err)
 	}
@@ -106,14 +135,12 @@ func (s *NotificationStore) validateChannel(
 	return validateChannelTargets(s.policy, typ, config)
 }
 
-// encodeConfig seals secrets (when a key is configured) and marshals.
-func (s *NotificationStore) encodeConfig(config map[string]string) ([]byte, error) {
-	if len(s.secretKey) > 0 {
-		sealed, err := notify.SealSecrets(config, s.secretKey)
-		if err != nil {
-			return nil, err
-		}
-		config = sealed
+// encodeConfig seals secrets for channel id (when a key is configured)
+// and marshals.
+func (s *NotificationStore) encodeConfig(config map[string]string, id int) ([]byte, error) {
+	config, err := notify.SealSecrets(config, s.keyring, id)
+	if err != nil {
+		return nil, err
 	}
 	cfgJSON, err := json.Marshal(config)
 	if err != nil {
@@ -122,40 +149,10 @@ func (s *NotificationStore) encodeConfig(config map[string]string) ([]byte, erro
 	return cfgJSON, nil
 }
 
-// ListChannels returns all notification channels.
-func (s *NotificationStore) ListChannels(
-	ctx context.Context,
-) ([]notify.Channel, error) {
-	qctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	rows, err := s.pool.Query(qctx,
-		`/* pg_sage */ SELECT id, name, type, config, enabled
-		 FROM sage.notification_channels ORDER BY id`)
-	if err != nil {
-		return nil, fmt.Errorf("listing channels: %w", err)
-	}
-	defer rows.Close()
-
-	var result []notify.Channel
-	for rows.Next() {
-		var ch notify.Channel
-		var cfgJSON []byte
-		if err := rows.Scan(
-			&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled,
-		); err != nil {
-			return nil, fmt.Errorf("scanning channel: %w", err)
-		}
-		if ch.Config, err = s.decodeConfig(cfgJSON); err != nil {
-			return nil, fmt.Errorf("channel %d: %w", ch.ID, err)
-		}
-		result = append(result, ch)
-	}
-	return result, rows.Err()
-}
-
-func (s *NotificationStore) decodeConfig(cfgJSON []byte) (map[string]string, error) {
-	return notify.OpenSecrets(parseJSONConfig(cfgJSON), s.secretKey)
+func (s *NotificationStore) decodeConfig(
+	cfgJSON []byte, id int,
+) (map[string]string, error) {
+	return notify.OpenSecrets(parseJSONConfig(cfgJSON), s.keyring, id)
 }
 
 // GetChannel returns a single channel by ID, migrating plaintext
@@ -169,9 +166,9 @@ func (s *NotificationStore) GetChannel(
 	var ch notify.Channel
 	var cfgJSON []byte
 	err := s.pool.QueryRow(qctx,
-		`/* pg_sage */ SELECT id, name, type, config, enabled
+		`/* pg_sage */ SELECT id, name, type, config, enabled, managed_by
 		 FROM sage.notification_channels WHERE id = $1`, id,
-	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled)
+	).Scan(&ch.ID, &ch.Name, &ch.Type, &cfgJSON, &ch.Enabled, &ch.ManagedBy)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("%w: channel %d", ErrNotFound, id)
@@ -179,28 +176,18 @@ func (s *NotificationStore) GetChannel(
 		return nil, fmt.Errorf("getting channel %d: %w", id, err)
 	}
 	stored := parseJSONConfig(cfgJSON)
-	if ch.Config, err = notify.OpenSecrets(stored, s.secretKey); err != nil {
+	if ch.Config, err = notify.OpenSecrets(stored, s.keyring, id); err != nil {
 		return nil, fmt.Errorf("channel %d: %w", id, err)
 	}
-	if len(s.secretKey) > 0 && notify.HasPlaintextSecrets(stored) {
-		if err := s.writeConfig(qctx, id, ch.Config); err != nil {
+	if notify.NeedsReseal(stored, s.keyring) {
+		// A compare-and-swap: a channel updated since the read keeps its
+		// update; losing the swap leaves the newer value for the next read.
+		row := storedChannelConfig{id: id, raw: cfgJSON}
+		if _, err := s.swapChannelConfig(qctx, row, ch.Config); err != nil {
 			return nil, fmt.Errorf("migrating channel %d secrets: %w", id, err)
 		}
 	}
 	return &ch, nil
-}
-
-func (s *NotificationStore) writeConfig(
-	ctx context.Context, id int, config map[string]string,
-) error {
-	cfgJSON, err := s.encodeConfig(config)
-	if err != nil {
-		return err
-	}
-	_, err = s.pool.Exec(ctx,
-		`/* pg_sage */ UPDATE sage.notification_channels
-		 SET config = $1 WHERE id = $2`, cfgJSON, id)
-	return err
 }
 
 // UpdateChannel modifies a channel's name, config, and enabled state.
@@ -214,11 +201,25 @@ func (s *NotificationStore) UpdateChannel(
 	if err != nil {
 		return err
 	}
+	if ch.ManagedBy == notify.ManagedByConfig {
+		return fmt.Errorf("channel %d: %w", id, ErrManagedByConfig)
+	}
+	if name != ch.Name {
+		if err := validateAPIChannelName(name); err != nil {
+			return err
+		}
+	}
+	if err := checkSMTPDestinationSecrets(ch.Config, config); err != nil {
+		return err
+	}
+	if err := checkDestinationSecrets(ch.Type, ch.Config, config); err != nil {
+		return err
+	}
 	config = preserveMaskedNotificationSecrets(ch.Config, config)
 	if err := s.validateChannel(ch.Type, config); err != nil {
 		return err
 	}
-	cfgJSON, err := s.encodeConfig(config)
+	cfgJSON, err := s.encodeConfig(config, id)
 	if err != nil {
 		return err
 	}
@@ -229,13 +230,13 @@ func (s *NotificationStore) UpdateChannel(
 	tag, err := s.pool.Exec(qctx,
 		`/* pg_sage */ UPDATE sage.notification_channels
 		 SET name = $1, config = $2, enabled = $3
-		 WHERE id = $4`,
+		 WHERE id = $4 AND managed_by = 'api'`,
 		name, cfgJSON, enabled, id)
 	if err != nil {
 		return fmt.Errorf("updating channel %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: channel %d", ErrNotFound, id)
+		return s.channelNotWritten(ctx, id)
 	}
 	return nil
 }
@@ -272,12 +273,13 @@ func (s *NotificationStore) DeleteChannel(
 	defer cancel()
 
 	tag, err := s.pool.Exec(qctx,
-		"DELETE FROM sage.notification_channels WHERE id = $1", id)
+		`/* pg_sage */ DELETE FROM sage.notification_channels
+		 WHERE id = $1 AND managed_by = 'api'`, id)
 	if err != nil {
 		return fmt.Errorf("deleting channel %d: %w", id, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: channel %d", ErrNotFound, id)
+		return s.channelNotWritten(ctx, id)
 	}
 	return nil
 }
@@ -300,6 +302,10 @@ func (s *NotificationStore) TestChannel(
 	}
 	if s.dispatcher == nil {
 		return fmt.Errorf("dispatcher not configured")
+	}
+	if notify.IsTicketIntegration(ch.Type) {
+		return fmt.Errorf("%w: a %s integration is checked when a ticket is created "+
+			"from a case", ErrValidation, ch.Type)
 	}
 
 	testEvt := notify.Event{

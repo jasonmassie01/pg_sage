@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { LoadingSpinner } from '../components/LoadingSpinner'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { Term } from '../components/Term'
+import { QueryState } from '../components/QueryState'
+import { queryBlocked } from '../lib/queryState'
 import { EvaluateNow } from './autonomy/EvaluateNow'
 import { PathToNextLevel } from './autonomy/PathToNextLevel'
+import { GameDays } from './autonomy/GameDays'
+import { Rollouts } from './autonomy/Rollouts'
 
 // Sage SRE M7 earned autonomy: the level pg_sage has earned per incident
 // family x action class, the evidence behind it, pending promotions
@@ -43,7 +47,9 @@ async function postJSON(url, body) {
   return res.json()
 }
 
-export function AutonomyPage({ database, user }) {
+// embedded (ux-06b) is the Autonomy page's collapsed history section: no
+// title, and no pending list (Waiting promotions holds the one Approve).
+export function AutonomyPage({ database, user, embedded = false }) {
   const q = dbQuery(database)
   const view = useAPI(`/api/v1/sre/autonomy${q}`, 30000)
   const history = useAPI(`/api/v1/sre/autonomy/history${dbQuery(database, 'limit=50')}`,
@@ -54,10 +60,11 @@ export function AutonomyPage({ database, user }) {
   const [actionError, setActionError] = useState(null)
 
   if (view.loading) return <LoadingSpinner />
-  if (view.error && (!database || database === 'all') && /^400/.test(view.error)) {
+  if (view.error && !view.data && (!database || database === 'all')
+    && /^400/.test(view.error)) {
     return <PickDatabase />
   }
-  if (view.error) return <ErrorBanner message={view.error} onRetry={view.refetch} />
+  if (queryBlocked(view)) return <QueryState query={view} />
 
   const role = user?.role
   const canAct = role === 'admin' || role === 'operator'
@@ -73,8 +80,8 @@ export function AutonomyPage({ database, user }) {
   }
   const families = view.data?.view?.families || []
   return (
-    <section className="space-y-4" data-testid="autonomy-page">
-      <Header data={view.data} />
+    <QueryState query={view}><section className="space-y-4" data-testid="autonomy-page">
+      <Header data={view.data} embedded={embedded} />
       {actionError && (
         <div role="alert" className="text-sm" style={{ color: 'var(--red)' }}>
           {actionError}
@@ -84,9 +91,11 @@ export function AutonomyPage({ database, user }) {
         view.refetch?.()
         history.refetch?.()
       }} />}
-      <PendingProposals families={families} isAdmin={role === 'admin'} canAct={canAct}
-        onDecide={(id, verb, note) => run(
-          `/api/v1/sre/autonomy/proposals/${id}/${verb}${q}`, { note })} />
+      {!embedded && (
+        <PendingProposals families={families} isAdmin={role === 'admin'} canAct={canAct}
+          onDecide={(id, verb, note) => run(
+            `/api/v1/sre/autonomy/proposals/${id}/${verb}${q}`, { note })} />
+      )}
       <PathToNextLevel families={families} benchRuns={benchRuns.data}
         canRunBench={role === 'admin'}
         onRunBench={async family => {
@@ -98,9 +107,9 @@ export function AutonomyPage({ database, user }) {
           onDowngrade={body => run(`/api/v1/sre/autonomy/downgrade${q}`, body)} />
       ))}
       <History items={history.data?.items || []} />
-      <GameDays data={gameDays.data} />
+      <GameDays data={gameDays.data} families={families} />
       <Rollouts data={rollouts.data} />
-    </section>
+    </section></QueryState>
   )
 }
 
@@ -115,11 +124,13 @@ function PickDatabase() {
   )
 }
 
-function Header({ data }) {
+function Header({ data, embedded }) {
   const bench = data?.view?.bench
   return (
     <div>
-      <h2 className="text-sm font-semibold" style={strong}>Earned autonomy</h2>
+      {!embedded && (
+        <h2 className="text-sm font-semibold" style={strong}>Earned autonomy</h2>
+      )}
       <p className="text-sm" style={muted}>
         Per incident family and action class. pg_sage proposes a promotion only from
         benchmark, shadow-review and live-recovery evidence; an admin approves it.
@@ -151,7 +162,7 @@ function FastElevation({ info }) {
   return (
     <div data-testid="fast-elevation" className="mt-2 rounded px-2 py-1 text-xs"
       style={{ border: '1px solid var(--yellow)', color: 'var(--text-primary)' }}>
-      <span className="font-semibold">Fast elevation</span>
+      <span className="font-semibold"><Term id="fast-elevation">Fast elevation</Term></span>
       <span style={muted}> — these settings are below the spec, so trust is earned in
         hours. Irreversible actions, L4 and admin approval are unchanged.</span>
       <ul className="mt-1 list-disc pl-5">
@@ -211,8 +222,14 @@ function FamilyTable({ family, canAct, onDowngrade }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs" style={muted}>
-            <th>Class</th><th>Reversibility</th><th>Cap</th><th>Granted</th>
-            <th>Evidence</th><th>Effective</th><th>Next level</th><th />
+            <th scope="col">Class</th>
+            <th scope="col">Reversibility</th>
+            <th scope="col">Cap</th>
+            <th scope="col">Granted</th>
+            <th scope="col">Evidence</th>
+            <th scope="col">Effective</th>
+            <th scope="col">Next level</th>
+            <th scope="col" />
           </tr>
         </thead>
         <tbody>
@@ -313,38 +330,6 @@ function History({ items }) {
             <span>by {e.actor}</span>{e.database ? <span> on {e.database}</span> : null}
             <span>: {e.reason}</span>
           </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function GameDays({ data }) {
-  const items = data?.items || []
-  return (
-    <div className="rounded border p-3 text-xs" style={card}>
-      <h3 className="text-sm font-semibold" style={strong}>Game days</h3>
-      {!data?.enabled && <div style={muted}>Off: needs sre.autonomy.game_days and a
-        clone provider.</div>}
-      <ul style={muted}>
-        {items.map(g => (
-          <li key={g.id}>{g.started_at} {g.status}{g.error ? `: ${g.error}` : ''}</li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function Rollouts({ data }) {
-  const items = data?.items || []
-  return (
-    <div className="rounded border p-3 text-xs" style={card}>
-      <h3 className="text-sm font-semibold" style={strong}>Fleet canaries</h3>
-      {items.length === 0 && <div style={muted}>No canary rollouts.</div>}
-      <ul style={muted}>
-        {items.map(r => (
-          <li key={r.id}>{r.created_at} {r.source_database}: {r.state}
-            {r.halt_reason ? ` (${r.halt_reason})` : ''}, {r.applied_instances} applied</li>
         ))}
       </ul>
     </div>

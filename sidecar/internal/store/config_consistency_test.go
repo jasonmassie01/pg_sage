@@ -12,7 +12,7 @@ import (
 
 // excludedPrefixes are top-level Config sections that represent
 // connection/infrastructure settings, not hot-reloadable config
-// overrides. They are intentionally absent from allowedConfigKeys.
+// overrides. They are intentionally absent from api-tagged keys.
 var excludedPrefixes = []string{
 	"postgres.",
 	"prometheus.",
@@ -26,6 +26,8 @@ var excludedPrefixes = []string{
 	"databases.",
 	"defaults.",
 	"ask.", // Ask Sage (roadmap phase 3): YAML only, read when a runtime starts
+	// binding facts (facts-08): YAML only, read when a runtime starts
+	"facts.",
 	// pg_sage's declared self-budget and the admin-only profiler are
 	// YAML only and restart-bound, not API overrides (phase 3 observer).
 	"self_budget.",
@@ -35,22 +37,74 @@ var excludedPrefixes = []string{
 	// managed-cloud telemetry identity and guard floors: YAML/env only, restart-bound
 	"cloud_telemetry.",
 	"lakebase_observability.", // trusted resource bindings; restart-bound startup configuration
-	"sre.read_policy.",        // trusted observation boundary; never a model-derived grant
-	"self_config.",            // derivation switch and soak: YAML only, safety-critical, restart-bound
+	// market-03: the Lakebase project rehearsal branches are made in and
+	// their limits: YAML only, restart-bound, the project safety-critical
+	"clone.lakebase.",
+	// lab-05b: the Neon project, parent branch and API key of rehearsal
+	// branches: YAML or env only, restart-bound, the key a secret
+	"clone.neon.",
+	// lab-05c: the Aurora region and clone size: YAML only, restart-bound,
+	// the region safety-critical
+	"clone.aurora.",
+	// lab-05d: the RDS region and class and the full-copy restore deadline:
+	// YAML only, restart-bound, the region safety-critical
+	"clone.rds.", "clone.restore_deadline_minutes",
+	// lab-05e: the Cloud SQL project and instance: YAML only, restart-bound,
+	// safety-critical
+	"clone.cloudsql.",
+	// lab-05f: the AlloyDB project, location and cluster: YAML only,
+	// restart-bound, safety-critical
+	"clone.alloydb.",
+	// lab-05g: the Azure subscription, resource group and server: YAML
+	// only, restart-bound, safety-critical
+	"clone.azure.",
+	"sre.read_policy.", // trusted observation boundary; never a model-derived grant
+	"self_config.",     // derivation switch and soak: YAML only, safety-critical, restart-bound
 	// fleet learning and leader election: YAML only, restart-bound
 	"fleet_learning.",
+	// fleet auto-discovery (market-06): YAML only, restart-bound, safety-critical
+	"fleet.discovery.",
 	// agent posture: YAML only, restart-bound; exposed_roles is safety-critical
 	"agents.",
 	// E2 audit export and the MCP OAuth resource server: YAML only,
 	// restart-bound, safety-critical (endpoints, credentials, who may call MCP)
 	"audit.",
 	"mcp.oauth.",
+	// owner checks (market-11): YAML only, restart-bound, safety-critical
+	"checks.",
+	// seasonal workload baselines (market-02): YAML only, restart-bound
+	"baseline.",
+	// rehearsal plan-flip budget (migration-06): YAML only, safety-critical
+	"rehearsal.",
+	// provider advice reconciliation switch (market-09): YAML only, restart-bound
+	"provider_advice.",
+	// approval pull requests (cli-02b): YAML only, restart-bound, safety-critical
+	// (which repository and merger may approve a change)
+	"policy.approval_prs.",
 }
 
 // excludedExactKeys are individual keys that exist in the Config
 // struct but are intentionally excluded from the config override
 // registries.
 var excludedExactKeys = map[string]bool{
+	// The GitOps directory and its mode (cli-02a): YAML only, restart-bound,
+	// safety-critical; an API write must never move or arm the policy source.
+	"policy.directory":      true,
+	"policy.directory_mode": true,
+	// The allow-always ask threshold (ux-07a) is read at startup; YAML only.
+	"trust.ask_after_approvals": true,
+	// Workload budget proposals (market-08): YAML only, restart-bound.
+	"advisor.budget_proposals": true,
+	// The alerting engine switch (alerting-06b): YAML only, restart-bound;
+	// the legacy engine is a one-release escape hatch, not a setting.
+	"alerting.engine": true,
+	// Migration contract delay and lock budget (migration-06): YAML only,
+	// safety-critical and restart-bound; an API write can never loosen them.
+	"migration.contract_delay_minutes": true,
+	"migration.max_lock_ms":            true,
+	// Subscriber and CDC thresholds (market-13): YAML only, restart-bound.
+	"analyzer.subscription_lag_minutes": true,
+	"analyzer.cdc_stall_minutes":        true,
 	// Top-level mode/meta fields — not overridable via API.
 	"mode":           true,
 	"meta_db":        true,
@@ -58,6 +112,9 @@ var excludedExactKeys = map[string]bool{
 	// The rotation key must never be API-settable: it would be stored
 	// next to what it protects.
 	"encryption_key_previous": true,
+	// data_dir holds the generated key file; it is a process setting, never
+	// an API override (security-08).
+	"data_dir": true,
 
 	// Safety fields present in struct but not exposed as overrides.
 	"safety.disk_pressure_threshold_pct": true,
@@ -65,11 +122,15 @@ var excludedExactKeys = map[string]bool{
 	"safety.dormant_interval_seconds":    true,
 
 	// Analyzer fields present in struct but not exposed as overrides.
-	"analyzer.table_bloat_min_rows":                  true,
-	"analyzer.idle_in_transaction_timeout_minutes":   true,
-	"analyzer.xid_wraparound_warning":                true,
-	"analyzer.xid_wraparound_critical":               true,
-	"analyzer.regression_lookback_days":              true,
+	"analyzer.table_bloat_min_rows":                true,
+	"analyzer.table_bloat_min_bytes":               true, // read when the custodian is built
+	"analyzer.index_bloat_min_bytes":               true, // rules-13: YAML only, restart-bound
+	"analyzer.idle_in_transaction_timeout_minutes": true,
+	"analyzer.xid_wraparound_warning":              true,
+	"analyzer.xid_wraparound_critical":             true,
+	"analyzer.regression_lookback_days":            true,
+	// rules-05: the interval call floor is YAML only and restart-bound.
+	"analyzer.slow_query_min_calls":                  true,
 	"analyzer.checkpoint_frequency_warning_per_hour": true,
 	// v0.8.5 Feature 3 — work_mem promotion advisor threshold.
 	// Read once per cycle from YAML; not exposed as a runtime override.
@@ -89,6 +150,19 @@ var excludedExactKeys = map[string]bool{
 	// The stdio transport's agent identity (agent governance G1) is YAML
 	// only and restart-bound: an API write must never rebind it.
 	"mcp.stdio_principal": true,
+	// The stdio tools/call deadline (mcp-04) is YAML only and restart-bound,
+	// read when the stdio server starts.
+	"mcp.call_timeout_seconds": true,
+	// The HA role check interval (fleet-04) is YAML only and restart-bound.
+	"ha.check_interval_seconds": true,
+	// The backup freshness policy (market-07) is YAML only and
+	// restart-bound, like the HA cadence.
+	"backup.max_age_hours":           true,
+	"backup.max_archive_gap_minutes": true,
+	"backup.min_retention_days":      true,
+	// The backup isolation policy (drill-01b) likewise.
+	"backup.min_pitr_hours":  true,
+	"backup.external_source": true,
 
 	// Trust ramp_start — written in YAML but not overridable.
 	"trust.ramp_start": true,
@@ -128,37 +202,39 @@ var excludedExactKeys = map[string]bool{
 	// API admin must not be able to open SSRF to private networks, so it
 	// is YAML-only and restart-bound.
 	"notification_policy.allow_private_targets": true,
+	// ux-09a: the chat approval cap is a safety boundary; YAML only.
+	"notification_policy.chat_approval_max_tier": true,
+	"notification_policy.ask_batch_minutes":      true,
 
 	// LLM sub-struct fields not (yet) exposed as overrides.
-	"llm.cooldown_seconds":                       true,
-	"llm.index_optimizer.enabled":                true,
-	"llm.index_optimizer.min_query_calls":        true,
-	"llm.index_optimizer.max_indexes_per_table":  true,
-	"llm.index_optimizer.max_include_columns":    true,
-	"llm.index_optimizer.over_indexed_ratio_pct": true,
-	"llm.index_optimizer.write_heavy_ratio_pct":  true,
-	"llm.optimizer.max_indexes_per_table":        true,
-	"llm.optimizer.max_include_columns":          true,
-	"llm.optimizer.over_indexed_ratio_pct":       true,
-	"llm.optimizer.write_heavy_ratio_pct":        true,
-	"llm.optimizer.min_snapshots":                true,
-	"llm.optimizer.hypopg_min_improvement_pct":   true,
-	"llm.optimizer.plan_source":                  true,
-	"llm.optimizer.confidence_threshold":         true,
-	"llm.optimizer.write_impact_threshold_pct":   true,
-	"llm.optimizer_llm.enabled":                  true,
-	"llm.optimizer_llm.endpoint":                 true,
-	"llm.optimizer_llm.api_key":                  true,
-	"llm.optimizer_llm.model":                    true,
-	"llm.optimizer_llm.timeout_seconds":          true,
-	"llm.optimizer_llm.token_budget_daily":       true,
-	"llm.optimizer_llm.cooldown_seconds":         true,
-	"llm.optimizer_llm.max_output_tokens":        true,
-	"llm.optimizer_llm.fallback_to_general":      true,
+	"llm.cooldown_seconds":                      true,
+	"llm.index_optimizer.enabled":               true,
+	"llm.index_optimizer.min_query_calls":       true,
+	"llm.index_optimizer.max_indexes_per_table": true,
+	"llm.index_optimizer.max_include_columns":   true,
+	"llm.index_optimizer.write_heavy_ratio_pct": true,
+	"llm.optimizer.max_indexes_per_table":       true,
+	"llm.optimizer.max_include_columns":         true,
+	"llm.optimizer.write_heavy_ratio_pct":       true,
+	"llm.optimizer.min_snapshots":               true,
+	"llm.optimizer.hypopg_min_improvement_pct":  true,
+	"llm.optimizer.confidence_threshold":        true,
+	"llm.optimizer.write_impact_threshold_pct":  true,
+	"llm.optimizer_llm.enabled":                 true,
+	"llm.optimizer_llm.endpoint":                true,
+	"llm.optimizer_llm.api_key":                 true,
+	"llm.optimizer_llm.model":                   true,
+	"llm.optimizer_llm.timeout_seconds":         true,
+	"llm.optimizer_llm.token_budget_daily":      true,
+	"llm.optimizer_llm.cooldown_seconds":        true,
+	"llm.optimizer_llm.max_output_tokens":       true,
+	"llm.optimizer_llm.fallback_to_general":     true,
 	// Provider wire shape (OpenAI compatibility): YAML-only, applied by the
 	// llm reconfigure owner; auto adapts without operator action.
 	"llm.token_parameter":       true,
 	"llm.tool_reasoning_effort": true,
+	// Privacy switch (llm-09): YAML-only, applied live by llm_redaction.
+	"llm.redact_numeric_literals": true,
 
 	// Optimizer what-if rejection memory: YAML-only, read when the
 	// optimizer is built (restart-bound).
@@ -205,6 +281,17 @@ var excludedExactKeys = map[string]bool{
 	// Sage SRE M0: the fast-path period is read once at startup and must
 	// be 0 or 10-3600 (validated at load), so it is YAML-only.
 	"rca.lock_chain_interval_seconds": true,
+	// rca-06: the log fast-path period, read once at startup like the
+	// lock-chain fast path and validated at load (0 or 1-3600).
+	"rca.log_fast_path_interval_seconds": true,
+	// rca-07: the log quiet period and the recurrence re-notify window
+	// are validated at load against rca.stale_after_hours (1-max), so
+	// they are YAML-only.
+	"rca.log_quiet_minutes":         true,
+	"rca.recurrence_renotify_hours": true,
+	// rca-07b: whether deadlock statement text is kept, validated at load
+	// and read once when the log classifier starts: YAML-only.
+	"rca.deadlock_statement_text": true,
 
 	// Dogfood lifeos-1: validated at load against other keys
 	// (rca.dedup_window_minutes; sre.runways.interval_seconds,
@@ -219,6 +306,11 @@ var excludedExactKeys = map[string]bool{
 	// (1-max), like rca.stale_after_hours, so it is YAML-only.
 	"rca.vacuum_min_dead_tuples": true,
 	"rca.vacuum_min_table_mb":    true,
+
+	// rca-01: the vacuum_blocked holder floors are validated at load
+	// (1-max) and gate blame and proposals, so they are YAML-only.
+	"rca.xmin_holder_min_minutes":       true,
+	"rca.prepared_xact_min_age_minutes": true,
 
 	// Sage SRE M2: read once when a database runtime is built (restart
 	// lifecycle) and validated at load, so they are YAML-only.
@@ -235,6 +327,11 @@ var excludedExactKeys = map[string]bool{
 	// Roadmap 2.1: the investigator mode is read with the model turn
 	// switch (restart lifecycle), so it is YAML-only too.
 	"sre.llm.mode": true,
+
+	// sre-03: the investigator's support-citation rule is read when a
+	// database runtime is built (restart lifecycle) and only tightens what
+	// a model may conclude, so an API write can never switch it off: YAML only.
+	"sre.investigator.require_support_citation": true,
 
 	// Sage SRE M5: SLOs and the change feed are built with the database
 	// runtime (restart lifecycle), carry secrets and are validated at
@@ -284,6 +381,7 @@ var excludedExactKeys = map[string]bool{
 	"specialist.reads_per_minute":                    true,
 	"specialist.max_open_per_identity":               true,
 	"specialist.max_open_total":                      true,
+	"specialist.max_live_age_hours":                  true,
 	"specialist.keep_identifiers":                    true,
 	"specialist.pagerduty.signing_secret":            true,
 	"specialist.pagerduty.services":                  true,
@@ -293,6 +391,11 @@ var excludedExactKeys = map[string]bool{
 	"specialist.webhook.signing_secret":              true,
 	"specialist.webhook.result_url":                  true,
 	"specialist.webhook.timestamp_tolerance_seconds": true,
+	"specialist.incidentio.signing_secret":           true,
+	"specialist.incidentio.database_field":           true,
+	"specialist.incidentio.routes":                   true,
+	"specialist.azure_monitor.shared_secret":         true,
+	"specialist.azure_monitor.resources":             true,
 
 	// Sage SRE M6: runways are read when a database runtime is built
 	// (restart lifecycle) and validated together at load, so they are
@@ -314,22 +417,23 @@ var excludedExactKeys = map[string]bool{
 	// runtime is built (restart lifecycle) and validated at load, so they
 	// are YAML-only. enforce in particular must not be switchable over the
 	// API: turning it off returns incident-family actions to the trust ramp.
-	"sre.autonomy.enforce":                     true,
-	"sre.autonomy.bench_results_path":          true,
-	"sre.autonomy.evaluate_interval_minutes":   true,
-	"sre.autonomy.reconcile_interval_seconds":  true,
-	"sre.autonomy.max_evidence_age_seconds":    true,
-	"sre.autonomy.concurrency_window_minutes":  true,
-	"sre.autonomy.safety_window_days":          true,
-	"sre.autonomy.failover_cooldown_minutes":   true,
-	"sre.autonomy.proposal_ttl_hours":          true,
-	"sre.autonomy.game_days.enabled":           true,
-	"sre.autonomy.game_days.interval_hours":    true,
-	"sre.autonomy.game_days.local_dsn":         true,
-	"sre.autonomy.game_days.families":          true,
+	"sre.autonomy.enforce":                    true,
+	"sre.autonomy.bench_results_path":         true,
+	"sre.autonomy.evaluate_interval_minutes":  true,
+	"sre.autonomy.reconcile_interval_seconds": true,
+	"sre.autonomy.max_evidence_age_seconds":   true,
+	"sre.autonomy.concurrency_window_minutes": true,
+	"sre.autonomy.safety_window_days":         true,
+	"sre.autonomy.failover_cooldown_minutes":  true,
+	"sre.autonomy.proposal_ttl_hours":         true,
+	"sre.autonomy.game_days.enabled":          true,
+	"sre.autonomy.game_days.interval_hours":   true,
+	"sre.autonomy.game_days.local_dsn":        true,
+	"sre.autonomy.game_days.families":         true,
+	// benches-12: whether game days run customer programs on the clone.
+	"sre.autonomy.game_days.customer_programs": true,
 	"sre.autonomy.canary.canary_instances":     true,
 	"sre.autonomy.canary.regression_limit_pct": true,
-	"sre.autonomy.canary.settle_seconds":       true,
 	// Stored bench and game-day reports age out with retention; the
 	// floor protects the promotion evidence window, so YAML-only.
 	"sre.autonomy.report_retention_days": true,
@@ -350,7 +454,7 @@ var excludedExactKeys = map[string]bool{
 // fields tagged "-", and slice/map/pointer fields that aren't
 // structs.
 func structFieldPaths(t reflect.Type, prefix string) []string {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	var paths []string
@@ -374,7 +478,7 @@ func structFieldPaths(t reflect.Type, prefix string) []string {
 		}
 
 		ft := f.Type
-		if ft.Kind() == reflect.Ptr {
+		if ft.Kind() == reflect.Pointer {
 			ft = ft.Elem()
 		}
 
@@ -400,9 +504,9 @@ func structFieldPaths(t reflect.Type, prefix string) []string {
 }
 
 // isExcluded returns true if a field path should not be expected
-// in allowedConfigKeys.
+// in api-tagged keys.
 func isExcluded(path string) bool {
-	if excludedExactKeys[path] {
+	if excludedExactKeys[path] || trancheFiveExcludedKeys[path] || trancheSixExcludedKeys[path] {
 		return true
 	}
 	for _, prefix := range excludedPrefixes {
@@ -415,10 +519,10 @@ func isExcluded(path string) bool {
 
 // TestConfigConsistency_AllowedKeysMatchStruct verifies that every
 // leaf field in config.Config (minus excluded infra/connection
-// fields) has a corresponding entry in allowedConfigKeys.
+// fields) has a corresponding entry in api-tagged keys.
 //
 // When you add a new field to a Config sub-struct, this test will
-// fail until you also add it to allowedConfigKeys (or explicitly
+// fail until you also add it to api-tagged keys (or explicitly
 // exclude it).
 func TestConfigConsistency_AllowedKeysMatchStruct(t *testing.T) {
 	allPaths := structFieldPaths(
@@ -429,7 +533,7 @@ func TestConfigConsistency_AllowedKeysMatchStruct(t *testing.T) {
 		if isExcluded(path) {
 			continue
 		}
-		if _, ok := allowedConfigKeys[path]; !ok {
+		if _, ok := configKeyTypes()[path]; !ok {
 			missing = append(missing, path)
 		}
 	}
@@ -438,7 +542,7 @@ func TestConfigConsistency_AllowedKeysMatchStruct(t *testing.T) {
 		sort.Strings(missing)
 		t.Errorf(
 			"config.Config has %d field(s) not in "+
-				"allowedConfigKeys (add them or exclude them "+
+				"api-tagged keys (add api tags or exclude them "+
 				"in config_consistency_test.go):\n  %s",
 			len(missing),
 			strings.Join(missing, "\n  "))
@@ -446,7 +550,7 @@ func TestConfigConsistency_AllowedKeysMatchStruct(t *testing.T) {
 }
 
 // TestConfigConsistency_AllowedKeysExistInStruct verifies the
-// reverse: every key in allowedConfigKeys corresponds to a real
+// reverse: every key in api-tagged keys corresponds to a real
 // yaml-tagged field in config.Config.
 func TestConfigConsistency_AllowedKeysExistInStruct(t *testing.T) {
 	allPaths := structFieldPaths(
@@ -457,7 +561,7 @@ func TestConfigConsistency_AllowedKeysExistInStruct(t *testing.T) {
 	}
 
 	var orphans []string
-	for key := range allowedConfigKeys {
+	for key := range configKeyTypes() {
 		if !pathSet[key] {
 			orphans = append(orphans, key)
 		}
@@ -466,7 +570,7 @@ func TestConfigConsistency_AllowedKeysExistInStruct(t *testing.T) {
 	if len(orphans) > 0 {
 		sort.Strings(orphans)
 		t.Errorf(
-			"allowedConfigKeys has %d key(s) with no "+
+			"api-tagged keys has %d key(s) with no "+
 				"matching config.Config field:\n  %s",
 			len(orphans),
 			strings.Join(orphans, "\n  "))
@@ -475,7 +579,7 @@ func TestConfigConsistency_AllowedKeysExistInStruct(t *testing.T) {
 
 // TestConfigConsistency_ConfigToMapCoversAllAllowedKeys verifies
 // that configToMap() emits an entry for every key in
-// allowedConfigKeys.
+// api-tagged keys.
 func TestConfigConsistency_ConfigToMapCoversAllAllowedKeys(
 	t *testing.T,
 ) {
@@ -486,7 +590,7 @@ func TestConfigConsistency_ConfigToMapCoversAllAllowedKeys(
 	m := configToMap(cfg)
 
 	var missing []string
-	for key := range allowedConfigKeys {
+	for key := range configKeyTypes() {
 		if _, ok := m[key]; !ok {
 			missing = append(missing, key)
 		}
@@ -496,7 +600,7 @@ func TestConfigConsistency_ConfigToMapCoversAllAllowedKeys(
 		sort.Strings(missing)
 		t.Errorf(
 			"configToMap() is missing %d key(s) that "+
-				"allowedConfigKeys defines:\n  %s",
+				"api-tagged keys defines:\n  %s",
 			len(missing),
 			strings.Join(missing, "\n  "))
 	}
@@ -504,7 +608,7 @@ func TestConfigConsistency_ConfigToMapCoversAllAllowedKeys(
 
 // TestConfigConsistency_ConfigToMapOnlyAllowedKeys verifies that
 // configToMap() does not emit keys that are absent from
-// allowedConfigKeys. Stale or typo'd keys in configToMap would
+// api-tagged keys. Stale or typo'd keys in configToMap would
 // cause silent data that the SET API rejects.
 func TestConfigConsistency_ConfigToMapOnlyAllowedKeys(
 	t *testing.T,
@@ -516,7 +620,7 @@ func TestConfigConsistency_ConfigToMapOnlyAllowedKeys(
 
 	var extra []string
 	for key := range m {
-		if _, ok := allowedConfigKeys[key]; !ok {
+		if _, ok := configKeyTypes()[key]; !ok {
 			extra = append(extra, key)
 		}
 	}
@@ -525,7 +629,7 @@ func TestConfigConsistency_ConfigToMapOnlyAllowedKeys(
 		sort.Strings(extra)
 		t.Errorf(
 			"configToMap() emits %d key(s) not in "+
-				"allowedConfigKeys:\n  %s",
+				"api-tagged keys:\n  %s",
 			len(extra),
 			strings.Join(extra, "\n  "))
 	}
@@ -533,7 +637,7 @@ func TestConfigConsistency_ConfigToMapOnlyAllowedKeys(
 
 // TestConfigConsistency_HotReloadCoversAllAllowedKeys verifies
 // that hotReload() (in internal/api/config_apply.go) handles every
-// key defined in allowedConfigKeys.
+// key defined in api-tagged keys.
 //
 // Strategy: call hotReload for each key with a non-zero value and
 // verify the config struct was actually mutated. This catches keys
@@ -545,34 +649,42 @@ func TestConfigConsistency_HotReloadCoversAllAllowedKeys(
 	// hotReload is in package api, which we can't call from
 	// package store. Instead, we build the expected set of
 	// hotReload keys by parsing the switch cases from the
-	// function's behavior: for each allowedConfigKeys entry we
+	// function's behavior: for each api-tagged keys entry we
 	// verify that a SET + GET round-trip through configToMap
 	// reflects the change. This is an indirect but accurate test.
 
 	// Build a map of test values per validation type.
 	testValues := map[string]string{
-		"int_pos":     "42",
-		"int_nonneg":  "7",
-		"int_min5":    "15",
-		"pct":         "50",
-		"pct1_100":    "75",
-		"float01":     "0.5",
-		"bool":        "true",
-		"trust_level": "advisory",
-		"exec_mode":   "auto",
-		"string":      "test-value",
+		"int_pos": "42",
+		// int_week_minutes is 1-10080 (analyzer.inactive_slot_min_minutes).
+		"int_week_minutes":  "42",
+		"int_nonneg":        "7",
+		"int_min5":          "15",
+		"int_class_timeout": "7200",
+		"int_vacuum_stall":  "30",
+		"pct":               "50",
+		"pct1_100":          "75",
+		"float01":           "0.5",
+		"float_share":       "0.5",
+		"bool":              "true",
+		"trust_level":       "advisory",
+		"exec_mode":         "auto",
+		"string":            "test-value",
 		// maintenance_window is validated against the policy window grammar.
 		"maintenance_window": "weeknights",
+		"rule_list":          "unused_indexes,slow_queries",
 		"float_pos":          "2.0",
 		"float_nonneg":       "0.5",
 		"float_pct_pos":      "25.0",
+		"float_pct_open":     "25.0", // vacuum-11b
 		"policy_profile":     "staffed",
 		"clone_provider":     "none",
 		"mcp_transport":      "stdio",
 		"llm_auth":           "databricks",
+		"bool_auto":          "true", // rca-09b
 	}
 
-	for key, vtype := range allowedConfigKeys {
+	for key, vtype := range configKeyTypes() {
 		testVal, ok := testValues[vtype]
 		if !ok {
 			t.Errorf(
@@ -638,14 +750,14 @@ func TestConfigConsistency_NoExclusionDrift(t *testing.T) {
 }
 
 // TestConfigConsistency_ExcludedAndAllowedAreDisjoint ensures no
-// key appears in both the exclusion list and allowedConfigKeys.
+// key appears in both the exclusion list and api-tagged keys.
 // That would indicate confusion about whether a key is overridable.
 func TestConfigConsistency_ExcludedAndAllowedAreDisjoint(
 	t *testing.T,
 ) {
 	var overlap []string
 	for key := range excludedExactKeys {
-		if _, ok := allowedConfigKeys[key]; ok {
+		if _, ok := configKeyTypes()[key]; ok {
 			overlap = append(overlap, key)
 		}
 	}
@@ -654,7 +766,7 @@ func TestConfigConsistency_ExcludedAndAllowedAreDisjoint(
 		sort.Strings(overlap)
 		t.Errorf(
 			"%d key(s) appear in BOTH excludedExactKeys and "+
-				"allowedConfigKeys — pick one:\n  %s",
+				"api-tagged keys — pick one:\n  %s",
 			len(overlap),
 			strings.Join(overlap, "\n  "))
 	}
@@ -704,86 +816,12 @@ func TestConfigConsistency_StructFieldPathsReturnsExpectedPaths(
 	}
 }
 
-// TestConfigConsistency_PrintRegistrySummary is not a real test —
-// it prints a summary of registry coverage for debugging. Skipped
-// in CI but useful during development.
-func TestConfigConsistency_PrintRegistrySummary(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping summary in short mode")
-	}
-
-	allPaths := structFieldPaths(
-		reflect.TypeOf(config.Config{}), "")
-
-	cfg := &config.Config{
-		Trust: config.TrustConfig{Level: "observation"},
-	}
-	mapKeys := configToMap(cfg)
-
-	sort.Strings(allPaths)
-
-	t.Logf("%-50s %-12s %-12s %-10s",
-		"FIELD PATH", "ALLOWED", "IN MAP", "EXCLUDED")
-	t.Logf("%s", strings.Repeat("-", 90))
-
-	for _, path := range allPaths {
-		_, inAllowed := allowedConfigKeys[path]
-		_, inMap := mapKeys[path]
-		excluded := isExcluded(path)
-
-		status := func(b bool) string {
-			if b {
-				return "YES"
-			}
-			return "---"
-		}
-
-		marker := ""
-		if !excluded && !inAllowed {
-			marker = " << MISSING"
-		}
-
-		t.Logf("%-50s %-12s %-12s %-10s%s",
-			path,
-			status(inAllowed),
-			status(inMap),
-			status(excluded),
-			marker)
-	}
-
-	t.Logf("\nTotal struct fields: %d", len(allPaths))
-	t.Logf("Allowed config keys: %d", len(allowedConfigKeys))
-	t.Logf("configToMap keys:    %d", len(mapKeys))
-
-	// Count coverage.
-	var coveredCount, excludedCount, missingCount int
-	for _, path := range allPaths {
-		switch {
-		case isExcluded(path):
-			excludedCount++
-		case allowedConfigKeys[path] != "":
-			coveredCount++
-		default:
-			missingCount++
-		}
-	}
-	t.Logf(
-		"Covered: %d, Excluded: %d, Missing: %d",
-		coveredCount, excludedCount, missingCount)
-
-	if missingCount > 0 {
-		t.Logf(
-			"WARNING: %d field(s) are neither in "+
-				"allowedConfigKeys nor excluded", missingCount)
-	}
-}
-
 // TestConfigConsistency_CoerceValueCoverage ensures coerceValue
-// handles every validation type that appears in allowedConfigKeys.
+// handles every validation type that appears in api-tagged keys.
 func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 	// Collect all unique validation types.
 	vtypes := make(map[string]bool)
-	for _, vtype := range allowedConfigKeys {
+	for _, vtype := range configKeyTypes() {
 		vtypes[vtype] = true
 	}
 
@@ -791,25 +829,33 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 	// and "trust_level"/"exec_mode" which legitimately return
 	// strings).
 	testInputs := map[string]string{
-		"int_pos":     "10",
-		"int_nonneg":  "0",
-		"int_min5":    "10",
-		"pct":         "50",
-		"pct1_100":    "50",
-		"float01":     "0.5",
-		"bool":        "true",
-		"trust_level": "advisory",
-		"exec_mode":   "auto",
-		"string":      "hello",
+		"int_pos": "10",
+		// int_week_minutes is 1-10080 (analyzer.inactive_slot_min_minutes).
+		"int_week_minutes":  "10",
+		"int_nonneg":        "0",
+		"int_min5":          "10",
+		"int_class_timeout": "3600",
+		"int_vacuum_stall":  "60",
+		"pct":               "50",
+		"pct1_100":          "50",
+		"float01":           "0.5",
+		"float_share":       "0.5",
+		"bool":              "true",
+		"trust_level":       "advisory",
+		"exec_mode":         "auto",
+		"string":            "hello",
 		// maintenance_window is validated against the policy window grammar.
 		"maintenance_window": "weeknights",
+		"rule_list":          "unused_indexes,slow_queries",
 		"float_pos":          "2.0",
 		"float_nonneg":       "0.5",
 		"float_pct_pos":      "25.0",
+		"float_pct_open":     "25.0", // vacuum-11b
 		"policy_profile":     "staffed",
 		"clone_provider":     "none",
 		"mcp_transport":      "stdio",
 		"llm_auth":           "databricks",
+		"bool_auto":          "true", // rca-09b
 	}
 
 	for vtype := range vtypes {
@@ -823,7 +869,7 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 
 		// Find any key with this vtype to test coercion.
 		var sampleKey string
-		for k, v := range allowedConfigKeys {
+		for k, v := range configKeyTypes() {
 			if v == vtype {
 				sampleKey = k
 				break
@@ -841,14 +887,15 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 		// Verify type-specific coercion.
 		switch vtype {
 		case "int_pos", "int_nonneg", "int_min5", "pct",
-			"pct1_100":
+			"pct1_100", "int_week_minutes", "int_class_timeout", "int_vacuum_stall":
 			if _, ok := result.(int); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
 						"want int",
 					sampleKey, input, vtype, result)
 			}
-		case "float01", "float_pos", "float_nonneg", "float_pct_pos":
+		case "float01", "float_share", "float_pos", "float_nonneg", "float_pct_pos",
+			"float_pct_open":
 			if _, ok := result.(float64); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
@@ -863,7 +910,8 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 					sampleKey, input, vtype, result)
 			}
 		case "trust_level", "exec_mode", "policy_profile",
-			"clone_provider", "mcp_transport", "llm_auth", "string", "maintenance_window":
+			"clone_provider", "mcp_transport", "llm_auth", "string", "maintenance_window",
+			"rule_list":
 			if _, ok := result.(string); !ok {
 				t.Errorf(
 					"coerceValue(%q, %q) [type %s] = %T, "+
@@ -878,19 +926,19 @@ func TestConfigConsistency_CoerceValueCoverage(t *testing.T) {
 // fails when someone adds or removes a key without updating the
 // test. Update the expected count when intentionally changing keys.
 func TestConfigConsistency_AllowedKeyCount(t *testing.T) {
-	const expectedCount = 113 // Update when adding/removing keys.
+	const expectedCount = 121 // Update when adding/removing keys.
 
-	actual := len(allowedConfigKeys)
+	actual := len(configKeyTypes())
 	if actual != expectedCount {
 		// Build a sorted list for easy diffing.
 		keys := make([]string, 0, actual)
-		for k := range allowedConfigKeys {
+		for k := range configKeyTypes() {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 
 		t.Errorf(
-			"allowedConfigKeys count changed: got %d, "+
+			"api-tagged keys count changed: got %d, "+
 				"want %d.\nCurrent keys:\n  %s\n\n"+
 				"If this is intentional, update "+
 				"expectedCount in this test.",
@@ -907,7 +955,7 @@ func TestConfigConsistency_ConfigToMapKeyCount(t *testing.T) {
 	}
 	m := configToMap(cfg)
 
-	const expectedCount = 113 // Should match allowedConfigKeys.
+	const expectedCount = 121 // Should match api-tagged keys.
 
 	actual := len(m)
 	if actual != expectedCount {
@@ -938,7 +986,7 @@ func TestConfigConsistency_SymmetricDiff(t *testing.T) {
 
 	// Collect all keys from both sources.
 	allKeys := make(map[string]bool)
-	for k := range allowedConfigKeys {
+	for k := range configKeyTypes() {
 		allKeys[k] = true
 	}
 	for k := range m {
@@ -947,27 +995,27 @@ func TestConfigConsistency_SymmetricDiff(t *testing.T) {
 
 	var diffs []string
 	for key := range allKeys {
-		_, inAllowed := allowedConfigKeys[key]
+		_, inAllowed := configKeyTypes()[key]
 		_, inMap := m[key]
 
 		switch {
 		case inAllowed && !inMap:
 			diffs = append(diffs,
 				fmt.Sprintf(
-					"  %s: in allowedConfigKeys but NOT "+
+					"  %s: in api-tagged keys but NOT "+
 						"in configToMap()", key))
 		case !inAllowed && inMap:
 			diffs = append(diffs,
 				fmt.Sprintf(
 					"  %s: in configToMap() but NOT in "+
-						"allowedConfigKeys", key))
+						"api-tagged keys", key))
 		}
 	}
 
 	if len(diffs) > 0 {
 		sort.Strings(diffs)
 		t.Errorf(
-			"registry mismatch between allowedConfigKeys "+
+			"registry mismatch between api-tagged keys "+
 				"and configToMap():\n%s",
 			strings.Join(diffs, "\n"))
 	}

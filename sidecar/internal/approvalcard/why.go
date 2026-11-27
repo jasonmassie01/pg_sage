@@ -13,12 +13,15 @@ import (
 // the same change, and the trust level. With none of those it still says
 // the policy queued it. A missing finding is called out on its own.
 func whyOf(in Inputs, actionType string) []Reason {
-	var out []Reason
-	if in.Finding != nil {
+	out := revertReasons(in.Revert)
+	if in.Finding != nil && in.Revert == nil {
 		out = append(out, producerReasons(in.Finding.Detail)...)
 	}
 	out = append(out, gucReasons(in.Action.ProposedSQL)...)
 	if r, ok := whatIfReason(in, actionType); ok {
+		out = append(out, r)
+	}
+	if r, ok := notRehearsedReason(in, actionType); ok {
 		out = append(out, r)
 	}
 	if d := in.Decision; d != nil && d.Reason != "" && d.Reason != "authorized" {
@@ -46,7 +49,7 @@ func whyOf(in Inputs, actionType string) []Reason {
 		out = append(out, Reason{Code: "queued_for_approval", Text: fmt.Sprintf(
 			"The policy queued this change for approval (%s)", humanize(decision))})
 	}
-	if in.Finding == nil {
+	if in.Finding == nil && in.Revert == nil {
 		out = append(out, Reason{Code: "finding_missing", Text: "The finding behind this " +
 			"action is gone: check that the change still applies"})
 	}
@@ -69,10 +72,16 @@ func producerReasons(detail map[string]any) []Reason {
 	return nil
 }
 
-// gucReasons: a server setting that needs a restart or is not on the
-// autonomous allowlist is always a person's decision.
+// gucReasons: a setting, at instance or database scope, that needs a
+// restart or is not on the autonomous allowlist is always a person's
+// decision.
 func gucReasons(sql string) []Reason {
 	stmt, ok := pgconf.ParseAlterSystem(sql)
+	if !ok {
+		// A database-scope change of the same setting (advisors-07).
+		db, isDB := pgconf.ParseAlterDatabase(sql)
+		stmt, ok = db.SystemStmt, isDB
+	}
 	if !ok {
 		return nil
 	}

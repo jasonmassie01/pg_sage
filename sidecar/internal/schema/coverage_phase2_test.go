@@ -107,60 +107,15 @@ func TestPhase2_MigrateConfigSchema_CompositeIndex(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// EnsureDatabasesTable (0% coverage)
+// sage.databases from the Bootstrap chain (config-10 deleted the separate
+// create helper that only tests called)
 // ---------------------------------------------------------------------------
 
-func TestPhase2_EnsureDatabasesTable_Creates(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	// Ensure sage schema exists but drop databases table.
-	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
-	bootstrapWithRetry(t, ctx, pool)
-	// Cross-pkg lock acquired AFTER unlock_all so it survives.
-	serializeAcrossPackages(t, ctx, pool)
-
-	// Drop the databases table so EnsureDatabasesTable can recreate it.
-	_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS sage.databases CASCADE")
-
-	if err := EnsureDatabasesTable(ctx, pool); err != nil {
-		t.Fatalf("EnsureDatabasesTable: %v", err)
-	}
-
-	// Verify it exists.
-	var one int
-	err := pool.QueryRow(ctx,
-		"SELECT 1 FROM information_schema.tables "+
-			"WHERE table_schema='sage' AND table_name='databases'",
-	).Scan(&one)
-	if err != nil {
-		t.Error("sage.databases missing after EnsureDatabasesTable")
-	}
-}
-
-func TestPhase2_EnsureDatabasesTable_Idempotent(t *testing.T) {
+func TestPhase2_BootstrapDatabasesTable_ExpectedColumns(t *testing.T) {
 	pool, ctx := requireDB(t)
 
 	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
 	bootstrapWithRetry(t, ctx, pool)
-
-	// Run twice — second call should not error.
-	if err := EnsureDatabasesTable(ctx, pool); err != nil {
-		t.Fatalf("EnsureDatabasesTable (first): %v", err)
-	}
-	if err := EnsureDatabasesTable(ctx, pool); err != nil {
-		t.Fatalf("EnsureDatabasesTable (second): %v", err)
-	}
-}
-
-func TestPhase2_EnsureDatabasesTable_ExpectedColumns(t *testing.T) {
-	pool, ctx := requireDB(t)
-
-	_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock_all()")
-	bootstrapWithRetry(t, ctx, pool)
-
-	if err := EnsureDatabasesTable(ctx, pool); err != nil {
-		t.Fatalf("EnsureDatabasesTable: %v", err)
-	}
 
 	// Verify key columns exist.
 	wantCols := []string{

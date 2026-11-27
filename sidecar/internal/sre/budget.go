@@ -74,6 +74,8 @@ type TurnOutcome struct {
 // provider reported it (or proved nothing was sent), otherwise the full
 // hold stays (unknown). The caller's errors and settlement errors are
 // both returned.
+//
+//llm:transport internal/sre.reviewMessages
 func RunModelTurn(ctx context.Context, st ModelStore, lease Lease, client *llm.Client,
 	turn ModelTurn) (TurnOutcome, error) {
 	if client == nil {
@@ -94,7 +96,8 @@ func RunModelTurn(ctx context.Context, st ModelStore, lease Lease, client *llm.C
 		opts.MaxTokens = int(res.Output)
 	}
 	opts.ReasoningTokens = int(res.Reasoning)
-	result, callErr := client.ChatWithTools(ctx, turn.Messages, turn.Tools, opts)
+	pctx := llm.WithDefaultPurpose(ctx, "sre") // llm-04: usage ledger label
+	result, callErr := client.ChatWithTools(pctx, turn.Messages, turn.Tools, opts)
 	settled, settleErr := st.SettleModel(context.WithoutCancel(ctx), lease.Scope, res,
 		usageOf(budget, result, callErr, res))
 	return TurnOutcome{Result: result, Reservation: settled}, errors.Join(callErr, settleErr)

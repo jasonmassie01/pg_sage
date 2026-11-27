@@ -43,18 +43,10 @@ func signalTools() []Tool {
 	}
 	db := `"database":{"type":"string","description":"fleet database name"}`
 	return []Tool{
-		{Name: "sre_list_slos", Description: "List SLO error-budget states: ok, ticket, " +
-			"page or unknown (with why), burn rates per window, budget left; app SLIs " +
-			"claim customer impact, database proxies never do",
-			InputSchema: schema(`{`+db+`}`, `[]`)},
-		{Name: "sre_get_slo", Description: "Read one SLO's state and state history; with " +
-			"recovery_since, the SLI recovery verdict (never certified on missing data, " +
-			"counter resets or low traffic)",
-			InputSchema: schema(`{`+db+`,"name":{"type":"string"},`+
-				`"recovery_since":{"type":"string","format":"date-time"}}`, `["name"]`)},
-		{Name: "sre_list_changes", Description: "List what changed around a database: " +
-			"signed deploys, migrations and feature flags, pg_sage's own actions, config " +
-			"changes, DDL, statistics resets, restarts, failovers and extension changes",
+		{Name: "sre_list_slos", InputSchema: schema(`{`+db+`}`, `[]`)},
+		{Name: "sre_get_slo", InputSchema: schema(`{`+db+`,"name":{"type":"string"},`+
+			`"recovery_since":{"type":"string","format":"date-time"}}`, `["name"]`)},
+		{Name: "sre_list_changes",
 			InputSchema: schema(`{`+db+`,"window_minutes":{"type":"integer",`+
 				`"minimum":1,"maximum":10080}}`, `[]`)},
 	}

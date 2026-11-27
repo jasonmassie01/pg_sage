@@ -30,8 +30,14 @@ type configChange struct {
 	priorDatabase databaseSettingPrior
 	priorMain     map[string]string
 	priorToast    map[string]string
-	rollbackSQL   string
-	outcome       *outcomeBaseline
+	role          roleBudgetStmt
+	priorRole     roleBudgetPrior
+	// colStats and priorStatTarget: a set_column_statistics change
+	// (review-02c); priorStatTarget nil is NULL, the PG17+ default.
+	colStats        ColumnStatisticsStmt
+	priorStatTarget *int16
+	rollbackSQL     string
+	outcome         *outcomeBaseline
 }
 
 // prepareConfigChange captures the prior value of a config change and
@@ -40,6 +46,9 @@ type configChange struct {
 func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*configChange, error) {
 	if ValidateExecutorSQL(sql) != nil {
 		return nil, nil // never runs; execution reports the validation error
+	}
+	if stmt, ok := ParseSetColumnStatistics(sql); ok {
+		return e.prepareColumnStatistics(ctx, sql, stmt)
 	}
 	c := &configChange{sql: sql}
 	if stmt, ok := pgconf.ParseAlterSystem(sql); ok {
@@ -53,38 +62,9 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 			return nil, err
 		}
 	} else if stmt, ok := pgconf.ParseAlterDatabase(normalizeSQLText(sql)); ok {
-		if e.pool == nil {
-			return nil, fmt.Errorf("%w: database pool unavailable", ErrConfigPrior)
-		}
-		var currentDatabase string
-		if err := e.pool.QueryRow(ctx, "/* pg_sage */ SELECT current_database()").Scan(&currentDatabase); err != nil {
-			return nil, fmt.Errorf("%w: current database: %v", ErrConfigPrior, err)
-		}
-		if databaseName(stmt) != currentDatabase {
-			return nil, fmt.Errorf("%w: ALTER DATABASE must target the connected database %s", ErrConfigPrior, currentDatabase)
-		}
-		if err := e.checkLakebaseDatabaseSetting(ctx, sql); err != nil {
+		if err := e.prepareDatabaseSetting(ctx, c, stmt); err != nil {
 			return nil, err
 		}
-		if !stmt.Reset && strings.EqualFold(stmt.Value, "DEFAULT") {
-			return nil, fmt.Errorf("%w: use ALTER DATABASE RESET for a default value", ErrNoFaithfulRollback)
-		}
-		c.kind, c.database, c.guc = configKindDatabaseGUC, stmt, stmt.SystemStmt
-		prior, err := captureDatabaseSetting(ctx, e.pool, stmt)
-		if err != nil {
-			return nil, err
-		}
-		fresh, err := freshDatabaseSetting(ctx, e.pool, stmt)
-		if err != nil {
-			return nil, fmt.Errorf("%w: fresh database session: %v", ErrConfigPrior, err)
-		}
-		switch fresh.Source {
-		case "default", "environment variable", "configuration file", "command line", "global", "database":
-		default:
-			return nil, fmt.Errorf("%w: database setting %s is masked by %s in a fresh session", ErrConfigOverridden, stmt.Name, fresh.Source)
-		}
-		c.priorDatabase = prior
-		c.rollbackSQL = databaseRollbackSQL(stmt, prior)
 	} else if stmt, ok := pgconf.ParseAlterTableReloptions(sql); ok {
 		c.kind, c.table = configKindReloption, stmt
 		main, toast, err := captureReloptions(ctx, e.pool, stmt.Table)
@@ -95,11 +75,17 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 		if c.rollbackSQL, err = reloptionRollbackSQL(stmt, main, toast); err != nil {
 			return nil, err
 		}
+	} else if stmt, ok := parseRoleBudgetSQL(sql); ok {
+		if err := e.prepareRoleBudget(ctx, c, stmt); err != nil {
+			return nil, err
+		}
+		return c, nil // no outcome metric
 	} else {
 		return nil, nil
 	}
 	if metric, table := outcomeMetricFor(c); metric != "" {
-		baseline, err := captureOutcomeBaseline(ctx, e.pool, metric, table)
+		at := e.databaseNow(ctx, "outcome baseline for "+metric)
+		baseline, err := captureOutcomeBaseline(ctx, e.pool, metric, table, at)
 		if err != nil {
 			e.logFn("executor", "outcome baseline for %q unavailable (change will "+
 				"be unverifiable): %v", sql, err)
@@ -107,6 +93,51 @@ func (e *Executor) prepareConfigChange(ctx context.Context, sql string) (*config
 		c.outcome = baseline
 	}
 	return c, nil
+}
+
+// prepareDatabaseSetting captures an ALTER DATABASE ... SET's prior value
+// on the connected database and builds its rollback.
+func (e *Executor) prepareDatabaseSetting(
+	ctx context.Context, c *configChange, stmt pgconf.DatabaseStmt,
+) error {
+	if e.pool == nil {
+		return fmt.Errorf("%w: database pool unavailable", ErrConfigPrior)
+	}
+	var currentDatabase string
+	if err := e.pool.QueryRow(ctx, "/* pg_sage executor */ SELECT current_database()").
+		Scan(&currentDatabase); err != nil {
+		return fmt.Errorf("%w: current database: %v", ErrConfigPrior, err)
+	}
+	if databaseName(stmt) != currentDatabase {
+		return fmt.Errorf("%w: ALTER DATABASE must target the connected database %s",
+			ErrConfigPrior, currentDatabase)
+	}
+	if err := e.checkManagedDatabaseSetting(ctx, c.sql); err != nil {
+		return err
+	}
+	if !stmt.Reset && strings.EqualFold(stmt.Value, "DEFAULT") {
+		return fmt.Errorf("%w: use ALTER DATABASE RESET for a default value",
+			ErrNoFaithfulRollback)
+	}
+	c.kind, c.database, c.guc = configKindDatabaseGUC, stmt, stmt.SystemStmt
+	prior, err := captureDatabaseSetting(ctx, e.pool, stmt)
+	if err != nil {
+		return err
+	}
+	fresh, err := freshDatabaseSetting(ctx, e.pool, stmt)
+	if err != nil {
+		return fmt.Errorf("%w: fresh database session: %v", ErrConfigPrior, err)
+	}
+	switch fresh.Source {
+	case "default", "environment variable", "configuration file", "command line", "global",
+		"database":
+	default:
+		return fmt.Errorf("%w: database setting %s is masked by %s in a fresh session",
+			ErrConfigOverridden, stmt.Name, fresh.Source)
+	}
+	c.priorDatabase = prior
+	c.rollbackSQL = databaseRollbackSQL(stmt, prior)
+	return nil
 }
 
 // record writes the captured prior state into before_state.
@@ -121,6 +152,10 @@ func (c *configChange) record(state map[string]any) {
 			c.priorGUC
 	case configKindDatabaseGUC:
 		change["database"], change["name"], change["requested"], change["prior"] = c.priorDatabase.Database, c.guc.Name, c.guc.Value, c.priorDatabase
+	case configKindRoleBudget:
+		change["role"], change["prior"] = c.role.Role, c.priorRole
+	case configKindColumnStatistics:
+		c.recordColumnStatistics(change)
 	default:
 		change["table"] = c.table.Table
 		change["prior"] = map[string]any{"table": c.priorMain, "toast": c.priorToast}
@@ -145,7 +180,7 @@ func mergeAfterState(
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", key, err)
 	}
-	_, err = pool.Exec(ctx, `/* pg_sage */ UPDATE sage.action_log
+	_, err = pool.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_log
 		SET after_state = COALESCE(after_state, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
 		raw, actionID)
 	return err

@@ -72,6 +72,10 @@ type Record struct {
 	Chain  string
 	Link   auditchain.Link
 	Row    map[string]any
+	Labels []string // OCSF metadata.labels; "fork" on a re-export after a re-anchor
+	// OwnRole is pg_sage's role on the source (current_user of the
+	// exporter's pool), compared with Link.DBUser; empty matches nothing.
+	OwnRole string
 }
 
 // mapping is what a chain-specific mapper decides about one record.
@@ -101,6 +105,9 @@ func Map(r Record) Event {
 			"user": map[string]any{"name": r.Link.DBUser}},
 		"unmapped": map[string]any{"pg_sage": chainProof(r)},
 	}
+	if len(r.Labels) > 0 {
+		e["metadata"].(map[string]any)["labels"] = append([]string{}, r.Labels...)
+	}
 	for k, v := range m.extra {
 		e[k] = v
 	}
@@ -117,6 +124,9 @@ func chainProof(r Record) map[string]any {
 }
 
 func classify(r Record) mapping {
+	if m, ok := markerMapping(r); ok {
+		return m
+	}
 	if r.Link.Op == "D" || r.Link.Op == "T" {
 		return trailRemoval(r)
 	}
@@ -131,6 +141,12 @@ func classify(r Record) mapping {
 		return queryAuditMapping(r)
 	case auditchain.PGAuditEvents.Chain:
 		return pgauditMapping(r)
+	case auditchain.FactEvents.Chain:
+		return factMapping(r)
+	case auditchain.DecisionLedger.Chain:
+		return decisionMapping(r)
+	case auditchain.PolicyApprovals.Chain:
+		return approvalMapping(r)
 	}
 	return mapping{class: ClassAPIActivity, activity: 99, activityName: "Other",
 		status: statusSuccess, severity: SeverityInformational,
@@ -145,22 +161,25 @@ func chainClass(chain string) int {
 		return ClassDatastoreActivity
 	case auditchain.AuthAudit.Chain:
 		return ClassAuthentication
-	case auditchain.ConfigAudit.Chain:
+	case auditchain.ConfigAudit.Chain, auditchain.FactEvents.Chain,
+		auditchain.PolicyApprovals.Chain:
 		return ClassEntityManagement
 	}
-	return ClassAPIActivity
+	return ClassAPIActivity // the decision ledger's class, and the fallback
 }
 
 // trailRemoval reports an audit row leaving the trail: pg_sage's own
-// retention is routine, anyone else's delete is worth a look, and a
-// truncate is high severity.
+// retention (pg_sage's role under its application name) is routine, anyone
+// else's delete is worth a look, and a truncate is high severity. Any
+// session can set application_name, so the role decides.
 func trailRemoval(r Record) mapping {
 	m := mapping{class: chainClass(r.Chain), activity: 99, status: statusSuccess,
-		severity: SeverityInformational, activityName: "Audit Record Deleted",
+		severity: SeverityMedium, activityName: "Audit Record Deleted",
 		message: fmt.Sprintf("audit record %d of %s deleted by %s (%s)", r.Link.RowID,
 			r.Chain, r.Link.DBUser, r.Link.App)}
-	if !strings.HasPrefix(r.Link.App, "pg_sage") {
-		m.severity = SeverityMedium
+	if r.OwnRole != "" && r.Link.DBUser == r.OwnRole &&
+		strings.HasPrefix(r.Link.App, "pg_sage") {
+		m.severity = SeverityInformational
 	}
 	if r.Link.Op == "T" {
 		m.activityName, m.severity = "Audit Trail Truncated", SeverityHigh

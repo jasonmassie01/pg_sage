@@ -29,10 +29,10 @@ const (
 // registerFleetLearningRoutes registers the fleet learning read routes.
 func registerFleetLearningRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager,
 	cfg *config.Config, reader FleetLearningReader) {
-	viewer := RequireRole("admin", "operator", "viewer")
-	mux.Handle("GET /api/v1/fleet/findings", viewer(fleetFindingsHandler(mgr, cfg)))
-	mux.Handle("GET /api/v1/fleet/lookalikes", viewer(fleetLookalikesHandler(mgr, reader)))
-	mux.Handle("GET /api/v1/fleet/leader", viewer(fleetLeaderHandler(reader)))
+	routeAggregate(mux, "GET /api/v1/fleet/findings", gateViewer, mgr,
+		func(m *fleet.DatabaseManager) http.Handler { return fleetFindingsHandler(m, cfg) })
+	route(mux, "GET /api/v1/fleet/lookalikes", gateViewer, fleetLookalikesHandler(mgr, reader))
+	route(mux, "GET /api/v1/fleet/leader", gateViewer, fleetLeaderHandler(reader))
 }
 
 // FleetSources are the fleet's databases with a pool, sorted by name.

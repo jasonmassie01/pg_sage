@@ -4,6 +4,7 @@ import { Answer } from './ask/Answer'
 import { BudgetMeter } from './ask/BudgetMeter'
 import { Composer } from './ask/Composer'
 import { ConversationList } from './ask/ConversationList'
+import { RunProgress } from './ask/RunProgress'
 import { useAskSession } from './ask/useAskSession'
 import { useAPI } from '../hooks/useAPI'
 import { casePresentation } from './cases/casePresentation'
@@ -27,7 +28,7 @@ export function AskPage({ database, user, databases, databaseLoading,
             Loading the database inventory…
           </p>
         ) : databaseError ? (
-          <div role="alert" data-testid="ask-databases-error">
+          <div data-testid="ask-databases-error">
             <ErrorBanner message={`Unable to load database inventory: ${databaseError.message || databaseError}`}
               onRetry={onRetryDatabase} />
           </div>
@@ -64,14 +65,16 @@ export function AskPage({ database, user, databases, databaseLoading,
 }
 
 function AskSession({ database, user, caseId }) {
-  const s = useAskSession(database)
+  // A case is explained, never acted on: every question while caseId is
+  // set is sent read_only, so the server offers no write tool for it.
+  const s = useAskSession(database, { readOnly: Boolean(caseId) })
   const context = useAPI(caseId ? `/api/v1/cases?database=${encodeURIComponent(database)}` : null, 0)
   const caseRow = context.data?.cases?.find(row => (row.case_id || row.id) === caseId && row.database_name === database)
   const contextID = caseRow?.case_id || caseRow?.id
   const source = caseRow ? `${caseRow.source_type} ${caseRow.source_ids?.join(', ') || contextID}` : ''
   const friendlyTitle = caseRow ? casePresentation(caseRow).title : ''
   const question = caseRow
-    ? `Do not create proposals, investigations, or actions; do not change anything. Explain this case using cited evidence: ${source.slice(0, 400)} in database ${database}. What was observed, why may it matter, what is unknown, and what next steps and restrictions apply? Case reference: ${contextID.slice(0, 400)}${contextID.length > 400 ? ' [shortened]' : ''}. Reported condition: ${caseRow.title?.slice(0, 600) || 'not supplied'}.`
+    ? `Explain this case using cited evidence: ${source.slice(0, 400)} in database ${database}. What was observed, why may it matter, what is unknown, and what next steps and restrictions apply? Case reference: ${contextID.slice(0, 400)}${contextID.length > 400 ? ' [shortened]' : ''}. Reported condition: ${caseRow.title?.slice(0, 600) || 'not supplied'}.`
     : ''
   if (s.disabled) return <DisabledNotice />
   return (
@@ -80,26 +83,28 @@ function AskSession({ database, user, caseId }) {
         onSelect={s.load} />
       <div className="space-y-4 min-w-0">
         {caseId && <aside data-testid="ask-case-context" className="rounded p-3 text-sm space-y-2" style={card}>
-          <strong>Explain a case</strong>
-          {caseRow ? <><p>{friendlyTitle}</p><p style={muted}>Case context: {database}. Questions are sent only when you press Ask. Review the prepared question before sending.</p>
+          <strong>Explain an issue</strong>
+          {caseRow ? <><p>{friendlyTitle}</p><p style={muted}>Issue context: {database}. Questions are sent only when you press Ask. Review the prepared question before sending.</p>
+            <p data-testid="ask-case-read-only" style={muted}>Questions here are answer only: Ask Sage will not queue a change, open an investigation or propose a fact.</p>
             {friendlyTitle !== caseRow.title && <details><summary>Reported condition</summary><p className="break-all">{caseRow.title}</p></details>}
-            <a className="underline" href={`#/cases?case=${encodeURIComponent(caseId)}&database=${encodeURIComponent(database)}`}>Back to this case</a></>
-            : context.error ? <div role="alert"><ErrorBanner message="Case context could not be loaded. You can retry or return to Cases; evidence availability is unknown." onRetry={context.refetch} /></div>
-              : <p style={muted}>{context.loading ? 'Loading case context…' : 'This case could not be found in the selected database. Return to Cases to select a current case; you can still ask a general question.'}</p>}
-          {!caseRow && <a className="underline" href="#/cases">Back to Cases</a>}
+            <a className="underline" href={`#/cases?case=${encodeURIComponent(caseId)}&database=${encodeURIComponent(database)}`}>Back to this issue</a></>
+            : context.error ? <ErrorBanner message="Issue context could not be loaded. You can retry or return to Issues; evidence availability is unknown." onRetry={context.refetch} />
+              : <p style={muted}>{context.loading ? 'Loading issue context…' : 'This issue could not be found in the selected database. Return to Issues to select a current issue; you can still ask a general question.'}</p>}
+          {!caseRow && <a className="underline" href="#/cases">Back to Issues</a>}
         </aside>}
         <p className="text-sm" style={muted}>
           Answers use only cited evidence from {database}. Ask Sage never executes or
-          approves anything; proposals wait for a person on the Actions page.
+          approves anything; proposed changes wait for a person on the Actions page.
         </p>
         {user?.role === 'viewer' && (
           <p data-testid="ask-viewer-note" className="text-xs" style={muted}>
             You are signed in as a viewer: Ask Sage can answer your questions, but
-            queuing a proposal needs the operator role.
+            queuing a change needs the operator role.
           </p>
         )}
         <BudgetMeter budget={s.budget.data} />
         <Thread answers={s.thread} />
+        <RunProgress run={s.run} onCancel={s.cancelRun} />
         {s.error && (
           <p data-testid="ask-error" role="alert" className="text-sm"
             style={{ color: 'var(--red)' }}>

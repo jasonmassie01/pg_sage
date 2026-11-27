@@ -24,7 +24,7 @@ func (s *recordingFindingSink) UpsertMigrationSafetyFinding(
 func TestFindingFromIncidentKeepsExecutableSafeSQL(t *testing.T) {
 	incident := migrationIncident("CREATE INDEX CONCURRENTLY idx ON t (id)")
 
-	got, ok := FindingFromIncident(123, "CREATE INDEX idx ON t (id)", incident)
+	got, ok := FindingFromIncident(123, "CREATE INDEX idx ON t (id)", incident, nil)
 
 	if !ok {
 		t.Fatal("FindingFromIncident returned false")
@@ -46,7 +46,7 @@ func TestFindingFromIncidentKeepsExecutableSafeSQL(t *testing.T) {
 func TestFindingFromIncidentDropsAdvisoryOnlySafeAlternative(t *testing.T) {
 	incident := migrationIncident("New column + trigger + backfill + swap")
 
-	got, ok := FindingFromIncident(123, "ALTER TABLE t ALTER c TYPE bigint", incident)
+	got, ok := FindingFromIncident(123, "ALTER TABLE t ALTER c TYPE bigint", incident, nil)
 
 	if !ok {
 		t.Fatal("FindingFromIncident returned false")
@@ -109,10 +109,12 @@ func migrationIncident(safeSQL string) *rca.Incident {
 		AffectedObjects: []string{"public.t"},
 		SignalIDs:       []string{"ddl_index_not_concurrent"},
 		RecommendedSQL:  safeSQL,
-		ActionRisk:      "risk_score=0.70",
-		Source:          "schema_advisor",
-		Confidence:      0.7,
-		DatabaseName:    "prod",
+		// The advisor marks its own templates; only they are copied.
+		RecommendedSQLSource: SQLSourceDeterministic,
+		ActionRisk:           "risk_score=0.70",
+		Source:               "schema_advisor",
+		Confidence:           0.7,
+		DatabaseName:         "prod",
 		CausalChain: []rca.ChainLink{{
 			Order:       1,
 			Signal:      "ddl_index_not_concurrent",

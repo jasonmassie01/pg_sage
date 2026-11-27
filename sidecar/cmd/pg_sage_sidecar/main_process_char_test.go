@@ -17,7 +17,7 @@ import (
 )
 
 // Characterization of main()'s wiring before it is split into helpers: the
-// test binary re-runs itself as the sidecar process (TestMainProcessChild)
+// test binary re-runs itself as the sidecar process (runMainChild)
 // and the parent asserts which components start, what they serve, and how
 // the process stops, for each mode.
 
@@ -30,18 +30,15 @@ var mainChildDSNEnvs = []string{
 	"PIPELINE_PG_URL", "HINT_TEST_DSN",
 }
 
-// TestMainProcessChild is the child entry point; it does nothing in a normal
-// test run.
-func TestMainProcessChild(t *testing.T) {
-	args := os.Getenv(mainChildEnv)
-	if args == "" {
-		return
-	}
+// runMainChild runs main() as the sidecar when a characterization test
+// re-executes the test binary with mainChildEnv set (see TestMain).
+func runMainChild(args string) int {
 	for _, name := range mainChildDSNEnvs[1:] {
 		_ = os.Unsetenv(name)
 	}
 	os.Args = append([]string{"pg_sage"}, strings.Split(args, "\x1f")...)
 	main()
+	return 0
 }
 
 // syncBuffer collects the child's output while the parent polls it.
@@ -70,7 +67,7 @@ type mainChild struct {
 
 func startMainChild(t *testing.T, env []string, args ...string) *mainChild {
 	t.Helper()
-	cmd := osexec.Command(os.Args[0], "-test.run=^TestMainProcessChild$")
+	cmd := osexec.Command(os.Args[0], "-test.run=^$")
 	cmd.Env = append(childBaseEnv(), mainChildEnv+"="+strings.Join(args, "\x1f"))
 	cmd.Env = append(cmd.Env, env...)
 	out := &syncBuffer{}

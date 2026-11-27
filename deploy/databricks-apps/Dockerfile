@@ -8,7 +8,8 @@ COPY sidecar/web/ ./web/
 COPY sidecar/internal/api/dist/ ./internal/api/dist/
 RUN cd web && npm run build
 
-FROM golang:1.27-alpine AS builder
+# The Go release is the toolchain line in sidecar/go.mod (TestToolchainPinsAgree).
+FROM golang:1.27.4-alpine3.24 AS builder
 RUN apk add --no-cache build-base git
 WORKDIR /src/sidecar
 COPY VERSION /src/VERSION

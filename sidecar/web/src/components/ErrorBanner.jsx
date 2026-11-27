@@ -2,7 +2,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export function ErrorBanner({ message, onRetry }) {
   return (
-    <div className="flex items-center gap-3 p-4 rounded"
+    <div role="alert" className="flex items-center gap-3 p-4 rounded"
       style={{
         background: '#3b1111',
         border: '1px solid var(--red)',

@@ -3,13 +3,14 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/pg-sage/sidecar/internal/policy"
 )
 
-var ErrProductionDependencyUnavailable = errors.New("MCP production dependency unavailable")
+// ErrProductionDependencyUnavailable is a missing production dependency;
+// it is an ErrIntentUnavailable, so intent tools report it as -32010.
+var ErrProductionDependencyUnavailable = fmt.Errorf("MCP production %w", ErrIntentUnavailable)
 
 type IntentPlanner interface {
 	Plan(context.Context, string, json.RawMessage) (policy.ActionRequest, error)
@@ -56,12 +57,19 @@ type ProductionDependencies struct {
 	Signals SignalBackend
 	// Actions serves the Sage SRE action tools; optional.
 	Actions SREActionBackend
+	// Maintenance serves the statistics maintenance tools; optional.
+	Maintenance SREMaintenanceBackend
 	// Autonomy serves the earned-autonomy tools; optional.
 	Autonomy AutonomyBackend
 	// Facts serves the binding-fact tools (roadmap 2.3); optional.
 	Facts FactBackend
+	// Plans serves propose_plan, list_plans and get_plan (plan-03b);
+	// optional.
+	Plans PlanBackend
 	// FleetLearning serves fleet_findings (fleet learning); optional.
 	FleetLearning FleetLearningBackend
+	// WorkloadPacks serves get_workload_pack (evid-02c); optional.
+	WorkloadPacks WorkloadPackBackend
 	// AgentBroker serves agent_query and agent_whoami (agent governance);
 	// optional.
 	AgentBroker AgentBrokerBackend
@@ -73,6 +81,30 @@ type ProductionDependencies struct {
 	Specialist SpecialistBackend
 	// Grants serves agent_request_capability (agent governance); optional.
 	Grants GrantToolBackend
+	// Availability says where the gated tool families can be served
+	// (tools/list hides the rest); optional, nil lists them everywhere.
+	Availability Availability
+	// Briefings serves the latest-briefing resource (llm-06b); optional.
+	Briefings BriefingBackend
+	// UpgradeReadiness serves upgrade_readiness (market-05); optional.
+	UpgradeReadiness UpgradeReadinessBackend
+	// Inbox serves get_inbox (ux-01a); optional.
+	Inbox InboxBackend
+	// Outcomes serves get_outcomes (ux-02a); optional.
+	Outcomes OutcomesBackend
+	// RestoreDrills serves restore_drills (drill-01d); optional.
+	RestoreDrills RestoreDrillsBackend
+	// ReviewGrade serves review_grade (review-01a); optional.
+	ReviewGrade ReviewGradeBackend
+	// ReviewScorecard serves review_scorecard (review-05a); optional.
+	ReviewScorecard ReviewScorecardBackend
+	// Pressure serves check_pressure (guard-01a); optional.
+	Pressure PressureBackend
+	// WhyNot serves why_not (ux-08b); optional.
+	WhyNot WhyNotBackend
+	// RequestStatus serves get_request_status and wait_for_decision
+	// (mcp-01b); optional.
+	RequestStatus RequestStatusBackend
 }
 
 type ProductionBackend struct {
@@ -186,10 +218,12 @@ func (backend *ProductionBackend) proposeMaintenancePolicy(
 		Patch      json.RawMessage `json:"patch"`
 	}
 	if err := json.Unmarshal(arguments, &input); err != nil {
-		return PolicyProposalResult{}, fmt.Errorf("decode maintenance policy: %w", err)
+		return PolicyProposalResult{}, fmt.Errorf("%w: decode maintenance policy: %v",
+			ErrIntentInvalid, err)
 	}
 	if emptyJSON(input.Patch) {
-		return PolicyProposalResult{}, errors.New("maintenance policy patch is required")
+		return PolicyProposalResult{}, fmt.Errorf("%w: maintenance policy patch is required",
+			ErrIntentInvalid)
 	}
 	return backend.dependencies.Policy.ProposePolicyChangeDryRun(
 		ctx,

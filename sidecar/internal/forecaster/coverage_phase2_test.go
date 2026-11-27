@@ -4,25 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // ---------------------------------------------------------------------------
 // DB pool setup — mirrors patterns from retention and schema test packages
 // ---------------------------------------------------------------------------
-
-func phase2DSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 var (
 	p2Pool     *pgxpool.Pool
@@ -35,8 +28,8 @@ const destructiveTestLockKey = "pg_sage_test_cross_pkg"
 func phase2RequireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	p2PoolOnce.Do(func() {
-		dsn := phase2DSN()
 		poolCfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil {
 			p2PoolErr = fmt.Errorf("parsing DSN: %w", err)
@@ -497,141 +490,6 @@ func TestPhase2_QueryDailyQueryAggs_MultipleQueryIDs(t *testing.T) {
 }
 
 // ===========================================================================
-// QueryDailySeqAggs tests
-// ===========================================================================
-
-func TestPhase2_QueryDailySeqAggs_WithData(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
-	seedSeqSnapshots(t, pool, ctx, 10, func(i int) []seqElem {
-		return []seqElem{
-			{
-				SchemaName:   "public",
-				SequenceName: "orders_id_seq",
-				PctUsed:      50.0 + float64(i)*2.0,
-				MaxValue:     2147483647,
-			},
-		}
-	})
-
-	aggs, err := QueryDailySeqAggs(ctx, pool, 30)
-	if err != nil {
-		t.Fatalf("QueryDailySeqAggs: %v", err)
-	}
-	if len(aggs) == 0 {
-		t.Fatal("expected at least one daily seq aggregate, got 0")
-	}
-
-	for i, a := range aggs {
-		if a.Day.IsZero() {
-			t.Errorf("agg[%d].Day is zero", i)
-		}
-		if a.SeqName != "public.orders_id_seq" {
-			t.Errorf("agg[%d].SeqName = %q, want public.orders_id_seq",
-				i, a.SeqName)
-		}
-		if a.PctUsed <= 0 {
-			t.Errorf("agg[%d].PctUsed = %f, want > 0", i, a.PctUsed)
-		}
-		if a.MaxValue != 2147483647 {
-			t.Errorf("agg[%d].MaxValue = %d, want 2147483647",
-				i, a.MaxValue)
-		}
-	}
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
-}
-
-func TestPhase2_QueryDailySeqAggs_EmptyTable(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
-
-	aggs, err := QueryDailySeqAggs(ctx, pool, 30)
-	if err != nil {
-		t.Fatalf("QueryDailySeqAggs on empty table: %v", err)
-	}
-	if len(aggs) != 0 {
-		t.Errorf("expected 0 aggs from empty table, got %d", len(aggs))
-	}
-}
-
-func TestPhase2_QueryDailySeqAggs_SingleDay(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
-	seedSeqSnapshots(t, pool, ctx, 1, func(_ int) []seqElem {
-		return []seqElem{
-			{
-				SchemaName:   "myschema",
-				SequenceName: "users_id_seq",
-				PctUsed:      25.5,
-				MaxValue:     9223372036854775807,
-			},
-		}
-	})
-
-	aggs, err := QueryDailySeqAggs(ctx, pool, 7)
-	if err != nil {
-		t.Fatalf("QueryDailySeqAggs single day: %v", err)
-	}
-	if len(aggs) != 1 {
-		t.Fatalf("expected 1 agg for single day, got %d", len(aggs))
-	}
-	if aggs[0].SeqName != "myschema.users_id_seq" {
-		t.Errorf("SeqName = %q, want myschema.users_id_seq",
-			aggs[0].SeqName)
-	}
-	if aggs[0].PctUsed != 25.5 {
-		t.Errorf("PctUsed = %f, want 25.5", aggs[0].PctUsed)
-	}
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
-}
-
-func TestPhase2_QueryDailySeqAggs_MultipleSequences(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
-	seedSeqSnapshots(t, pool, ctx, 3, func(i int) []seqElem {
-		return []seqElem{
-			{
-				SchemaName:   "public",
-				SequenceName: "seq_a",
-				PctUsed:      10.0 + float64(i),
-				MaxValue:     1000000,
-			},
-			{
-				SchemaName:   "public",
-				SequenceName: "seq_b",
-				PctUsed:      20.0 + float64(i)*2,
-				MaxValue:     2000000,
-			},
-		}
-	})
-
-	aggs, err := QueryDailySeqAggs(ctx, pool, 7)
-	if err != nil {
-		t.Fatalf("QueryDailySeqAggs multi-seq: %v", err)
-	}
-
-	// Should have rows for both sequences across days.
-	seqNames := make(map[string]int)
-	for _, a := range aggs {
-		seqNames[a.SeqName]++
-	}
-	if seqNames["public.seq_a"] == 0 {
-		t.Error("expected rows for public.seq_a")
-	}
-	if seqNames["public.seq_b"] == 0 {
-		t.Error("expected rows for public.seq_b")
-	}
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
-}
-
-// ===========================================================================
 // Forecast (full integration)
 // ===========================================================================
 
@@ -650,13 +508,11 @@ func TestPhase2_Forecast_EmptyDB(t *testing.T) {
 	}
 
 	cfg := ForecasterConfig{
-		Enabled:              true,
-		LookbackDays:         30,
-		DiskWarnGrowthGBDay:  1.0,
-		ConnectionWarnPct:    80,
-		CacheWarnThreshold:   0.90,
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
+		Enabled:             true,
+		LookbackDays:        30,
+		DiskWarnGrowthGBDay: 1.0,
+		ConnectionWarnPct:   80,
+		CacheWarnThreshold:  0.90,
 	}
 	f := New(pool, cfg, logFn)
 
@@ -697,13 +553,11 @@ func TestPhase2_Forecast_WithSystemDataOnly(t *testing.T) {
 	}
 
 	cfg := ForecasterConfig{
-		Enabled:              true,
-		LookbackDays:         30,
-		DiskWarnGrowthGBDay:  1.0,
-		ConnectionWarnPct:    80,
-		CacheWarnThreshold:   0.90,
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
+		Enabled:             true,
+		LookbackDays:        30,
+		DiskWarnGrowthGBDay: 1.0,
+		ConnectionWarnPct:   80,
+		CacheWarnThreshold:  0.90,
 	}
 	f := New(pool, cfg, logFn)
 
@@ -757,13 +611,11 @@ func TestPhase2_Forecast_InsufficientData(t *testing.T) {
 	logFn := func(level, msg string, args ...any) {}
 
 	cfg := ForecasterConfig{
-		Enabled:              true,
-		LookbackDays:         30,
-		DiskWarnGrowthGBDay:  0.1,
-		ConnectionWarnPct:    50,
-		CacheWarnThreshold:   0.99,
-		SequenceWarnDays:     365,
-		SequenceCriticalDays: 180,
+		Enabled:             true,
+		LookbackDays:        30,
+		DiskWarnGrowthGBDay: 0.1,
+		ConnectionWarnPct:   50,
+		CacheWarnThreshold:  0.99,
 	}
 	f := New(pool, cfg, logFn)
 
@@ -826,13 +678,11 @@ func TestPhase2_Forecast_AllCategories(t *testing.T) {
 	logFn := func(level, msg string, args ...any) {}
 
 	cfg := ForecasterConfig{
-		Enabled:              true,
-		LookbackDays:         30,
-		DiskWarnGrowthGBDay:  1.0,
-		ConnectionWarnPct:    80,
-		CacheWarnThreshold:   0.90,
-		SequenceWarnDays:     90,
-		SequenceCriticalDays: 30,
+		Enabled:             true,
+		LookbackDays:        30,
+		DiskWarnGrowthGBDay: 1.0,
+		ConnectionWarnPct:   80,
+		CacheWarnThreshold:  0.90,
 	}
 	f := New(pool, cfg, logFn)
 
@@ -998,56 +848,4 @@ func TestPhase2_QueryDailyQueryAggs_DedupsPerQueryID(t *testing.T) {
 	}
 
 	cleanupSnapshots(t, pool, ctx, "queries")
-}
-
-func TestPhase2_QueryDailySeqAggs_MaxAcrossSameDay(t *testing.T) {
-	pool, ctx := phase2RequireDB(t)
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
-
-	// Insert 2 snapshots same day, same sequence, different pct_used.
-	today := time.Now()
-	for _, pct := range []float64{40.0, 60.0} {
-		elems := []seqElem{
-			{
-				SchemaName:   "public",
-				SequenceName: "agg_test_seq",
-				PctUsed:      pct,
-				MaxValue:     1000000,
-			},
-		}
-		raw, err := json.Marshal(elems)
-		if err != nil {
-			t.Fatalf("marshal: %v", err)
-		}
-		_, err = pool.Exec(ctx,
-			`INSERT INTO sage.snapshots (collected_at, category, data)
-			 VALUES ($1, 'sequences', $2::jsonb)`,
-			today, string(raw),
-		)
-		if err != nil {
-			t.Fatalf("insert: %v", err)
-		}
-	}
-
-	aggs, err := QueryDailySeqAggs(ctx, pool, 7)
-	if err != nil {
-		t.Fatalf("QueryDailySeqAggs: %v", err)
-	}
-
-	found := false
-	for _, a := range aggs {
-		if a.SeqName == "public.agg_test_seq" {
-			found = true
-			// max(40, 60) = 60
-			if a.PctUsed != 60.0 {
-				t.Errorf("PctUsed = %f, want 60.0", a.PctUsed)
-			}
-		}
-	}
-	if !found {
-		t.Error("expected row for public.agg_test_seq")
-	}
-
-	cleanupSnapshots(t, pool, ctx, "sequences")
 }

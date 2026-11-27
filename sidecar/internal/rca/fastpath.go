@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,7 +68,14 @@ type LockChainTicker struct {
 	interval time.Duration
 	logFn    func(string, string, ...any)
 
+	// nudges brings the next observation forward (migration-05): at most
+	// one is queued, and one is accepted per nudgeInterval.
+	nudges    chan struct{}
+	nudgeMu   sync.Mutex
+	lastNudge time.Time
+
 	// Seams for tests; production uses time.Ticker and the methods below.
+	now       func() time.Time
 	newTicker func(time.Duration) (<-chan time.Time, func())
 	tick      func(context.Context) error
 	hydrate   func(context.Context) error
@@ -80,7 +88,8 @@ func NewLockChainTicker(
 	interval time.Duration, logFn func(string, string, ...any),
 ) *LockChainTicker {
 	t := &LockChainTicker{eng: eng, pool: pool, probe: probe,
-		interval: interval, logFn: logFn, newTicker: realTicker}
+		interval: interval, logFn: logFn, newTicker: realTicker,
+		nudges: make(chan struct{}, 1), now: time.Now}
 	t.tick = t.Tick
 	t.hydrate = func(ctx context.Context) error {
 		return eng.Hydrate(ctx, pool)
@@ -109,10 +118,42 @@ func (t *LockChainTicker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticks:
-			if err := t.tick(ctx); err != nil {
-				t.logFn("WARN", "rca: lock-chain fast path: %v", err)
-			}
+			t.runTick(ctx)
+		case <-t.nudges:
+			t.runTick(ctx)
 		}
+	}
+}
+
+func (t *LockChainTicker) runTick(ctx context.Context) {
+	if err := t.tick(ctx); err != nil {
+		t.logFn("WARN", "rca: lock-chain fast path: %v", err)
+	}
+}
+
+// nudgeInterval rate-limits Nudge.
+const nudgeInterval = 10 * time.Second
+
+// Nudge asks Run for an observation now instead of at the next interval:
+// the migration detector calls it while a tracked DDL waits on a lock. It
+// is accepted at most once per 10 s, never blocks, and reports whether a
+// tick was queued. A nil or disabled ticker ignores it.
+func (t *LockChainTicker) Nudge() bool {
+	if t == nil || t.interval <= 0 {
+		return false
+	}
+	t.nudgeMu.Lock()
+	defer t.nudgeMu.Unlock()
+	now := t.now()
+	if !t.lastNudge.IsZero() && now.Sub(t.lastNudge) < nudgeInterval {
+		return false
+	}
+	select {
+	case t.nudges <- struct{}{}:
+		t.lastNudge = now
+		return true
+	default:
+		return false
 	}
 }
 

@@ -64,12 +64,16 @@ func TestExecutorStandingPolicyParksUnknownContract(t *testing.T) {
 }
 
 func TestLedgerInputPreservesCustodianEvidence(t *testing.T) {
-	input := ledgerInput(nil, 1, policy.ActionRequest{
+	input := ledgerInputAt(nil, 1, policy.ActionRequest{
 		Feature: "freeze", Evidence: map[string]any{
 			"pid": 42, "xmin_age": int64(900),
 		},
 	}, policy.Decision{Verdict: policy.VerdictPark})
 	if input.Evidence["pid"] != 42 || input.Evidence["xmin_age"] != int64(900) {
 		t.Fatalf("custodian evidence = %#v", input.Evidence)
+	}
+	// policy-01: the request has no contract, so the ledger must say so.
+	if input.Evidence["contract"] != "none" {
+		t.Fatalf("contract-less evidence = %#v, want contract=none", input.Evidence)
 	}
 }

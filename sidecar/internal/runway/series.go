@@ -1,6 +1,7 @@
 package runway
 
 import (
+	"context"
 	"math"
 	"time"
 
@@ -36,6 +37,9 @@ type Snapshot struct {
 	// SizeFresh marks WAL.DatabaseBytes measured this tick (for this
 	// monitor); a reused measurement is not sampled again.
 	SizeFresh bool
+	// Capacity is the disk runway's limit this tick (nil: not resolved,
+	// the declared capacity).
+	Capacity *DiskCapacity
 }
 
 // BuildSamples turns a snapshot into samples. Only known numbers are
@@ -68,7 +72,7 @@ func BuildSamples(s Snapshot, opts Options) []Sample {
 			add(probes.RunwayDatabaseBytes, probes.SubjectCluster, w.DatabaseBytes, nan, nan)
 			if s.Dir != nil && probes.Known(s.Dir.Bytes) {
 				add(probes.RunwayDiskUsed, probes.SubjectCluster, w.DatabaseBytes+s.Dir.Bytes,
-					nan, capacity(opts))
+					nan, s.diskCapacity(opts).Bytes)
 			}
 		}
 	}
@@ -80,17 +84,75 @@ func BuildSamples(s Snapshot, opts Options) []Sample {
 	for _, sq := range s.Sequences {
 		if s.SequencesOK && s.SequencesFresh && !sq.Cycle && probes.Known(sq.LastValue) &&
 			probes.Known(sq.Limit) {
-			add(probes.RunwaySequence, sq.Sequence, sq.LastValue, sq.LastValue, sq.Limit)
+			v, limit := sequenceSeries(sq)
+			add(probes.RunwaySequence, sq.Sequence, v, v, limit)
 		}
 	}
 	return out
 }
 
-func capacity(opts Options) float64 {
-	if opts.DiskCapacityBytes > 0 {
-		return opts.DiskCapacityBytes
+// sequenceSeries is a sequence's sampled value and limit: as read for an
+// ascending sequence, negated for a descending one (-last_value rising
+// toward -limit), so one projection serves both directions.
+func sequenceSeries(sq probes.SequenceRunway) (value, limit float64) {
+	if sq.Descending() {
+		return -sq.LastValue, -sq.Limit
 	}
-	return math.NaN()
+	return sq.LastValue, sq.Limit
+}
+
+// Disk capacity sources (clouds-07): measured by the provider, or the
+// operator's forecaster.disk_capacity_bytes. CapacityUnbounded is storage
+// that grows without a bound, which leaves the disk runway without a limit.
+const (
+	CapacityProviderTelemetry = "provider_telemetry"
+	CapacityDeclared          = "declared"
+	CapacityUnbounded         = "capacity_unbounded"
+)
+
+// CapacitySource reads the provider's measured storage capacity (managed-
+// cloud telemetry). ok is false without a fresh bounded value; source is
+// then CapacityUnbounded for storage that grows without a bound. The
+// runway monitor and the forecaster read it on their own goroutines, so an
+// implementation must be safe for concurrent use.
+type CapacitySource func(ctx context.Context) (bytes float64, source string, ok bool)
+
+// DiskCapacity is the disk runway's limit (NaN: unknown) and its source.
+type DiskCapacity struct {
+	Bytes  float64
+	Source string
+}
+
+// capacity prefers a fresh provider capacity, then the declared one;
+// otherwise it is NaN, sourced CapacityUnbounded when the provider said so.
+func capacity(ctx context.Context, opts Options) DiskCapacity {
+	if opts.Capacity == nil {
+		return declaredCapacity(opts)
+	}
+	bytes, source, ok := opts.Capacity(ctx)
+	if ok && bytes > 0 && !math.IsInf(bytes, 1) {
+		return DiskCapacity{Bytes: bytes, Source: CapacityProviderTelemetry}
+	}
+	c := declaredCapacity(opts)
+	if c.Source == "" && source == CapacityUnbounded {
+		c.Source = CapacityUnbounded
+	}
+	return c
+}
+
+func declaredCapacity(opts Options) DiskCapacity {
+	if opts.DiskCapacityBytes > 0 {
+		return DiskCapacity{Bytes: opts.DiskCapacityBytes, Source: CapacityDeclared}
+	}
+	return DiskCapacity{Bytes: math.NaN()}
+}
+
+// diskCapacity is the snapshot's resolved capacity, else the declared one.
+func (s Snapshot) diskCapacity(opts Options) DiskCapacity {
+	if s.Capacity != nil {
+		return *s.Capacity
+	}
+	return declaredCapacity(opts)
 }
 
 // slotLimit is a bounded max_slot_wal_keep_size (the slot is invalidated

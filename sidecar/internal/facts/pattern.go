@@ -35,13 +35,21 @@ type Pattern struct {
 }
 
 // ObjectRef is an object a request or finding touches. An index may carry
-// its table; KindRelation is a table or an index, unknown which.
+// its table; KindRelation is a table or an index, unknown which. A
+// partition, or an index of one, may carry the root of its declarative
+// partition tree (RootSchema, RootName; facts-10), set from the catalog
+// only when the root is another relation. A slot
+// ref with AllSlots set ("slot:*") touches every slot of the cluster (a
+// cluster-wide WAL bound) and has no name.
 type ObjectRef struct {
 	Kind        Kind
 	Schema      string
 	Name        string
 	TableSchema string
 	TableName   string
+	RootSchema  string
+	RootName    string
+	AllSlots    bool
 }
 
 type identPart struct {
@@ -63,6 +71,12 @@ func ParsePattern(kind Kind, raw string) (Pattern, error) {
 				"_ or *", ErrInvalidSubject, raw)
 		}
 		return Pattern{Kind: KindSlot, Name: s}, nil
+	case KindDatabase:
+		if s != "*" {
+			return Pattern{}, fmt.Errorf("%w: a database fact's subject is * (the "+
+				"database whose facts hold it), not %q", ErrInvalidSubject, raw)
+		}
+		return Pattern{Kind: KindDatabase, Name: s}, nil
 	case KindSchema, KindIndex, KindTable:
 	default:
 		return Pattern{}, fmt.Errorf("%w: %q", ErrInvalidKind, kind)
@@ -103,7 +117,7 @@ func patternFromParts(kind Kind, parts []identPart, raw string) (Pattern, error)
 // need no quotes.
 func (p Pattern) String() string {
 	switch p.Kind {
-	case KindSlot:
+	case KindSlot, KindDatabase:
 		return p.Name
 	case KindSchema:
 		return quoteIdent(p.Schema)
@@ -113,23 +127,28 @@ func (p Pattern) String() string {
 
 // Matches reports whether the pattern covers ref. An unqualified ref
 // matches any schema, and a relation of unknown kind matches both table
-// and index patterns: when unsure, a fact binds (it can only narrow).
+// and index patterns: when unsure, a fact binds (it can only narrow). A
+// table or schema pattern also covers a ref whose partition root it
+// covers: a fact on a partitioned table covers all its partitions. A
+// database pattern names no object and matches no ref.
 func (p Pattern) Matches(ref ObjectRef) bool {
 	switch p.Kind {
 	case KindSlot:
-		return ref.Kind == KindSlot && globMatch(p.Name, ref.Name)
+		return ref.Kind == KindSlot && (ref.AllSlots || globMatch(p.Name, ref.Name))
 	case KindSchema:
 		if ref.Kind == KindSlot {
 			return false
 		}
 		return p.schemaMatches(ref.Schema) ||
-			(ref.TableName != "" && p.schemaMatches(ref.TableSchema))
+			(ref.TableName != "" && p.schemaMatches(ref.TableSchema)) ||
+			(ref.RootName != "" && p.schemaMatches(ref.RootSchema))
 	case KindTable:
 		if (ref.Kind == KindTable || ref.Kind == KindRelation) &&
 			p.relMatches(ref.Schema, ref.Name) {
 			return true
 		}
-		return ref.TableName != "" && p.relMatches(ref.TableSchema, ref.TableName)
+		return (ref.TableName != "" && p.relMatches(ref.TableSchema, ref.TableName)) ||
+			(ref.RootName != "" && p.relMatches(ref.RootSchema, ref.RootName))
 	case KindIndex:
 		return (ref.Kind == KindIndex || ref.Kind == KindRelation) &&
 			p.relMatches(ref.Schema, ref.Name)
@@ -147,6 +166,9 @@ func (p Pattern) relMatches(schema, name string) bool {
 
 // String is the reference's display form.
 func (r ObjectRef) String() string {
+	if r.Kind == KindSlot && r.AllSlots {
+		return "slot:*"
+	}
 	if r.Kind == KindSlot {
 		return "slot:" + r.Name
 	}
@@ -156,14 +178,17 @@ func (r ObjectRef) String() string {
 	return quoteIdent(r.Schema) + "." + quoteIdent(r.Name)
 }
 
-// ParseObjectRef reads a target object: "slot:<name>", or a relation
-// "schema.name" (optionally followed by "|..." as optimizer identifiers
-// are). Other forms ("pid:123") are errors.
+// ParseObjectRef reads a target object: "slot:<name>" ("slot:*" is every
+// slot), or a relation "schema.name" (optionally followed by "|..." as
+// optimizer identifiers are). Other forms ("pid:123") are errors.
 func ParseObjectRef(raw string) (ObjectRef, error) {
 	s := strings.TrimSpace(raw)
 	if name, ok := strings.CutPrefix(s, "slot:"); ok {
 		if name == "" {
 			return ObjectRef{}, fmt.Errorf("%w: empty slot target", ErrInvalidSubject)
+		}
+		if name == "*" {
+			return ObjectRef{Kind: KindSlot, AllSlots: true}, nil
 		}
 		return ObjectRef{Kind: KindSlot, Name: name}, nil
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -51,6 +52,9 @@ type ReconcileResult struct {
 	Demoted      int `json:"demoted"`
 	// ShadowRecorded counts the new shadow evidence (roadmap 1.4).
 	ShadowRecorded int `json:"shadow_recorded"`
+	// Dropped counts the incident actions given up while still pending:
+	// older than the lookback, gone, or over the pending cap (earned-02).
+	Dropped int `json:"dropped"`
 }
 
 // Reconciler turns one monitored database's executed family actions into
@@ -74,7 +78,8 @@ func NewReconciler(svc *Service, monitored *pgxpool.Pool, database string,
 }
 
 // executed is one executed family action in the monitored database.
-// settled reports that it ran more than UnverifiedAfter ago.
+// settled reports that it ran more than UnverifiedAfter ago, aged that it
+// ran more than incidentCursorLag ago.
 type executed struct {
 	family       Family
 	class        ActionClass
@@ -84,6 +89,7 @@ type executed struct {
 	verification string
 	verdict      string // sage.action_outcome verdict (Phase 1.3), "" when none
 	settled      bool
+	aged         bool
 	sql          string
 	at           time.Time
 }
@@ -99,31 +105,22 @@ func (r *Reconciler) RunOnce(ctx context.Context) (ReconcileResult, error) {
 	if err := r.svc.store.checkDatabase(r.database); err != nil {
 		return res, fmt.Errorf("reconcile %s: %w", r.database, err)
 	}
-	handoffs, skipped, err := r.handoffs(ctx)
+	notifyErr, err := r.incidents(ctx, &res)
 	if err != nil {
 		return res, err
-	}
-	res.Skipped = skipped
-	autos, skipped, err := r.autoExecutions(ctx)
-	if err != nil {
-		return res, err
-	}
-	res.Skipped += skipped
-	notifyErr := r.notifyAll(ctx, autos, &res)
-	for _, x := range append(handoffs, autos...) {
-		if err := r.record(ctx, x, &res); err != nil {
-			return res, err
-		}
 	}
 	selfErr := r.selfInitiated(ctx, &res)
 	return res, errors.Join(notifyErr, selfErr, r.shadowEvidence(ctx, &res))
 }
 
-func (r *Reconciler) record(ctx context.Context, x executed, res *ReconcileResult) error {
+// record records x's outcome once it is decided; decided is false while
+// a verdict may still come.
+func (r *Reconciler) record(ctx context.Context, x executed, res *ReconcileResult) (bool,
+	error) {
 	result, decided := classifyWithVerdict(x.outcome, x.verification, x.verdict, x.settled)
 	if !decided {
 		res.Pending++
-		return nil
+		return false, nil
 	}
 	inserted, err := r.svc.recordOutcome(ctx, Outcome{Database: r.database,
 		ActionLogID: x.actionLogID, Family: x.family, Class: x.class, Level: x.level,
@@ -133,7 +130,7 @@ func (r *Reconciler) record(ctx context.Context, x executed, res *ReconcileResul
 	if inserted {
 		res.Recorded++
 	}
-	return err
+	return err == nil, err
 }
 
 // classifyOutcome maps an action's outcome and verification verdict to a
@@ -157,45 +154,45 @@ func classifyOutcome(outcome, verification string, settled bool) (string, bool) 
 	return "", false
 }
 
-const handoffSQL = `/* pg_sage */ SELECT q.identity_key, l.id, l.outcome,
+// The incident reads take $1 the lookback, $2 UnverifiedAfter and $3
+// incidentCursorLag (seconds), then either $4 the cursor (NULL: the whole
+// lookback) and $5 the batch, or $4 the pending ids (earned-02).
+const handoffSelect = `/* pg_sage */ SELECT q.identity_key, l.id, l.outcome,
 	COALESCE(v.verdict, ''),
 	COALESCE((SELECT o.verdict FROM sage.action_outcome o WHERE o.action_log_id = l.id), ''),
 	l.executed_at < now() - make_interval(secs => $2::double precision),
+	l.executed_at < now() - make_interval(secs => $3::double precision),
 	l.sql_executed, l.executed_at
 	FROM sage.action_queue q
 	JOIN sage.action_log l ON l.id = q.action_log_id
 	LEFT JOIN sage.verification v ON v.id = l.verification_id
 	WHERE q.identity_key LIKE 'autonomy:%'
-	  AND l.executed_at > now() - make_interval(secs => $1::double precision)
-	ORDER BY l.id LIMIT 1000`
+	  AND l.executed_at > now() - make_interval(secs => $1::double precision)`
 
-// handoffs reads executed L2 handoffs; malformed keys are skipped.
-func (r *Reconciler) handoffs(ctx context.Context) ([]executed, int, error) {
-	rows, err := r.pool.Query(ctx, handoffSQL, r.lookback.Seconds(),
-		UnverifiedAfter.Seconds())
-	if err != nil {
-		return nil, 0, fmt.Errorf("read executed autonomy handoffs: %w", err)
+const (
+	forwardTail = `
+	  AND l.id > COALESCE($4::bigint, 0) ORDER BY l.id LIMIT $5`
+	pendingTail = `
+	  AND l.id = ANY ($4::bigint[]) ORDER BY l.id`
+	handoffSQL        = handoffSelect + forwardTail
+	handoffPendingSQL = handoffSelect + pendingTail
+)
+
+// scanHandoff scans an executed L2 handoff; ok is false for a malformed
+// key (skipped).
+func (r *Reconciler) scanHandoff(rows pgx.Rows) (executed, bool, error) {
+	var key string
+	x := executed{level: L2}
+	if err := rows.Scan(&key, &x.actionLogID, &x.outcome, &x.verification, &x.verdict,
+		&x.settled, &x.aged, &x.sql, &x.at); err != nil {
+		return x, false, fmt.Errorf("scan autonomy handoff: %w", err)
 	}
-	defer rows.Close()
-	var out []executed
-	skipped := 0
-	for rows.Next() {
-		var key string
-		x := executed{level: L2}
-		if err := rows.Scan(&key, &x.actionLogID, &x.outcome, &x.verification, &x.verdict,
-			&x.settled, &x.sql, &x.at); err != nil {
-			return nil, 0, fmt.Errorf("scan autonomy handoff: %w", err)
-		}
-		var ok bool
-		if x.family, x.class, ok = parseHandoffKey(key); !ok {
-			skipped++
-			r.svc.cfg.logf("autonomy: skip handoff %d with malformed key %q on %s",
-				x.actionLogID, key, r.database)
-			continue
-		}
-		out = append(out, x)
+	var ok bool
+	if x.family, x.class, ok = parseHandoffKey(key); !ok {
+		r.svc.cfg.logf("autonomy: skip handoff %d with malformed key %q on %s",
+			x.actionLogID, key, r.database)
 	}
-	return out, skipped, rows.Err()
+	return x, ok, nil
 }
 
 func parseHandoffKey(key string) (Family, ActionClass, bool) {
@@ -211,84 +208,96 @@ func parseHandoffKey(key string) (Family, ActionClass, bool) {
 // execute: L3 auto-executions (reason autonomy_l3) and mandatory deadline
 // overrides (any other self-initiated reason; the ledger did not restrict
 // them). Operator approvals are the handoff path's.
-const autoExecutionSQL = `/* pg_sage */ SELECT d.evidence->>'incident_family',
+const autoExecutionSelect = `/* pg_sage */ SELECT d.evidence->>'incident_family',
 	COALESCE(d.evidence->>'autonomy_class', ''), d.reason, l.id, l.outcome,
 	COALESCE(v.verdict, ''),
 	COALESCE((SELECT o.verdict FROM sage.action_outcome o WHERE o.action_log_id = l.id), ''),
 	l.executed_at < now() - make_interval(secs => $2::double precision),
+	l.executed_at < now() - make_interval(secs => $3::double precision),
 	l.sql_executed, l.executed_at
 	FROM sage.decision d
 	JOIN sage.action_log l ON l.decision_id = d.id
 	LEFT JOIN sage.verification v ON v.id = l.verification_id
 	WHERE d.verdict = 'execute' AND d.evidence ? 'incident_family'
 	  AND d.reason <> 'operator_approved'
-	  AND l.executed_at > now() - make_interval(secs => $1::double precision)
-	ORDER BY l.id LIMIT 1000`
+	  AND l.executed_at > now() - make_interval(secs => $1::double precision)`
 
-// autoExecutions reads executed self-initiated family actions: L3 ones at
-// L3, mandatory deadline overrides at L1 (never promotion evidence; a
-// harmful one is still a family regression).
-func (r *Reconciler) autoExecutions(ctx context.Context) ([]executed, int, error) {
-	rows, err := r.pool.Query(ctx, autoExecutionSQL, r.lookback.Seconds(),
-		UnverifiedAfter.Seconds())
-	if err != nil {
-		return nil, 0, fmt.Errorf("read autonomous executions: %w", err)
+const (
+	autoExecutionSQL        = autoExecutionSelect + forwardTail
+	autoExecutionPendingSQL = autoExecutionSelect + pendingTail
+)
+
+// scanAutoExecution scans an executed self-initiated family action: an L3
+// one at L3, a mandatory deadline override at L1 (never promotion
+// evidence; a harmful one is still a family regression). ok is false for
+// an unknown family or class (skipped).
+func (r *Reconciler) scanAutoExecution(rows pgx.Rows) (executed, bool, error) {
+	var family, class, reason string
+	x := executed{level: L1}
+	if err := rows.Scan(&family, &class, &reason, &x.actionLogID, &x.outcome,
+		&x.verification, &x.verdict, &x.settled, &x.aged, &x.sql, &x.at); err != nil {
+		return x, false, fmt.Errorf("scan autonomous execution: %w", err)
 	}
-	defer rows.Close()
-	var out []executed
-	skipped := 0
-	for rows.Next() {
-		var family, class, reason string
-		x := executed{level: L1}
-		if err := rows.Scan(&family, &class, &reason, &x.actionLogID, &x.outcome,
-			&x.verification, &x.verdict, &x.settled, &x.sql, &x.at); err != nil {
-			return nil, 0, fmt.Errorf("scan autonomous execution: %w", err)
-		}
-		x.family, x.class = Family(family), ActionClass(class)
-		if reason == "autonomy_l3" {
-			x.level = L3
-		}
-		if !KnownFamily(x.family) || !knownClass(x.class) {
-			skipped++
-			continue
-		}
-		out = append(out, x)
+	x.family, x.class = Family(family), ActionClass(class)
+	if reason == "autonomy_l3" {
+		x.level = L3
 	}
-	return out, skipped, rows.Err()
+	return x, KnownFamily(x.family) && knownClass(x.class), nil
 }
 
 // notifyAll notifies each L3 execution not yet notified, then records
 // it; a failed notification is not recorded, so the next pass retries.
+// It returns the ids whose notice failed and the joined notice errors,
+// apart from a failure to read or record the notices.
 func (r *Reconciler) notifyAll(ctx context.Context, autos []executed,
-	res *ReconcileResult) error {
+	res *ReconcileResult) (map[int64]bool, error, error) {
+	var l3 []int64
+	for _, x := range autos {
+		if x.level == L3 { // not a mandatory deadline override
+			l3 = append(l3, x.actionLogID)
+		}
+	}
+	failed := map[int64]bool{}
+	if len(l3) == 0 {
+		return failed, nil, nil
+	}
+	done, err := r.svc.store.autoExecutedRecordedSet(ctx, l3)
+	if err != nil {
+		return failed, nil, err
+	}
 	var errs []error
 	for _, x := range autos {
-		if x.level != L3 {
-			continue // a mandatory deadline override, not an autonomous action
-		}
-		done, err := r.svc.store.autoExecutedRecorded(ctx, x.actionLogID)
-		if err != nil {
-			return err
-		}
-		if done {
+		if x.level != L3 || done[x.actionLogID] {
 			continue
 		}
-		a := AutoExecution{Database: r.database, ActionLogID: x.actionLogID,
-			Family: x.family, Class: x.class, SQL: x.sql, ExecutedAt: x.at.UTC()}
-		if r.notifier != nil {
-			if err := r.notifier.NotifyAutonomous(ctx, a); err != nil {
-				errs = append(errs, fmt.Errorf("notify L3 action %d on %s: %w",
-					x.actionLogID, r.database, err))
-				continue
-			}
+		if err := r.notifyOne(ctx, x); err != nil {
+			failed[x.actionLogID] = true
+			errs = append(errs, err)
+			continue
 		}
-		if err := r.svc.store.appendEvent(ctx, r.svc.store.pool, Event{Family: x.family,
+		recorded, err := r.svc.store.recordAutoExecuted(ctx, Event{Family: x.family,
 			Class: x.class, Type: EventAutoExecuted, Actor: ActorPgSage,
 			Reason:      "executed at L3; a human was notified",
-			ActionLogID: x.actionLogID, At: r.svc.now()}); err != nil {
-			return err
+			ActionLogID: x.actionLogID, At: r.svc.now()})
+		if err != nil {
+			return failed, errors.Join(errs...), err
 		}
-		res.Notified++
+		if recorded {
+			res.Notified++
+		}
 	}
-	return errors.Join(errs...)
+	return failed, errors.Join(errs...), nil
+}
+
+// notifyOne tells a human about x (recorded only without a notifier).
+func (r *Reconciler) notifyOne(ctx context.Context, x executed) error {
+	if r.notifier == nil {
+		return nil
+	}
+	a := AutoExecution{Database: r.database, ActionLogID: x.actionLogID,
+		Family: x.family, Class: x.class, SQL: x.sql, ExecutedAt: x.at.UTC()}
+	if err := r.notifier.NotifyAutonomous(ctx, a); err != nil {
+		return fmt.Errorf("notify L3 action %d on %s: %w", x.actionLogID, r.database, err)
+	}
+	return nil
 }

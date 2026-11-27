@@ -2,7 +2,7 @@ package collector
 
 import (
 	"context"
-	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +18,7 @@ import (
 // Skips the test if the connection cannot be established.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
+	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -34,8 +34,11 @@ func testPool(t *testing.T) *pgxpool.Pool {
 }
 
 // testConfig returns a minimal config suitable for testing.
+// testConfig models a startup that found pg_stat_statements in public
+// (StatementsSchema, security-01c-q).
 func testConfig() *config.Config {
 	return &config.Config{
+		StatementsSchema: "public",
 		Collector: config.CollectorConfig{
 			IntervalSeconds: 60,
 			BatchSize:       100,
@@ -252,25 +255,6 @@ func TestCollectSystem_PG17(t *testing.T) {
 	}
 }
 
-func TestCollectSystem_PG14Path(t *testing.T) {
-	pool := testPool(t)
-	cfg := testConfig()
-
-	// Force PG14 path. This will fail on PG17 because
-	// pg_stat_bgwriter may not have checkpoints_timed on PG17.
-	// We test it anyway to cover the version branching logic.
-	c := New(pool, cfg, 140000, noopLog)
-	ctx := context.Background()
-
-	_, err := c.collectSystem(ctx)
-	// On PG17, the PG14 SQL may fail because pg_stat_bgwriter
-	// no longer has checkpoints_timed. That's expected behavior:
-	// the version gate in collect() prevents this in production.
-	if err != nil {
-		t.Logf("collectSystem PG14 path failed on PG17 (expected): %v", err)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // collectLocks
 // ---------------------------------------------------------------------------
@@ -282,7 +266,7 @@ func TestCollectLocks(t *testing.T) {
 	c := New(pool, cfg, 170000, noopLog)
 	ctx := context.Background()
 
-	locks, err := c.collectLocks(ctx)
+	locks, _, err := c.collectLocks(ctx)
 	if err != nil {
 		t.Fatalf("collectLocks: %v", err)
 	}
@@ -543,32 +527,6 @@ func TestCollect_StatsResetDetection(t *testing.T) {
 // persist
 // ---------------------------------------------------------------------------
 
-func TestPersist(t *testing.T) {
-	pool := testPool(t)
-	cfg := testConfig()
-
-	c := New(pool, cfg, 170000, noopLog)
-	ctx := context.Background()
-
-	snap := &Snapshot{
-		CollectedAt: time.Now().UTC(),
-		Queries:     []QueryStats{{QueryID: 999, Calls: 1}},
-		Tables:      []TableStats{{SchemaName: "public", RelName: "test"}},
-		Indexes:     []IndexStats{{IndexRelName: "test_pkey"}},
-		ForeignKeys: []ForeignKey{},
-		System:      SystemStats{ActiveBackends: 1},
-		Locks:       []LockInfo{},
-		Sequences:   []SequenceStats{},
-	}
-
-	err := c.persist(ctx, snap)
-	if err != nil {
-		// persist may fail if sage.snapshots table doesn't exist
-		// with the expected schema. That's acceptable.
-		t.Logf("persist failed (may need sage.snapshots table): %v", err)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ShouldSkip — with real DB
 // ---------------------------------------------------------------------------
@@ -580,42 +538,9 @@ func TestCircuitBreaker_ShouldSkip_LowLoad(t *testing.T) {
 	cb := NewCircuitBreaker(99, 5)
 	ctx := context.Background()
 
-	if cb.ShouldSkip(ctx, pool) {
+	if cb.ShouldSkip(ctx, pool).Skip {
 		t.Error("ShouldSkip should return false with high ceiling")
 	}
-}
-
-func TestCircuitBreaker_ShouldSkip_ZeroCeiling(t *testing.T) {
-	pool := testPool(t)
-
-	// Zero ceiling — any load exceeds it.
-	cb := NewCircuitBreaker(0, 3)
-	ctx := context.Background()
-
-	if !cb.ShouldSkip(ctx, pool) {
-		// With cpuCeiling=0, threshold=0.0, any positive load > 0.
-		// But if the DB is truly idle, load might be 0.
-		t.Log("ShouldSkip returned false with zero ceiling (DB may be idle)")
-	}
-}
-
-func TestCircuitBreaker_ShouldSkip_EntersDormant(t *testing.T) {
-	pool := testPool(t)
-
-	// maxSkips=1, very low ceiling to force skips.
-	cb := NewCircuitBreaker(0, 1)
-	ctx := context.Background()
-
-	// Call ShouldSkip repeatedly. If it skips, it should eventually
-	// enter dormant after maxSkips.
-	for i := 0; i < 5; i++ {
-		cb.ShouldSkip(ctx, pool)
-	}
-	// Check that the internal state was updated.
-	cb.mu.Lock()
-	skips := cb.consecutiveSkips
-	cb.mu.Unlock()
-	_ = skips // Just verifying no panic or deadlock.
 }
 
 // ---------------------------------------------------------------------------
@@ -736,12 +661,18 @@ func TestCollectQueries_AppliesConfiguredStatementAndLockTimeouts(t *testing.T) 
 	cfg.Safety.LockTimeoutMs = 1234
 	c := New(pool, cfg, 170000, noopLog)
 	var seen []string
-	c.onCatalogQuery = timeoutsIn("candidates", &seen)
+	counters := timeoutsIn(queryCountersMarker, &seen)
+	texts := timeoutsIn(statementTextsTag, &seen)
+	c.onCatalogQuery = func(ctx context.Context, tx pgx.Tx, sql string, args []any) {
+		counters(ctx, tx, sql, args)
+		texts(ctx, tx, sql, args)
+	}
 	if _, err := c.collectQueries(context.Background()); err != nil {
 		t.Fatalf("collect queries: %v", err)
 	}
-	if len(seen) != 1 || seen[0] != "4321ms/1234ms" {
-		t.Fatalf("collector query timeouts = %v, want [4321ms/1234ms]", seen)
+	// The counters read, then the text read of the uncached candidates.
+	if !slices.Equal(seen, []string{"4321ms/1234ms", "4321ms/1234ms"}) {
+		t.Fatalf("collector query timeouts = %v, want [4321ms/1234ms 4321ms/1234ms]", seen)
 	}
 	var statementTimeout string
 	var lockTimeout string

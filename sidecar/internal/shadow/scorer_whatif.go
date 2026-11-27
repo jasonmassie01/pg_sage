@@ -5,6 +5,9 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/optimizer"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -13,22 +16,28 @@ import (
 // run is planned with and without a hypothetical index (HypoPG, the
 // optimizer's own session: savepoint per query, bounded statement
 // timeout). It plans the queries; it never builds an index. Errors make
-// no fact: the decision waits for other evidence or the horizon.
+// no fact: the decision waits for other evidence or the horizon. Nor does
+// an index create pg_sage itself ran since the decision (scorer_own.go).
 
 var concurrently = regexp.MustCompile(`(?i)\s+concurrently\b`)
 
 // queryTextsSQL reads the targets' text and cost from pg_stat_statements.
-const queryTextsSQL = `/* pg_sage */ SELECT s.queryid, min(s.query), sum(s.calls)::bigint,
+// rel is the qualified view.
+func queryTextsSQL(rel string) string {
+	return `/* pg_sage */ SELECT s.queryid, min(s.query), sum(s.calls)::bigint,
 	sum(s.total_exec_time)::float8
-	FROM pg_stat_statements s
+	FROM ` + rel + ` s
 	WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
 	  AND s.queryid = ANY($1)
 	GROUP BY s.queryid`
+}
 
 // evaluate is p's what-if, nil when it cannot be evaluated (budget spent,
-// targets idle or unknown, HypoPG absent, an error).
+// an access method HypoPG cannot model, targets idle or unknown, HypoPG
+// absent, an error).
 func (w *whatIf) evaluate(ctx context.Context, p pendingDecision) *hypoFact {
-	if w.budget <= 0 {
+	ddl := concurrently.ReplaceAllString(p.SQL, "")
+	if w.budget <= 0 || optimizer.HypoPGCannotModel(ddl) != "" {
 		return nil
 	}
 	running := w.stillRunning(ctx, p)
@@ -39,8 +48,15 @@ func (w *whatIf) evaluate(ctx context.Context, p pendingDecision) *hypoFact {
 	if len(queries) == 0 || !w.hypo.IsAvailable(ctx) {
 		return nil
 	}
+	// pg_sage's own create of the index (rolled back since, or past the
+	// pass's action window) already decided the decision: no evidence.
+	if own, err := w.s.madeByPgSage(ctx, p.Decision); err != nil || own {
+		if err != nil {
+			w.s.logf("shadow: what-if of decision %d: %v", p.ID, err)
+		}
+		return nil
+	}
 	w.budget--
-	ddl := concurrently.ReplaceAllString(p.SQL, "")
 	res, err := w.hypo.Validate(ctx, optimizer.Recommendation{DDL: ddl}, queries)
 	verdict, reason := optimizer.WhatIfVerdict(res, err, w.s.opts.HypoPGMinPct)
 	if err != nil {
@@ -72,7 +88,11 @@ func (w *whatIf) stillRunning(ctx context.Context, p pendingDecision) []int64 {
 
 // queries are the running targets as the what-if plans them.
 func (w *whatIf) queries(ctx context.Context, ids []int64) []optimizer.QueryInfo {
-	rows, err := w.s.pool.Query(ctx, queryTextsSQL, ids)
+	rel, err := extschema.StatementsRel(ctx, w.s.pool, "pg_stat_statements")
+	var rows pgx.Rows
+	if err == nil {
+		rows, err = w.s.pool.Query(ctx, queryTextsSQL(rel), ids)
+	}
 	if err != nil {
 		w.s.logf("shadow: read target query texts: %v", err)
 		return nil

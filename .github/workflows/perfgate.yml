@@ -20,33 +20,41 @@ jobs:
   perfgate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # ci-03b: CI's PostgreSQL image (HypoPG, pg_hint_plan and the test
+    # server settings baked in), clean, the gate's alone.
+    services:
+      postgres:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
 
-      - name: Log in to the GitHub container registry
-        if: ${{ !cancelled() }}
-        run: echo "${{ secrets.GITHUB_TOKEN }}" |
-          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Start a clean PostgreSQL for the performance gate
-        run: |
-          docker run -d --name perfgate-pg -e POSTGRES_PASSWORD=postgres \
-            -p 5433:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17 >/dev/null
-          for _ in $(seq 1 60); do
-            docker exec perfgate-pg pg_isready -U postgres >/dev/null 2>&1 && break
-            sleep 1
-          done
-          scripts/ci/setup-test-postgres.sh perfgate-pg 17
+      - name: Check the PostgreSQL server (CI image)
+        run: scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
 
       - name: Performance gate
         working-directory: sidecar
         timeout-minutes: 35
         env:
-          SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
+          SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
           PG_SAGE_PERF_SCALE: ${{ inputs.scale }}
           PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
         run: |

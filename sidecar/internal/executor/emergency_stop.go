@@ -32,7 +32,7 @@ func ReadEmergencyStop(
 	var value, by string
 	var at time.Time
 	err := pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT value, COALESCE(updated_by, ''), updated_at
+		`/* pg_sage executor */ SELECT value, COALESCE(updated_by, ''), updated_at
 		 FROM sage.config WHERE key = 'emergency_stop'`,
 	).Scan(&value, &by, &at)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -74,7 +74,7 @@ func SetEmergencyStop(
 		return fmt.Errorf("setting emergency_stop to %s: actor is required", val)
 	}
 	_, err := pool.Exec(ctx,
-		`/* pg_sage */ WITH prev AS (
+		`/* pg_sage executor */ WITH prev AS (
 			SELECT value FROM sage.config
 			WHERE key = 'emergency_stop' AND COALESCE(database_id, 0) = 0
 		), upsert AS (

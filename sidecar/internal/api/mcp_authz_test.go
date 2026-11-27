@@ -66,7 +66,7 @@ func mcpRouterForUser(
 	cfg.MCP.Transport = "http"
 	runtime, err := mcp.NewRuntime(cfg.MCP, mcp.NewServer(backend), nil, nil)
 	require.NoError(t, err)
-	h := NewRouterFullRuntime(nil, cfg, pool, nil, nil, nil,
+	h := newTestRouter(nil, cfg, pool, nil, nil, nil,
 		&RuntimeDeps{MCPHandler: runtime.HTTPHandler()}, SessionAuthMiddleware(pool))
 	if role == "" {
 		return h

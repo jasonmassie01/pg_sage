@@ -55,6 +55,11 @@ type IdP struct {
 	omitID     bool
 	forgeSig   bool
 	tokenCalls []url.Values
+	// discFails and discStatus make the next discFails discovery requests
+	// answer discStatus; discCalls counts every discovery request.
+	discFails  int
+	discStatus int
+	discCalls  int
 }
 
 type authRequest struct {
@@ -145,7 +150,39 @@ func (i *IdP) TokenRequests() []url.Values {
 	return append([]url.Values(nil), i.tokenCalls...)
 }
 
+// FailDiscovery makes the next n discovery requests answer status, as an
+// IdP outage or a proxy error page would.
+func (i *IdP) FailDiscovery(n, status int) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.discFails, i.discStatus = n, status
+}
+
+// DiscoveryRequests is how many discovery requests the provider received.
+func (i *IdP) DiscoveryRequests() int {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.discCalls
+}
+
+// failDiscoveryNow counts a discovery request and reports the status it
+// must fail with, or 0 to serve the document.
+func (i *IdP) failDiscoveryNow() int {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.discCalls++
+	if i.discFails <= 0 {
+		return 0
+	}
+	i.discFails--
+	return i.discStatus
+}
+
 func (i *IdP) serveDiscovery(w http.ResponseWriter, _ *http.Request) {
+	if status := i.failDiscoveryNow(); status != 0 {
+		writeJSON(w, status, map[string]string{"error": "discovery unavailable"})
+		return
+	}
 	doc := map[string]any{
 		"issuer":                                i.Issuer(),
 		"authorization_endpoint":                i.Issuer() + "/authorize",

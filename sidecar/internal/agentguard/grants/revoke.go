@@ -108,6 +108,7 @@ func (r *revokeRun) execute(ctx context.Context,
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("grants: committing revoke of %d: %w", g.ID, err)
 	}
+	executor.RecordPoolOutcome(r.req.Target.Pool, executor.ActionTypeGuardRevoke, "success")
 	return actionID, nil
 }
 

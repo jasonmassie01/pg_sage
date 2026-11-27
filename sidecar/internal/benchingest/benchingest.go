@@ -12,6 +12,8 @@ package benchingest
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,10 +69,19 @@ type Source struct {
 
 // Result counts one ingest: bench report files read, new reports stored
 // and verified signatures. Skipped are the replay-corpus reports a
-// directory walk passed over.
+// directory walk passed over; Refused are the reports scored for another
+// pg_sage build (earned.ErrBuildMismatch), which are not in the error.
 type Result struct {
 	Files, Added, Signed int
 	Skipped              []string
+	Refused              []Refused
+}
+
+// Refused is a report refused for naming another pg_sage build: its
+// path, the SHA-256 of its content (a rewritten file is a new refusal)
+// and why, naming the build it scores.
+type Refused struct {
+	Path, SHA256, Reason string
 }
 
 // ShippedDirs are the directories shipped reports may be in: the image's,
@@ -85,6 +96,8 @@ func ShippedDirs(executable string) []string {
 
 // Ingest reads every report of src into the ledger. One report's failure
 // does not stop the others; the errors are joined, each naming its file.
+// A report for another pg_sage build is a refusal (Result.Refused), not
+// an error: after an upgrade every old report is one, on every ingest.
 func Ingest(ctx context.Context, ledger Ledger, verifier Verifier, src Source) (Result,
 	error) {
 	if ledger == nil || strings.TrimSpace(src.Path) == "" {
@@ -97,24 +110,37 @@ func Ingest(ctx context.Context, ledger Ledger, verifier Verifier, src Source) (
 	var res Result
 	var errs []error
 	for _, f := range files {
-		run, signed, err := ingestFile(ctx, ledger, verifier, src, f)
+		out, err := ingestFile(ctx, ledger, verifier, src, f)
 		if walked && errors.Is(err, ErrReplayReport) {
 			res.Skipped = append(res.Skipped, f)
 			continue
 		}
 		res.Files++
-		if err != nil {
+		switch {
+		case errors.Is(err, earned.ErrBuildMismatch):
+			res.Refused = append(res.Refused, Refused{Path: f, SHA256: out.sha256,
+				Reason: err.Error()})
+			continue
+		case err != nil:
 			errs = append(errs, fmt.Errorf("bench report %s: %w", f, err))
 			continue
 		}
-		if signed {
+		if out.signed {
 			res.Signed++
 		}
-		if !run.Duplicate {
+		if !out.run.Duplicate {
 			res.Added++
 		}
 	}
 	return res, errors.Join(errs...)
+}
+
+// fileResult is one report file's ingest: the stored run, whether its
+// signature verified, and the SHA-256 of the file's content.
+type fileResult struct {
+	run    earned.EvalRun
+	signed bool
+	sha256 string
 }
 
 // sourceFiles lists src's reports, walked when src is a directory; a
@@ -137,13 +163,15 @@ func sourceFiles(src Source) ([]string, bool, error) {
 }
 
 func ingestFile(ctx context.Context, ledger Ledger, verifier Verifier, src Source,
-	path string) (earned.EvalRun, bool, error) {
+	path string) (fileResult, error) {
 	raw, err := readBounded(path, earned.MaxReportBytes)
 	if err != nil {
-		return earned.EvalRun{}, false, err
+		return fileResult{}, err
 	}
+	sum := sha256.Sum256(raw)
+	out := fileResult{sha256: hex.EncodeToString(sum[:])}
 	if schema, ok := replayCorpusSchema(raw); ok {
-		return earned.EvalRun{}, false, fmt.Errorf("%w (corpus_schema %.80s); point "+
+		return out, fmt.Errorf("%w (corpus_schema %.80s); point "+
 			"bench_results_path at the %s bench reports or their directory",
 			ErrReplayReport, schema, ReportName)
 	}
@@ -151,13 +179,14 @@ func ingestFile(ctx context.Context, ledger Ledger, verifier Verifier, src Sourc
 		RequireBuild: src.Shipped}
 	sig, err := signatureOf(verifier, path, raw)
 	if err != nil {
-		return earned.EvalRun{}, false, err
+		return out, err
 	}
 	if sig != nil {
 		in.Origin, in.Signature = earned.OriginSignedRelease, sig
 	}
-	run, err := ledger.IngestBench(ctx, raw, in)
-	return run, sig != nil, err
+	out.run, err = ledger.IngestBench(ctx, raw, in)
+	out.signed = sig != nil
+	return out, err
 }
 
 // replayCorpusSchema is the corpus_schema of a replay-corpus report: a

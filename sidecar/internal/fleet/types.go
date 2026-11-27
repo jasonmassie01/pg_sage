@@ -2,9 +2,6 @@ package fleet
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -14,6 +11,12 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/firstlook"
+	"github.com/pg-sage/sidecar/internal/forecaster"
+	"github.com/pg-sage/sidecar/internal/ha"
+	"github.com/pg-sage/sidecar/internal/logwatch"
+	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/pressure"
 	"github.com/pg-sage/sidecar/internal/sre"
 	"github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
@@ -29,9 +32,16 @@ type DatabaseInstance struct {
 	DatabaseID int
 	Config     config.DatabaseConfig
 	Pool       *pgxpool.Pool
+	// ActionPool is the separate action identity (action_dsn); nil when one
+	// role does everything. Closed with Pool.
+	ActionPool *pgxpool.Pool
 	Collector  *collector.Collector
 	Analyzer   *analyzer.Analyzer
 	Executor   *executor.Executor
+	// HA is the database's one HA monitor (fleet-04): the HA loop and the
+	// executor check it, every other consumer reads its snapshot. Nil
+	// without a pool, which every consumer treats as not writable.
+	HA *ha.Monitor
 	// Investigations is the Sage SRE investigator of this database: the
 	// API and MCP tools read investigations through it. Nil when the
 	// investigator could not be built.
@@ -44,14 +54,47 @@ type DatabaseInstance struct {
 	// actions (M5). Nil when the action service could not be built.
 	Actions *action.ActionService
 	Status  *InstanceStatus
-	Stopped bool
+	// InstanceOwner reports who manages this database's instance settings
+	// (advisors-08); nil outside fleet mode.
+	InstanceOwner func() InstanceOwnership
+	// DiskCapacity resolves the database's disk capacity for growth
+	// forecasts (forecast-06): the provider's when fresh, else the
+	// declared one. Nil reads as undeclared.
+	DiskCapacity func(context.Context) forecaster.Capacity
+	// CapabilityRefresh asks the runtime's capability refresher for a
+	// prompt recollection without blocking; nil when none runs.
+	CapabilityRefresh func()
+	// PlanCaps reads the plan caps the database's standing policy sets (its
+	// plans block, plan-02b), which plan approvals are checked against;
+	// nil reads the defaults.
+	PlanCaps func(context.Context) (policy.PlanCaps, error)
+	// Pressure answers check_pressure for this database (guard-01a); nil
+	// without a pool, which the route and the MCP tool answer as
+	// unavailable.
+	Pressure *pressure.Checker
+	// PressureJobs registers the database's backfill jobs (guard-01b);
+	// nil without a pool, which the job routes answer as unavailable.
+	PressureJobs pressure.JobRegistry
+	// FirstLookRecheck re-runs the first look on request; nil without one.
+	FirstLookRecheck func(context.Context) (firstlook.Report, error)
+	Stopped          bool
 	// StoppedBy and StoppedAt attribute the active emergency stop. Like
 	// Stopped, they are guarded by the manager lock.
 	StoppedBy string
 	StoppedAt time.Time
+	// RegisteredAt is when the runtime was published to the manager; a
+	// collector that never sampled is stale only once it is old enough.
+	// Guarded by the manager lock.
+	RegisteredAt time.Time
 	// stopsPending counts stops latched in memory whose durable flag is
 	// not yet written; an overlapping resume must not release them.
 	stopsPending int
+	// stopUnsaved marks a latched stop whose durable flag could not be
+	// written: the reconcile retries the write and never releases it.
+	// restoredFleet marks a runtime restored with emergency_stop_scope
+	// 'fleet'. Both are guarded by the manager lock.
+	stopUnsaved   bool
+	restoredFleet bool
 	// Cancel stops the per-instance goroutines (collector, analyzer,
 	// orchestrator). Set by bootstrap code; called by RemoveInstance.
 	// EmergencyStop does not call Cancel because monitoring should
@@ -79,9 +122,15 @@ type DatabaseInstance struct {
 	// Production instances use defaultInstanceTeardownTimeout.
 	teardownTimeout time.Duration
 
+	// LogSource reports the live log-source status; nil reports disabled.
+	LogSource func() logwatch.SourceStatus
+
 	// statusMu guards reads/writes to the InstanceStatus pointed to by
 	// Status. Always access via UpdateStatus / SnapshotStatus.
 	statusMu sync.RWMutex
+	// configMu (leaf) guards Config swaps; writers also hold m.mu, so code
+	// under m.mu reads Config directly and everything else ConfigSnapshot.
+	configMu sync.RWMutex
 	// trustPolicyMu protects the runtime source bit for per-database trust.
 	trustPolicyMu       sync.RWMutex
 	trustOverrideKnown  bool
@@ -102,7 +151,7 @@ func (d *DatabaseInstance) HasTrustLevelOverride() bool {
 	if d.trustOverrideKnown {
 		return d.trustOverrideActive
 	}
-	return d.Config.TrustLevelExplicit
+	return d.ConfigSnapshot().TrustLevelExplicit
 }
 
 // SetTrustLevelOverride records the runtime source of effective trust.
@@ -134,7 +183,11 @@ func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 		cp = *d.Status
 	}
 	d.statusMu.RUnlock()
+	cp.LogSource = d.logSourceStatus()
+	applyHASnapshot(&cp, d.HA)
 	if d.Collector != nil {
+		health := d.Collector.Status()
+		cp.Collector = &health
 		sample := d.Collector.LatestSnapshot()
 		if sample != nil && !sample.CollectedAt.IsZero() && !sample.CollectedAt.Before(cp.CollectorLastRun) {
 			cp.CollectorLastRun = sample.CollectedAt
@@ -144,317 +197,51 @@ func (d *DatabaseInstance) SnapshotStatus() *InstanceStatus {
 	return &cp
 }
 
-// RemoveInstance keeps the legacy bool API while bounding its caller.
-func (m *DatabaseManager) RemoveInstance(name string) bool {
-	ctx, cancel := context.WithTimeout(
-		context.Background(), defaultInstanceTeardownTimeout,
-	)
-	defer cancel()
-	err := m.RemoveInstanceContext(ctx, name)
-	return !errors.Is(err, ErrDatabaseNotFound)
-}
-
-// RemoveInstanceContext detaches under the manager lock, then tears down
-// the runtime without retaining that lock.
-func (m *DatabaseManager) RemoveInstanceContext(
-	ctx context.Context,
-	name string,
-) error {
-	if ctx == nil {
-		ctx = context.Background()
+// logSourceStatus is the live log-source status, never a zero value.
+func (d *DatabaseInstance) logSourceStatus() logwatch.SourceStatus {
+	var st logwatch.SourceStatus
+	if d.LogSource != nil {
+		st = d.LogSource()
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	var inst *DatabaseInstance
-	err := m.WithLifecycle(ctx, func(*LifecycleMutation) error {
-		var ok bool
-		inst, ok = m.detachInstance(name)
-		if !ok {
-			return ErrDatabaseNotFound
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	return awaitInstanceTeardown(ctx, inst)
-}
-
-// ShutdownInstance drains an unpublished or rejected runtime generation.
-// It is primarily used by lifecycle owners that prepared a candidate but
-// could not publish it.
-func ShutdownInstance(ctx context.Context, inst *DatabaseInstance) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return awaitInstanceTeardown(ctx, inst)
-}
-
-func (m *DatabaseManager) detachInstance(
-	name string,
-) (*DatabaseInstance, bool) {
-	m.mu.Lock()
-	inst, ok := m.instances[name]
-	if ok {
-		delete(m.instances, name)
-		if m.primaryName == name {
-			m.primaryName = m.firstConnectedNameLocked()
-		}
-	}
-	m.mu.Unlock()
-	return inst, ok
-}
-
-// ReplaceInstance validates a fully built candidate before atomic
-// publication, then retires the old generation outside the manager lock.
-func (m *DatabaseManager) ReplaceInstance(
-	ctx context.Context,
-	oldName string,
-	candidate *DatabaseInstance,
-	healthCheck func(context.Context, *DatabaseInstance) error,
-) error {
-	return m.ReplaceInstanceIfCurrent(
-		ctx, oldName, nil, candidate, healthCheck,
-	)
-}
-
-// ReplaceInstanceIfCurrent health-checks and publishes candidate only when
-// expected is still the active generation. Reconnect callers pass the failed
-// instance they observed so a concurrent update cannot be overwritten.
-func (m *DatabaseManager) ReplaceInstanceIfCurrent(
-	ctx context.Context,
-	oldName string,
-	expected *DatabaseInstance,
-	candidate *DatabaseInstance,
-	healthCheck func(context.Context, *DatabaseInstance) error,
-) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if candidate == nil || candidate.Name == "" || healthCheck == nil {
-		return rejectCandidate(ErrInvalidInstance, candidate)
-	}
-	if err := ctx.Err(); err != nil {
-		return rejectCandidate(err, candidate)
-	}
-	var old *DatabaseInstance
-	err := m.WithLifecycle(ctx, func(op *LifecycleMutation) error {
-		var validateErr error
-		old, validateErr = op.ValidateReplacement(
-			oldName, candidate.Name, expected,
-		)
-		if validateErr != nil {
-			return validateErr
-		}
-		if checkErr := healthCheck(ctx, candidate); checkErr != nil {
-			return checkErr
-		}
-		if contextErr := ctx.Err(); contextErr != nil {
-			return contextErr
-		}
-		return op.PublishReplacement(oldName, old, candidate)
-	})
-	if err != nil {
-		return rejectCandidate(err, candidate)
-	}
-	return awaitInstanceTeardown(ctx, old)
-}
-
-func (m *DatabaseManager) commitReplacement(
-	oldName string,
-	old, candidate *DatabaseInstance,
-) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if current := m.instances[oldName]; current != old {
-		return false, ErrInstanceConflict
-	}
-	if candidate.Name != oldName {
-		if m.instances[candidate.Name] != nil {
-			return false, replacementConflict(candidate.Name)
-		}
-		delete(m.instances, oldName)
-	}
-	inherited := inheritEmergencyStop(old, candidate)
-	m.instances[candidate.Name] = candidate
-	if m.primaryName == oldName {
-		m.primaryName = candidate.Name
-		if candidate.Pool == nil {
-			m.primaryName = m.firstConnectedNameLocked()
-		}
-	}
-	return inherited, nil
-}
-
-func replacementConflict(name string) error {
-	return fmt.Errorf("%w: target name %q", ErrInstanceConflict, name)
-}
-
-func rejectCandidate(err error, candidate *DatabaseInstance) error {
-	return errors.Join(err, cleanupRejectedCandidate(candidate))
-}
-
-func cleanupRejectedCandidate(candidate *DatabaseInstance) error {
-	if candidate == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(
-		context.Background(), defaultInstanceTeardownTimeout,
-	)
-	defer cancel()
-	return awaitInstanceTeardown(ctx, candidate)
-}
-
-func awaitInstanceTeardown(
-	ctx context.Context,
-	inst *DatabaseInstance,
-) error {
-	if inst == nil {
-		return nil
-	}
-	done := startInstanceTeardown(inst)
-	select {
-	case <-done:
-		inst.lifecycleMu.Lock()
-		err := inst.lifecycleErr
-		inst.lifecycleMu.Unlock()
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func startInstanceTeardown(inst *DatabaseInstance) <-chan struct{} {
-	inst.lifecycleMu.Lock()
-	defer inst.lifecycleMu.Unlock()
-	if inst.lifecycleStarted {
-		return inst.lifecycleDone
-	}
-	inst.lifecycleStarted = true
-	inst.lifecycleDone = make(chan struct{})
-	go runInstanceTeardown(inst, inst.lifecycleDone)
-	return inst.lifecycleDone
-}
-
-func runInstanceTeardown(inst *DatabaseInstance, done chan struct{}) {
-	release, drainErr := drainInstanceActions(inst)
-	if inst.Cancel != nil {
-		inst.Cancel()
-	}
-	release()
-	timeout := inst.teardownTimeout
-	if timeout <= 0 {
-		timeout = defaultInstanceTeardownTimeout
-	}
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	workerErr := waitForInstanceWorkers(cleanupCtx, inst.Workers)
-	shutdownErr := shutdownInstanceExecutor(cleanupCtx, inst)
-	closeErr := closeInstancePool(cleanupCtx, inst)
-	lifecycleErr := errors.Join(drainErr, workerErr, shutdownErr, closeErr)
-	inst.lifecycleMu.Lock()
-	inst.lifecycleErr = lifecycleErr
-	close(done)
-	inst.lifecycleMu.Unlock()
-}
-
-func waitForInstanceWorkers(
-	ctx context.Context, workers *sync.WaitGroup,
-) error {
-	if workers == nil {
-		return nil
-	}
-	done := make(chan struct{})
-	go func() {
-		workers.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("waiting for instance workers: %w", ctx.Err())
-	}
-}
-
-func shutdownInstanceExecutor(
-	ctx context.Context, inst *DatabaseInstance,
-) error {
-	done := make(chan error, 1)
-	go func() {
-		if inst.ExecutorShutdown != nil {
-			done <- inst.ExecutorShutdown(ctx)
-			return
-		}
-		if inst.Executor != nil {
-			done <- inst.Executor.Shutdown(ctx)
-			return
-		}
-		done <- nil
-	}()
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return fmt.Errorf("shutting down instance executor: %w", ctx.Err())
-	}
-}
-
-func closeInstancePool(
-	ctx context.Context, inst *DatabaseInstance,
-) error {
-	done := make(chan struct{})
-	go func() {
-		if inst.PoolClose != nil {
-			inst.PoolClose()
-		} else if inst.Pool != nil {
-			inst.Pool.Close()
-		}
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("closing instance pool: %w", ctx.Err())
-	}
-}
-
-func (m *DatabaseManager) firstConnectedNameLocked() string {
-	names := make([]string, 0, len(m.instances))
-	for name, inst := range m.instances {
-		if inst != nil && inst.Pool != nil {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		return ""
-	}
-	return names[0]
+	return st.OrDisabled("no log source is wired for this database")
 }
 
 // InstanceStatus tracks the health of a single database.
 type InstanceStatus struct {
-	Connected        bool                 `json:"connected"`
-	PGVersion        string               `json:"pg_version"`
-	Platform         string               `json:"platform"`
-	DatabaseSize     int64                `json:"database_size_bytes"`
-	TrustLevel       string               `json:"trust_level"`
-	CollectorLastRun time.Time            `json:"collector_last_run"`
-	AnalyzerLastRun  time.Time            `json:"analyzer_last_run"`
-	FindingsOpen     int                  `json:"findings_open"`
-	FindingsCritical int                  `json:"findings_critical"`
-	FindingsWarning  int                  `json:"findings_warning"`
-	FindingsInfo     int                  `json:"findings_info"`
-	ActionsTotal     int                  `json:"actions_total"`
-	LLMTokensUsed    int                  `json:"llm_tokens_used"`
-	AdvisoryLockHeld bool                 `json:"advisory_lock_held"`
-	HealthScore      int                  `json:"health_score"`
-	Error            string               `json:"error,omitempty"`
-	LastSeen         time.Time            `json:"last_seen"`
-	DatabaseName     string               `json:"database_name"`
-	Capabilities     ProviderCapabilities `json:"capabilities,omitempty"`
+	Connected        bool      `json:"connected"`
+	PGVersion        string    `json:"pg_version"`
+	Platform         string    `json:"platform"`
+	DatabaseSize     int64     `json:"database_size_bytes"`
+	TrustLevel       string    `json:"trust_level"`
+	CollectorLastRun time.Time `json:"collector_last_run"`
+	AnalyzerLastRun  time.Time `json:"analyzer_last_run"`
+	FindingsOpen     int       `json:"findings_open"`
+	FindingsCritical int       `json:"findings_critical"`
+	FindingsWarning  int       `json:"findings_warning"`
+	FindingsInfo     int       `json:"findings_info"`
+	// Unresolved incidents; IncidentsUnknown (-1) when unread (cases-11).
+	IncidentsCritical   int    `json:"incidents_critical"`
+	IncidentsWarning    int    `json:"incidents_warning"`
+	CollectionFreshness string `json:"collection_freshness"` // fresh, stale or unknown
+	ActionsTotal        int    `json:"actions_total"`
+	LLMTokensUsed       int    `json:"llm_tokens_used"`
+	HealthScore         int    `json:"health_score"`
+	// HealthReasons explains HealthScore ("collector stale 42m",
+	// "2 critical findings"); set only on scored snapshots.
+	HealthReasons []string             `json:"health_reasons"`
+	Error         string               `json:"error,omitempty"`
+	LastSeen      time.Time            `json:"last_seen"`
+	DatabaseName  string               `json:"database_name"`
+	Capabilities  ProviderCapabilities `json:"capabilities,omitempty"`
+	// HARole, HASafeMode and HALastChange are the HA monitor's last check
+	// (ha_status.go); filled when the status is read, never stored.
+	HARole       string     `json:"ha_role"`
+	HASafeMode   bool       `json:"ha_safe_mode"`
+	HALastChange *time.Time `json:"ha_last_change,omitempty"`
+	// LogSource is the log-based RCA source of this database (rca-09); in
+	// fleet mode it is its cluster's watcher.
+	LogSource logwatch.SourceStatus `json:"log_source"`
+	// Collector is the collector's health (breaker state, unavailable
+	// categories, failure counts); nil when the database has none.
+	Collector *collector.Status `json:"collector,omitempty"`
 }

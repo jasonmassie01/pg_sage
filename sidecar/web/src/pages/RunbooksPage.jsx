@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import { useAPI } from '../hooks/useAPI'
 import { useToast } from '../components/Toast'
+import { Problems, RunbookActions, VersionList } from './runbooks/RunbookControls'
+import { canOperate, runningStatus } from './runbooks/runbookStatus'
 
 // Typed runbooks (AI-SRE-SPEC §7.1): a database's runbooks, each a
 // versioned DAG of catalog probe steps, decisions and a proposal that is
 // never executed. A version runs only after an admin signs its exact
-// content hash; any edit adds an unsigned version. Operators write drafts
-// (JSON, or English compiled by pg_sage's model) and retire runbooks.
+// content hash; an edit stages an unsigned draft while the signed version
+// keeps running (playbooks-10). Operators write and revise drafts (JSON,
+// or English compiled by pg_sage's model); admins sign, after a diff from
+// the newest signed version, and retire, by typing the runbook's name.
 
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
@@ -15,10 +19,6 @@ const button = { ...strong, border: '1px solid var(--border)' }
 
 function basePath(database) {
   return `/api/v1/databases/${encodeURIComponent(database)}/runbooks`
-}
-
-function canOperate(user) {
-  return user?.role === 'admin' || user?.role === 'operator'
 }
 
 async function post(url, body) {
@@ -50,7 +50,8 @@ export function RunbooksPage({ database, user }) {
     <div className="space-y-3 text-sm">
       <p style={muted}>
         A runbook runs inside matching investigations only after an admin signs its
-        exact version. Its proposals are never executed.
+        exact version. An edit stages a draft: the signed version keeps running until
+        an admin signs the draft. The changes it proposes are never executed.
       </p>
       <RunbookList items={items} onSelect={setSelected} />
       {selected && (
@@ -65,6 +66,11 @@ export function RunbooksPage({ database, user }) {
   )
 }
 
+function runsText(rb) {
+  if (!rb.runnable) return 'does not run'
+  return rb.running_version ? `runs v${rb.running_version}` : 'runs'
+}
+
 function RunbookList({ items, onSelect }) {
   if (items.length === 0) return <div style={muted}>No runbooks yet.</div>
   return (
@@ -76,7 +82,7 @@ function RunbookList({ items, onSelect }) {
             onClick={() => onSelect(rb.id)}>
             <span style={strong}>{rb.latest?.name}</span>{' '}
             <span style={muted}>
-              v{rb.latest_version} · {rb.status} · {rb.runnable ? 'runs' : 'does not run'}
+              v{rb.latest_version} · {rb.status} · {runsText(rb)}
             </span>
           </button>
         </li>
@@ -89,24 +95,35 @@ function RunbookDetail({ database, id, user, onChanged, onProblems }) {
   const base = `${basePath(database)}/${encodeURIComponent(id)}`
   const { data, refetch } = useAPI(base, 0)
   const { data: runs } = useAPI(`${base}/runs`, 0)
+  // fresh is the runbook a write returned, shown until the next read
+  // replaces the data it was written over.
+  const [fresh, setFresh] = useState({ over: null, rb: null })
+  const [open, setOpen] = useState(null)
   const toast = useToast()
-  if (!data?.latest) return null
-  const v = data.latest
+  const rb = fresh.rb && fresh.over === data ? fresh.rb : data
+  if (!rb?.latest) return null
+  const v = rb.latest
+  // act resolves to null after a write, or to the problems it was refused
+  // with, so a confirmation dialog can show them (ux-12).
   async function act(path, body, done) {
     onProblems(null)
     try {
-      await post(`${base}/${path}`, body)
+      setFresh({ over: data, rb: await post(`${base}/${path}`, body) })
+      setOpen(null)
       toast.success(done)
       refetch()
       onChanged()
+      return null
     } catch (err) {
-      onProblems({ message: err.message, items: err.problems })
+      const problems = { message: err.message, reason: err.reason, items: err.problems }
+      onProblems(problems)
+      return problems
     }
   }
-  const signable = user?.role === 'admin' && !v.signed_at && data.status !== 'retired'
   return (
     <section data-testid="runbook-detail" className="rounded border p-2" style={box}>
-      <div style={strong}>{v.name} · version {v.version} · {data.status}</div>
+      <div style={strong}>{v.name} · version {v.version} · {rb.status}</div>
+      <div data-testid="runbook-running-status" style={strong}>{runningStatus(rb)}</div>
       <div style={muted}>Content hash: <code>{v.content_hash}</code></div>
       <div style={muted}>
         {v.signed_at ? `Signed by ${v.signed_by}` : 'Unsigned draft'}
@@ -119,23 +136,10 @@ function RunbookDetail({ database, id, user, onChanged, onProblems }) {
           <pre className="whitespace-pre-wrap" style={muted}>{v.source_text}</pre>
         </div>
       )}
+      <VersionList rb={rb} />
       <Runs runs={runs?.items || []} />
-      <div className="mt-2 flex gap-2">
-        {signable && (
-          <button type="button" data-testid="runbook-sign" style={button}
-            className="rounded px-2 py-1" onClick={() => act('sign',
-              { version: v.version, content_hash: v.content_hash }, 'Runbook signed')}>
-            Sign version {v.version} ({v.content_hash.slice(0, 12)}…)
-          </button>
-        )}
-        {canOperate(user) && data.status !== 'retired' && (
-          <button type="button" data-testid="runbook-retire" style={button}
-            className="rounded px-2 py-1"
-            onClick={() => act('retire', undefined, 'Runbook retired')}>
-            Retire
-          </button>
-        )}
-      </div>
+      <RunbookActions rb={rb} user={user} open={open} setOpen={setOpen} act={act}
+        onProblems={onProblems} />
     </section>
   )
 }
@@ -230,19 +234,5 @@ function DraftForms({ database, onCreated, onProblems }) {
         Store the draft
       </button>
     </section>
-  )
-}
-
-function Problems({ problems }) {
-  if (!problems) return null
-  return (
-    <div data-testid="runbook-problems" style={strong}>
-      {problems.message}{problems.reason ? ` (${problems.reason})` : ''}
-      <ul className="list-disc pl-4" style={muted}>
-        {(problems.items || []).map(p => (
-          <li key={`${p.code}-${p.path}`}>{p.code} at {p.path}: {p.detail}</li>
-        ))}
-      </ul>
-    </div>
   )
 }

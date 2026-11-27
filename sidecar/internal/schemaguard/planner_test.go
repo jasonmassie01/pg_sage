@@ -80,24 +80,12 @@ func TestPlanTypeTighteningIsRecommendAndRehearseOnly(t *testing.T) {
 		t.Fatalf("Plan: %v", err)
 	}
 	requirePlan(t, decision, RemediationStructural, DispositionRecommend)
-	if decision.Route != RouteCloneRehearsal ||
+	if decision.Route != RouteRecommendation ||
 		!decision.RequiresRehearsal || decision.AutoApply {
-		t.Fatalf("type tightening escaped recommend/rehearse gate: %#v", decision)
+		t.Fatalf("type tightening escaped the recommendation route: %#v", decision)
 	}
-}
-
-func TestPlanRandomUUIDRewriteIsRecommendAndRehearseOnly(t *testing.T) {
-	request := testRequest(InvariantRandomUUIDPK)
-	request.Contract.ExpectedPrimaryKey = "uuid_v7"
-	request.Invariant.ProposedSQL = "ALTER TABLE public.orders ALTER COLUMN id TYPE bigint"
-	decision, err := Plan(context.Background(), request)
-	if err != nil {
-		t.Fatalf("Plan: %v", err)
-	}
-	requirePlan(t, decision, RemediationStructural, DispositionRecommend)
-	if decision.Route != RouteCloneRehearsal ||
-		!decision.RequiresRehearsal || decision.AutoApply {
-		t.Fatalf("UUID rewrite escaped recommend/rehearse gate: %#v", decision)
+	if !strings.Contains(decision.Reason, "pg_sage has no automated path") {
+		t.Fatalf("type tightening reason = %q", decision.Reason)
 	}
 }
 
@@ -116,11 +104,10 @@ func TestTableContractNeverGrantsRetentionAuthority(t *testing.T) {
 }
 
 func TestTableContractExpectedPKNeverAuthorizesRewrite(t *testing.T) {
-	request := testRequest(InvariantRandomUUIDPK)
+	request := testRequest(InvariantTypeTightening)
 	request.Contract.ExpectedPrimaryKey = "uuid_v7"
 	request.Policy = Policy{
-		AllowFKIndexApply: true, AllowRetentionApply: true,
-		AllowRedundantIndexCleanup: true, OscillationLimit: 3,
+		AllowFKIndexApply: true, AllowRetentionApply: true, OscillationLimit: 3,
 	}
 	decision, err := Plan(context.Background(), request)
 	if err != nil {

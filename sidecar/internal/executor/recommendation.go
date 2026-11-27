@@ -23,9 +23,10 @@ func newRecommendationStore(pool *pgxpool.Pool) *recommendation.Store {
 }
 
 // recommendationLease outlives any apply attempt: each Apply stage is
-// bounded by applyTimeout, so an expired lease means its owner is gone.
+// bounded by the longest class's apply timeout, so an expired lease means
+// its owner is gone.
 func (e *Executor) recommendationLease() time.Duration {
-	return 2 * e.applyTimeout()
+	return 2 * e.maxApplyTimeout()
 }
 
 // reconcileRecommendations resumes interrupted claims and records
@@ -178,19 +179,26 @@ type actionLogWriter interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
+// readCommitted is the isolation of every action_log write: the audit
+// chain appends at commit and needs a new snapshot per statement. It is
+// explicit so it holds even where a transaction pooler lost the session's
+// read committed pin (audit-02).
+var readCommitted = pgx.TxOptions{IsoLevel: pgx.ReadCommitted}
+
 // recordAction inserts an action_log row and, for a claimed
 // recommendation, records applying → applied (or → failed) in the same
 // transaction. If that transaction fails the action is still recorded
-// alone: what ran must never be lost from the audit.
+// alone: what ran must never be lost from the audit. Every insert runs in
+// a read committed transaction.
 func (e *Executor) recordAction(
 	ctx context.Context, claim *recommendation.Claim, execErr error,
 	insert func(actionLogWriter) (int64, error),
 ) (int64, error) {
 	if claim == nil || e.recs == nil {
-		return insert(e.pool)
+		return e.insertReadCommitted(ctx, insert)
 	}
 	var actionID int64
-	err := pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
+	err := pgx.BeginTxFunc(ctx, e.pool, readCommitted, func(tx pgx.Tx) error {
 		id, err := insert(tx)
 		if err != nil {
 			return err
@@ -212,7 +220,24 @@ func (e *Executor) recordAction(
 		return actionID, nil
 	}
 	e.logFn("executor", "record recommendation %d outcome: %v", claim.ID, err)
-	return insert(e.pool)
+	return e.insertReadCommitted(ctx, insert)
+}
+
+// insertReadCommitted runs one action_log insert alone, in its own read
+// committed transaction.
+func (e *Executor) insertReadCommitted(
+	ctx context.Context, insert func(actionLogWriter) (int64, error),
+) (int64, error) {
+	var id int64
+	err := pgx.BeginTxFunc(ctx, e.pool, readCommitted, func(tx pgx.Tx) error {
+		var err error
+		id, err = insert(tx)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // settleClaim resolves a claim its action_log transaction did not (a
@@ -260,7 +285,7 @@ func (e *Executor) logClaimedAction(
 		func(q actionLogWriter) (int64, error) {
 			var id int64
 			err := q.QueryRow(ctx,
-				`/* pg_sage */ INSERT INTO sage.action_log
+				`/* pg_sage executor */ INSERT INTO sage.action_log
 				 (action_type, finding_id, sql_executed, rollback_sql,
 				  before_state, outcome, rollback_reason, decision_id, database_id)
 				 VALUES ($1, NULLIF($2, 0), $3, $4, $5, $6, $7, NULLIF($8, 0), $9::bigint)
@@ -275,6 +300,8 @@ func (e *Executor) logClaimedAction(
 		e.logFn("executor", "failed to log action for %q: %v", f.Title, err)
 		return 0
 	}
+	RecordOutcome(e.databaseName, OutcomeClass(categorizeAction(f.RecommendedSQL),
+		f.RecommendedSQL), outcome)
 	// Only a successful action marks the finding acted on, so a failed
 	// finding stays retryable (lookupFindingID filters on acted_on_at IS NULL).
 	if outcome != "failed" && findingID > 0 {

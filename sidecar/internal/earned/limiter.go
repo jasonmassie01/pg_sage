@@ -2,10 +2,7 @@ package earned
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +15,9 @@ type Binding struct {
 	Budget      BudgetSource
 	HA          HASource
 	Concurrency ConcurrencySource
+	// ServerMajor is the monitored server's PostgreSQL major (a
+	// MajorProbe); nil never caps a level for a major change (earned-07).
+	ServerMajor MajorSource
 }
 
 // Limiter is the ledger as one database's gate sees it
@@ -26,8 +26,12 @@ type Limiter struct {
 	svc *Service
 	b   Binding
 
-	mu   sync.Mutex
-	last map[pairKey]string
+	mu sync.Mutex
+	// noteMu serializes cap and expiry records: last is each pair's
+	// recorded cap, warned the expiry last warned about.
+	noteMu sync.Mutex
+	last   map[pairKey]capState
+	warned map[pairKey]time.Time
 	// overrides are the mandatory deadline overrides already recorded,
 	// by pair, targets and deadline, until the deadline passes.
 	overrides map[string]time.Time
@@ -36,17 +40,16 @@ type Limiter struct {
 // Limiter binds the ledger to its database's signals; a binding that
 // names another database fails every authorization closed.
 func (s *Service) Limiter(b Binding) *Limiter {
-	return &Limiter{svc: s, b: b, last: map[pairKey]string{},
-		overrides: map[string]time.Time{}}
+	return &Limiter{svc: s, b: b, last: map[pairKey]capState{},
+		warned: map[pairKey]time.Time{}, overrides: map[string]time.Time{}}
 }
 
 var _ policy.AutonomyLimiter = (*Limiter)(nil)
 
-// Limit is the effective level for req: the granted level, capped by the
-// class and the contract's reversibility, by the level the evidence still
-// supports, and by L1 while a downgrade signal holds. Signals are read
-// only for a pair granted L2 or more; a ledger read failure is an error
-// (the gate then fails closed).
+// Limit is the effective level for req (effectiveLevel) under the
+// request's contract and its downgrade signals. Signals are read only for
+// a pair granted L2 or more; a ledger read failure is an error (the gate
+// then fails closed).
 func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	policy.AutonomyLimit, error) {
 	if err := l.svc.store.checkDatabase(l.b.Database); err != nil {
@@ -57,36 +60,77 @@ func (l *Limiter) Limit(ctx context.Context, req policy.ActionRequest) (
 	if err != nil {
 		return policy.AutonomyLimit{}, err
 	}
-	level := MinLevel(st.Level, effectiveCap(st, c), contractCap(req))
-	if !Applicable(f, c) {
-		level = MinLevel(level, L1)
-	}
 	out := policy.AutonomyLimit{Granted: int(st.Level), Class: string(c), Family: string(f)}
-	if st.Level < L2 {
-		out.Level = int(level)
-		return out, nil
+	var downs []Downgrade
+	var major majorCheck
+	if st.Level >= L2 {
+		downs = l.requestDowngrades(ctx, req, f)
+		major = l.majorCap(ctx, st)
 	}
-	// A carried-over level was granted by policy, not earned by evidence,
-	// so it does not decay with the evidence. A self-initiated level
-	// changes only by an approved promotion or a recorded demotion.
-	if level >= L2 && st.Provenance != ProvenanceCarriedOver && !IsSelfInitiated(f) {
-		supported, err := l.svc.supportedLevel(ctx, f, c)
-		if err != nil {
-			return policy.AutonomyLimit{}, err
-		}
-		level = MinLevel(level, supported)
+	p := &pairEvidence{svc: l.svc, f: f, c: c}
+	level, err := effectiveLevel(st, contractCap(req), downs, func() (Level, error) {
+		supported, _, err := p.get(ctx)
+		return supported, err
+	})
+	if err != nil {
+		return policy.AutonomyLimit{}, err
 	}
-	downs := l.requestDowngrades(ctx, req, f)
-	l.noteTransition(ctx, f, c, downs)
-	if len(downs) > 0 {
-		level = MinLevel(level, L1)
+	if major.note != nil {
+		level = MinLevel(level, L2)
+	}
+	if st.Level >= L2 {
+		l.noteLimit(ctx, st, downs, p, major)
+	}
+	for _, d := range downs {
 		out.Downgraded = true
-		for _, d := range downs {
-			out.Reasons = append(out.Reasons, d.Reason)
-		}
+		out.Reasons = append(out.Reasons, d.Reason)
+	}
+	if major.note != nil {
+		out.Reasons = append(out.Reasons, major.note.reason())
 	}
 	out.Level = int(level)
 	return out, nil
+}
+
+// effectiveLevel is the one rule for the level the gate allows a pair
+// (st's family and class), which the Autonomy and Trust pages show too:
+// the granted level, capped by the class (a carried-over level by
+// carryCap) and by the contract's reversibility; at most L1 for a class
+// that does not remediate the family; at most the level the evidence
+// still supports for an earned or grandfathered incident level of L2 or
+// more (a carried-over level was granted by policy, not earned by
+// evidence, so it does not decay with the evidence; a self-initiated
+// level changes only by an approved promotion or a recorded demotion);
+// and at most L1 while a downgrade signal holds. supported is read only
+// when it can lower the level; its error is returned.
+func effectiveLevel(st State, contract Level, downs []Downgrade,
+	supported func() (Level, error)) (Level, error) {
+	level := MinLevel(st.Level, effectiveCap(st, st.Class), contract)
+	if !Applicable(st.Family, st.Class) {
+		level = MinLevel(level, L1)
+	}
+	if level >= L2 && st.Provenance != ProvenanceCarriedOver && !IsSelfInitiated(st.Family) {
+		s, err := supported()
+		if err != nil {
+			return L0, err
+		}
+		level = MinLevel(level, s)
+	}
+	if len(downs) > 0 {
+		level = MinLevel(level, L1)
+	}
+	return level, nil
+}
+
+// viewLevel is the level the gate would allow a page's row now: the best
+// case, under a reversible contract (L3) and the database-wide signals
+// only (a request's own evidence age and concurrent actions can lower it).
+func viewLevel(st State, supported Level, downs []Downgrade) Level {
+	level, err := effectiveLevel(st, L3, downs, func() (Level, error) { return supported, nil })
+	if err != nil {
+		return L0 // a fixed level cannot fail to read; fail closed regardless
+	}
+	return level
 }
 
 func contractCap(req policy.ActionRequest) Level {
@@ -224,55 +268,71 @@ func safetyDowngrades(n int, err error) []Downgrade {
 	return nil
 }
 
-// noteTransition logs a cap when its reasons change for this database and
-// pair (capped / cap_cleared), not on every authorization.
-func (l *Limiter) noteTransition(ctx context.Context, f Family, c ActionClass,
-	downs []Downgrade) {
-	reasons := make([]string, 0, len(downs))
-	for _, d := range downs {
-		reasons = append(reasons, d.Reason)
-	}
-	sort.Strings(reasons)
-	key, joined := pairKey{f, c}, strings.Join(reasons, ",")
-	l.mu.Lock()
-	previous, seen := l.last[key]
-	l.mu.Unlock()
-	if (seen && previous == joined) || (!seen && joined == "") {
-		return
-	}
-	e := Event{Family: f, Class: c, Type: EventCapped, Actor: ActorPgSage,
-		Reason: "downgraded to at most L1: " + joined, At: l.svc.now()}
-	if joined == "" {
-		e.Type, e.Reason = EventCapCleared, "downgrade signals cleared"
-	}
-	e.Evidence, _ = json.Marshal(map[string]any{"downgrades": downs})
-	if err := l.svc.store.appendEvent(ctx, l.svc.store.pool, e); err != nil {
-		l.svc.cfg.logf("autonomy: record %s for %s/%s on %s: %v", e.Type, f, c,
-			l.b.Database, err)
-		return
-	}
-	l.mu.Lock()
-	l.last[key] = joined
-	l.mu.Unlock()
-}
-
 // Annotate fills each row's effective level and database-wide downgrades
-// for this limiter's database.
+// for this limiter's database: the error budget and HA role read once,
+// the families' safety record reused from the view (read in one
+// statement when the view carries none).
 func (l *Limiter) Annotate(ctx context.Context, v *View) {
+	if len(v.Families) == 0 {
+		return
+	}
+	families := make([]string, 0, len(v.Families))
+	for _, fam := range v.Families {
+		families = append(families, string(fam.Family))
+	}
+	sig := l.viewSignals(ctx, v.safety, families)
+	mv := l.majorView(ctx)
 	for i := range v.Families {
 		fam := &v.Families[i]
-		downs := l.databaseDowngrades(ctx, fam.Family)
+		downs := sig.of(fam.Family)
 		for j := range fam.Classes {
 			row := &fam.Classes[j]
-			level := MinLevel(row.Granted, row.Cap, row.Supported)
-			if row.Provenance == ProvenanceCarriedOver {
-				level = MinLevel(row.Granted, carryCap(row.Class))
+			st := State{Family: fam.Family, Class: row.Class, Level: row.Granted,
+				Provenance: row.Provenance, ServerMajor: row.ServerMajor}
+			level := viewLevel(st, row.Supported, downs)
+			if row.MajorCap = mv.capOf(ctx, st); row.MajorCap != nil {
+				level = MinLevel(level, L2)
 			}
 			if len(downs) > 0 {
-				level = MinLevel(level, L1)
 				row.Downgrades = downs
 			}
 			row.Effective = &level
 		}
 	}
+}
+
+// viewSignals are the database-wide downgrade signals a page shows.
+type viewSignals struct {
+	self     []Downgrade
+	safety   map[Family]familySafetyRow
+	err      error
+	byFamily map[Family][]Downgrade
+}
+
+// viewSignals reads the error budget and HA role once, and the incident
+// families' safety record unless safety already holds it.
+func (l *Limiter) viewSignals(ctx context.Context, safety map[Family]familySafetyRow,
+	families []string) *viewSignals {
+	sig := &viewSignals{self: l.selfDowngrades(ctx), safety: safety,
+		byFamily: map[Family][]Downgrade{}}
+	if sig.safety == nil {
+		sig.safety, sig.err = l.svc.store.safetySet(ctx, families,
+			l.svc.now().Add(-l.svc.cfg.SafetyWindow))
+	}
+	return sig
+}
+
+// of is a family's signals: the database-wide ones, and for an incident
+// family its safety record.
+func (s *viewSignals) of(f Family) []Downgrade {
+	if IsSelfInitiated(f) {
+		return s.self
+	}
+	if downs, ok := s.byFamily[f]; ok {
+		return downs
+	}
+	downs := append(append([]Downgrade(nil), s.self...),
+		safetyDowngrades(s.safety[f].n, s.err)...)
+	s.byFamily[f] = downs
+	return downs
 }

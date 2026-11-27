@@ -88,16 +88,18 @@ func (e *WithheldError) Unwrap() error { return ErrActionWithheld }
 // Apply is the one execution pipeline: authorize → lease → DDL slot →
 // re-authorize → execute and record under a mandatory deadline → verify.
 // The re-authorization follows every wait, so an emergency stop or policy
-// change made while the action waited stops it. It returns the action_log
-// id; a policy refusal is a *WithheldError.
-func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error) {
+// change made while the action waited stops it; from the re-authorization
+// on, the run is in-flight work that CancelInFlight cancels. It returns the
+// action_log id; a policy refusal is a *WithheldError.
+func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (actionID int64, err error) {
 	// The gate's execute decisions hold their budget slot until the change
 	// they authorized returns; its action_log row then carries the usage.
 	var held []int64
 	if intent.Authorize == nil {
 		defer func() { e.releaseBudget(ctx, held...) }()
 	}
-	waitCtx, cancelWait := context.WithTimeout(ctx, e.applyTimeout())
+	stageTimeout := e.applyTimeoutFor(intentStatement(intent))
+	waitCtx, cancelWait := context.WithTimeout(ctx, stageTimeout)
 	defer cancelWait()
 	first, err := e.authorizeIntent(waitCtx, intent, false)
 	held = append(held, first.DecisionID)
@@ -109,8 +111,13 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 		return 0, err
 	}
 	defer release()
-	runCtx, cancelRun := context.WithTimeout(ctx, e.applyTimeout())
+	runCtx, cancelRun := context.WithTimeout(ctx, stageTimeout)
 	defer cancelRun()
+	runCtx, run, err := e.inflight.begin(runCtx, intent.Request.SQL)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { e.inflight.end(run, actionID) }()
 	// The re-authorization runs under this action's own change lease, which
 	// the earned-autonomy ledger must not count as a concurrent writer.
 	intent.Request.LeaseHeld = leased
@@ -119,7 +126,13 @@ func (e *Executor) Apply(ctx context.Context, intent ActionIntent) (int64, error
 	if err != nil {
 		return 0, err
 	}
-	actionID, err := e.executeHeld(runCtx, intent, final)
+	if cause := run.stopCause(); cause != nil {
+		return 0, &StoppedError{Cause: cause}
+	}
+	if err := e.checkActionIdentity(runCtx); err != nil {
+		return 0, err
+	}
+	actionID, err = e.executeHeld(runCtx, intent, final)
 	if err != nil || intent.Verify == nil {
 		return actionID, err
 	}
@@ -151,9 +164,11 @@ func (e *Executor) authorizeIntent(
 	return decision, nil
 }
 
-// prepareIntent runs the admission check, takes the typed-target lease
-// (parking, refusing or queueing on a conflict per serialize_mode) and a
-// DDL slot, and returns their release and whether a lease is held.
+// prepareIntent runs the admission checks (the intent's own, then the
+// maintenance-privilege precheck of a VACUUM or autovacuum ALTER TABLE),
+// takes the typed-target lease (parking, refusing or queueing on a
+// conflict per serialize_mode) and a DDL slot, and returns their release
+// and whether a lease is held.
 func (e *Executor) prepareIntent(
 	ctx context.Context, intent ActionIntent, first ActionPolicyDecision,
 ) (func(), bool, error) {
@@ -161,6 +176,9 @@ func (e *Executor) prepareIntent(
 		if err := intent.Admit(ctx, first.DecisionID); err != nil {
 			return nil, false, err
 		}
+	}
+	if err := e.admitMaintenance(ctx, intentStatement(intent), first); err != nil {
+		return nil, false, err
 	}
 	releaseLease, leased, err := e.intentLease(ctx, intent, first)
 	if err != nil {
@@ -172,6 +190,15 @@ func (e *Executor) prepareIntent(
 		return nil, false, err
 	}
 	return func() { releaseSlot(); releaseLease() }, leased, nil
+}
+
+// intentStatement is the SQL an intent runs: the gate request's, or the
+// operator lease's for kinds that authorize themselves.
+func intentStatement(intent ActionIntent) string {
+	if intent.Request.SQL == "" && intent.TargetLease != nil {
+		return intent.TargetLease.Intent
+	}
+	return intent.Request.SQL
 }
 
 func (e *Executor) intentSlot(ctx context.Context, intent ActionIntent) (func(), error) {
@@ -208,19 +235,21 @@ func (e *Executor) ddlTimeout() time.Duration {
 	return time.Duration(config.DefaultDDLTimeoutSeconds) * time.Second
 }
 
-// applyTimeout bounds each stage of Apply: the statement timeout plus a
-// grace period for the server-side timeout to report first.
-func (e *Executor) applyTimeout() time.Duration {
-	return e.ddlTimeout() + applyGrace
-}
+// ApplyTimeout is the bound on one stage of Apply for a statement of the
+// default timeout class (safety.ddl_timeout_seconds plus the grace). A
+// typed run bounds its DDL-slot wait with it, and its owner uses it to
+// tell a dead run from a slow one.
+func (e *Executor) ApplyTimeout() time.Duration { return e.applyTimeoutFor("") }
 
 // lockOption is the lock_timeout for one statement under an authorized
 // decision: safety.lock_timeout_ms, capped by the policy's
 // lock_duration_ceiling_ms for in-transaction statements (D1). Every
 // statement an intent runs takes it, so the ceiling holds on every path
-// through Apply.
+// through Apply. It also tags the session with the decision (audit-06).
 func (e *Executor) lockOption(sql string, decision ActionPolicyDecision) DDLOption {
-	return WithLockTimeout(e.lockTimeoutMS(sql, decision))
+	lock := WithLockTimeout(e.lockTimeoutMS(sql, decision))
+	tag := WithActionTag(decision.DecisionID)
+	return func(o *ddlOpts) { lock(o); tag(o) }
 }
 
 func (e *Executor) lockTimeoutMS(sql string, decision ActionPolicyDecision) int {
@@ -228,5 +257,5 @@ func (e *Executor) lockTimeoutMS(sql string, decision ActionPolicyDecision) int 
 	if cfg, _, _ := e.policySnapshot(); cfg != nil {
 		safety = cfg.Safety.LockTimeout()
 	}
-	return ddlLockTimeoutMS(sql, safety, decision.LockCeilingMS)
+	return ddlLockTimeoutMS(ActionTypeForSQL(sql), safety, decision.LockCeilingMS)
 }

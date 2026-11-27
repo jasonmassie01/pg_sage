@@ -46,8 +46,8 @@ func TestCacheKeyIncludesPlanOnly(t *testing.T) {
 	if cacheKey(q, nil, true) == cacheKey(q, nil, false) {
 		t.Error("plan-only and ANALYZE share a cache key")
 	}
-	if cacheKey(q, nil, false) != cacheKey("SELECT  *  FROM orders", nil, false) {
-		t.Error("whitespace-equivalent queries must share a key")
+	if cacheKey(q, nil, false) == cacheKey("SELECT  *  FROM orders", nil, false) {
+		t.Error("whitespace-different bodies share a key (tuning-07: exact body)")
 	}
 	if cacheKey(q, []string{"1"}, false) == cacheKey(q, []string{"2"}, false) {
 		t.Error("different params share a key")

@@ -67,7 +67,7 @@ func TestRecord_StampsLatestCapturedPlanHash(t *testing.T) {
 	seedPlanHash(t, ctx, pool, qid, "", now.Add(-time.Second))
 	seedPlanHash(t, ctx, pool, other, "v1:other", now)
 
-	if err := Record(ctx, pool, []Sample{
+	if err := recordNow(ctx, pool, []Sample{
 		{QueryID: qid, Calls: 10, TotalExecMs: 50, MeanExecMs: 5},
 	}); err != nil {
 		t.Fatalf("record: %v", err)
@@ -89,11 +89,11 @@ func TestRecord_PlanFlipVisibleAcrossSamples(t *testing.T) {
 	t.Cleanup(func() { cleanPlanHashRows(t, ctx, pool, qid) })
 
 	seedPlanHash(t, ctx, pool, qid, "v1:before", time.Now().Add(-time.Hour))
-	if err := Record(ctx, pool, []Sample{{QueryID: qid, Calls: 1}}); err != nil {
+	if err := recordNow(ctx, pool, []Sample{{QueryID: qid, Calls: 1}}); err != nil {
 		t.Fatalf("record 1: %v", err)
 	}
 	seedPlanHash(t, ctx, pool, qid, "v1:after", time.Now())
-	if err := Record(ctx, pool, []Sample{{QueryID: qid, Calls: 2}}); err != nil {
+	if err := recordNow(ctx, pool, []Sample{{QueryID: qid, Calls: 2}}); err != nil {
 		t.Fatalf("record 2: %v", err)
 	}
 	rows, err := pool.Query(ctx, `SELECT plan_hash FROM sage.query_store
@@ -122,7 +122,7 @@ func TestRecord_NoCapturedPlanLeavesHashNull(t *testing.T) {
 	cleanPlanHashRows(t, ctx, pool, qid)
 	t.Cleanup(func() { cleanPlanHashRows(t, ctx, pool, qid) })
 
-	if err := Record(ctx, pool, []Sample{{QueryID: qid, Calls: 3}}); err != nil {
+	if err := recordNow(ctx, pool, []Sample{{QueryID: qid, Calls: 3}}); err != nil {
 		t.Fatalf("record: %v", err)
 	}
 	if got := latestSampleHash(t, ctx, pool, qid); got != nil {
@@ -148,7 +148,7 @@ func TestRecord_DelayedProviderPlanDoesNotStampCurrentCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = Record(ctx, pool, []Sample{{QueryID: qid, Calls: 100}}); err != nil {
+	if err = recordNow(ctx, pool, []Sample{{QueryID: qid, Calls: 100}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := latestSampleHash(t, ctx, pool, qid); got == nil || *got != "v1:local" {
@@ -165,7 +165,7 @@ func TestRecord_DelayedProviderPlanDoesNotStampCurrentCounters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = Record(ctx, pool, []Sample{{QueryID: qid, Calls: 101}}); err != nil {
+	if err = recordNow(ctx, pool, []Sample{{QueryID: qid, Calls: 101}}); err != nil {
 		t.Fatal(err)
 	}
 	if latestSampleHash(t, ctx, pool, qid) != nil {

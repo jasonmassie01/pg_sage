@@ -2,6 +2,8 @@ package collector
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -40,18 +42,31 @@ func (r *sqlRecorder) count(sub string) int {
 	return n
 }
 
-func TestQueryStatsSQL_RanksOnCountersBeforeReadingText(t *testing.T) {
-	for name, tpl := range map[string]string{"base": queryStatsSQL,
-		"wal": queryStatsWithWALSQL, "plan": queryStatsWithPlanTimeSQL,
-		"wal+plan": queryStatsWithWALAndPlanTimeSQL} {
-		rank := strings.Index(tpl, "pg_stat_statements(false)")
-		text := strings.Index(tpl, "pg_stat_statements(true)")
-		if rank < 0 || text < 0 || rank > text {
-			t.Errorf("%s: want a text-free ranking before the text read:\n%s", name, tpl)
+// The counters are ranked without any text, and the text read asks for the
+// given ids of this database only (collection-11).
+func TestQueryCountersSQL_ReadsNoText(t *testing.T) {
+	for _, wal := range []bool{false, true} {
+		for _, plan := range []bool{false, true} {
+			sql := queryStatsTemplate(wal, plan)
+			// %[6]s: the qualified pg_stat_statements function (security-01c-q).
+			if !strings.Contains(sql, "FROM %[6]s(false)") ||
+				strings.Contains(sql, "%[6]s(true)") ||
+				strings.Contains(sql, "array_agg(query") ||
+				!strings.Contains(sql, "LIMIT %d") || candidateHeadroom != 2 {
+				t.Errorf("wal %v plan %v: want a text-free ranking of 2N:\n%s",
+					wal, plan, sql)
+			}
 		}
-		if !strings.Contains(tpl, "AS MATERIALIZED") {
-			t.Errorf("%s: candidate texts must be materialized before the regex", name)
+	}
+	texts := statementTextsSQL(testPgss.fn)
+	for _, want := range []string{`"ext"."pg_stat_statements"(true)`, "queryid = ANY($1)",
+		"datname = current_database()", "array_agg(query ORDER BY calls DESC)"} {
+		if !strings.Contains(texts, want) {
+			t.Errorf("text read lacks %q:\n%s", want, texts)
 		}
+	}
+	if !strings.HasPrefix(texts, statementTextsTag) {
+		t.Errorf("text read does not start with its tag %q", statementTextsTag)
 	}
 }
 
@@ -112,6 +127,7 @@ func TestCollectStatStatementsUsage_ClassifiesOnSlowCadence(t *testing.T) {
 		t.Fatalf("entries = %d, want a fresh count", again.Entries)
 	}
 	clock = clock.Add(2 * time.Second)
+	bumpStatementEntries(t, ctx, c) // collection-11: an unchanged count is not reread
 	if u := c.collectStatStatementsUsage(ctx, 1); u == nil || rec.count(classify) != 2 {
 		t.Fatalf("read after the interval: %+v, %d classifications, want 2", u,
 			rec.count(classify))
@@ -120,5 +136,23 @@ func TestCollectStatStatementsUsage_ClassifiesOnSlowCadence(t *testing.T) {
 	if far == nil || far.Classified || rec.count(classify) != 2 {
 		t.Fatalf("far from capacity = %+v after %d classifications, want unclassified",
 			far, rec.count(classify))
+	}
+}
+
+// bumpStatementEntries adds a pg_stat_statements entry no earlier run made:
+// a statement on a new temporary table (its oid is part of the queryid).
+func bumpStatementEntries(t *testing.T, ctx context.Context, c *Collector) {
+	t.Helper()
+	conn, err := c.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+	name := fmt.Sprintf("classify_bump_%d_%d", os.Getpid(), fixtureSeq.Add(1))
+	for _, sql := range []string{"CREATE TEMP TABLE " + name + " (a int)",
+		"SELECT a FROM " + name, "DROP TABLE " + name} {
+		if _, err := conn.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
 	}
 }

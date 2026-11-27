@@ -1,0 +1,967 @@
+{
+  "latest": {
+    "id": 12,
+    "database": "orders",
+    "kind": "grade",
+    "triggers": [
+      "daily"
+    ],
+    "rubric_version": "pg_sage-rubric/1",
+    "status": "done",
+    "started_at": "2026-11-16T09:00:00Z",
+    "finished_at": "2026-11-16T09:00:04Z",
+    "grade": {
+      "rubric_version": "pg_sage-rubric/1",
+      "overall": "B",
+      "overall_score": 89.55,
+      "coverage_pct": 98.61,
+      "known_dimensions": 8,
+      "dimensions": [
+        {
+          "dimension": "recoverability",
+          "title": "Recoverability",
+          "letter": "C",
+          "score": 79.17,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "recoverability.wal_archive_failing",
+              "status": "pass",
+              "weight": 3,
+              "critical": true,
+              "evidence": [
+                "rubric:recoverability.wal_archive_failing"
+              ]
+            },
+            {
+              "check": "recoverability.wal_archive_stale",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:recoverability.wal_archive_stale"
+              ]
+            },
+            {
+              "check": "recoverability.inactive_slot",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:recoverability.inactive_slot"
+              ]
+            },
+            {
+              "check": "recoverability.slow_replication_slot",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:recoverability.slow_replication_slot"
+              ]
+            },
+            {
+              "check": "recoverability.backup_stale",
+              "status": "not_applicable",
+              "weight": 2,
+              "evidence": [],
+              "reason": "platform postgres has no cloud backup telemetry"
+            },
+            {
+              "check": "recoverability.backup_retention",
+              "status": "not_applicable",
+              "weight": 1,
+              "evidence": [],
+              "reason": "platform postgres has no cloud backup telemetry"
+            },
+            {
+              "check": "recoverability.pitr_window",
+              "status": "not_applicable",
+              "weight": 1,
+              "evidence": [],
+              "reason": "platform postgres has no cloud backup telemetry"
+            },
+            {
+              "check": "recoverability.restore_drill",
+              "status": "warn",
+              "weight": 5,
+              "evidence": [
+                "rubric:recoverability.restore_drill"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "change_safety",
+          "title": "Change safety",
+          "letter": "A",
+          "score": 100,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "change_safety.migration_safety",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:change_safety.migration_safety"
+              ]
+            },
+            {
+              "check": "change_safety.login_timeouts",
+              "status": "pass",
+              "weight": 3,
+              "evidence": [
+                "rubric:change_safety.login_timeouts"
+              ]
+            },
+            {
+              "check": "change_safety.serial_usage",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:change_safety.serial_usage"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "workload_stability",
+          "title": "Workload and plan stability",
+          "letter": "B",
+          "score": 88.89,
+          "coverage": 88.89,
+          "checks": [
+            {
+              "check": "workload_stability.query_regression",
+              "status": "pass",
+              "weight": 3,
+              "evidence": [
+                "rubric:workload_stability.query_regression"
+              ]
+            },
+            {
+              "check": "workload_stability.plan_regression",
+              "status": "pass",
+              "weight": 3,
+              "evidence": [
+                "rubric:workload_stability.plan_regression"
+              ]
+            },
+            {
+              "check": "workload_stability.stale_statistics",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:workload_stability.stale_statistics"
+              ]
+            },
+            {
+              "check": "workload_stability.temp_spill",
+              "status": "unknown",
+              "weight": 1,
+              "evidence": [],
+              "reason": "the producer has not run yet"
+            }
+          ]
+        },
+        {
+          "dimension": "schema",
+          "title": "Schema",
+          "letter": "B",
+          "score": 83.33,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "schema.int_pk",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.int_pk"
+              ]
+            },
+            {
+              "check": "schema.fk_type_mismatch",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.fk_type_mismatch"
+              ]
+            },
+            {
+              "check": "schema.no_primary_key",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.no_primary_key"
+              ]
+            },
+            {
+              "check": "schema.timestamp_no_tz",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:schema.timestamp_no_tz"
+              ]
+            },
+            {
+              "check": "schema.duplicate_index",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.duplicate_index"
+              ]
+            },
+            {
+              "check": "schema.redundant_index",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:schema.redundant_index"
+              ]
+            },
+            {
+              "check": "schema.unindexed_fk",
+              "status": "fail",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.unindexed_fk"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "capacity_cost",
+          "title": "Capacity and cost",
+          "letter": "A",
+          "score": 100,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "capacity_cost.disk_growth",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:capacity_cost.disk_growth"
+              ]
+            },
+            {
+              "check": "capacity_cost.xid_runway",
+              "status": "pass",
+              "weight": 3,
+              "critical": true,
+              "evidence": [
+                "rubric:capacity_cost.xid_runway"
+              ]
+            },
+            {
+              "check": "capacity_cost.multixact_runway",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:capacity_cost.multixact_runway"
+              ]
+            },
+            {
+              "check": "capacity_cost.sequence_runway",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:capacity_cost.sequence_runway"
+              ]
+            },
+            {
+              "check": "capacity_cost.rightsizing",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:capacity_cost.rightsizing"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "security_access",
+          "title": "Security and access",
+          "letter": "A",
+          "score": 91.67,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "security_access.role_attributes",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:security_access.role_attributes"
+              ]
+            },
+            {
+              "check": "security_access.rls_exposure",
+              "status": "pass",
+              "weight": 3,
+              "critical": true,
+              "evidence": [
+                "rubric:security_access.rls_exposure"
+              ]
+            },
+            {
+              "check": "security_access.definer_functions",
+              "status": "fail",
+              "weight": 1,
+              "evidence": [
+                "rubric:security_access.definer_functions"
+              ]
+            },
+            {
+              "check": "security_access.public_create",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:security_access.public_create"
+              ]
+            },
+            {
+              "check": "security_access.shared_logins",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:security_access.shared_logins"
+              ]
+            },
+            {
+              "check": "security_access.public_grants",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:security_access.public_grants"
+              ]
+            },
+            {
+              "check": "security_access.unmanaged_logins",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:security_access.unmanaged_logins"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "configuration",
+          "title": "Configuration",
+          "letter": "A",
+          "score": 90,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "configuration.memory_tuning",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.memory_tuning"
+              ]
+            },
+            {
+              "check": "configuration.wal_tuning",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.wal_tuning"
+              ]
+            },
+            {
+              "check": "configuration.connection_tuning",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.connection_tuning"
+              ]
+            },
+            {
+              "check": "configuration.checkpoint_pressure",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.checkpoint_pressure"
+              ]
+            },
+            {
+              "check": "configuration.pending_restart",
+              "status": "warn",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.pending_restart"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "lifecycle",
+          "title": "Lifecycle",
+          "letter": "B",
+          "score": 83.33,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "lifecycle.server_eol",
+              "status": "pass",
+              "weight": 3,
+              "critical": true,
+              "evidence": [
+                "rubric:lifecycle.server_eol"
+              ]
+            },
+            {
+              "check": "lifecycle.extension_drift",
+              "status": "warn",
+              "weight": 2,
+              "evidence": [
+                "rubric:lifecycle.extension_drift"
+              ]
+            },
+            {
+              "check": "lifecycle.upgrade_readiness",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:lifecycle.upgrade_readiness"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "previous": {
+    "id": 11,
+    "database": "orders",
+    "kind": "grade",
+    "triggers": [
+      "daily"
+    ],
+    "rubric_version": "pg_sage-rubric/1",
+    "status": "done",
+    "started_at": "2026-11-15T09:00:00Z",
+    "finished_at": "2026-11-15T09:00:04Z",
+    "grade": {
+      "rubric_version": "pg_sage-rubric/1",
+      "overall": "C",
+      "overall_score": 85.38,
+      "coverage_pct": 98.61,
+      "known_dimensions": 8,
+      "dimensions": [
+        {
+          "dimension": "recoverability",
+          "title": "Recoverability",
+          "letter": "C",
+          "score": 79.17,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "recoverability.wal_archive_failing",
+              "status": "pass",
+              "weight": 3,
+              "critical": true,
+              "evidence": [
+                "rubric:recoverability.wal_archive_failing"
+              ]
+            },
+            {
+              "check": "recoverability.wal_archive_stale",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:recoverability.wal_archive_stale"
+              ]
+            },
+            {
+              "check": "recoverability.inactive_slot",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:recoverability.inactive_slot"
+              ]
+            },
+            {
+              "check": "recoverability.slow_replication_slot",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:recoverability.slow_replication_slot"
+              ]
+            },
+            {
+              "check": "recoverability.backup_stale",
+              "status": "not_applicable",
+              "weight": 2,
+              "evidence": [],
+              "reason": "platform postgres has no cloud backup telemetry"
+            },
+            {
+              "check": "recoverability.backup_retention",
+              "status": "not_applicable",
+              "weight": 1,
+              "evidence": [],
+              "reason": "platform postgres has no cloud backup telemetry"
+            },
+            {
+              "check": "recoverability.pitr_window",
+              "status": "not_applicable",
+              "weight": 1,
+              "evidence": [],
+              "reason": "platform postgres has no cloud backup telemetry"
+            },
+            {
+              "check": "recoverability.restore_drill",
+              "status": "warn",
+              "weight": 5,
+              "evidence": [
+                "rubric:recoverability.restore_drill"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "change_safety",
+          "title": "Change safety",
+          "letter": "A",
+          "score": 100,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "change_safety.migration_safety",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:change_safety.migration_safety"
+              ]
+            },
+            {
+              "check": "change_safety.login_timeouts",
+              "status": "pass",
+              "weight": 3,
+              "evidence": [
+                "rubric:change_safety.login_timeouts"
+              ]
+            },
+            {
+              "check": "change_safety.serial_usage",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:change_safety.serial_usage"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "workload_stability",
+          "title": "Workload and plan stability",
+          "letter": "B",
+          "score": 88.89,
+          "coverage": 88.89,
+          "checks": [
+            {
+              "check": "workload_stability.query_regression",
+              "status": "pass",
+              "weight": 3,
+              "evidence": [
+                "rubric:workload_stability.query_regression"
+              ]
+            },
+            {
+              "check": "workload_stability.plan_regression",
+              "status": "pass",
+              "weight": 3,
+              "evidence": [
+                "rubric:workload_stability.plan_regression"
+              ]
+            },
+            {
+              "check": "workload_stability.stale_statistics",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:workload_stability.stale_statistics"
+              ]
+            },
+            {
+              "check": "workload_stability.temp_spill",
+              "status": "unknown",
+              "weight": 1,
+              "evidence": [],
+              "reason": "the producer has not run yet"
+            }
+          ]
+        },
+        {
+          "dimension": "schema",
+          "title": "Schema",
+          "letter": "D",
+          "score": 66.67,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "schema.int_pk",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.int_pk"
+              ]
+            },
+            {
+              "check": "schema.fk_type_mismatch",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.fk_type_mismatch"
+              ]
+            },
+            {
+              "check": "schema.no_primary_key",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.no_primary_key"
+              ]
+            },
+            {
+              "check": "schema.timestamp_no_tz",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:schema.timestamp_no_tz"
+              ]
+            },
+            {
+              "check": "schema.duplicate_index",
+              "status": "fail",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.duplicate_index"
+              ]
+            },
+            {
+              "check": "schema.redundant_index",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:schema.redundant_index"
+              ]
+            },
+            {
+              "check": "schema.unindexed_fk",
+              "status": "fail",
+              "weight": 2,
+              "evidence": [
+                "rubric:schema.unindexed_fk"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "capacity_cost",
+          "title": "Capacity and cost",
+          "letter": "A",
+          "score": 100,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "capacity_cost.disk_growth",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:capacity_cost.disk_growth"
+              ]
+            },
+            {
+              "check": "capacity_cost.xid_runway",
+              "status": "pass",
+              "weight": 3,
+              "critical": true,
+              "evidence": [
+                "rubric:capacity_cost.xid_runway"
+              ]
+            },
+            {
+              "check": "capacity_cost.multixact_runway",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:capacity_cost.multixact_runway"
+              ]
+            },
+            {
+              "check": "capacity_cost.sequence_runway",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:capacity_cost.sequence_runway"
+              ]
+            },
+            {
+              "check": "capacity_cost.rightsizing",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:capacity_cost.rightsizing"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "security_access",
+          "title": "Security and access",
+          "letter": "A",
+          "score": 91.67,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "security_access.role_attributes",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:security_access.role_attributes"
+              ]
+            },
+            {
+              "check": "security_access.rls_exposure",
+              "status": "pass",
+              "weight": 3,
+              "critical": true,
+              "evidence": [
+                "rubric:security_access.rls_exposure"
+              ]
+            },
+            {
+              "check": "security_access.definer_functions",
+              "status": "fail",
+              "weight": 1,
+              "evidence": [
+                "rubric:security_access.definer_functions"
+              ]
+            },
+            {
+              "check": "security_access.public_create",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:security_access.public_create"
+              ]
+            },
+            {
+              "check": "security_access.shared_logins",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:security_access.shared_logins"
+              ]
+            },
+            {
+              "check": "security_access.public_grants",
+              "status": "pass",
+              "weight": 2,
+              "evidence": [
+                "rubric:security_access.public_grants"
+              ]
+            },
+            {
+              "check": "security_access.unmanaged_logins",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:security_access.unmanaged_logins"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "configuration",
+          "title": "Configuration",
+          "letter": "A",
+          "score": 90,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "configuration.memory_tuning",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.memory_tuning"
+              ]
+            },
+            {
+              "check": "configuration.wal_tuning",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.wal_tuning"
+              ]
+            },
+            {
+              "check": "configuration.connection_tuning",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.connection_tuning"
+              ]
+            },
+            {
+              "check": "configuration.checkpoint_pressure",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.checkpoint_pressure"
+              ]
+            },
+            {
+              "check": "configuration.pending_restart",
+              "status": "warn",
+              "weight": 1,
+              "evidence": [
+                "rubric:configuration.pending_restart"
+              ]
+            }
+          ]
+        },
+        {
+          "dimension": "lifecycle",
+          "title": "Lifecycle",
+          "letter": "D",
+          "score": 66.67,
+          "coverage": 100,
+          "checks": [
+            {
+              "check": "lifecycle.server_eol",
+              "status": "pass",
+              "weight": 3,
+              "critical": true,
+              "evidence": [
+                "rubric:lifecycle.server_eol"
+              ]
+            },
+            {
+              "check": "lifecycle.extension_drift",
+              "status": "fail",
+              "weight": 2,
+              "evidence": [
+                "rubric:lifecycle.extension_drift"
+              ]
+            },
+            {
+              "check": "lifecycle.upgrade_readiness",
+              "status": "pass",
+              "weight": 1,
+              "evidence": [
+                "rubric:lifecycle.upgrade_readiness"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "delta": {
+    "first_run": false,
+    "rubric_changed": false,
+    "from_overall": "C",
+    "to_overall": "B",
+    "dimensions": [
+      {
+        "dimension": "schema",
+        "from_letter": "D",
+        "to_letter": "B",
+        "from_band": "high",
+        "to_band": "high",
+        "checks": [
+          {
+            "check": "schema.duplicate_index",
+            "from": "fail",
+            "to": "pass"
+          }
+        ]
+      },
+      {
+        "dimension": "lifecycle",
+        "from_letter": "D",
+        "to_letter": "B",
+        "from_band": "high",
+        "to_band": "high",
+        "checks": [
+          {
+            "check": "lifecycle.extension_drift",
+            "from": "fail",
+            "to": "warn"
+          }
+        ]
+      }
+    ]
+  },
+  "running": {
+    "id": 13,
+    "kind": "grade",
+    "started_at": "2026-11-16T09:00:00Z"
+  },
+  "report": {
+    "run_id": 12,
+    "model_pass": {
+      "status": "skipped",
+      "reason": "grade-only run: the model pass runs only in a review"
+    },
+    "findings": [
+      {
+        "rank": 1,
+        "dimension": "schema",
+        "dimension_title": "Schema",
+        "check": "schema.unindexed_fk",
+        "status": "fail",
+        "weight": 2,
+        "evidence": [
+          "rubric:schema.unindexed_fk"
+        ]
+      },
+      {
+        "rank": 2,
+        "dimension": "security_access",
+        "dimension_title": "Security and access",
+        "check": "security_access.definer_functions",
+        "status": "fail",
+        "weight": 1,
+        "evidence": [
+          "rubric:security_access.definer_functions"
+        ]
+      },
+      {
+        "rank": 3,
+        "dimension": "recoverability",
+        "dimension_title": "Recoverability",
+        "check": "recoverability.restore_drill",
+        "status": "warn",
+        "weight": 5,
+        "evidence": [
+          "rubric:recoverability.restore_drill"
+        ]
+      },
+      {
+        "rank": 4,
+        "dimension": "lifecycle",
+        "dimension_title": "Lifecycle",
+        "check": "lifecycle.extension_drift",
+        "status": "warn",
+        "weight": 2,
+        "evidence": [
+          "rubric:lifecycle.extension_drift"
+        ]
+      },
+      {
+        "rank": 5,
+        "dimension": "configuration",
+        "dimension_title": "Configuration",
+        "check": "configuration.pending_restart",
+        "status": "warn",
+        "weight": 1,
+        "evidence": [
+          "rubric:configuration.pending_restart"
+        ]
+      }
+    ]
+  },
+  "viewed_at": "2026-11-16T09:30:00Z",
+  "why_now": []
+}

@@ -48,13 +48,15 @@ func TestGlobalPut_MixedPayload_WithExecutionMode(
 	t *testing.T,
 ) {
 	cs, user := contractSetup(t)
-	cfg := &config.Config{
-		Trust:  config.TrustConfig{Level: "advisory"},
-		Safety: config.SafetyConfig{CPUCeilingPct: 80},
-	}
-	handler := configGlobalPutHandler(cs, cfg, nil)
+	cfg := config.DefaultConfig()
+	// Start away from the values the PUT sets, so each assertion below
+	// fails when the key is not applied.
+	cfg.Trust.Level = "advisory"
+	cfg.Safety.CPUCeilingPct = 80
+	controller := config.NewConfigController(cfg, nil)
+	handler := configGlobalPutHandler(cs, controller)
 
-	body := `{
+	body := `{"expected_generation": 1,
 		"execution_mode": "auto",
 		"trust.level": "autonomous",
 		"safety.cpu_ceiling_pct": "90"
@@ -69,7 +71,7 @@ func TestGlobalPut_MixedPayload_WithExecutionMode(
 			w.Code, w.Body.String())
 	}
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -78,7 +80,8 @@ func TestGlobalPut_MixedPayload_WithExecutionMode(
 			resp["status"])
 	}
 
-	// Verify hot-reload applied the valid fields.
+	// Verify the desired generation carries the valid fields.
+	cfg = controller.Desired().Config
 	if cfg.Trust.Level != "autonomous" {
 		t.Errorf("trust.level: got %q, want 'autonomous'",
 			cfg.Trust.Level)
@@ -94,20 +97,11 @@ func TestGlobalPut_MixedPayload_WithExecutionMode(
 // safety, and execution_mode. All valid keys must be persisted.
 func TestGlobalPut_AllSimpleModeFields(t *testing.T) {
 	cs, user := contractSetup(t)
-	cfg := &config.Config{
-		Collector: config.CollectorConfig{
-			IntervalSeconds: 60,
-		},
-		Analyzer: config.AnalyzerConfig{
-			SlowQueryThresholdMs:  1000,
-			UnusedIndexWindowDays: 7,
-		},
-		Trust:  config.TrustConfig{Level: "advisory"},
-		Safety: config.SafetyConfig{CPUCeilingPct: 80},
-	}
-	handler := configGlobalPutHandler(cs, cfg, nil)
+	cfg := config.DefaultConfig()
+	controller := config.NewConfigController(cfg, nil)
+	handler := configGlobalPutHandler(cs, controller)
 
-	body := `{
+	body := `{"expected_generation": 1,
 		"collector.interval_seconds": "30",
 		"analyzer.slow_query_threshold_ms": "500",
 		"analyzer.unused_index_window_days": "14",
@@ -125,7 +119,8 @@ func TestGlobalPut_AllSimpleModeFields(t *testing.T) {
 			w.Code, w.Body.String())
 	}
 
-	// Verify every valid field was hot-reloaded.
+	// Verify every valid field reached the desired generation.
+	cfg = controller.Desired().Config
 	if cfg.Collector.IntervalSeconds != 30 {
 		t.Errorf("collector.interval_seconds: got %d, want 30",
 			cfg.Collector.IntervalSeconds)
@@ -155,22 +150,14 @@ func TestGlobalPut_AllSimpleModeFields(t *testing.T) {
 // All fields must be persisted and hot-reloaded.
 func TestGlobalPut_AllAdvancedLLMFields(t *testing.T) {
 	cs, user := contractSetup(t)
-	cfg := &config.Config{
-		Advisor: config.AdvisorConfig{
-			Enabled:         false,
-			IntervalSeconds: 300,
-		},
-		LLM: config.LLMConfig{
-			Optimizer: config.OptimizerConfig{
-				Enabled:        false,
-				MinQueryCalls:  10,
-				MaxNewPerTable: 3,
-			},
-		},
-	}
-	handler := configGlobalPutHandler(cs, cfg, nil)
+	cfg := config.DefaultConfig()
+	cfg.Advisor.Enabled = false
+	cfg.LLM.Optimizer.Enabled = false
+	cfg.LLM.Optimizer.MinQueryCalls = 10
+	controller := config.NewConfigController(cfg, nil)
+	handler := configGlobalPutHandler(cs, controller)
 
-	body := `{
+	body := `{"expected_generation": 1,
 		"advisor.enabled": "true",
 		"advisor.interval_seconds": "120",
 		"llm.optimizer.enabled": "true",
@@ -187,7 +174,8 @@ func TestGlobalPut_AllAdvancedLLMFields(t *testing.T) {
 			w.Code, w.Body.String())
 	}
 
-	// Verify hot-reload applied all LLM/advisor fields.
+	// Verify the desired generation carries all LLM/advisor fields.
+	cfg = controller.Desired().Config
 	if !cfg.Advisor.Enabled {
 		t.Error("advisor.enabled: got false, want true")
 	}
@@ -213,20 +201,23 @@ func TestGlobalPut_AllAdvancedLLMFields(t *testing.T) {
 // TestGlobalPut_EmptyBody verifies that sending {} is a valid
 // no-op (the UI may send empty saves).
 func TestGlobalPut_EmptyBody(t *testing.T) {
-	// No database needed: empty body means zero keys to iterate,
-	// so applyConfigOverrides is never called with any key.
-	cfg := &config.Config{}
-	handler := configGlobalPutHandler(nil, cfg, nil)
+	// config-10: the controller path is the only write path and it
+	// writes through the store, so this contract needs the database.
+	cs, user := contractSetup(t)
+	cfg := config.DefaultConfig()
+	controller := config.NewConfigController(cfg, nil)
+	handler := configGlobalPutHandler(cs, controller)
 
-	w := doRequest(
-		handler, "PUT", "/api/v1/config/global", "{}")
+	w := doRequestWithUser(
+		handler, "PUT", "/api/v1/config/global",
+		`{"expected_generation": 1}`, user)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body: %s",
 			w.Code, w.Body.String())
 	}
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -241,10 +232,11 @@ func TestGlobalPut_EmptyBody(t *testing.T) {
 // which is silently stripped before validation.
 func TestGlobalPut_SingleInvalidField(t *testing.T) {
 	cs, user := contractSetup(t)
-	cfg := &config.Config{}
-	handler := configGlobalPutHandler(cs, cfg, nil)
+	cfg := config.DefaultConfig()
+	controller := config.NewConfigController(cfg, nil)
+	handler := configGlobalPutHandler(cs, controller)
 
-	body := `{"nonexistent.key": "value"}`
+	body := `{"expected_generation": 1, "nonexistent.key": "value"}`
 
 	w := doRequestWithUser(
 		handler, "PUT", "/api/v1/config/global",
@@ -255,7 +247,7 @@ func TestGlobalPut_SingleInvalidField(t *testing.T) {
 			w.Code, w.Body.String())
 	}
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -269,13 +261,8 @@ func TestGlobalPut_SingleInvalidField(t *testing.T) {
 // depends on.
 func TestGlobalGet_ContainsAllExpectedKeys(t *testing.T) {
 	cs, _ := contractSetup(t)
-	cfg := &config.Config{
-		Mode: "standalone",
-		Trust: config.TrustConfig{
-			Level: "advisory",
-		},
-	}
-	handler := configGlobalGetHandler(cs, cfg)
+	cfg := config.DefaultConfig()
+	handler := configGlobalGetHandler(cs, config.NewConfigController(cfg, nil))
 
 	w := doRequest(handler, "GET", "/api/v1/config/global", "")
 
@@ -354,22 +341,24 @@ func TestGlobalGet_ContainsAllExpectedKeys(t *testing.T) {
 func TestGlobalPut_ExecutionModeOnly_StrippedSilently(
 	t *testing.T,
 ) {
-	// After stripping execution_mode, body is empty -- no DB
-	// call needed.
-	cfg := &config.Config{}
-	handler := configGlobalPutHandler(nil, cfg, nil)
+	// After stripping execution_mode the save is empty; it still goes
+	// through the controller write path and its store (config-10).
+	cs, user := contractSetup(t)
+	cfg := config.DefaultConfig()
+	controller := config.NewConfigController(cfg, nil)
+	handler := configGlobalPutHandler(cs, controller)
 
-	body := `{"execution_mode": "auto"}`
+	body := `{"expected_generation": 1, "execution_mode": "auto"}`
 
-	w := doRequest(
-		handler, "PUT", "/api/v1/config/global", body)
+	w := doRequestWithUser(
+		handler, "PUT", "/api/v1/config/global", body, user)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status: got %d, want 200; body: %s",
 			w.Code, w.Body.String())
 	}
 
-	var resp map[string]string
+	var resp map[string]any
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -386,10 +375,11 @@ func TestGlobalPut_ExecutionModeOnly_StrippedSilently(
 // genuinely unknown keys (rejected).
 func TestGlobalPut_MixedValidAndInvalid(t *testing.T) {
 	cs, user := contractSetup(t)
-	cfg := &config.Config{}
-	handler := configGlobalPutHandler(cs, cfg, nil)
+	cfg := config.DefaultConfig()
+	controller := config.NewConfigController(cfg, nil)
+	handler := configGlobalPutHandler(cs, controller)
 
-	body := `{
+	body := `{"expected_generation": 1,
 		"trust.level": "autonomous",
 		"bogus.field": "whatever"
 	}`
@@ -409,17 +399,14 @@ func TestGlobalPut_MixedValidAndInvalid(t *testing.T) {
 // GET.
 func TestGlobalPut_RoundTrip_PersistsToStore(t *testing.T) {
 	cs, user := contractSetup(t)
-	cfg := &config.Config{
-		Collector: config.CollectorConfig{
-			IntervalSeconds: 60,
-		},
-	}
+	cfg := config.DefaultConfig()
 
-	putHandler := configGlobalPutHandler(cs, cfg, nil)
-	getHandler := configGlobalGetHandler(cs, cfg)
+	controller := config.NewConfigController(cfg, nil)
+	putHandler := configGlobalPutHandler(cs, controller)
+	getHandler := configGlobalGetHandler(cs, controller)
 
 	// PUT a new value.
-	putBody := `{"collector.interval_seconds": "15"}`
+	putBody := `{"expected_generation": 1, "collector.interval_seconds": "15"}`
 	w := doRequestWithUser(
 		putHandler, "PUT", "/api/v1/config/global",
 		putBody, user)
@@ -470,63 +457,17 @@ func TestP2_ConfigGlobalPut_CompleteFrontendPayload(
 	t *testing.T,
 ) {
 	cs, user := contractSetup(t)
-	cfg := &config.Config{
-		Mode: "standalone",
-		Collector: config.CollectorConfig{
-			IntervalSeconds: 60,
-			BatchSize:       1000,
-			MaxQueries:      250,
-		},
-		Analyzer: config.AnalyzerConfig{
-			IntervalSeconds:       300,
-			SlowQueryThresholdMs:  1000,
-			UnusedIndexWindowDays: 7,
-		},
-		Trust: config.TrustConfig{
-			Level: "observation",
-		},
-		Safety: config.SafetyConfig{
-			CPUCeilingPct:     80,
-			QueryTimeoutMs:    5000,
-			DDLTimeoutSeconds: 30,
-			LockTimeoutMs:     500,
-		},
-		LLM: config.LLMConfig{
-			Enabled:             false,
-			Endpoint:            "",
-			Model:               "gpt-4o-mini",
-			TimeoutSeconds:      30,
-			TokenBudgetDaily:    100000,
-			ContextBudgetTokens: 4096,
-			Optimizer: config.OptimizerConfig{
-				Enabled:        false,
-				MinQueryCalls:  10,
-				MaxNewPerTable: 3,
-			},
-		},
-		Advisor: config.AdvisorConfig{
-			Enabled:         false,
-			IntervalSeconds: 300,
-		},
-		Alerting: config.AlertingConfig{
-			Enabled:              false,
-			CheckIntervalSeconds: 300,
-			CooldownMinutes:      60,
-		},
-		Retention: config.RetentionConfig{
-			SnapshotsDays: 7,
-			FindingsDays:  30,
-			ActionsDays:   90,
-			ExplainsDays:  14,
-		},
-	}
+	cfg := config.DefaultConfig()
+	cfg.LLM.Enabled = false
+	cfg.Advisor.Enabled = false
 
-	putHandler := configGlobalPutHandler(cs, cfg, nil)
-	getHandler := configGlobalGetHandler(cs, cfg)
+	controller := config.NewConfigController(cfg, nil)
+	putHandler := configGlobalPutHandler(cs, controller)
+	getHandler := configGlobalGetHandler(cs, controller)
 
 	// Send a realistic payload mixing ALL overridable sections
 	// plus execution_mode (which should be silently stripped).
-	body := `{
+	body := `{"expected_generation": 1,
 		"execution_mode": "auto",
 		"collector.interval_seconds": "15",
 		"collector.batch_size": "500",
@@ -573,7 +514,8 @@ func TestP2_ConfigGlobalPut_CompleteFrontendPayload(
 			w.Code, w.Body.String())
 	}
 
-	// Verify hot-reload applied all fields.
+	// Verify the desired generation carries all fields.
+	cfg = controller.Desired().Config
 	if cfg.Collector.IntervalSeconds != 15 {
 		t.Errorf("collector.interval: got %d, want 15",
 			cfg.Collector.IntervalSeconds)

@@ -143,7 +143,8 @@ func TestClassify_PanicServerCrash_ByMessage(t *testing.T) {
 	c := defaultClassifier()
 	e := baseEntry(func(e *LogEntry) {
 		e.ErrorLevel = "LOG"
-		e.Message = "server process was terminated by signal 11: Segmentation fault"
+		e.User, e.Database, e.BackendType = "", "", "postmaster"
+		e.Message = "server process (PID 4242) was terminated by signal 11: Segmentation fault"
 	})
 	sig := c.Classify(e)
 	if sig == nil {
@@ -312,7 +313,8 @@ func TestClassify_WALSegmentRemoved(t *testing.T) {
 	c := defaultClassifier()
 	e := baseEntry(func(e *LogEntry) {
 		e.ErrorLevel = "ERROR"
-		e.Message = "requested WAL segment has already been removed"
+		e.BackendType = "walsender"
+		e.Message = "requested WAL segment 000000010000000000000001 has already been removed"
 	})
 	sig := c.Classify(e)
 	if sig == nil {
@@ -341,8 +343,9 @@ func TestClassify_AutovacuumCancel(t *testing.T) {
 func TestClassify_ReplicationSlotInactive(t *testing.T) {
 	c := defaultClassifier()
 	e := baseEntry(func(e *LogEntry) {
-		e.ErrorLevel = "WARNING"
-		e.Message = "replication slot \"my_slot\" is inactive and will be dropped"
+		e.ErrorLevel = "LOG"
+		e.BackendType = "checkpointer"
+		e.Message = "invalidating obsolete replication slot \"my_slot\""
 	})
 	sig := c.Classify(e)
 	if sig == nil {
@@ -803,7 +806,7 @@ func TestLevelRank(t *testing.T) {
 		{"ERROR", 3},
 		{"FATAL", 4},
 		{"PANIC", 5},
-		{"log", 1},   // case insensitive
+		{"log", 1},    // case insensitive
 		{"DEBUG", 0},  // unknown
 		{"NOTICE", 0}, // unknown
 		{"", 0},

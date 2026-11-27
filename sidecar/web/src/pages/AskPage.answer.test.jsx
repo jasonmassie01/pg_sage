@@ -43,7 +43,9 @@ describe('answer body', () => {
   it('numbers citation markers and links them to the evidence page', async () => {
     const { node } = await renderAnswer(makeAnswer())
     const [first, second] = within(node).getAllByTestId('ask-statement')
-    expect(within(first).getByRole('link', { name: '[1]' })).toHaveAttribute('href', '#/cases')
+    // mcp-05: a finding citation opens that finding's case, not the Cases root.
+    expect(within(first).getByRole('link', { name: '[1]' }))
+      .toHaveAttribute('href', '#/cases?finding=17&database=orders')
     // queries evidence has no UI page: the marker is plain text.
     const plain = within(first).getByText('[2]')
     expect(plain.closest('a')).toBeNull()
@@ -72,7 +74,8 @@ describe('answer body', () => {
     expect(items[0]).toHaveTextContent('finding')
     expect(items[0]).toHaveTextContent('a1b2c3d4e5f6')
     expect(items[0]).not.toHaveTextContent('a1b2c3d4e5f6a')
-    expect(within(items[0]).getByRole('link')).toHaveAttribute('href', '#/cases')
+    expect(within(items[0]).getByRole('link'))
+      .toHaveAttribute('href', '#/cases?finding=17&database=orders')
     expect(items[1]).toHaveTextContent('Top queries by time')
     expect(items[1]).toHaveTextContent('queries')
     expect(items[1]).toHaveTextContent('0123456789ab')

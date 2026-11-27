@@ -29,7 +29,7 @@ export function DeleteConfirm({ db, onConfirm, onCancel }) {
           <button onClick={onConfirm}
             data-testid="delete-confirm-yes"
             className="px-4 py-1.5 rounded text-sm font-medium"
-            style={{ background: '#ef4444', color: '#fff' }}>
+            style={{ background: 'var(--red-solid)', color: '#fff' }}>
             Delete
           </button>
         </div>

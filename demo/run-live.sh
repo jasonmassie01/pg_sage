@@ -37,7 +37,7 @@ echo "Starting sidecar..."
 echo "Dashboard: http://localhost:8080"
 echo "Login:     admin@pg-sage.local (copy the INITIAL ADMIN PASSWORD from stderr)"
 echo "API:       http://localhost:8080/api/v1/cases (requires login cookie)"
-echo "Metrics:   http://localhost:9187/metrics"
+echo "Metrics:   http://localhost:8187/metrics"
 echo ""
 
 # Run sidecar

@@ -80,6 +80,23 @@ func Head(ctx context.Context, q Querier, chain string) (int64, string, error) {
 	return seq, hash, nil
 }
 
+// LinkHashAt returns the hash of chain's link at seq; found is false when
+// the chain holds no link there.
+func LinkHashAt(ctx context.Context, q Querier, chain string, seq int64) (
+	hash string, found bool, err error) {
+	if q == nil {
+		return "", false, fmt.Errorf("auditchain: %s link %d: no database", chain, seq)
+	}
+	err = q.QueryRow(ctx, linkAtSQL, chain, seq).Scan(&hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("auditchain: %s link %d: %w", chain, seq, err)
+	}
+	return hash, true, nil
+}
+
 // LinksForRow returns every link of one row of chain, in order.
 func LinksForRow(ctx context.Context, q Querier, chain string, rowID int64) ([]Link, error) {
 	rows, err := q.Query(ctx, RowLinksSQL, chain, rowID)

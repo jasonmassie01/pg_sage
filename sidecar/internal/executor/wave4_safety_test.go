@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func TestWave4BackendSignalsAlwaysRequireApproval(t *testing.T) {
@@ -133,7 +134,7 @@ func TestWave4ApprovedBackendSignalRejectsStaleEvidence(t *testing.T) {
 
 func TestWave4SessionSettingFailureCannotPoisonPool(t *testing.T) {
 	_, _ = requireDB(t)
-	poolCfg, err := pgxpool.ParseConfig(testDSN())
+	poolCfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse test DSN: %v", err)
 	}

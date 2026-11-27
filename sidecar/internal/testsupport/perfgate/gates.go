@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/selfcost"
 )
 
 // Gate names one budget. The constants are in report order.
@@ -23,12 +25,14 @@ const (
 	GateEndpoint      Gate = "E API list endpoint"
 	GateHotUpdates    Gate = "F HOT share of updates"
 	GateSidecarCPU    Gate = "G sidecar CPU per cycle"
+	GateMeterParity   Gate = "H product meter vs measured DB time"
+	GateMeterCycle    Gate = "H product meter cycle length"
 )
 
 var gateOrder = map[Gate]int{
 	GateSeqScan: 0, GateStatementMean: 1, GateCycleDBTime: 2, GateRowsWritten: 3,
 	GateCatalogMax: 4, GateTimeout: 5, GateEndpoint: 6, GateHotUpdates: 7,
-	GateSidecarCPU: 8,
+	GateSidecarCPU: 8, GateMeterParity: 9, GateMeterCycle: 10,
 }
 
 // TableDelta is one sage table's counters over a phase.
@@ -100,6 +104,16 @@ type Phase struct {
 	// calls excluded; CPUKnown is false when it was not read.
 	ProcessCPU time.Duration
 	CPUKnown   bool
+	// Meter is the product's own self-cost readings (the analyzer's
+	// selfcost meter) whose windows lie in the phase; CollectorPeriod is
+	// the collector period observed from consecutive snapshots (0:
+	// unknown). Gate H charges both on a steady phase.
+	Meter           []selfcost.Cost
+	CollectorPeriod time.Duration
+	// Unmetered is why gate H does not charge this steady phase (for
+	// example a history store, whose DB time is not on the monitored
+	// database's meter); "" charges it. The report prints the reason.
+	Unmetered string
 }
 
 // Offender is one budget breach.
@@ -116,8 +130,14 @@ type Offender struct {
 // ratio is how far over budget an offender is (a floor gate is breached by
 // being under its budget).
 func (o Offender) ratio() float64 {
-	if o.Gate == GateHotUpdates {
+	if o.Budget <= 0 {
+		return math.Inf(1)
+	}
+	switch o.Gate {
+	case GateHotUpdates:
 		return o.Budget / math.Max(o.Measured, 0.1)
+	case GateMeterParity, GateMeterCycle: // off in either direction
+		return math.Abs(o.Measured-o.Budget) / o.Budget
 	}
 	return o.Measured / o.Budget
 }
@@ -142,6 +162,7 @@ func Evaluate(phases []Phase, b Budgets) ([]Offender, error) {
 			out = append(out, writeOffenders(p, b)...)
 			out = append(out, hotOffenders(p, b)...)
 			out = append(out, cpuOffenders(p, b)...)
+			out = append(out, meterOffenders(p)...)
 		}
 		out = append(out, catalogOffenders(p, b)...)
 		out = append(out, endpointOffenders(p, b)...)

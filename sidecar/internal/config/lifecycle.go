@@ -16,6 +16,22 @@ const (
 	LifecycleRestart     ConfigLifecycle = "restart"
 )
 
+// Reconfiguration owners production registers. Field metadata names no
+// other owner; see ProductionOwners.
+const (
+	TrustPolicyOwner = "trust_policy"
+	LLMOwner         = "llm"
+)
+
+// ProductionOwners returns every reconfiguration owner the sidecar registers
+// in some mode: trust_policy, llm, llm_redaction, briefing and alerting in
+// every mode,
+// fleet_databases in YAML fleet mode. The result is a fresh copy.
+func ProductionOwners() []string {
+	return []string{TrustPolicyOwner, LLMOwner, LLMRedactionOwner, BriefingOwner,
+		AlertingOwner, FleetDatabasesOwner}
+}
+
 // FieldLifecycle is the canonical lifecycle metadata for one YAML field.
 type FieldLifecycle struct {
 	Path      string
@@ -99,8 +115,8 @@ func classifyField(path string) (ConfigLifecycle, string) {
 	if owner := reconfigurationOwner(path); owner != "" {
 		return LifecycleReconfigure, owner
 	}
-	if path == "trust.level" {
-		return LifecycleLivePolicy, "trust_policy"
+	if path == "trust.level" || liveTrustCeilingFields[path] {
+		return LifecycleLivePolicy, TrustPolicyOwner
 	}
 	// A field is restart-bound until a concrete runtime consumer proves it can
 	// adopt an immutable snapshot or supplies a reconfiguration owner.
@@ -109,37 +125,41 @@ func classifyField(path string) (ConfigLifecycle, string) {
 
 func isRestartField(path string) bool {
 	if path == "mode" || path == "meta_db" || path == "encryption_key" ||
-		path == "encryption_key_previous" {
+		path == "encryption_key_previous" || path == "data_dir" {
 		return true
 	}
 	if strings.HasPrefix(path, "postgres.") || strings.HasPrefix(path, "oauth.") {
 		return true
 	}
 	return path == "api.listen_addr" || path == "api.trusted_proxies" ||
-		path == "prometheus.listen_addr"
+		path == "api.trusted_origins" || path == "prometheus.listen_addr" ||
+		path == "prometheus.serve_on_api"
 }
 
+// reconfigurationOwner names the production owner that rebuilds a field in
+// place: the LLM connection, the LLM redaction switch and the briefing
+// schedule and channels. A field whose owner production never registers
+// would be labelled reconfigure yet wait for a restart in every mode
+// (config-07), so it stays restart-bound until an owner exists.
 func reconfigurationOwner(path string) string {
-	exact := map[string]string{
-		"collector.interval_seconds":            "collector",
-		"analyzer.interval_seconds":             "analyzer",
-		"tuner.revalidation_interval_hours":     "tuner",
-		"schema_lint.scan_interval_minutes":     "schema_lint",
-		"auto_explain.collect_interval_seconds": "auto_explain",
+	if path == "llm.redact_numeric_literals" {
+		return LLMRedactionOwner // llm-09: process-wide, registered in every mode
 	}
-	if owner := exact[path]; owner != "" {
-		return owner
-	}
-	for prefix, owner := range map[string]string{
-		"alerting.": "alerting",
-		"briefing.": "briefing",
-	} {
-		if strings.HasPrefix(path, prefix) {
-			return owner
-		}
+	switch path {
+	case "briefing.schedule", "briefing.channels", "briefing.slack_webhook_url",
+		"briefing.only_when_changed", "briefing.dba_hour_rate_usd": // ux-02b
+		return BriefingOwner // llm-06: briefing.fleet_mode stays restart-bound
+	case "alerting.cooldown_minutes", "alerting.quiet_hours_start",
+		"alerting.quiet_hours_end", "alerting.timezone", "alerting.repeat_minutes":
+		return AlertingOwner // alerting-06
+	case "alerting.enabled", "alerting.routes", "alerting.webhooks",
+		"alerting.slack_webhook_url", "alerting.pagerduty_routing_key":
+		// alerting-06b: reconciled live into the notification tables;
+		// alerting.engine and check_interval_seconds stay restart-bound.
+		return AlertingOwner
 	}
 	if strings.HasPrefix(path, "llm.") && isLLMResourceField(path) {
-		return "llm"
+		return LLMOwner
 	}
 	return ""
 }
@@ -149,6 +169,7 @@ func isLLMResourceField(path string) bool {
 		"enabled", "endpoint", "api_key", "model", "auth",
 		"timeout_seconds", "cooldown_seconds",
 		"json_mode", "token_parameter", "tool_reasoning_effort",
+		"global_token_budget_daily",
 	} {
 		if path == "llm."+suffix {
 			return true

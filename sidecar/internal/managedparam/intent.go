@@ -1,10 +1,11 @@
 // Package managedparam turns a setting change that SQL cannot make on a
 // managed PostgreSQL service (a restart-required or provider-restricted
-// parameter on RDS, Aurora or Cloud SQL) into a typed proposal: the exact
-// parameter-group or database-flag change, whether it needs a reboot, its
-// rollback and the CLI command an operator runs. pg_sage never applies
-// these changes itself; it records the operator's decision, observes when
-// the new value is running and reports parameter drift.
+// parameter on RDS, Aurora, Cloud SQL, AlloyDB, Azure flexible server or a
+// CloudNativePG Cluster) into a typed proposal: the exact parameter-group,
+// database-flag, server-parameter or Cluster-spec change, whether it needs
+// a reboot, its rollback and the CLI command an operator runs. pg_sage never applies these changes
+// itself; it records the operator's decision, observes when the new value
+// is running and reports parameter drift.
 package managedparam
 
 import (
@@ -12,6 +13,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	prov "github.com/pg-sage/sidecar/internal/provider"
 )
 
 // DetailKey is the finding Detail key that carries an Intent.
@@ -31,6 +34,13 @@ var (
 	// intentValuePattern bounds what may reach a CLI command line: no
 	// spaces, quotes, separators or shell metacharacters.
 	intentValuePattern = regexp.MustCompile(`^[A-Za-z0-9._+-]{1,32}$`)
+	// providerValuePattern bounds a value read from a provider API (a
+	// current Cloud SQL flag or RDS parameter) that a command or rollback
+	// carries: printable ASCII without whitespace, quotes, backslash or the
+	// shell's expansion and control characters, at most 256 characters.
+	// Commas and the gcloud alternate delimiters (@ : | ~) are allowed
+	// because the builders escape them.
+	providerValuePattern = regexp.MustCompile(`^[A-Za-z0-9._+,/:@|~%{}*-]{0,256}$`)
 )
 
 // Intent is what a producer (the configuration advisor or the tuning
@@ -43,22 +53,31 @@ type Intent struct {
 	Reason    string `json:"reason"`
 }
 
+// retiredProvider is an alias of a supported profile whose service this
+// package cannot describe: Azure single server is retired and has no
+// flexible-server parameter commands.
+const retiredProvider = "azure-single"
+
 // NormalizeProvider maps the cloud environment names pg_sage detects to
-// the providers this package supports ("" when unsupported).
+// the providers this package supports ("" when unsupported): those whose
+// settings change through a parameter group, Cloud SQL or AlloyDB database
+// flags, Azure flexible-server parameters or a CloudNativePG Cluster spec.
 func NormalizeProvider(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "rds", "aws":
-		return "rds"
-	case "aurora":
-		return "aurora"
-	case "cloud-sql", "cloudsql", "gcp":
-		return "cloud-sql"
+	if strings.EqualFold(strings.TrimSpace(provider), retiredProvider) {
+		return ""
+	}
+	profile, _ := prov.Lookup(provider)
+	switch profile.ConfigMechanism {
+	case prov.ConfigParameterGroup, prov.ConfigClusterParameterGroup,
+		prov.ConfigCloudSQLFlags, prov.ConfigAlloyDBFlags, prov.ConfigServerParameters,
+		prov.ConfigClusterSpec:
+		return profile.Name
 	}
 	return ""
 }
 
 // Supported reports whether provider changes settings through a parameter
-// group or database flags this package can describe.
+// group, database flags or server parameters this package can describe.
 func Supported(provider string) bool { return NormalizeProvider(provider) != "" }
 
 // NewIntent validates an intent.

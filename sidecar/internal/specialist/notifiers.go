@@ -11,12 +11,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // maxNoteRunes bounds a PagerDuty note (PagerDuty's limit is 25,000).
 const maxNoteRunes = 20000
 
 const notifyTimeout = 15 * time.Second
+
+// defaultNotifyClient is shared so its connections are reused.
+var defaultNotifyClient = egress.HTTPClient(notifyTimeout)
 
 // PagerDutyNotifier posts a result as a note on the PagerDuty incident
 // (REST API, operator-configured base URL and token). The note carries the
@@ -72,7 +77,7 @@ func (n *WebhookNotifier) Deliver(ctx context.Context, _ Record, res Result) err
 func post(ctx context.Context, client *http.Client, endpoint string, body []byte,
 	headers map[string]string) error {
 	if client == nil {
-		client = &http.Client{Timeout: notifyTimeout}
+		client = defaultNotifyClient
 	}
 	ctx, cancel := context.WithTimeout(ctx, notifyTimeout)
 	defer cancel()

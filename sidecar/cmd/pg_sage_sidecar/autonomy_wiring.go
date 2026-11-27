@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/earned/hasource"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/gameday"
+	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 )
@@ -68,6 +69,9 @@ func autonomyServiceConfig(s config.SREAutonomyConfig) earned.Config {
 	c.FailoverCooldown = s.FailoverCooldown()
 	c.Build = runningBuild()
 	c.Log = func(format string, args ...any) { logWarn("autonomy", format, args...) }
+	if cfg != nil { // trust.ask_after_approvals (ux-07a); 0 turns the ask off
+		c.AskAfterApprovals = cfg.Trust.AskAfterApprovals
+	}
 	return c
 }
 
@@ -113,6 +117,12 @@ type autonomyBinding struct {
 	// notifier tells the operator about model-root authority changes;
 	// set before the ledger is registered, so no grant goes untold.
 	notifier earned.RootAuthorityNotifier
+	// runningModel is the model the database's investigator runs (read
+	// at each use); nil: unknown, so model roots stay advisory.
+	runningModel func() string
+	// ha is the database's one HA monitor; earned autonomy reads its
+	// snapshot. Nil downgrades every governed action (fail closed).
+	ha *ha.Monitor
 }
 
 // failClosedLimiter answers every governed action (incident families and
@@ -136,7 +146,9 @@ func (l failClosedLimiter) Governs(req policy.ActionRequest) bool {
 func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 	b autonomyBinding) error {
 	svc, err := a.ledgerFor(ctx, b.control, b.database, b.settings)
+	major := majorProbeFor(b)
 	if err == nil {
+		svc.WithServerMajor(major.Major)
 		// Levels stored before the ledger was per database apply to this
 		// database at their level, unless it has its own (P0-5 decision).
 		_, err = svc.AdoptLegacy(ctx)
@@ -162,16 +174,27 @@ func (a *autonomyLedgers) install(ctx context.Context, ex *executor.Executor,
 		return err
 	}
 	lim := svc.Limiter(earned.Binding{Database: b.database, Budget: b.budget,
-		HA:          hasource.New(newPersistedHAMonitor(b)),
-		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID)})
+		HA:          hasource.FromSnapshot(b.ha),
+		Concurrency: earned.NewPostgresConcurrency(b.monitored, b.databaseID),
+		ServerMajor: major.Major})
 	if b.settings.Enforce {
 		ex.WithAutonomy(lim)
 	}
 	if b.notifier != nil {
 		svc.WithRootAuthorityNotifier(b.notifier)
 	}
+	svc.WithRunningModel(b.runningModel)
 	a.registry.Register(b.database, earned.RegistryEntry{Service: svc, Limiter: lim})
 	return nil
+}
+
+// majorProbeFor reads the monitored server's PostgreSQL major: every
+// level write records it, and a self-initiated L3 re-validates after a
+// major upgrade (earned-07).
+func majorProbeFor(b autonomyBinding) *earned.MajorProbe {
+	return earned.NewMajorProbe(b.monitored, func(format string, args ...any) {
+		logWarn("autonomy", "db %q: "+format, append([]any{b.database}, args...)...)
+	})
 }
 
 // autonomyNotifier tells a human about an L3 auto-execution through the
@@ -195,20 +218,43 @@ func (n autonomyNotifier) NotifyAutonomous(ctx context.Context, a earned.AutoExe
 		DedupKey: fmt.Sprintf("autonomy:%s:%d", a.Database, a.ActionLogID)})
 }
 
-// monitoredDSNs are every monitored database's connection strings, so a
-// local game-day database can never be one of them.
-func monitoredDSNs(extra ...*pgxpool.Pool) []string {
-	var out []string
-	pools := extra
-	if fleetMgr != nil {
-		pools = append(pools, fleetMgr.AllPools()...)
+// localTargetGuard is what a local game-day database is checked against:
+// dsns by name when the provider is built, pools by cluster identity at
+// each run.
+type localTargetGuard struct {
+	dsns  []string
+	pools gameday.RefusedFunc
+	// own is the monitored database a lakebase_branch clone branches from.
+	own *pgxpool.Pool
+}
+
+// localTargetGuardFor refuses the database's own pool, the control
+// (metadata) pool and every fleet pool; the fleet is read at each run, so
+// a database added after start is refused too.
+func localTargetGuardFor(own, meta *pgxpool.Pool) localTargetGuard {
+	current := func() []*pgxpool.Pool {
+		pools := []*pgxpool.Pool{own, meta}
+		if fleetMgr != nil {
+			pools = append(pools, fleetMgr.AllPools()...)
+		}
+		return pools
 	}
-	for _, p := range pools {
+	var dsns []string
+	for _, p := range current() {
 		if p != nil {
-			out = append(out, p.Config().ConnString())
+			dsns = append(dsns, p.Config().ConnString())
 		}
 	}
-	return out
+	return localTargetGuard{dsns: dsns, own: own,
+		pools: func(context.Context) ([]gameday.Querier, error) {
+			var out []gameday.Querier
+			for _, p := range current() {
+				if p != nil {
+					out = append(out, p)
+				}
+			}
+			return out, nil
+		}}
 }
 
 func trimmedFamilies(in []string) []string {

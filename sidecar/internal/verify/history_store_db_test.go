@@ -10,9 +10,10 @@ import (
 )
 
 // history.store: meta. The observation source reads its history
-// (query_store intervals, system snapshots) from the store and its catalog
-// (pg_index) from the monitored database: the two halves of what used to
-// be one database. Results must equal monitored mode's on the same fixture.
+// (query_store intervals, system and tables snapshots) from the store and
+// its catalog (pg_index, the watched table's name) from the monitored
+// database: the two halves of what used to be one database. Results must
+// equal monitored mode's on the same fixture.
 
 func seedVerifyHistory(t *testing.T, p *histfixture.Pair, from time.Time) {
 	t.Helper()
@@ -29,9 +30,16 @@ func seedVerifyHistory(t *testing.T, p *histfixture.Pair, from time.Time) {
 		}
 		if _, err := st.Exec(ctx, `INSERT INTO sage.snapshots
 			(collected_at, category, data{dbcol}) VALUES ($1, 'system',
-			jsonb_build_object('blk_write_time', $2::float8){dbval})`,
-			at, float64(50*i*i)); err != nil {
+			jsonb_build_object('wal_lsn', $2::int8, 'relation_stats_epoch',
+			'2026-01-01T00:00:00Z'){dbval})`, at, int64(100_000*i*i)); err != nil {
 			t.Fatalf("seed system snapshot: %v", err)
+		}
+		if _, err := st.Exec(ctx, `INSERT INTO sage.snapshots
+			(collected_at, category, data{dbcol}) VALUES ($1, 'tables',
+			jsonb_build_array(jsonb_build_object('schemaname', 'public', 'relname', 'vt',
+			'n_tup_ins', $2::int8, 'n_tup_upd', 0, 'n_tup_del', 0)){dbval})`,
+			at, int64(1000*i*i)); err != nil {
+			t.Fatalf("seed tables snapshot: %v", err)
 		}
 	}
 }
@@ -47,7 +55,7 @@ func TestObservationSourceIdenticalInBothPlacements(t *testing.T) {
 	from := to.Add(-2 * time.Hour)
 	type answer struct {
 		q     Measurement
-		w     Measurement
+		w     WriteCost
 		valid bool
 	}
 	got := map[histstore.Mode]answer{}
@@ -60,9 +68,9 @@ func TestObservationSourceIdenticalInBothPlacements(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s QueryMeasurements: %v", mode, err)
 		}
-		w, err := src.WriteMeasurements(ctx, "public.vt", from, to)
+		w, err := src.WriteCost(ctx, "public.vt", from, to)
 		if err != nil {
-			t.Fatalf("%s WriteMeasurements: %v", mode, err)
+			t.Fatalf("%s WriteCost: %v", mode, err)
 		}
 		valid, err := src.IndexValid(ctx, "public.vt_a")
 		if err != nil {
@@ -77,8 +85,9 @@ func TestObservationSourceIdenticalInBothPlacements(t *testing.T) {
 	if mon != meta {
 		t.Fatalf("observations differ:\nmonitored %+v\nmeta      %+v", mon, meta)
 	}
-	if mon.w.Samples != 6 {
-		t.Fatalf("write measurement samples = %d, want the 6 system snapshots", mon.w.Samples)
+	if mon.w.Intervals != 5 || mon.w.BytesPerTuple != 100 || mon.w.Tuples != 25_000 {
+		t.Fatalf("write cost = %+v, want 5 intervals of the 6 cycles at 100 bytes/tuple",
+			mon.w)
 	}
 	if !meta.valid {
 		t.Fatal("meta mode must read pg_index on the monitored database (the index " +

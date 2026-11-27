@@ -77,8 +77,8 @@ const (
 	MinWindow     = time.Minute
 	MaxWindow     = 7 * 24 * time.Hour
 	DefaultWindow = 24 * time.Hour
-	// queueWait bounds how long a probe waits for a concurrency slot.
-	queueWait = 5 * time.Second
+	// QueueWait bounds how long a probe waits for its concurrency slots.
+	QueueWait = 5 * time.Second
 	// acquireWait bounds how long a probe waits for a pool connection,
 	// apart from its statement budget.
 	acquireWait = 5 * time.Second
@@ -109,10 +109,19 @@ const (
 	ArgsBackend
 	ArgsWindow
 	// ArgsSlice reads one slice of a catalog too large for one statement
-	// (sequence_runway): the objects whose OID hashes to Slice of Slices.
-	// The zero value reads the whole catalog, capped.
+	// (sequence_runway): the objects whose OID hashes to Slice of Slices,
+	// plus Keep, the objects to list whatever their rank. The zero value
+	// reads the whole catalog, capped.
 	ArgsSlice
 )
+
+// MaxSequenceKeep bounds Args.Keep: the sequences already sampled that a
+// sequence_runway read lists beside its top SequenceTopN (forecast-10).
+const MaxSequenceKeep = 50
+
+// MaxKeepNameBytes bounds one Args.Keep name: a schema-qualified name of
+// two quoted 63-byte identifiers, every character doubled.
+const MaxKeepNameBytes = 2*(2*63+2) + 1
 
 // MaxSequenceSlices bounds Args.Slices: SequenceScanCap sequences each
 // is 20 million sequences.
@@ -130,12 +139,21 @@ type Args struct {
 	Slices       int
 	// QueryID scopes a QueryScoped probe to one statement (0: all).
 	QueryID int64
+	// Keep names objects a sliced read lists whatever their rank
+	// (sequence_runway: the sequences with samples, as it renders them).
+	Keep []string
+}
+
+// IsZero reports arguments with no field set.
+func (a Args) IsZero() bool {
+	return a.PID == 0 && a.BackendStart.IsZero() && a.Window == 0 && !a.sliced() &&
+		a.QueryID == 0
 }
 
 func (a Args) validate(kind ArgKind) error {
 	switch kind {
 	case ArgsNone:
-		if a != (Args{}) {
+		if !a.IsZero() {
 			return errors.New("probe takes no arguments")
 		}
 	case ArgsBackend:
@@ -158,7 +176,7 @@ func (a Args) validate(kind ArgKind) error {
 	return nil
 }
 
-func (a Args) sliced() bool { return a.Slice != 0 || a.Slices != 0 }
+func (a Args) sliced() bool { return a.Slice != 0 || a.Slices != 0 || len(a.Keep) > 0 }
 
 func (a Args) validateSlice() error {
 	switch {
@@ -168,6 +186,14 @@ func (a Args) validateSlice() error {
 		return fmt.Errorf("slices %d outside [0, %d]", a.Slices, MaxSequenceSlices)
 	case a.Slice < 0 || a.Slice >= max(a.Slices, 1):
 		return fmt.Errorf("slice %d outside [0, %d)", a.Slice, max(a.Slices, 1))
+	case len(a.Keep) > MaxSequenceKeep:
+		return fmt.Errorf("keep-list of %d names, at most %d", len(a.Keep), MaxSequenceKeep)
+	}
+	for i, k := range a.Keep {
+		if k == "" || len(k) > MaxKeepNameBytes {
+			return fmt.Errorf("keep-list name %d is empty or over %d bytes", i+1,
+				MaxKeepNameBytes)
+		}
 	}
 	return nil
 }
@@ -185,7 +211,11 @@ func (a Args) params(kind ArgKind, limit int) []any {
 		}
 		return []any{limit, w.Seconds()}
 	case ArgsSlice:
-		return []any{limit, max(a.Slices, 1), a.Slice}
+		keep := a.Keep
+		if keep == nil {
+			keep = []string{}
+		}
+		return []any{limit, max(a.Slices, 1), a.Slice, keep}
 	default:
 		return []any{limit}
 	}

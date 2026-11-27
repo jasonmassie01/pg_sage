@@ -56,11 +56,6 @@ function seedFleetRows() {
 }
 
 test.describe('Fleet aggregation APIs', () => {
-  test.skip(
-    process.env.PG_SAGE_E2E_FIXTURE !== 'full-surface',
-    'requires full-surface Docker fleet fixture',
-  );
-
   let consoleErrors: string[];
 
   test.beforeEach(async ({ page }) => {

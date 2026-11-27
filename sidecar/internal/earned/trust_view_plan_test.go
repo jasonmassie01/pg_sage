@@ -132,7 +132,8 @@ func TestReconcilerFactReadsNeverScanOutcomes(t *testing.T) {
 	pool, _ := seededLedgerPool(t, "reconcile_facts_plan")
 	testdb.RequireServerVersion(t, pool, 160000, "EXPLAIN (GENERIC_PLAN)")
 	stmts := []perfgate.Statement{{Query: verdictFactsSQL}, {Query: rollbackFactsSQL},
-		{Query: handoffSQL}, {Query: autoExecutionSQL}}
+		{Query: handoffSQL}, {Query: autoExecutionSQL}, {Query: handoffPendingSQL},
+		{Query: autoExecutionPendingSQL}}
 	plans, err := perfgate.ExplainStatements(context.Background(), pool, stmts)
 	if err != nil || len(plans) != len(stmts) {
 		t.Fatalf("explain: %v (%d plans)", err, len(plans))

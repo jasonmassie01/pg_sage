@@ -28,14 +28,14 @@ func finalWith(t *testing.T, notes ...string) json.RawMessage {
 }
 
 func TestCompose_AnsweredKeepsOnlySurvivingClaimsWithCitations(t *testing.T) {
-	cited := map[string]agentloop.Evidence{"finding:42": ev("finding:42", "4200 seq scans")}
-	res := agentloop.Result{Final: finalWith(t),
+	cited := map[string]agentloop.Evidence{"E1": ev("finding:42", "4200 seq scans")}
+	res := agentloop.Result{Final: finalWith(t), Evidence: cited,
 		Claims: []agentloop.Claim{{Text: "public.orders had 4200 sequential scans.",
-			EvidenceIDs: []string{"finding:42"}}},
+			EvidenceIDs: []string{"finding:42"}, Aliases: []string{"E1"}}},
 		Dropped: []agentloop.DroppedClaim{{Text: "It will be 10x faster.",
 			Reason: agentloop.DropUncited}},
 		Transcript: agentloop.Transcript{Stop: agentloop.StopFinal, Tokens: 900}}
-	a := compose("testdb", res, cited, nil)
+	a := compose("testdb", res, nil)
 	if a.Status != StatusAnswered || len(a.Statements) != 1 || a.Tokens != 900 ||
 		a.Stop != agentloop.StopFinal {
 		t.Fatalf("answer = %+v", a)
@@ -63,7 +63,7 @@ func TestCompose_AnsweredKeepsOnlySurvivingClaimsWithCitations(t *testing.T) {
 func TestCompose_NothingVerifiedIsNotObserved(t *testing.T) {
 	res := agentloop.Result{Final: finalWith(t, "No finding mentions public.invoices."),
 		Transcript: agentloop.Transcript{Stop: agentloop.StopFinal}}
-	a := compose("testdb", res, nil, nil)
+	a := compose("testdb", res, nil)
 	if a.Status != StatusNotObserved || len(a.Statements) != 0 {
 		t.Fatalf("answer = %+v", a)
 	}
@@ -82,7 +82,7 @@ func TestCompose_NotesWithNumbersAreDropped(t *testing.T) {
 		"Vacuum ran 3x more.", "Nothing about replication was observed.", "  ", long,
 		"Nothing about replication was observed."),
 		Transcript: agentloop.Transcript{Stop: agentloop.StopFinal}}
-	a := compose("testdb", res, nil, nil)
+	a := compose("testdb", res, nil)
 	if len(a.NotVerified) != 1 || a.NotVerified[0] != "Nothing about replication was observed." {
 		t.Fatalf("not verified = %q", a.NotVerified)
 	}
@@ -98,7 +98,7 @@ func TestCompose_NotesWithNumbersAreDropped(t *testing.T) {
 func TestCompose_TooManyNotesAreCapped(t *testing.T) {
 	notes := []string{"a one", "b two", "c three", "d four", "e five", "f six", "g seven"}
 	a := compose("testdb", agentloop.Result{Final: finalWith(t, notes...),
-		Transcript: agentloop.Transcript{Stop: agentloop.StopFinal}}, nil, nil)
+		Transcript: agentloop.Transcript{Stop: agentloop.StopFinal}}, nil)
 	if len(a.NotVerified) != MaxNotes {
 		t.Fatalf("kept %d notes, want %d", len(a.NotVerified), MaxNotes)
 	}
@@ -118,7 +118,7 @@ func TestCompose_StopsMapToStatuses(t *testing.T) {
 	}
 	for stop, want := range cases {
 		a := compose("testdb", agentloop.Result{Transcript: agentloop.Transcript{Stop: stop}},
-			nil, nil)
+			nil)
 		if a.Status != want || a.Stop != stop || len(a.Statements) != 0 {
 			t.Errorf("stop %s: status %s, want %s", stop, a.Status, want)
 		}
@@ -131,10 +131,11 @@ func TestCompose_StopsMapToStatuses(t *testing.T) {
 func TestCompose_UnfinishedRunKeepsNoClaims(t *testing.T) {
 	// A run that stopped without the final answer has no claims, even if
 	// the loop result carried some (defense in depth).
-	res := agentloop.Result{Claims: []agentloop.Claim{{Text: "x", EvidenceIDs: []string{"a:1"}}},
+	res := agentloop.Result{Claims: []agentloop.Claim{{Text: "x", EvidenceIDs: []string{"a:1"},
+		Aliases: []string{"E1"}}}, Evidence: map[string]agentloop.Evidence{"E1": ev("a:1", "x")},
 		Transcript: agentloop.Transcript{Stop: agentloop.StopMaxSteps}}
-	if a := compose("testdb", res, map[string]agentloop.Evidence{"a:1": ev("a:1", "x")},
-		nil); len(a.Statements) != 0 || a.Status != StatusIncomplete {
+	if a := compose("testdb", res, nil); len(a.Statements) != 0 ||
+		a.Status != StatusIncomplete {
 		t.Fatalf("answer = %+v", a)
 	}
 }
@@ -143,9 +144,11 @@ func TestCompose_ClaimCitingUnknownEvidenceIsDropped(t *testing.T) {
 	// The loop maps aliases to ids; an id compose does not know (a bug or a
 	// tampered result) never becomes a citation.
 	res := agentloop.Result{Final: finalWith(t),
-		Claims:     []agentloop.Claim{{Text: "made up", EvidenceIDs: []string{"finding:9"}}},
+		Claims: []agentloop.Claim{{Text: "made up", EvidenceIDs: []string{"finding:9"},
+			Aliases: []string{"E9"}}},
+		Evidence:   map[string]agentloop.Evidence{},
 		Transcript: agentloop.Transcript{Stop: agentloop.StopFinal}}
-	a := compose("testdb", res, map[string]agentloop.Evidence{}, nil)
+	a := compose("testdb", res, nil)
 	if len(a.Statements) != 0 || len(a.Citations) != 0 || a.Status != StatusNotObserved {
 		t.Fatalf("answer = %+v", a)
 	}
@@ -158,7 +161,7 @@ func TestCompose_ActionsAreReportedEvenWithoutClaims(t *testing.T) {
 	acts := []ActionTaken{{Kind: ActionProposal, ID: "77", Status: ActionQueued,
 		Verdict: "queue_approval"}}
 	a := compose("testdb", agentloop.Result{Final: finalWith(t),
-		Transcript: agentloop.Transcript{Stop: agentloop.StopFinal}}, nil, acts)
+		Transcript: agentloop.Transcript{Stop: agentloop.StopFinal}}, acts)
 	if len(a.Actions) != 1 || a.Actions[0].ID != "77" ||
 		!strings.Contains(a.Text, "proposal 77") {
 		t.Fatalf("answer = %+v", a)

@@ -11,10 +11,6 @@ import (
 	"github.com/pg-sage/sidecar/internal/verify"
 )
 
-// maintenanceGainShare is the share of the baseline VACUUM/ANALYZE must
-// remove to be an improvement.
-const maintenanceGainShare = 0.5
-
 // statsSettle bounds how long the post-action read waits for the
 // statistics to show the action (PG14 reports through the collector).
 const statsSettle = 3 * time.Second
@@ -27,11 +23,15 @@ func (e *Executor) verifyImmediate(ctx context.Context, actionID int64) {
 	if actionID <= 0 || e.pool == nil {
 		return
 	}
-	o, table, err := loadImmediate(ctx, e.pool, actionID)
+	o, state, err := loadImmediate(ctx, e.pool, actionID)
 	if err != nil {
 		e.logFn("verify", "verify action %d: %v", actionID, err)
 		return
 	}
+	if e.settleSkippedVacuum(ctx, o, state) {
+		return
+	}
+	table := state.Table
 	switch {
 	case o.Class != verify.ClassVacuum && o.Class != verify.ClassAnalyze:
 		o.Verdict = verify.OutcomeUnverifiable
@@ -52,24 +52,30 @@ func (e *Executor) verifyImmediate(ctx context.Context, actionID int64) {
 	settleOutcome(ctx, e.pool, o, e.logFn)
 }
 
+// immediateState is what an immediately verified action's before_state
+// carries: its prediction, the table it maintains and, for a VACUUM, the
+// table's vacuum_count before it ran.
+type immediateState struct {
+	Predicted   *verify.Prediction `json:"predicted_effect"`
+	Table       string             `json:"maintenance_table"`
+	VacuumCount *float64           `json:"vacuum_count_before"`
+}
+
 func loadImmediate(
 	ctx context.Context, pool *pgxpool.Pool, actionID int64,
-) (verify.Outcome, string, error) {
+) (verify.Outcome, immediateState, error) {
 	var sql string
 	var raw []byte
 	var executedAt time.Time
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT sql_executed, executed_at,
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT sql_executed, executed_at,
 		COALESCE(before_state, '{}'::jsonb) FROM sage.action_log WHERE id = $1`, actionID).
 		Scan(&sql, &executedAt, &raw)
 	if err != nil {
-		return verify.Outcome{}, "", fmt.Errorf("load action: %w", err)
+		return verify.Outcome{}, immediateState{}, fmt.Errorf("load action: %w", err)
 	}
-	var state struct {
-		Predicted *verify.Prediction `json:"predicted_effect"`
-		Table     string             `json:"maintenance_table"`
-	}
+	var state immediateState
 	if err := json.Unmarshal(raw, &state); err != nil {
-		return verify.Outcome{}, "", fmt.Errorf("decode before_state: %w", err)
+		return verify.Outcome{}, immediateState{}, fmt.Errorf("decode before_state: %w", err)
 	}
 	class := verificationClass(sql)
 	o := verify.Outcome{ActionLogID: actionID, Class: class, WindowStart: &executedAt,
@@ -77,7 +83,7 @@ func loadImmediate(
 	if state.Predicted != nil {
 		o.Predicted = *state.Predicted
 	}
-	return o, state.Table, nil
+	return o, state, nil
 }
 
 // settledMaintenanceMetric reads the metric after the action, waiting up
@@ -105,12 +111,14 @@ func settledMaintenanceMetric(
 
 // maintenanceMetricSQL reads each maintenance metric of a table ($1).
 var maintenanceMetricSQL = map[string]string{
-	verify.MetricDeadTuples: `/* pg_sage */ SELECT n_dead_tup::float8
+	verify.MetricDeadTuples: `/* pg_sage executor */ SELECT n_dead_tup::float8
 		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
-	verify.MetricModsSinceAnalyze: `/* pg_sage */ SELECT n_mod_since_analyze::float8
+	verify.MetricModsSinceAnalyze: `/* pg_sage executor */ SELECT n_mod_since_analyze::float8
 		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
-	verify.MetricFrozenXIDAge: `/* pg_sage */ SELECT age(relfrozenxid)::float8
+	verify.MetricFrozenXIDAge: `/* pg_sage executor */ SELECT age(relfrozenxid)::float8
 		FROM pg_class WHERE oid = to_regclass($1)`,
+	metricVacuumCount: `/* pg_sage executor */ SELECT COALESCE(vacuum_count, 0)::float8
+		FROM pg_stat_user_tables WHERE relid = to_regclass($1)`,
 }
 
 // readMaintenanceMetric reads a table's dead tuples (VACUUM), rows
@@ -140,33 +148,11 @@ func judgeMaintenance(class string, before, after float64) metricJudgement {
 }
 
 // judgeMaintenanceMetric decides VACUUM/ANALYZE from the metric before
-// and after: improved when at least half of it went, neutral when less did
-// (an old snapshot holding dead tuples back), insufficient when there was
-// nothing to remove.
+// and after, by the bar shadow mode shares (verify.JudgeMaintenanceMetric).
 func judgeMaintenanceMetric(class, metric string, before, after float64) metricJudgement {
-	j := metricJudgement{Before: before, After: after, Metric: metric}
-	switch {
-	case class != verify.ClassVacuum && class != verify.ClassAnalyze:
-		j.Verdict, j.Reason = verify.OutcomeUnverifiable, "no maintenance metric for "+class
-		return j
-	case before < 0 || after < 0:
-		j.Verdict, j.Reason = verify.OutcomeUnverifiable, metric+" could not be read"
-		return j
-	case before < 1:
-		j.Verdict, j.Reason = verify.OutcomeInsufficient, "nothing to remove before the "+
-			"action ("+metric+" was 0)"
-		return j
-	}
-	change := (after - before) * 100 / before
-	j.ObservedPct = &change
-	if after <= before*(1-maintenanceGainShare) {
-		j.Verdict = verify.OutcomeImproved
-		j.Reason = fmt.Sprintf("%s fell from %.0f to %.0f", metric, before, after)
-		return j
-	}
-	j.Verdict = verify.OutcomeNeutral
-	j.Reason = fmt.Sprintf("%s barely moved (%.0f -> %.0f)", metric, before, after)
-	return j
+	j := verify.JudgeMaintenanceMetric(class, metric, before, after)
+	return metricJudgement{Verdict: j.Verdict, ObservedPct: j.ObservedPct, Reason: j.Reason,
+		Metric: j.Metric, Before: j.Before, After: j.After}
 }
 
 // retentionVerdict judges a retention batch: improved when the verified

@@ -126,11 +126,15 @@ func TestStore_HeartbeatExtendsWithinSegment(t *testing.T) {
 	if err != nil || !b.Until.After(a.Until) || b.Until.After(b.SegmentDeadline) {
 		t.Fatalf("heartbeat = %+v (%v), want a later lease within the segment", b, err)
 	}
-	var stored time.Time
-	if err := pool.QueryRow(ctx, `SELECT lease_until FROM sage.sre_investigations
-		WHERE id = $1`, string(inv.ID)).Scan(&stored); err != nil ||
-		!stored.Equal(b.Until) {
-		t.Fatalf("stored lease_until %v, want the extension %v (%v)", stored, b.Until, err)
+	// sre-12: b.Until is a host deadline, not the stored timestamp; the
+	// stored lease must have at least the time left the host counts on.
+	var storedLeft float64
+	if err := pool.QueryRow(ctx, `SELECT EXTRACT(EPOCH FROM lease_until
+		- clock_timestamp())::float8 FROM sage.sre_investigations
+		WHERE id = $1`, string(inv.ID)).Scan(&storedLeft); err != nil ||
+		time.Duration(storedLeft*float64(time.Second)) < time.Until(b.Until) {
+		t.Fatalf("stored lease has %.3fs left, want at least the extension's %v (%v)",
+			storedLeft, time.Until(b.Until), err)
 	}
 	if _, err := st.CommitStep(ctx, b, step("hb", StateCollecting)); err != nil {
 		t.Fatalf("commit on the extended lease: %v", err)

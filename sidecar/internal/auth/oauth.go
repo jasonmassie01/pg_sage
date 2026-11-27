@@ -7,16 +7,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // OIDCDiscovery holds endpoints from .well-known/openid-configuration.
@@ -31,13 +34,25 @@ type OIDCDiscovery struct {
 
 // OAuthProvider manages OAuth2/OIDC authentication flows.
 type OAuthProvider struct {
-	cfg       *config.OAuthConfig
+	cfg *config.OAuthConfig
+	// discMu guards discovery, verifier and outcome: the discovery loop
+	// replaces them while logins read them (apiauth-07). Read them through
+	// discovered() so one login sees one state.
+	discMu    sync.RWMutex
 	discovery *OIDCDiscovery
 	// verifier checks id_token signature, issuer, audience and expiry
 	// (CG-03); nil until OIDC discovery succeeds.
 	verifier *oidc.IDTokenVerifier
-	mu       sync.RWMutex
-	states   map[string]time.Time
+	outcome  discoveryOutcome
+	failures atomic.Uint64
+	// wait, jitter and logger are test seams; nil selects waitDiscovery,
+	// discoveryJitter and slog.Default().
+	wait   func(context.Context, time.Duration) bool
+	jitter func(time.Duration) time.Duration
+	logger *slog.Logger
+
+	mu     sync.RWMutex
+	states map[string]time.Time
 	// links binds a pending state to the account it will link (D7). An
 	// entry lives exactly as long as its state.
 	links map[string]LinkIntent
@@ -62,15 +77,22 @@ func NewOAuthProvider(
 		states:  make(map[string]time.Time),
 		links:   make(map[string]LinkIntent),
 		pending: make(map[string]pendingAuth),
-		client:  &http.Client{Timeout: 15 * time.Second},
+		client:  egress.HTTPClient(15 * time.Second),
 	}
 }
 
-// Discover fetches OIDC metadata or sets well-known provider
-// endpoints. Must be called before AuthorizationURL or Exchange.
+// Discover makes one attempt to fetch OIDC metadata (or set the static
+// GitHub endpoints) and records its outcome for Ready and the metrics. A
+// failure keeps any earlier good state; StartDiscovery retries.
 func (p *OAuthProvider) Discover(
 	ctx context.Context,
 ) error {
+	err := p.discover(ctx)
+	p.recordDiscovery(err)
+	return err
+}
+
+func (p *OAuthProvider) discover(ctx context.Context) error {
 	switch p.cfg.Provider {
 	case "github":
 		return p.discoverGitHub()
@@ -78,20 +100,22 @@ func (p *OAuthProvider) Discover(
 		return p.discoverOIDC(ctx, "https://accounts.google.com")
 	case "oidc":
 		if p.cfg.IssuerURL == "" {
-			return fmt.Errorf("oauth: issuer_url required for oidc provider")
+			return fmt.Errorf("%w: issuer_url required for oidc provider",
+				ErrDiscoveryMisconfigured)
 		}
 		return p.discoverOIDC(ctx, p.cfg.IssuerURL)
 	default:
-		return fmt.Errorf("oauth: unknown provider %q", p.cfg.Provider)
+		return fmt.Errorf("%w: unknown provider %q", ErrDiscoveryMisconfigured,
+			p.cfg.Provider)
 	}
 }
 
 func (p *OAuthProvider) discoverGitHub() error {
-	p.discovery = &OIDCDiscovery{
+	p.storeDiscovered(&OIDCDiscovery{
 		AuthorizationEndpoint: "https://github.com/login/oauth/authorize",
 		TokenEndpoint:         "https://github.com/login/oauth/access_token",
 		UserinfoEndpoint:      "https://api.github.com/user",
-	}
+	}, nil)
 	return nil
 }
 
@@ -125,7 +149,8 @@ func (p *OAuthProvider) LinkIntentForState(state string) LinkIntent {
 }
 
 func (p *OAuthProvider) authorizationURL(link LinkIntent) (string, string, error) {
-	if p.discovery == nil {
+	disc, _ := p.discovered()
+	if disc == nil {
 		return "", "", fmt.Errorf("oauth: discovery not performed")
 	}
 	state, err := randomState()
@@ -154,7 +179,7 @@ func (p *OAuthProvider) authorizationURL(link LinkIntent) (string, string, error
 	} else {
 		params.Set("scope", "user:email")
 	}
-	return p.discovery.AuthorizationEndpoint + "?" +
+	return disc.AuthorizationEndpoint + "?" +
 		params.Encode(), state, nil
 }
 
@@ -201,7 +226,7 @@ func (p *OAuthProvider) Exchange(
 	if !ok {
 		return Identity{}, fmt.Errorf("%w: invalid or expired state", ErrOAuthStateInvalid)
 	}
-	if p.discovery == nil {
+	if disc, _ := p.discovered(); disc == nil {
 		return Identity{}, fmt.Errorf("oauth: discovery not performed")
 	}
 	token, err := p.exchangeCode(ctx, code, secrets.codeVerifier)
@@ -323,10 +348,12 @@ func (p *OAuthProvider) exchangeCode(
 	if codeVerifier != "" {
 		data.Set("code_verifier", codeVerifier)
 	}
-	req, err := http.NewRequestWithContext(
-		ctx, http.MethodPost, p.discovery.TokenEndpoint,
-		strings.NewReader(data.Encode()),
-	)
+	disc, _ := p.discovered()
+	if disc == nil {
+		return tokenResponse{}, fmt.Errorf("oauth: discovery not performed")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, disc.TokenEndpoint,
+		strings.NewReader(data.Encode()))
 	if err != nil {
 		return tokenResponse{}, fmt.Errorf("oauth: building token request: %w", err)
 	}

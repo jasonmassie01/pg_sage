@@ -3,9 +3,11 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
+	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -21,7 +23,7 @@ func listChannelsHandler(
 			return
 		}
 		if channels == nil {
-			channels = []notify.Channel{}
+			channels = []store.ChannelListing{}
 		}
 		for i := range channels {
 			maskChannelSecrets(channels[i].Config)
@@ -70,13 +72,27 @@ func createChannelHandler(
 			internalError(w, r, "create channel", err)
 			return
 		}
+		seeded := seedClassRules(r, ns, id)
 		w.WriteHeader(http.StatusCreated)
 		jsonResponse(w, map[string]any{
-			"id":   id,
-			"name": req.Name,
-			"type": req.Type,
+			"id":                 id,
+			"name":               req.Name,
+			"type":               req.Type,
+			"class_rules_seeded": seeded,
 		})
 	}
+}
+
+// seedClassRules gives a fresh install's first channel the class rules
+// (ux-09a). A failure is logged: the channel exists and the operator can
+// still add rules by hand.
+func seedClassRules(r *http.Request, ns *store.NotificationStore, id int) int {
+	seeded, err := ns.SeedClassRules(r.Context(), id)
+	if err != nil {
+		slog.Warn("class rules not seeded for the first channel", "channel_id", id,
+			"error", err)
+	}
+	return seeded
 }
 
 func updateChannelHandler(
@@ -103,12 +119,7 @@ func updateChannelHandler(
 
 		existing, err := ns.GetChannel(r.Context(), id)
 		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "get channel", err)
+			notificationWriteError(w, r, "get channel", "channel not found", err)
 			return
 		}
 		if req.Name == "" {
@@ -126,17 +137,7 @@ func updateChannelHandler(
 			r.Context(), id, req.Name,
 			req.Config, enabled,
 		); err != nil {
-			if errors.Is(err, store.ErrValidation) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
-				return
-			}
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "update channel", err)
+			notificationWriteError(w, r, "update channel", "channel not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
@@ -154,12 +155,7 @@ func deleteChannelHandler(
 			return
 		}
 		if err := ns.DeleteChannel(r.Context(), id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "delete channel", err)
+			notificationWriteError(w, r, "delete channel", "channel not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
@@ -179,6 +175,10 @@ func testChannelHandler(
 		if err := ns.TestChannel(r.Context(), id); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				jsonError(w, "channel not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, store.ErrValidation) {
+				jsonError(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			// Never echo raw delivery errors: they can carry webhook
@@ -230,17 +230,7 @@ func createRuleHandler(
 			r.Context(), req.ChannelID,
 			req.Event, req.MinSeverity)
 		if err != nil {
-			if errors.Is(err, store.ErrValidation) {
-				jsonError(w, err.Error(),
-					http.StatusBadRequest)
-				return
-			}
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "channel not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "create rule", err)
+			notificationWriteError(w, r, "create rule", "channel not found", err)
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
@@ -264,12 +254,7 @@ func deleteRuleHandler(
 			return
 		}
 		if err := ns.DeleteRule(r.Context(), id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "rule not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "delete rule", err)
+			notificationWriteError(w, r, "delete rule", "rule not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
@@ -304,26 +289,33 @@ func updateRuleHandler(
 		if err := ns.UpdateRule(
 			r.Context(), id, *req.Enabled,
 		); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				jsonError(w, "rule not found",
-					http.StatusNotFound)
-				return
-			}
-			internalError(w, r, "update rule", err)
+			notificationWriteError(w, r, "update rule", "rule not found", err)
 			return
 		}
 		jsonResponse(w, map[string]string{"status": "updated"})
 	}
 }
 
+// listNotificationLogHandler serves the one notification log
+// (alerting-06c), filtered by ?database= like the other list endpoints:
+// a malformed name is 400, one pg_sage does not monitor is 404, and "all"
+// or none lists every database.
 func listNotificationLogHandler(
-	ns *store.NotificationStore,
+	ns *store.NotificationStore, mgr *fleet.DatabaseManager,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		database, ok := readDatabaseParam(w, r)
+		if !ok || rejectUnknownDatabase(w, mgr, database) {
+			return
+		}
+		if database == "all" {
+			database = ""
+		}
 		limit := parseIntDefault(
 			r.URL.Query().Get("limit"), 100)
-		entries, err := ns.ListLog(r.Context(), limit)
+		entries, err := ns.ListLogFor(r.Context(), database, limit)
 		if err != nil {
+			slog.Error("list notification log failed", "database", database, "error", err)
 			jsonError(w, "failed to list log",
 				http.StatusInternalServerError)
 			return
@@ -350,11 +342,9 @@ func defaultRuleSeverity(event, requested string) string {
 // than 8 characters are partially shown (first 4 + last 4); shorter
 // values are fully masked.
 func maskChannelSecrets(config map[string]string) {
-	sensitiveKeys := []string{
-		"webhook_url", "routing_key", "smtp_pass",
-		"smtp_password", "api_key", "token", "secret",
-		"signing_secret", "bot_token", "webhook_secret",
-	}
+	// Every key the store seals, so a new channel type's credential is
+	// masked too (market-14: webhook headers were returned in full).
+	sensitiveKeys := notify.SecretConfigKeys
 	for _, key := range sensitiveKeys {
 		if v, ok := config[key]; ok && len(v) > 8 {
 			config[key] = v[:4] + "****" + v[len(v)-4:]

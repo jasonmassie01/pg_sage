@@ -117,8 +117,13 @@ func readTrends(t *testing.T, ctx context.Context, tx pgx.Tx, sql string) []tren
 	var out []trendRow
 	for rows.Next() {
 		var r trendRow
-		if err := rows.Scan(&r.kind, &r.subject, &r.samples, &r.firstAt, &r.lastAt,
-			&r.lastValue, &r.lastLimit, &r.rate, &r.r2); err != nil {
+		var valueRate *float64 // v3's value_rate_per_s; v1 has no such column
+		dest := []any{&r.kind, &r.subject, &r.samples, &r.firstAt, &r.lastAt,
+			&r.lastValue, &r.lastLimit, &r.rate, &r.r2}
+		if len(rows.FieldDescriptions()) > len(dest) {
+			dest = append(dest, &valueRate)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			t.Fatal(err)
 		}
 		out = append(out, r)

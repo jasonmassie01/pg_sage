@@ -21,9 +21,11 @@ import (
 // the contest is recorded (model_disagreed, Summary.ModelContest).
 
 // RootAuthority decides, per incident family, whether the model may
-// override a conclusive graph root.
+// override a conclusive graph root. model is the model the investigator
+// runs at the moment of the question (llm-01): authority measured with
+// another model, or a question with no model (""), is never granted.
 type RootAuthority interface {
-	ModelRootAuthority(ctx context.Context, family string) (RootGrant, error)
+	ModelRootAuthority(ctx context.Context, family, model string) (RootGrant, error)
 }
 
 // RootGrant is a family's authority and why.
@@ -55,8 +57,10 @@ type ModelContest struct {
 	Reason    string `json:"reason"`
 }
 
-// rootAuthority asks the authority for family, bounded in time. A missing
-// authority or a failed lookup is advisory, logged, never fatal.
+// rootAuthority asks the authority for family and the model the client
+// runs now (so a hot reload applies to the next question), bounded in
+// time. A missing authority or a failed lookup is advisory, logged, never
+// fatal.
 func (c *Coordinator) rootAuthority(ctx context.Context, inv Investigation,
 	family string) RootGrant {
 	if c.authority == nil {
@@ -65,7 +69,7 @@ func (c *Coordinator) rootAuthority(ctx context.Context, inv Investigation,
 	}
 	ctx, cancel := context.WithTimeout(ctx, rootAuthorityTimeout)
 	defer cancel()
-	g, err := c.authority.ModelRootAuthority(ctx, family)
+	g, err := c.authority.ModelRootAuthority(ctx, family, c.runningModel())
 	if err != nil {
 		c.logFn("WARN", "sre: investigation %s: reading the model root authority for %s "+
 			"failed, the model's root stays advisory: %v", inv.ID, family, err)
@@ -77,6 +81,15 @@ func (c *Coordinator) rootAuthority(ctx context.Context, inv Investigation,
 		g.Reason = "no reason given"
 	}
 	return g
+}
+
+// runningModel is the model the investigator's client runs now ("" with
+// no client).
+func (c *Coordinator) runningModel() string {
+	if c.model == nil {
+		return ""
+	}
+	return c.model.Model()
 }
 
 // adoptRoot re-roots a conclusive diagnosis on node, an open (contributing

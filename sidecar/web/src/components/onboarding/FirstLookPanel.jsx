@@ -1,4 +1,11 @@
 import { useAPI } from '../../hooks/useAPI'
+import { summarizes } from '../../lib/fleetScope'
+import { FirstLookSummary } from './FirstLookSummary'
+import { entryErrorText } from './entryError'
+import { LoadError } from './LoadError'
+import { RecheckButton } from './RecheckButton'
+import { useRecheckedRefetch } from './recheck'
+import { GradeChip } from '../review/GradeChip'
 
 // FirstLookPanel shows the catalog-only first look: what a DBA would flag
 // on day one, each finding with the catalog evidence it rests on. Suggested
@@ -94,41 +101,137 @@ function PostureSection({ report }) {
   )
 }
 
-function Report({ entry }) {
+// countOf is n with word, plural unless n is 1.
+function countOf(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+// splitNote separates a check's note from the GRANT that fixes it, so the
+// SQL can be shown (and copied) on its own.
+function splitNote(note) {
+  const text = note || ''
+  const at = text.search(/\bGRANT /)
+  if (at < 0) return { prose: text, sql: '' }
+  return { prose: text.slice(0, at).replace(/[\s;:,]+$/, ''), sql: text.slice(at).trim() }
+}
+
+function CheckRow({ check }) {
+  const { prose, sql } = splitNote(check.note)
+  const degraded = check.status === 'degraded'
+  return (
+    <li className="rounded border p-2 text-sm"
+      style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+      <div className="flex items-start gap-2">
+        <span className="text-xs font-semibold uppercase"
+          style={{ color: degraded ? 'var(--yellow)' : 'var(--text-secondary)' }}>
+          {degraded ? 'could not run' : 'partial'}
+        </span>
+        <span className="font-mono text-xs">{check.rule}</span>
+      </div>
+      {prose && <p className="mt-1">{prose}</p>}
+      {sql && (
+        <pre className="mt-1 overflow-x-auto rounded p-2 text-xs"
+          style={{ background: 'var(--bg-primary)' }}>{sql}</pre>
+      )}
+    </li>
+  )
+}
+
+// ChecksStrip lists the catalog checks that could not run (first) and those
+// that found more than the report shows, each with its reason and fix.
+function ChecksStrip({ database, checks }) {
+  const degraded = checks.filter(c => c.status === 'degraded')
+  const truncated = checks.filter(c => c.status !== 'degraded' && c.truncated)
+  if (degraded.length === 0 && truncated.length === 0) return null
+  let summary = countOf(checks.length, 'check')
+  if (degraded.length > 0) summary += `, ${degraded.length} could not run`
+  if (truncated.length > 0) summary += `, ${truncated.length} not shown in full`
+  return (
+    <section className="space-y-2" aria-labelledby={`checks-${database}`}>
+      <h3 id={`checks-${database}`} className="text-sm font-semibold">Catalog checks</h3>
+      <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>{summary}.</p>
+      <ul className="space-y-2">
+        {[...degraded, ...truncated].map(c => <CheckRow key={c.rule} check={c} />)}
+      </ul>
+    </section>
+  )
+}
+
+// emptyText is what an empty catalog item list means: healthy only when
+// every catalog check ran.
+function emptyText(checks) {
+  const degraded = checks.filter(c => c.status === 'degraded').length
+  if (degraded === 0) return 'No problems found in the catalog.'
+  const ran = checks.length - degraded
+  if (ran === 0) {
+    if (degraded === 1) return 'The one catalog check could not run, so nothing is known yet.'
+    return `None of the ${degraded} catalog checks could run, so nothing is known yet.`
+  }
+  const that = ran === 1 ? 'check that ran' : 'checks that ran'
+  return `No problems found in the ${ran} ${that}; ${degraded} could not run.`
+}
+
+function Report({ entry, user }) {
   const report = entry.report
+  if (entry.error) {
+    return (
+      <p className="text-sm" style={{ color: 'var(--yellow)' }} data-db-block="">
+        {entryErrorText(entry.error, entry.database)}
+      </p>
+    )
+  }
   if (!report) {
     return (
-      <p role="status" className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+      <p role="status" className="text-sm" style={{ color: 'var(--text-secondary)' }}
+        data-db-block="">
         First look running for {entry.database}…
       </p>
     )
   }
   const items = (report.items || []).filter(i => i.section !== POSTURE)
+  const checks = (report.checks || []).filter(c => c.section !== POSTURE)
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" data-db-block="">
       <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
         {entry.database}: {Number(report.relations || 0).toLocaleString('en-US')} relations
         read in {report.duration_ms} ms, catalog only.
+        <RecheckButton database={entry.database} user={user} />
       </p>
+      <GradeChip database={entry.database} firstLook />
       {report.summary && <p className="text-sm font-medium">{report.summary}</p>}
       {items.length === 0 ? (
-        <p className="text-sm">No problems found in the catalog.</p>
+        <p className="text-sm">{emptyText(checks)}</p>
       ) : items.map((item, i) => (
         <FindingCard key={`${item.rule}-${item.object}-${i}`} item={item} />
       ))}
+      <ChecksStrip database={report.database} checks={checks} />
       <PostureSection report={report} />
     </div>
   )
 }
 
-export function FirstLookPanel({ database }) {
-  const { data } = useAPI(firstLookURL(database), 30000)
+// FirstLookPanel shows each database's report, or in the "all" scope of a
+// fleet of FLEET_SUMMARY_FROM or more the fleet summary (ux-10b).
+export function FirstLookPanel({ database, user, onSelectDatabase }) {
+  const { data, error, refetch } = useAPI(firstLookURL(database), 30000)
+  useRecheckedRefetch(refetch)
+  if (error && !data) {
+    return (
+      <section className="space-y-3" aria-labelledby="first-look-heading">
+        <h2 id="first-look-heading" className="text-lg font-semibold">First look</h2>
+        <LoadError what="First look" error={error} onRetry={refetch} />
+      </section>
+    )
+  }
   const entries = data?.databases || []
   if (entries.length === 0) return null
+  if (summarizes(database, entries.length)) {
+    return <FirstLookSummary entries={entries} onSelectDatabase={onSelectDatabase} />
+  }
   return (
     <section className="space-y-3" aria-labelledby="first-look-heading">
       <h2 id="first-look-heading" className="text-lg font-semibold">First look</h2>
-      {entries.map(entry => <Report key={entry.database} entry={entry} />)}
+      {entries.map(entry => <Report key={entry.database} entry={entry} user={user} />)}
     </section>
   )
 }

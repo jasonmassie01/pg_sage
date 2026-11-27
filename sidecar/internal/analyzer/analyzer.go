@@ -8,10 +8,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/pg-sage/sidecar/internal/baseline"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/recommendation"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/selfcost"
 )
 
@@ -74,19 +76,27 @@ type Analyzer struct {
 	forecaster   WorkloadForecaster
 	tuner        QueryTuner
 	rcaEngine    RCAEngine
+	lockObs      *LockChainObserver // nil records no lock-chain observation
 	detectors    []SupplementalDetector
 	planNarrator PlanNarrator
+	// flipDB reads the plan-flip rule's evidence; nil reads the pool.
+	flipDB       planFlipDB
 	logFn        func(string, string, ...any)
 	dispatcher   EventDispatcher
 	databaseName string
 	mu           sync.RWMutex
-	findings     []Finding
+	// cycleMu is held by every cycle and every out-of-cycle run.
+	cycleMu  cycleLock
+	findings []Finding
 	// notifiedAt records the last critical notification per identity;
 	// only touched by the cycle goroutine.
 	notifiedAt map[string]time.Time
 	// eval tracks evaluated categories for the running cycle; only
 	// touched by the cycle goroutine.
 	eval *cycleEval
+	// suppressions overrides the source of the publish-time suppression
+	// filter; nil reads the pool. Tests set it to inject a failure.
+	suppressions rowsQuerier
 	// lastAnalyzed and lastAnalyzedAt identify the newest snapshot a
 	// cycle has already consumed; only touched by the cycle goroutine.
 	lastAnalyzed   *collector.Snapshot
@@ -99,19 +109,57 @@ type Analyzer struct {
 	// cloneTracker remembers clone-family activity across cycles; only
 	// touched by the cycle goroutine.
 	cloneTracker *cloneTracker
-	// history remembers the regression baseline's decoded snapshots.
-	history historyCache
 	// selfCost meters pg_sage's own cost on this database (perf v1.8.3);
 	// read concurrently by /metrics.
 	selfCost *selfcost.Meter
+	// selfStatements samples pg_sage's pg_stat_statements entries with a
+	// key cache; readSageSchema reads the sage schema, once per cycle
+	// (sageSchemaReading keeps the cycle's reading in schemaMemo).
+	selfStatements *selfcost.Sampler
+	readSageSchema func(context.Context, selfcost.Querier) (selfcost.Schema, error)
+	schemaMemo     *cycleSchema
 	// selfBudget meters the declared self-budget (CPU, loops); read
 	// concurrently by /metrics.
 	selfBudget *selfBudgetMeter
+	// loops replaces the process-wide loop tracker (tests).
+	loops *selfbudget.Loops
 	// historyBytes caches this database's share of the meta database's
 	// history store (history.store: meta), for the storage self-budget.
 	historyBytes historyStorageCache
 	// factFilter applies the confirmed facts (roadmap 2.3); nil: none.
 	factFilter FactFilter
+	// unusedClock persists the unused_index zero-scan clock (rules-04);
+	// only touched by the cycle goroutine.
+	unusedClock *unusedClockStore
+	// baselines keeps the hour-of-week buckets (market-02); nil leaves
+	// workload_anomaly unevaluated. anomalies and seasonal (the cycle's
+	// active statement buckets, for query_regression) are only touched by
+	// the cycle goroutine.
+	baselines BaselineStore
+	anomalies anomalyTracker
+	seasonal  map[int64]baseline.Score
+
+	// indexFloor is the deterministic index floor (WithIndexFloor, indexes-12);
+	// floorReader overrides its open-findings source (tests; nil reads the
+	// catalog).
+	indexFloor  IndexFloor
+	floorReader rowsQuerier
+
+	// freezeHorizons is the database's freeze sampler (WithFreezeHorizons).
+	freezeHorizons FreezeHorizonSource
+
+	// extGate finds pg_cron and pg_partman (market-16); nil reads
+	// pg_extension. Tests inject it.
+	extGate extGateFunc
+
+	// rulePack is this database's disabled-rules override and checks its
+	// owner-defined read-only checks (market-11); nil runs none.
+	rulePack rulePackState
+	checks   *customCheckRunner
+
+	// instanceOwner names the fleet database that owns this database's
+	// instance (WithInstanceOwner); nil reports cluster-wide findings here.
+	instanceOwner func() (owner string, isOwner bool)
 }
 
 // PlanNarrator enriches plan_regression findings with an LLM-generated
@@ -143,15 +191,22 @@ func New(
 		forecaster: fc,
 		tuner:      qt,
 		extras: &RuleExtras{
-			FirstSeen:        make(map[string]time.Time),
-			RecentlyCreated:  make(map[string]time.Time),
-			InvalidFirstSeen: make(map[string]time.Time),
-			IndexOID:         make(map[string]uint32),
+			FirstSeen:         make(map[string]time.Time),
+			RecentlyCreated:   make(map[string]time.Time),
+			InvalidFirstSeen:  make(map[string]time.Time),
+			IndexOID:          make(map[string]uint32),
+			InactiveSlotSince: make(map[string]time.Time),
 		},
-		logFn:      logFn,
-		recs:       newRecommendationStore(pool),
-		selfCost:   selfcost.NewMeter(),
-		selfBudget: newSelfBudgetMeter(),
+		logFn:       logFn,
+		recs:        newRecommendationStore(pool),
+		selfCost:    selfcost.NewMeter(),
+		selfBudget:  newSelfBudgetMeter(),
+		unusedClock: newUnusedClockStore(newPGUnusedClockDB(pool)),
+		baselines:   newBaselineStore(pool),
+		anomalies:   anomalyTracker{},
+
+		selfStatements: selfcost.NewSampler(logFn),
+		readSageSchema: selfcost.ReadSchema,
 	}
 }
 
@@ -164,6 +219,12 @@ func (a *Analyzer) WithDispatcher(d EventDispatcher) {
 // WithRCAEngine sets the root cause analysis engine for the analyzer.
 func (a *Analyzer) WithRCAEngine(e RCAEngine) {
 	a.rcaEngine = e
+}
+
+// WithLockChainObserver shares the database's lock-chain observer, which
+// the cycle's lock-chain check records into (migration-05).
+func (a *Analyzer) WithLockChainObserver(o *LockChainObserver) {
+	a.lockObs = o
 }
 
 // WithSupplementalDetector attaches a detector before the analyzer starts.

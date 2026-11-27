@@ -123,9 +123,11 @@ func TestChatWithTools_EffortErrorWithoutToolsIsAFailure(t *testing.T) {
 	})
 	c := wireClient(f.srv.URL, "gpt-6-luna", "", "", noopLog)
 	_, err := c.ChatWithTools(context.Background(), userMsgs(), nil, ToolOptions{})
-	if err == nil || f.calls.Load() != 1 || failureCount(c) != 1 {
-		t.Fatalf("err=%v requests=%d failures=%d, want one failure", err,
-			f.calls.Load(), failureCount(c))
+	// llm-02: the unadapted 400 is a caller rejection (uncounted).
+	if !errors.Is(err, ErrRequestRejected) || f.calls.Load() != 1 ||
+		failureCount(c) != 0 {
+		t.Fatalf("err=%v requests=%d failures=%d, want one uncounted rejection",
+			err, f.calls.Load(), failureCount(c))
 	}
 }
 

@@ -3,6 +3,7 @@
 // request and revoke a grant; a refusal shows its reason and the exact
 // statement to run.
 import { useCallback, useEffect, useState } from 'react'
+import { useConfirm } from '../../hooks/useConfirm'
 import { agentGrants, decideRequest, grantRequests, revokeGrant } from './agentsApi'
 import { Button, ErrorBox, Section, inputStyle, muted, when } from './ui'
 
@@ -69,6 +70,7 @@ function RequestRow({ r, onDecide, busy }) {
 function useActions(agentID, database, reload) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const { askConfirm, dialog } = useConfirm()
   async function run(fn) {
     setBusy(true)
     setError(null)
@@ -81,12 +83,15 @@ function useActions(agentID, database, reload) {
       setBusy(false)
     }
   }
-  const revoke = g => {
-    if (!confirm(`Revoke grant #${g.id} on ${g.object}? The agent loses it now.`)) return
-    run(() => revokeGrant(agentID, database, g.id))
+  const revoke = async g => {
+    const ok = await askConfirm({
+      title: `Revoke grant #${g.id} on ${g.object}`, action: 'Revoke', database,
+      consequence: 'The agent loses this grant now.',
+    })
+    if (ok) run(() => revokeGrant(agentID, database, g.id))
   }
   const decide = (r, verb) => run(() => decideRequest(agentID, database, r.id, verb))
-  return { busy, error, revoke, decide }
+  return { busy, error, revoke, decide, dialog }
 }
 
 function GrantLists({ list, actions }) {
@@ -135,6 +140,7 @@ function GrantsOn({ agent, databases }) {
         {databases.map(d => <option key={d} value={d}>{d}</option>)}
       </select>
       <GrantLists list={list} actions={actions} />
+      {actions.dialog}
     </>
   )
 }

@@ -18,7 +18,7 @@ import (
 // same-origin mutation protection. It grants no machine/source or agent identity
 // and deliberately does not enable the separate signed ingestion protocols.
 func registerAppSLISampleRoute(mux *http.ServeMux, mgr *fleet.DatabaseManager, cfg *config.Config) {
-	mux.Handle("POST /api/v1/sre/slos/{name}/samples", RequireRole(auth.RoleAdmin)(appSLISampleHandler(mgr, cfg)))
+	route(mux, "POST /api/v1/sre/slos/{name}/samples", gateAdmin, appSLISampleHandler(mgr, cfg))
 }
 
 func appSLISampleHandler(mgr *fleet.DatabaseManager, cfg *config.Config) http.HandlerFunc {

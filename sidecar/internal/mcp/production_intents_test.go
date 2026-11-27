@@ -7,6 +7,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testsupport/parsetree"
 	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
@@ -50,6 +51,7 @@ func TestProductionIntentExecutorPersistsContractAndConsumerMetadata(t *testing.
 }
 
 func TestApplyMigrationReturnsRewrittenRecommendationWithoutExecutingDDL(t *testing.T) {
+	parsetree.Require(t)
 	store := &recordingIntentStore{}
 	executor := NewProductionIntentExecutor(store, plan.NewPlanner())
 

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pg_sage outcomes</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:52rem;margin:2rem auto;padding:0 1rem;
+color:#1b1f24;background:#fff;line-height:1.5}
+table{border-collapse:collapse;margin:0.5rem 0 1.5rem}
+th,td{border:1px solid #c8ccd1;padding:0.25rem 0.6rem;text-align:right}
+th:first-child,td:first-child{text-align:left}
+.note{color:#57606a}
+@media (prefers-color-scheme: dark){body{color:#e6edf3;background:#0d1117}
+th,td{border-color:#30363d}.note{color:#8b949e}}
+</style>
+</head>
+<body>
+<h1>pg_sage outcomes: verified and reversible</h1>
+<p><strong>Sample data.</strong> This bundle is built from a fixture
+ledger and signed with a published sample key: it shows the format, not a result.</p>
+<p>90d window, 2026-08-03 to
+2026-11-01, over 1 database(s). Rubric
+<code>pg_sage-rubric/1</code>, format <code>pg_sage-outcomes/1</code>.</p>
+<p>40 changes in the window: 21 verified improved, 12 no change, 3 regressed, 3 inconclusive, 1 not judged yet; 3 reverted.</p>
+<h2>All changes</h2>
+<table><tr><th>Changes</th><th>Improved</th><th>No change</th><th>Regressed</th>
+<th>Inconclusive</th><th>Not judged yet</th><th>Reverted</th><th>Rollback failed</th></tr>
+<tr><td>40</td><td>21</td><td>12</td>
+<td>3</td><td>3</td><td>1</td><td>3</td>
+<td>1</td></tr></table>
+<h2>By action class</h2><table><tr><th></th><th>Changes</th><th>Improved</th><th>No change</th>
+<th>Regressed</th><th>Inconclusive</th><th>Not judged yet</th><th>Reverted</th>
+<th>Rollback failed</th></tr>
+<tr><td>create_index_concurrently</td><td>12</td><td>8</td><td>2</td>
+<td>1</td><td>1</td><td>0</td><td>2</td>
+<td>0</td></tr>
+<tr><td>analyze_table</td><td>10</td><td>6</td><td>3</td>
+<td>0</td><td>0</td><td>1</td><td>0</td>
+<td>0</td></tr>
+<tr><td>vacuum_table</td><td>7</td><td>3</td><td>2</td>
+<td>0</td><td>2</td><td>0</td><td>0</td>
+<td>0</td></tr>
+<tr><td>drop_unused_index</td><td>5</td><td>0</td><td>4</td>
+<td>1</td><td>0</td><td>0</td><td>1</td>
+<td>0</td></tr>
+<tr><td>other</td><td>6</td><td>4</td><td>1</td>
+<td>1</td><td>0</td><td>0</td><td>0</td>
+<td>1</td></tr>
+</table>
+<h2>By origin</h2><table><tr><th></th><th>Changes</th><th>Improved</th><th>No change</th>
+<th>Regressed</th><th>Inconclusive</th><th>Not judged yet</th><th>Reverted</th>
+<th>Rollback failed</th></tr>
+<tr><td>autonomous</td><td>24</td><td>15</td><td>5</td>
+<td>1</td><td>2</td><td>1</td><td>1</td>
+<td>0</td></tr>
+<tr><td>approved</td><td>11</td><td>4</td><td>6</td>
+<td>1</td><td>0</td><td>0</td><td>2</td>
+<td>0</td></tr>
+<tr><td>other</td><td>5</td><td>2</td><td>1</td>
+<td>1</td><td>1</td><td>0</td><td>0</td>
+<td>1</td></tr>
+</table>
+<h2>Reverted changes, by the verifier's verdict</h2>
+<table><tr><th>Verdict</th><th>Reverted</th></tr>
+<tr><td>improved</td><td>1</td></tr>
+<tr><td>regressed</td><td>2</td></tr>
+</table>
+<h2>Verifier false positives</h2>
+<p>Placebo back-test: 9 false positives in
+288 usable placebos over 1 back-test(s): 3.13%
+(95% upper bound 5.83%).</p>
+<p class="note">Classes and origins with fewer than 5 changes are
+counted under "other". The bundle holds counts and fixed codes only: no database
+names, hosts, SQL, identifiers or free text.</p>
+<p class="note">Check it: <code>pg_sage_sidecar evidence verify outcomes.tar.gz
+--public-key key.pem</code>, with the public key of signing key
+<code>8e9551e73b5e2f01</code>. <code>sha256sum -c SHA256SUMS</code> checks the
+loose files.</p>
+</body>
+</html>
+
+

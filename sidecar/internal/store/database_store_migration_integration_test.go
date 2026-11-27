@@ -74,7 +74,7 @@ func TestGetConnectionString_MigratesLegacyCiphertext(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			id := seedLegacyPassword(t, pool, name, legacyKey)
 			s := NewDatabaseStore(pool, currentKey).
-				WithKeyMigration(migrationPassphrase, migrationSalt)
+				WithKeyMigration(migrationPassphrase)
 
 			connStr, err := s.GetConnectionString(ctx, id)
 
@@ -101,7 +101,7 @@ func TestGetUpdateConnectionString_MigratesLegacyCiphertext(t *testing.T) {
 	id := seedLegacyPassword(t, pool, "legacy-update",
 		crypto.DeriveKeyV2Legacy(migrationPassphrase))
 	s := NewDatabaseStore(pool, currentKey).
-		WithKeyMigration(migrationPassphrase, migrationSalt)
+		WithKeyMigration(migrationPassphrase)
 	input := validInput()
 	input.Name = "legacy-update"
 	input.Password = ""
@@ -125,7 +125,7 @@ func TestGetConnectionString_WrongPassphraseStillFails(t *testing.T) {
 		crypto.DeriveKeyV1("a-different-passphrase"))
 	before := storedCiphertext(t, pool, id)
 	s := NewDatabaseStore(pool, crypto.DeriveKey(migrationPassphrase, migrationSalt)).
-		WithKeyMigration(migrationPassphrase, migrationSalt)
+		WithKeyMigration(migrationPassphrase)
 
 	if _, err := s.GetConnectionString(ctx, id); err == nil {
 		t.Fatal("wrong passphrase decrypted a credential")

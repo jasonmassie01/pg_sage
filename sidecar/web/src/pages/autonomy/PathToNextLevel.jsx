@@ -3,14 +3,39 @@
 // with its counts (from the server's "how") and, where the rule implies
 // one, an ETA. It explains the bar; it never lowers it. Roadmap 1.1
 // (2026-10-03): it shows each family's bench provenance and offers "Run
-// bench locally" where bench evidence is missing.
+// bench locally" where bench evidence is missing. earned-06 (2026-11-11):
+// it says until when each earned level holds, so a lapse is never a
+// surprise.
 
 import { checkText } from './checkText'
 import { BenchEvidence, RunBenchLocally } from './BenchEvidence'
+import { holdsText } from './holdsText'
+import { formatTime } from '../../lib/time'
 
 const card = { background: 'var(--bg-card)', borderColor: 'var(--border)' }
 const muted = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
+
+function held(families) {
+  return families.flatMap(f => (f.classes || [])
+    .filter(row => row.holds_until)
+    .map(row => ({ family: f.family, row })))
+}
+
+function Holding({ pairs }) {
+  if (pairs.length === 0) return null
+  return (
+    <div data-testid="path-holding" className="text-xs space-y-0.5">
+      {pairs.map(({ family, row }) => (
+        <div key={`${family}-${row.class}`} data-testid={`holds-${family}-${row.class}`}
+          style={muted}>
+          <span style={strong}>{family} / {row.class}</span>
+          {': '}{holdsText(row.granted, row.holds_until, row.expiring_checks)}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function climbable(families) {
   return families.flatMap(f => (f.classes || [])
@@ -26,10 +51,11 @@ export function PathToNextLevel({ families, benchRuns, canRunBench, onRunBench }
       data-testid="path-to-next-level">
       <h3 className="text-sm font-semibold" style={strong}>Path to next level</h3>
       <div data-testid="path-reviews-by-a-person" className="text-xs" style={muted}>
-        Only reviews by a person count: accept or reject finished investigations in Cases
+        Only reviews by a person count: accept or reject finished investigations in Issues
         (or the REST API). Reviews an agent records through MCP are kept but never count
         toward promotion.
       </div>
+      <Holding pairs={held(families)} />
       {pairs.length === 0 && (
         <div className="text-xs" style={muted}>
           Nothing left to earn here: every pair is at its cap or already has a
@@ -51,7 +77,8 @@ function PairPath({ family, row, bench }) {
   const unmet = (row.next.checks || []).filter(c => !c.met)
   const needsBench = unmet.some(c => c.name.startsWith('bench_'))
   return (
-    <div data-testid={`path-${family}-${row.class}`} className="text-xs">
+    <div id={`path-${family}-${row.class}`} data-testid={`path-${family}-${row.class}`}
+      className="text-xs">
       <div style={strong}>
         {family} / {row.class}: {row.granted} to {row.next.target}
       </div>
@@ -67,7 +94,7 @@ function PairPath({ family, row, bench }) {
               {checkText(c)}
               {c.eta && (
                 <span data-testid={`eta-${c.name}`} className="ml-1" style={strong}>
-                  (ETA {new Date(c.eta).toLocaleString()})
+                  (ETA {formatTime(c.eta)})
                 </span>
               )}
             </li>

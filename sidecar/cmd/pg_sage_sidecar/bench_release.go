@@ -41,6 +41,49 @@ var newBenchVerifier = func() (benchingest.Verifier, error) {
 	return v, nil
 }
 
+// verifierCache keeps the first verifier newBenchVerifier built without an
+// error. Every database's ingester asks for one on every tick, and each
+// build parses the embedded trusted root, so a fleet builds it once per
+// process; a failed build is not kept and is retried on the next ask.
+type verifierCache struct {
+	mu sync.Mutex
+	v  benchingest.Verifier
+}
+
+// benchVerifiers is the process's verifier cache.
+var benchVerifiers verifierCache
+
+// get is the cached verifier, built with build when there is none yet.
+func (c *verifierCache) get(build func() (benchingest.Verifier,
+	error)) (benchingest.Verifier, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.v != nil {
+		return c.v, nil
+	}
+	v, err := build()
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		return nil, errors.New("the release verifier is missing")
+	}
+	c.v = v
+	return v, nil
+}
+
+// reset forgets the cached verifier (tests swap newBenchVerifier).
+func (c *verifierCache) reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.v = nil
+}
+
+// benchVerifier is the process's release verifier.
+func benchVerifier() (benchingest.Verifier, error) {
+	return benchVerifiers.get(newBenchVerifier)
+}
+
 // runningBuild is this binary's build (ldflags), normalized.
 func runningBuild() earned.Build {
 	return earned.Build{Version: version, Commit: commit}.Normalized()
@@ -69,9 +112,9 @@ func benchIngester(svc *earned.Service, s config.SREAutonomyConfig) func(context
 		if err != nil {
 			logWarn("autonomy", "ingest bench reports: %v", err)
 		}
-		benchReplayNotices.note(res.Skipped, func(format string, args ...any) {
-			logInfo("autonomy", format, args...)
-		})
+		info := func(format string, args ...any) { logInfo("autonomy", format, args...) }
+		benchIngestNotices.note(res.Skipped, info)
+		benchIngestNotices.noteRefused(res.Refused, info)
 		if res.Added > 0 {
 			logInfo("autonomy", "ingested %d new PGIncidentBench reports (%d signed) for %s",
 				res.Added, res.Signed, svc.Build())
@@ -82,30 +125,49 @@ func benchIngester(svc *earned.Service, s config.SREAutonomyConfig) func(context
 	}
 }
 
-// replayNotices remembers the replay-corpus reports already logged as
-// skipped, so the hourly ingest tells each one once per process.
-type replayNotices struct {
+// benchNotices remembers the ingest notices already logged, keyed, so
+// the hourly ingest of every database tells each one once per process.
+type benchNotices struct {
 	mu   sync.Mutex
 	told map[string]bool
 }
 
-// benchReplayNotices is shared by every database's ledger.
-var benchReplayNotices replayNotices
+// benchIngestNotices is shared by every database's ledger.
+var benchIngestNotices benchNotices
 
-// note logs each skipped replay report not logged before.
-func (n *replayNotices) note(skipped []string, logf func(string, ...any)) {
+// first reports whether key is new, and remembers it.
+func (n *benchNotices) first(key string) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if n.told[key] {
+		return false
+	}
+	if n.told == nil {
+		n.told = map[string]bool{}
+	}
+	n.told[key] = true
+	return true
+}
+
+// note logs each skipped replay report not logged before.
+func (n *benchNotices) note(skipped []string, logf func(string, ...any)) {
 	for _, path := range skipped {
-		if n.told[path] {
-			continue
+		if n.first("replay:" + path) {
+			logf("skipping %s: a PGIncidentBench replay-corpus report, not a bench report",
+				path)
 		}
-		if n.told == nil {
-			n.told = map[string]bool{}
+	}
+}
+
+// noteRefused logs each refused report version (path and content hash)
+// not logged before: a rewritten file is told again.
+func (n *benchNotices) noteRefused(refused []benchingest.Refused,
+	logf func(string, ...any)) {
+	for _, r := range refused {
+		if n.first("refused:" + r.Path + "@" + r.SHA256) {
+			logf("bench report %s (sha256 %.12s) does not count: %s; it is logged once "+
+				"until the file changes", r.Path, r.SHA256, r.Reason)
 		}
-		n.told[path] = true
-		logf("skipping %s: a PGIncidentBench replay-corpus report, not a bench report",
-			path)
 	}
 }
 
@@ -113,7 +175,7 @@ func (n *replayNotices) note(skipped []string, logf func(string, ...any)) {
 // signed reports go in unsigned.
 func ingestBenchSources(ctx context.Context, svc *earned.Service,
 	sources []benchingest.Source) (benchingest.Result, error) {
-	verifier, err := newBenchVerifier()
+	verifier, err := benchVerifier()
 	if err != nil {
 		logWarn("autonomy", "bench report signatures cannot be verified (%v); signed "+
 			"reports are ingested as unsigned", err)
@@ -126,6 +188,7 @@ func ingestBenchSources(ctx context.Context, svc *earned.Service,
 		total.Files, total.Added = total.Files+res.Files, total.Added+res.Added
 		total.Signed += res.Signed
 		total.Skipped = append(total.Skipped, res.Skipped...)
+		total.Refused = append(total.Refused, res.Refused...)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -135,18 +198,19 @@ func ingestBenchSources(ctx context.Context, svc *earned.Service,
 
 // localBenchProvider is the disposable target of a local bench run: the
 // configured clone provider, else the local development database (game
-// days need not be on), else none. refused are the monitored and the
-// control databases' DSNs.
+// days need not be on), else none. guard refuses the monitored and the
+// control databases.
 func localBenchProvider(s config.SREAutonomyConfig, cloneCfg config.CloneProviderConfig,
-	refused []string) (clone.Provider, string, error) {
-	if cloneCfg.Provider == "dle" || cloneCfg.Provider == "snapshot" {
-		p, err := configuredMCPCloneProvider(cloneCfg)
+	guard localTargetGuard) (clone.Provider, string, error) {
+	if cloneCfg.Provider == "dle" || cloneCfg.Provider == clone.LakebaseAdapter ||
+		cloneCfg.Provider == clone.NeonAdapter || cloneCfg.Provider == clone.AuroraAdapter {
+		p, err := cloneProviderFor(cloneCfg, guard.own)
 		return p, cloneCfg.Provider, err
 	}
 	if s.GameDays.LocalDSN == "" {
 		return nil, "", nil
 	}
-	p, err := gameday.NewLocalProvider(s.GameDays.LocalDSN, refused)
+	p, err := gameday.NewLocalProvider(s.GameDays.LocalDSN, guard.dsns, guard.pools)
 	if err != nil {
 		return nil, "", err
 	}
@@ -157,8 +221,9 @@ func localBenchProvider(s config.SREAutonomyConfig, cloneCfg config.CloneProvide
 // run repeats until every family it covers reaches the promotion bar's
 // sample size, and its report is stamped with this build.
 func newLocalBenchFor(database string, svc *earned.Service, s config.SREAutonomyConfig,
-	cloneCfg config.CloneProviderConfig, refused []string) (*gameday.LocalBench, error) {
-	provider, name, err := localBenchProvider(s, cloneCfg, refused)
+	cloneCfg config.CloneProviderConfig, guard localTargetGuard) (*gameday.LocalBench,
+	error) {
+	provider, name, err := localBenchProvider(s, cloneCfg, guard)
 	if err != nil || provider == nil {
 		return nil, err
 	}
@@ -166,15 +231,21 @@ func newLocalBenchFor(database string, svc *earned.Service, s config.SREAutonomy
 	b := runningBuild()
 	faults := srebench.GameDayFaults{MinRunsPerFamily: max(th.MinTop1N, th.MinSafePassN),
 		PgSageVersion: b.Version, PgSageCommit: b.Commit}
+	store, err := gameday.NewStore(svc.Store().Pool(), svc.Store().DeploymentID())
+	if err != nil {
+		return nil, fmt.Errorf("local bench run store: %w", err)
+	}
 	return gameday.NewLocalBench(gameday.LocalBenchConfig{Database: database, Provider: name,
-		Log: func(format string, args ...any) { logWarn("autonomy", format, args...) }},
+		Store: store,
+		Log:   func(format string, args ...any) { logWarn("autonomy", format, args...) },
+		Warn:  func(format string, args ...any) { logWarn("autonomy", format, args...) }},
 		provider, faults, svc)
 }
 
 // startLocalBench registers the database's local bench for the API.
 func (rt *databaseRuntime) startLocalBench(svc *earned.Service, s config.SREAutonomyConfig) {
-	refused := append(monitoredDSNs(rt.spec.Pool), svc.Store().Pool().Config().ConnString())
-	bench, err := newLocalBenchFor(rt.spec.Name, svc, s, rt.cfg.Clone, refused)
+	bench, err := newLocalBenchFor(rt.spec.Name, svc, s, rt.cfg.Clone,
+		localTargetGuardFor(rt.spec.Pool, svc.Store().Pool()))
 	if err != nil {
 		logError("autonomy", "db %q: local bench runs off: %v", rt.spec.Name, err)
 		return
@@ -186,6 +257,11 @@ func (rt *databaseRuntime) startLocalBench(svc *earned.Service, s config.SREAuto
 	benches.Register(rt.spec.Name, bench)
 	name := rt.spec.Name
 	rt.start(func() {
+		if n, err := bench.AbandonStale(rt.ctx); err != nil {
+			logWarn("autonomy", "db %q: abandon stale local bench runs: %v", name, err)
+		} else if n > 0 {
+			logInfo("autonomy", "db %q: abandoned %d stale local bench run(s)", name, n)
+		}
 		<-rt.ctx.Done()
 		benches.Remove(name)
 	})
@@ -194,23 +270,38 @@ func (rt *databaseRuntime) startLocalBench(svc *earned.Service, s config.SREAuto
 // verifyReportFile verifies a report's <report>.sigstore.json bundle and,
 // when want is set, that it is the report of that commit.
 func verifyReportFile(path, want string) (benchsig.Signature, error) {
-	verifier, err := newBenchVerifier()
+	sig, _, err := readVerifiedReport(path, want)
+	return sig, err
+}
+
+// verifiedReport is a report and its bundle, as read and verified.
+type verifiedReport struct {
+	report, bundle []byte
+}
+
+// readVerifiedReport reads a report and its bundle once and verifies
+// those bytes, so a caller copying them copies exactly what verified.
+func readVerifiedReport(path, want string) (benchsig.Signature, verifiedReport, error) {
+	verifier, err := benchVerifier()
 	if err != nil {
-		return benchsig.Signature{}, fmt.Errorf("load the embedded Sigstore trusted root: %w",
-			err)
+		return benchsig.Signature{}, verifiedReport{},
+			fmt.Errorf("load the embedded Sigstore trusted root: %w", err)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return benchsig.Signature{}, fmt.Errorf("read report: %w", err)
+		return benchsig.Signature{}, verifiedReport{}, fmt.Errorf("read report: %w", err)
 	}
 	bundle, err := os.ReadFile(path + benchingest.BundleSuffix)
 	if err != nil {
-		return benchsig.Signature{}, fmt.Errorf("no signature bundle %s: %w",
-			path+benchingest.BundleSuffix, err)
+		return benchsig.Signature{}, verifiedReport{}, fmt.Errorf(
+			"no signature bundle %s: %w", path+benchingest.BundleSuffix, err)
 	}
 	sig, err := verifier.Verify(raw, bundle)
 	if err != nil {
-		return benchsig.Signature{}, err
+		return benchsig.Signature{}, verifiedReport{}, err
 	}
-	return sig, checkReportCommit(raw, sig, want)
+	if err := checkReportCommit(raw, sig, want); err != nil {
+		return benchsig.Signature{}, verifiedReport{}, err
+	}
+	return sig, verifiedReport{report: raw, bundle: bundle}, nil
 }

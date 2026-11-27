@@ -11,19 +11,16 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 		in   ResponseInput
 		kind ResponseKind
 		sql  string
-		park bool
 	}{
 		{
-			name: "xmin blocker first",
+			// vacuum-02: a 30-XID snapshot cannot pin a table at 160M, so the
+			// table is frozen (before, the oldest session was canceled instead).
+			name: "young session holder still freezes",
 			in: ResponseInput{Schema: "public", Table: "orders", Urgency: UrgencyRed,
-				Blocker: &XminBlocker{PID: 42, XminAge: 900, State: "idle in transaction"}},
-			kind: ResponseTerminateBlocker, sql: "pg_terminate_backend(42)",
-		},
-		{
-			name: "active xmin blocker is canceled",
-			in: ResponseInput{Schema: "public", Table: "orders", Urgency: UrgencyRed,
-				Blocker: &XminBlocker{PID: 43, XminAge: 800, State: "active"}},
-			kind: ResponseCancelBlocker, sql: "pg_cancel_backend(43)",
+				XIDAge: 160_000_000,
+				Holder: &XminBlocker{Kind: HolderSession, PID: 42, XminAge: 30,
+					State: "idle in transaction"}},
+			kind: ResponseVacuumFreeze, sql: `VACUUM (FREEZE) "public"."orders"`,
 		},
 		{
 			name: "freeze without blocker",
@@ -31,21 +28,17 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 			kind: ResponseVacuumFreeze, sql: `VACUUM (FREEZE) "public"."orders"`,
 		},
 		{
-			name: "safe autovacuum tuning",
-			in: ResponseInput{Schema: "public", Table: "orders", Urgency: UrgencyAmber,
-				DeadTupleRatio: 0.25},
-			kind: ResponseTuneAutovacuum, sql: "autovacuum_vacuum_scale_factor = 0.02",
-		},
-		{
 			name: "online bloat plan",
 			in: ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6,
+				BloatKnown: true, SizeBytes: 2 << 30, MinBloatBytes: 1 << 30,
 				PGRepackAvailable: true},
-			kind: ResponsePlanRepack, sql: "pg_repack", park: true,
+			kind: ResponsePlanRepack, sql: "pg_repack",
 		},
 		{
 			name: "park bloat without online tool",
-			in:   ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6},
-			kind: ResponseParkBloat, park: true,
+			in: ResponseInput{Schema: "public", Table: "orders", BloatRatio: 0.6,
+				BloatKnown: true, SizeBytes: 2 << 30, MinBloatBytes: 1 << 30},
+			kind: ResponseParkBloat,
 		},
 	}
 	for _, test := range tests {
@@ -54,7 +47,7 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PlanResponse: %v", err)
 			}
-			if response.Kind != test.kind || response.Park != test.park {
+			if response.Kind != test.kind {
 				t.Fatalf("response = %#v", response)
 			}
 			text := response.SQL + response.Plan
@@ -68,25 +61,15 @@ func TestPlanResponseUsesSafeOrderedLadder(t *testing.T) {
 	}
 }
 
-func TestPlanResponsePreservesBlockerEvidence(t *testing.T) {
-	response, err := PlanResponse(ResponseInput{
-		Schema: "public", Table: "orders", Urgency: UrgencyRed,
-		Blocker: &XminBlocker{PID: 77, XminAge: 1234, User: "app",
-			State: "idle in transaction", Query: "SELECT 1"},
-	})
-	if err != nil {
-		t.Fatalf("PlanResponse: %v", err)
-	}
-	if response.Evidence["pid"] != 77 || response.Evidence["xmin_age"] != int64(1234) ||
-		response.Evidence["user"] != "app" {
-		t.Fatalf("blocker evidence = %#v", response.Evidence)
-	}
-}
-
 func TestPlanResponseRejectsInvalidEvidence(t *testing.T) {
 	for _, input := range []ResponseInput{
 		{},
-		{Schema: "public", Table: "orders", Blocker: &XminBlocker{PID: -1}},
+		{Schema: "public", Table: "orders", XIDAge: 10,
+			Holder: &XminBlocker{Kind: HolderSession, PID: -1}},
+		{Schema: "public", Table: "orders", XIDAge: -1},
+		{Schema: "public", Table: "orders", XIDAge: 10, Holder: &XminBlocker{XminAge: 5}},
+		{Schema: "public", Table: "orders", XIDAge: 10,
+			Holder: &XminBlocker{Kind: HolderSlot, Name: "s", XminAge: -1}},
 		{Schema: "public", Table: "orders", DeadTupleRatio: 1.1},
 	} {
 		if _, err := PlanResponse(input); err == nil {

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -28,7 +29,8 @@ type fleetDatabasesOwner struct {
 // registerFleetDatabasesOwner makes YAML fleet databases reloadable. The
 // control database is fixed at startup.
 func registerFleetDatabasesOwner(boot *fleetBootstrap) {
-	if configController == nil || boot == nil {
+	if configController == nil || boot == nil ||
+		!modeRegistersOwner(config.FleetDatabasesOwner) {
 		return
 	}
 	owner := &fleetDatabasesOwner{
@@ -61,11 +63,13 @@ func (o *fleetDatabasesOwner) Prepare(
 		mgr: mgr, plan: plan,
 		next:     fleetDatabaseSettings{active: desired.Config},
 		previous: fleetDatabaseSettings{active: active.Config},
+		ceiling:  changedTrustCeiling(active.Config, desired.Config),
 	}
 	p.observe()
 	if err := o.prepareCandidates(ctx, p); err != nil {
 		return nil, errors.Join(err, p.discardCandidates())
 	}
+	p.seedCeilings(false)
 	logFleetReloadPlan(plan)
 	return p, nil
 }
@@ -108,7 +112,10 @@ type preparedFleetReload struct {
 	candidates []fleetCandidate
 	removals   []*fleet.DatabaseInstance
 	hot        []fleetHotChange
-	committed  bool
+	// ceiling is the trust ceiling this reload changes to (nil: unchanged);
+	// the runtimes it builds start under it (config-01).
+	ceiling   *executor.TrustCeiling
+	committed bool
 }
 
 // observe records the generation each change applies to. An added name

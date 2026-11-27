@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check:bundle": "node scripts/check-entry-chunk.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

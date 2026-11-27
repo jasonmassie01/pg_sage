@@ -30,10 +30,15 @@ var keyFields = map[string][]string{
 	"tables":       {"schemaname", "relname"},
 	"indexes":      {"schemaname", "indexrelname"},
 	"sequences":    {"schemaname", "sequencename"},
-	"foreign_keys": {"table_name", "constraint_name", "fk_column"},
+	"foreign_keys": {"schemaname", "table_name", "constraint_name"},
 	"partitions":   {"child_schema", "child_table"},
-	"queries":      {"queryid"},
-	"io":           {"backend_type", "object", "context"},
+	// partitioned (relkind I) indexes, absent from pg_stat_user_indexes
+	"partitioned_indexes": {"schemaname", "indexrelname"},
+	// btree bloat estimates (rules-13)
+	"index_bloat":    {"schemaname", "indexrelname"},
+	"queries":        {"queryid"},
+	"io":             {"backend_type", "object", "context"},
+	"prepared_xacts": {"gid"},
 }
 
 // objectCategories are object documents that are mostly static members

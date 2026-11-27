@@ -3,7 +3,6 @@ package tuner
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 )
@@ -16,6 +15,8 @@ type planNode struct {
 	JoinType            string     `json:"Join Type,omitempty"`
 	IndexName           string     `json:"Index Name,omitempty"`
 	PlanRows            int64      `json:"Plan Rows"`
+	TotalCost           float64    `json:"Total Cost"`
+	Disabled            bool       `json:"Disabled,omitempty"`    // PG18
 	ActualRows          *float64   `json:"Actual Rows,omitempty"` // PG18: 2 decimals
 	ActualLoops         *int64     `json:"Actual Loops,omitempty"`
 	SortMethod          *string    `json:"Sort Method,omitempty"`
@@ -25,12 +26,19 @@ type planNode struct {
 	OriginalHashBatches *int64     `json:"Original Hash Batches,omitempty"`
 	PeakMemoryUsage     *int64     `json:"Peak Memory Usage,omitempty"`
 	Filter              *string    `json:"Filter,omitempty"`
-	RowsRemovedByFilter *int64     `json:"Rows Removed by Filter,omitempty"`
+	RowsRemovedByFilter *float64   `json:"Rows Removed by Filter,omitempty"` // per loop
+	IndexCond           *string    `json:"Index Cond,omitempty"`
+	RecheckCond         *string    `json:"Recheck Cond,omitempty"`
+	JoinFilter          *string    `json:"Join Filter,omitempty"`
 	WorkersPlanned      *int       `json:"Workers Planned,omitempty"`
 	WorkersLaunched     *int       `json:"Workers Launched,omitempty"`
 	ParallelAware       bool       `json:"Parallel Aware,omitempty"`
 	ParentRelationship  string     `json:"Parent Relationship,omitempty"`
 	Plans               []planNode `json:"Plans,omitempty"`
+
+	// RowsRemovedByJoinFilter is a per-loop average, like Rows Removed by
+	// Filter; both are floats because PG18 may print decimals (market-10).
+	RowsRemovedByJoinFilter *float64 `json:"Rows Removed by Join Filter,omitempty"`
 }
 
 type planWrapper struct {
@@ -96,19 +104,35 @@ func walkNodeWithParent(
 
 func checkNode(node planNode, depth int, underGather bool, sc *scanContext) []PlanSymptom {
 	var out []PlanSymptom
+	if !sc.estimatesOnly {
+		out = append(out, actualsSymptoms(node, depth, sc)...)
+	}
+	if s := checkSeqScan(node, depth, sc); s != nil {
+		out = append(out, *s)
+	}
+	if s := checkParallelDisabled(node, depth, underGather, sc); s != nil {
+		out = append(out, *s)
+	}
+	return out
+}
+
+// actualsSymptoms are the rules that read an executed plan: disk sort,
+// hash spill, nested-loop misestimate and the plan anti-patterns (market-10).
+func actualsSymptoms(node planNode, depth int, sc *scanContext) []PlanSymptom {
+	var out []PlanSymptom
 	if s := checkDiskSort(node, depth); s != nil {
 		out = append(out, *s)
 	}
 	if s := checkHashSpill(node, depth); s != nil {
 		out = append(out, *s)
 	}
-	if s := checkBadNestedLoop(node, depth); s != nil {
+	if s := checkBadNestedLoop(node, depth, sc); s != nil {
 		out = append(out, *s)
 	}
-	if s := checkSeqScan(node, depth, sc); s != nil {
+	if s := checkIndexFilterInefficient(node, depth, sc); s != nil {
 		out = append(out, *s)
 	}
-	if s := checkParallelDisabled(node, depth, underGather, sc); s != nil {
+	if s := checkORJoinFilter(node, depth, sc); s != nil {
 		out = append(out, *s)
 	}
 	return out
@@ -145,30 +169,6 @@ func checkHashSpill(n planNode, depth int) *PlanSymptom {
 		NodeType:  n.NodeType,
 		NodeDepth: depth,
 		Detail:    detail,
-	}
-}
-
-func checkBadNestedLoop(
-	n planNode, depth int,
-) *PlanSymptom {
-	if n.NodeType != "Nested Loop" {
-		return nil
-	}
-	if n.ActualRows == nil || n.PlanRows <= 0 {
-		return nil
-	}
-	if *n.ActualRows <= float64(n.PlanRows*10) {
-		return nil
-	}
-	return &PlanSymptom{
-		Kind:        SymptomBadNestedLoop,
-		NodeType:    n.NodeType,
-		NodeDepth:   depth,
-		JoinAliases: joinAliases(n),
-		Detail: map[string]any{
-			"plan_rows":   n.PlanRows,
-			"actual_rows": int64(math.Round(*n.ActualRows)),
-		},
 	}
 }
 
@@ -219,9 +219,9 @@ func ExtractRelations(planJSON []byte) (map[string]bool, error) {
 	return out, nil
 }
 
-// planRelationNames returns the relation names (unqualified, as the
+// PlanRelationNames returns the relation names (unqualified, as the
 // catalog spells them) a plan scans, sorted and without duplicates.
-func planRelationNames(planJSON []byte) ([]string, error) {
+func PlanRelationNames(planJSON []byte) ([]string, error) {
 	root, err := parsePlanRoot(planJSON)
 	if err != nil {
 		return nil, fmt.Errorf("tuner: parse plan: %w", err)

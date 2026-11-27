@@ -75,3 +75,21 @@ func TestIdleFixtureProposalsSkipNonTestNames(t *testing.T) {
 		t.Fatal("IsTestSchemaName disagrees with the detector's pattern")
 	}
 }
+
+// A live schema that shares a family's prefix but is not a member (no
+// generated suffix) holds the family: confirming test_memory_* would hide
+// its traffic.
+func TestIdleFixtureProposalsLiveNonMemberHoldsTheFamily(t *testing.T) {
+	schemas := []SchemaActivity{{Name: "test_memory_a1b2", Tables: 1},
+		{Name: "test_memory_c3d4", Tables: 1},
+		{Name: "test_memory_live", Tables: 1, Activity: 12}}
+	if got := IdleFixtureProposals(schemas, 48*time.Hour, time.Now()); len(got) != 0 {
+		t.Fatalf("a family whose prefix matches a live schema gave %+v", got)
+	}
+}
+
+func TestIdleFixtureProposalsEmpty(t *testing.T) {
+	if got := IdleFixtureProposals([]SchemaActivity{}, 48*time.Hour, time.Now()); got != nil {
+		t.Fatalf("empty schemas gave %+v", got)
+	}
+}

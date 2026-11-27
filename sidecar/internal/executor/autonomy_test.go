@@ -25,8 +25,10 @@ func TestCustodianRequestCarriesTheIncidentFamily(t *testing.T) {
 	observed := time.Date(2026, 10, 2, 3, 0, 0, 0, time.UTC)
 	cases := map[string]string{
 		"freeze": "wraparound_runway", "freeze_blocker": "wraparound_runway",
-		"autovacuum_tuning": "wraparound_runway", "wal": "wal_retention",
-		"schema_guard": "", "fk_index": "",
+		"wal": "wal_retention", "schema_guard": "", "fk_index": "",
+		// vacuum-07: the custodian no longer tunes autovacuum; the
+		// analyzer's tuning is self-initiated (trust family tuning).
+		"autovacuum_tuning": "",
 	}
 	for feature, family := range cases {
 		req := custodianRequest(CustodianProposal{Feature: feature,
@@ -100,13 +102,13 @@ func TestWithoutAutonomyTheGateIsUnchanged(t *testing.T) {
 
 func TestDecisionEvidenceNamesFamilyAndClass(t *testing.T) {
 	req := custodianRequest(freezeProposal())
-	in := ledgerInput(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
+	in := ledgerInputAt(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
 		Reason: policy.ReasonAutonomyL3, RiskTier: policy.RiskSafe})
 	if in.Evidence["incident_family"] != "wraparound_runway" ||
 		in.Evidence["autonomy_class"] != "freeze" {
 		t.Fatalf("decision evidence = %#v", in.Evidence)
 	}
-	plain := ledgerInput(nil, 1, policy.ActionRequest{Feature: "index"},
+	plain := ledgerInputAt(nil, 1, policy.ActionRequest{Feature: "index"},
 		policy.Decision{Verdict: policy.VerdictExecute})
 	if _, ok := plain.Evidence["incident_family"]; ok {
 		t.Fatalf("a request without a family names one: %#v", plain.Evidence)

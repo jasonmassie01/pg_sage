@@ -32,7 +32,7 @@ func (a *ActionService) Run(ctx context.Context) {
 
 // Tick runs one pass: automatic proposals (and approval requests) for
 // newly concluded investigations, approval decisions made in the queue,
-// due recovery samples and abandoned executions.
+// due recovery samples, abandoned executions and stranded maintenance runs.
 func (a *ActionService) Tick(ctx context.Context) error {
 	scope, err := a.scope(ctx)
 	if err != nil {
@@ -44,6 +44,9 @@ func (a *ActionService) Tick(ctx context.Context) error {
 	}
 	errs = append(errs, a.syncRequested(ctx, scope), a.verifyDue(ctx, scope),
 		a.markAbandoned(ctx, scope))
+	if a.maintenance != nil {
+		errs = append(errs, a.maintenance.Reconcile(ctx))
+	}
 	return errors.Join(errs...)
 }
 
@@ -174,8 +177,9 @@ func (a *ActionService) sampleRecovery(ctx context.Context, p Proposal) error {
 	if p.Target == nil {
 		return nil
 	}
-	res := a.targets.Run(ctx, probes.RecoverySample, probes.Args{PID: p.Target.PID,
-		BackendStart: p.Target.BackendStart})
+	res := a.targets.Run(probes.WithCaller(ctx, probes.CallerActionTarget),
+		probes.RecoverySample, probes.Args{PID: p.Target.PID,
+			BackendStart: p.Target.BackendStart})
 	rows, err := probes.RecoveryRows(res)
 	if err != nil && res.Status.Usable() {
 		res.Status, res.Reason = probes.StatusError, "unreadable: "+err.Error()

@@ -303,16 +303,17 @@ func TestTableMemory_SuppressesSameIdeaOnly(t *testing.T) {
 		time.Hour)
 	m := testMemory(newMemStore(stored), nil)
 	v := m.view(context.Background(), memTable())
-	hit, ok := v.suppress(Recommendation{DDL: lifeosDDL("ai_claims_evidence_prefix_idx", "id")})
+	hit, ok := v.suppress(Recommendation{
+		DDL: lifeosDDL("ai_claims_evidence_prefix_idx", "id")}, 10)
 	if !ok || hit.Shape.hash() != stored.Shape.hash() {
 		t.Fatalf("same idea not suppressed: ok=%t", ok)
 	}
 	other := "CREATE INDEX CONCURRENTLY x ON public.ai_claims " +
 		"(evidence_event_ids_json varchar_pattern_ops) INCLUDE (id)"
-	if _, ok := v.suppress(Recommendation{DDL: other}); ok {
+	if _, ok := v.suppress(Recommendation{DDL: other}, 10); ok {
 		t.Fatal("a different opclass was suppressed")
 	}
-	if _, ok := v.suppress(Recommendation{DDL: "not sql"}); ok {
+	if _, ok := v.suppress(Recommendation{DDL: "not sql"}, 10); ok {
 		t.Fatal("an unparseable candidate must be evaluated, not suppressed")
 	}
 }
@@ -322,15 +323,15 @@ func TestTableMemory_MaterialChangeLiftsSuppression(t *testing.T) {
 	tc := memTable()
 	tc.Queries[0].Calls *= 3
 	v := testMemory(newMemStore(stored), nil).view(context.Background(), tc)
-	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "id")}); ok {
+	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "id")}, 10); ok {
 		t.Fatal("a rejection measured on a different workload must not suppress")
 	}
-	if lines := v.promptLines(); len(lines) != 0 {
+	if lines := v.promptLines(10); len(lines) != 0 {
 		t.Fatalf("a stale rejection must not be fed to the model: %q", lines)
 	}
 	expired := storedRejection(t, lifeosDDL("a", "id"), 8*24*time.Hour)
 	v = testMemory(newMemStore(expired), nil).view(context.Background(), memTable())
-	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "id")}); ok {
+	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "id")}, 10); ok {
 		t.Fatal("an expired rejection the store returned must not suppress")
 	}
 }
@@ -341,7 +342,7 @@ func TestTableMemory_OtherTableNeverMatches(t *testing.T) {
 	tc.Table = "ai_claims_archive"
 	v := testMemory(newMemStore(stored), nil).view(context.Background(), tc)
 	if _, ok := v.suppress(Recommendation{
-		DDL: "CREATE INDEX i ON public.ai_claims_archive (x)"}); ok {
+		DDL: "CREATE INDEX i ON public.ai_claims_archive (x)"}, 10); ok {
 		t.Fatal("a rejection on another table suppressed this one")
 	}
 }
@@ -352,10 +353,10 @@ func TestTableMemory_NilMemoryIsInert(t *testing.T) {
 	if v == nil {
 		t.Fatal("a nil memory must still return a usable view")
 	}
-	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("a", "id")}); ok {
+	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("a", "id")}, 10); ok {
 		t.Fatal("a nil memory suppressed a candidate")
 	}
-	if lines := v.promptLines(); lines != nil {
+	if lines := v.promptLines(10); lines != nil {
 		t.Fatalf("nil memory prompt lines = %q", lines)
 	}
 	if _, ok := m.remember(context.Background(), memTable(),
@@ -369,7 +370,7 @@ func TestTableMemory_LoadErrorFailsOpenAndIsLogged(t *testing.T) {
 	store.loadErr = errors.New("connection refused")
 	logs := &logRecorder{}
 	v := testMemory(store, logs).view(context.Background(), memTable())
-	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "id")}); ok {
+	if _, ok := v.suppress(Recommendation{DDL: lifeosDDL("b", "id")}, 10); ok {
 		t.Fatal("a failed load must evaluate the candidate (fail open)")
 	}
 	got := logs.matching("WARN", "public.ai_claims", "connection refused")
@@ -387,7 +388,7 @@ func TestTableMemory_PromptLinesBoundedAndNewestFirst(t *testing.T) {
 		rows = append(rows, r)
 	}
 	lines := testMemory(newMemStore(rows...), nil).view(context.Background(),
-		memTable()).promptLines()
+		memTable()).promptLines(10)
 	if len(lines) != 5 {
 		t.Fatalf("got %d prompt lines, want the default bound of 5", len(lines))
 	}
@@ -403,7 +404,7 @@ func TestTableMemory_PromptLineLengthBounded(t *testing.T) {
 	long := "CREATE INDEX i ON public.ai_claims (x) WHERE " +
 		strings.Repeat("a_very_long_column_name = 1 AND ", 40) + "z = 2"
 	lines := testMemory(newMemStore(storedRejection(t, long, time.Minute)), nil).
-		view(context.Background(), memTable()).promptLines()
+		view(context.Background(), memTable()).promptLines(10)
 	if len(lines) != 1 || len(lines[0]) > maxRejectionPromptLine {
 		t.Fatalf("prompt line is %d chars, want at most %d", len(lines[0]),
 			maxRejectionPromptLine)

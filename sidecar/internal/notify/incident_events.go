@@ -36,10 +36,24 @@ func IncidentEscalatedEvent(info IncidentInfo) Event {
 // IncidentResolvedEvent is emitted once when an incident is resolved,
 // automatically or by an operator. It keeps the incident severity so the
 // same min_severity rule that delivered the detection also delivers the
-// resolution.
+// resolution, and it is a Resolve on the incident's key so PagerDuty
+// closes the page instead of opening a new one (alerting-01).
 func IncidentResolvedEvent(info IncidentInfo) Event {
-	return incidentEvent("incident_resolved", "Incident resolved",
+	evt := incidentEvent("incident_resolved", "Incident resolved",
 		incidentSeverity(info.Severity), info)
+	evt.Resolve = true
+	return evt
+}
+
+// incidentDedupKey is one incident's identity across its detected,
+// escalated and resolved events: the database and the incident id, never
+// the root-cause text, which changes. Without an id there is no stable
+// identity, so the event keeps the generic EventDedupKey.
+func incidentDedupKey(info IncidentInfo) string {
+	if info.ID == "" {
+		return ""
+	}
+	return "incident:" + info.Database + ":" + info.ID
 }
 
 func incidentSeverity(sev string) string {
@@ -67,6 +81,8 @@ func incidentEvent(typ, verb, severity string, info IncidentInfo) Event {
 		Severity: severity,
 		Subject:  fmt.Sprintf("%s: %s", verb, info.RootCause),
 		Body:     body,
+		DedupKey: incidentDedupKey(info),
+		RefID:    info.ID,
 		Data: map[string]any{
 			"incident_id":          info.ID,
 			"database":             info.Database,

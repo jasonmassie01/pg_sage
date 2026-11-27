@@ -100,9 +100,10 @@ func incidentsForAction(
 
 // CHECK: a table inside the red buffer that a freeze returns to green
 // earns one conservative near-miss credit tied to the action's decision
-// and verification.
+// and verification. The test also bounds the frozen table's age from
+// above, so it holds the exclusive server (horizonAgeReason).
 func TestCustodianFreezeCreditsNearMissWhenRedTableReturnsToGreen(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := exclusiveDB(t, horizonAgeReason)
 	const table = "incident_red_probe"
 	agedTable(t, ctx, pool, table, 160_000_000)
 

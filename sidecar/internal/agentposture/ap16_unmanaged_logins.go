@@ -3,6 +3,8 @@ package agentposture
 import (
 	"context"
 	"fmt"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 func init() { Register(ap16{}) }
@@ -16,7 +18,8 @@ func init() { Register(ap16{}) }
 type ap16 struct{}
 
 func (ap16) Spec() Spec {
-	return Spec{ID: "AP-16", Title: "Agent-like logins outside agent governance", Severity: Warning}
+	return Spec{ID: "AP-16", Title: "Agent-like logins outside agent governance",
+		Severity: Warning, ReadsSessions: true}
 }
 
 var ap16SQL = Statement("AP-16", `SELECT r.oid, r.rolname::text
@@ -36,13 +39,14 @@ func (ap16) Detect(ctx context.Context, in Input) ([]Finding, error) {
 	for i, h := range hints {
 		oids[i] = h.OID
 	}
-	rows, err := in.Q.Query(ctx, ap16SQL, oids, apbMaxRows)
+	lim := in.capRows("logins", apbMaxRows)
+	rows, err := in.Q.Query(ctx, ap16SQL, oids, lim.fetch())
 	if err != nil {
 		return nil, fmt.Errorf("read agent-like logins: %w", err)
 	}
 	defer rows.Close()
 	var out []Finding
-	for rows.Next() {
+	for rows.Next() && !lim.past() {
 		var oid uint32
 		var name string
 		if err := rows.Scan(&oid, &name); err != nil {
@@ -69,7 +73,7 @@ func unmanagedLogin(name, app string) Finding {
 		Recommendation: "Register the agent as a Guard principal and move it to its " +
 			"Guard credentials, then stop this login.",
 		FixScript: "-- after the agent uses its Guard credentials:\nALTER ROLE " +
-			QuoteIdent(name) + " NOLOGIN;",
+			sqlident.Ident(name) + " NOLOGIN;",
 		Caveat: "Agent-like is a hint from application_name (agents.client_patterns); " +
 			"an application can name itself anything.",
 		Evidence: []Evidence{{Source: "pg_stat_activity", Ref: name, Detail: seen}}}

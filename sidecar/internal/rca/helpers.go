@@ -7,8 +7,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/pg-sage/sidecar/internal/collector"
 )
 
 // ---------------------------------------------------------------------------
@@ -47,26 +45,6 @@ func newUUID() string {
 	b[8] = (b[8] & 0x3f) | 0x80 // variant 2
 	return fmt.Sprintf("%x-%x-%x-%x-%x",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
-// ---------------------------------------------------------------------------
-// Snapshot helpers
-// ---------------------------------------------------------------------------
-
-func totalWALBytes(snap *collector.Snapshot) int64 {
-	var total int64
-	for _, q := range snap.Queries {
-		total += q.WALBytes
-	}
-	return total
-}
-
-func queryReadsMap(snap *collector.Snapshot) map[int64]int64 {
-	m := make(map[int64]int64, len(snap.Queries))
-	for _, q := range snap.Queries {
-		m[q.QueryID] = q.SharedBlksRead
-	}
-	return m
 }
 
 func blockedTables(sig *Signal) []string {
@@ -165,7 +143,7 @@ func buildLogIncident(
 ) Incident {
 	inc := buildIncident(at, severity, signalIDs, rootCause,
 		chain, affected, sql, risk)
-	inc.Source = "log_deterministic"
+	inc.Source = logIncidentSource
 	return inc
 }
 

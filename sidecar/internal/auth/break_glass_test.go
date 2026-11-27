@@ -125,7 +125,7 @@ func TestCreateSessionWithDuration(t *testing.T) {
 	var left time.Duration
 	var secs float64
 	if err := pool.QueryRow(ctx, `SELECT extract(epoch FROM expires_at - now())
-		FROM sage.sessions WHERE id = $1`, sid).Scan(&secs); err != nil {
+		FROM sage.sessions WHERE token_hash = $1`, HashSessionToken(sid)).Scan(&secs); err != nil {
 		t.Fatal(err)
 	}
 	left = time.Duration(secs * float64(time.Second))

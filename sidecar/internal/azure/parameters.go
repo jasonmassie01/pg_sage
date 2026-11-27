@@ -1,6 +1,8 @@
-// Package azure applies server parameters on Azure Database for PostgreSQL
-// flexible server through Azure Resource Manager, where ALTER SYSTEM is
-// unavailable. It implements executor.ManagedConfigAdapter.
+// Package azure reads and writes server parameters on Azure Database for
+// PostgreSQL flexible server through Azure Resource Manager, where ALTER
+// SYSTEM is unavailable. It implements executor.ManagedConfigAdapter, whose
+// only caller is the WAL-slot custodian (max_slot_wal_keep_size), and the
+// read-only managedparam.ParameterResolver that fills advisor proposals.
 package azure
 
 import (
@@ -15,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pg-sage/sidecar/internal/egress"
 	"github.com/pg-sage/sidecar/internal/executor"
 )
 
@@ -78,7 +81,7 @@ func NewParameterAdapter(server Server, token TokenSource, opts ...Option) (*Par
 		return nil, errors.New("azure: a token source is required")
 	}
 	adapter := &ParameterAdapter{
-		server: server, token: token, client: &http.Client{Timeout: 30 * time.Second},
+		server: server, token: token, client: egress.HTTPClient(30 * time.Second),
 		baseURL: defaultBaseURL, pollInterval: 2 * time.Second, pollTimeout: 5 * time.Minute,
 	}
 	for _, opt := range opts {
@@ -281,10 +284,21 @@ func (a *ParameterAdapter) do(
 	return resp, nil
 }
 
+// statusError is a non-2xx ARM response; Status lets callers tell a
+// missing permission (403) or resource (404) from other failures.
+type statusError struct {
+	Status int
+	msg    string
+}
+
+func (e *statusError) Error() string { return e.msg }
+
 func armStatusError(status int, raw []byte) error {
 	var parsed armError
 	if json.Unmarshal(raw, &parsed) == nil && parsed.Error.Message != "" {
-		return fmt.Errorf("ARM %d %s: %s", status, parsed.Error.Code, parsed.Error.Message)
+		return &statusError{Status: status, msg: fmt.Sprintf("ARM %d %s: %s", status,
+			parsed.Error.Code, parsed.Error.Message)}
 	}
-	return fmt.Errorf("ARM %d: %s", status, strings.TrimSpace(string(raw)))
+	return &statusError{Status: status, msg: fmt.Sprintf("ARM %d: %s", status,
+		strings.TrimSpace(string(raw)))}
 }

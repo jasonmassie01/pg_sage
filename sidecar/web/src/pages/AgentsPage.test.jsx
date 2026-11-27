@@ -65,6 +65,27 @@ describe('AgentsPage list', () => {
     expect(callsTo(mock, 'GET', '/api/v1/agents')).toHaveLength(2)
   })
 
+  it('warns of a profile the server does not ship and offers the served ones', async () => {
+    const typo = { ...coder, id: 'agp_eeeeeeeeeeeeeeeeeeee', name: 'typo-bot',
+      profile: 'codng-agent' }
+    const served = [{ name: 'coding-agent', classes: ['read'], env_ceiling: 'stage' },
+      { name: 'readonly-analyst', classes: ['read'], env_ceiling: 'prod' }]
+    await renderPage(admin, {
+      'GET /api/v1/agents': () => response(200, { items: [coder, typo], next_cursor: '',
+        profiles: served }),
+    })
+    expect(el('agent-profile-warning-typo-bot')).toHaveTextContent(/not recognised/i)
+    expect(screen.queryByTestId('agent-profile-warning-coder')).toBeNull()
+    expect(within(el('agent-create-profile')).getAllByRole('option').map(o => o.value))
+      .toEqual(['coding-agent', 'readonly-analyst'])
+  })
+
+  it('warns of no profile while the server sends no profile list', async () => {
+    await renderPage()
+    expect(screen.queryByTestId('agent-profile-warning-coder')).toBeNull()
+    expect(screen.queryByTestId('agent-profile-warning-etl-bot')).toBeNull()
+  })
+
   it('opens an agent', async () => {
     await renderPage()
     fireEvent.click(el('agent-open-coder'))

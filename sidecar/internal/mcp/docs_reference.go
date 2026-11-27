@@ -30,22 +30,93 @@ type schemaProperty struct {
 }
 
 // ToolReferenceMarkdown renders the tool reference from the tool schemas:
-// one section per tool with its scope and an argument table.
+// a summary of each tool's scope and when it is listed, then one section
+// per tool with its scope and an argument table.
 func ToolReferenceMarkdown(tools []Tool) string {
 	var b strings.Builder
 	b.WriteString("\n")
+	writeAvailabilityTable(&b, tools)
 	for _, tool := range tools {
 		scope, _ := RequiredScope(tool.Name, nil)
 		fmt.Fprintf(&b, "### `%s`\n\n%s.\n\nScope: `%s`", tool.Name,
 			strings.TrimSuffix(tool.Description, "."), scope)
-		if tool.Name == "request_change" {
+		switch tool.Name {
+		case "request_change":
 			b.WriteString(" (`approve` when the intent kind is `declare_table_contract` " +
 				"or `register_consumer`)")
+		case explainQueryTool:
+			b.WriteString(" (operator) for people; `read` for agents, plan-only, under the " +
+				"agent's role")
 		}
 		b.WriteString("\n\n")
 		writeArguments(&b, tool.InputSchema)
+		if tool.Name == "request_change" {
+			writeIntentKinds(&b, tool.InputSchema)
+		}
 	}
 	return b.String()
+}
+
+// intentBranch is one kind of request_change's intent oneOf.
+type intentBranch struct {
+	Title      string                     `json:"title"`
+	Properties map[string]json.RawMessage `json:"properties"`
+	Required   []string                   `json:"required"`
+	Examples   []json.RawMessage          `json:"examples"`
+}
+
+// writeIntentKinds is request_change's intent oneOf: each kind, its
+// arguments (required ones marked) and its example.
+func writeIntentKinds(b *strings.Builder, raw json.RawMessage) {
+	var schema struct {
+		Properties struct {
+			Intent struct {
+				OneOf []intentBranch `json:"oneOf"`
+			} `json:"intent"`
+		} `json:"properties"`
+	}
+	if json.Unmarshal(raw, &schema) != nil || len(schema.Properties.Intent.OneOf) == 0 {
+		return
+	}
+	b.WriteString("`intent` is one of these kinds; a shape matching none is refused " +
+		"with the list of kinds.\n\n| Kind | Arguments | Example |\n|---|---|---|\n")
+	for _, branch := range schema.Properties.Intent.OneOf {
+		required := map[string]bool{}
+		for _, name := range branch.Required {
+			required[name] = true
+		}
+		var names []string
+		for _, name := range sortedKeys(branch.Properties) {
+			if name == "kind" {
+				continue
+			}
+			if required[name] {
+				name = "`" + name + "` (required)"
+			} else {
+				name = "`" + name + "`"
+			}
+			names = append(names, name)
+		}
+		example := ""
+		if len(branch.Examples) > 0 {
+			example = "`" + string(branch.Examples[0]) + "`"
+		}
+		fmt.Fprintf(b, "| `%s` | %s | %s |\n", branch.Title, strings.Join(names, ", "),
+			strings.ReplaceAll(example, "|", "\\|"))
+	}
+	b.WriteString("\n")
+}
+
+// writeAvailabilityTable is the summary: every tool, its scope and when
+// tools/list shows it.
+func writeAvailabilityTable(b *strings.Builder, tools []Tool) {
+	b.WriteString("| Tool | Scope | Available when |\n|---|---|---|\n")
+	for _, tool := range tools {
+		scope, _ := RequiredScope(tool.Name, nil)
+		fmt.Fprintf(b, "| [`%s`](#%s) | `%s` | %s |\n", tool.Name, tool.Name, scope,
+			AvailableWhen(tool.Name))
+	}
+	b.WriteString("\n")
 }
 
 func writeArguments(b *strings.Builder, raw json.RawMessage) {

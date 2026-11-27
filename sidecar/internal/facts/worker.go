@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
 // Worker defaults.
@@ -21,14 +23,17 @@ type WorkerOptions struct {
 	ModelEvidence func(context.Context) ([]EvidenceItem, error)
 	Interval      time.Duration
 	ModelInterval time.Duration
-	// Notify is told about every new or reopened proposal (a fact card).
-	Notify func(context.Context, Fact)
-	LogFn  func(string, string, ...any)
-	Now    func() time.Time
+	// New and reopened proposals reach the pool's proposal notifier
+	// (SetProposalNotifier), which sends their fact cards.
+	// NotifyExpired is told about every confirmed fact re-verification
+	// expired: a person's decision that no longer binds (facts-08).
+	NotifyExpired func(context.Context, Fact)
+	LogFn         func(string, string, ...any)
+	Now           func() time.Time
 }
 
 // Worker imports declared contracts, runs the detectors (and the model),
-// records their proposals, notifies the new ones and re-verifies facts.
+// records their proposals and re-verifies facts.
 type Worker struct {
 	store     *Store
 	opts      WorkerOptions
@@ -37,8 +42,8 @@ type Worker struct {
 
 // RunStats is what one pass did.
 type RunStats struct {
-	Imported, Proposed, Notified, Expired int
-	Errors                                []string
+	Imported, Proposed, Expired int
+	Errors                      []string
 }
 
 // NewWorker returns the worker of store's database.
@@ -77,14 +82,16 @@ func (w *Worker) log(s RunStats) {
 		w.opts.LogFn("WARN", "facts: %s", e)
 	}
 	if s.Imported+s.Proposed+s.Expired > 0 {
-		w.opts.LogFn("INFO", "facts: %d imported, %d proposed (%d notified), %d expired",
-			s.Imported, s.Proposed, s.Notified, s.Expired)
+		w.opts.LogFn("INFO", "facts: %d imported, %d proposed, %d expired",
+			s.Imported, s.Proposed, s.Expired)
 	}
 }
 
 // RunOnce is one pass. A failing detector or model is recorded and the
 // pass goes on.
 func (w *Worker) RunOnce(ctx context.Context) RunStats {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "facts")
+	defer done()
 	var stats RunStats
 	fail := func(format string, args ...any) {
 		stats.Errors = append(stats.Errors, fmt.Sprintf(format, args...))
@@ -104,6 +111,14 @@ func (w *Worker) RunOnce(ctx context.Context) RunStats {
 		w.proposeAll(ctx, props, fresh, &stats)
 	}
 	w.askModel(ctx, fresh, &stats, fail)
+	w.reverify(ctx, fresh, &stats, fail)
+	return stats
+}
+
+// reverify re-checks the facts; every confirmed fact it expires is logged
+// and notified, since it stops binding without anyone deciding so.
+func (w *Worker) reverify(ctx context.Context, fresh map[int64]bool, stats *RunStats,
+	fail func(string, ...any)) {
 	ids := make([]int64, 0, len(fresh))
 	for id := range fresh {
 		ids = append(ids, id)
@@ -113,7 +128,16 @@ func (w *Worker) RunOnce(ctx context.Context) RunStats {
 		fail("re-verify facts: %v", err)
 	}
 	stats.Expired = len(expired)
-	return stats
+	for _, f := range expired {
+		if !f.ConfirmationLost() {
+			continue
+		}
+		w.opts.LogFn("WARN", "facts: confirmed fact #%d (%s, confirmed by %s) expired and "+
+			"no longer binds: %s", f.ID, f.Describe(), f.DecidedBy, f.ExpiredReason)
+		if w.opts.NotifyExpired != nil {
+			w.opts.NotifyExpired(ctx, f)
+		}
+	}
 }
 
 func (w *Worker) askModel(ctx context.Context, fresh map[int64]bool, stats *RunStats,
@@ -151,13 +175,8 @@ func (w *Worker) proposeAll(ctx context.Context, props []Proposal, fresh map[int
 			continue
 		}
 		fresh[f.ID] = true
-		if !created {
-			continue
-		}
-		stats.Proposed++
-		if w.opts.Notify != nil {
-			w.opts.Notify(ctx, f)
-			stats.Notified++
+		if created {
+			stats.Proposed++
 		}
 	}
 }

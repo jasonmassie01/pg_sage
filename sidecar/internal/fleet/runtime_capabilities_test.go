@@ -2,10 +2,10 @@ package fleet
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 func TestRuntimeCapabilitiesNilPoolDoesNotInventEvidence(t *testing.T) {
@@ -34,10 +34,7 @@ func TestLakebaseRuntimeCannotAdvertiseUnsupportedIntegrations(t *testing.T) {
 
 // Read-only catalog probes; no schema or provider state is modified.
 func TestRuntimeCapabilitiesInstalledExtensions(t *testing.T) {
-	dsn := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("SAGE_TEST_DATABASE_URL absent; runtime catalog probe not verified")
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	pool, err := pgxpool.New(t.Context(), dsn)
 	if err != nil {
 		t.Fatal(err)

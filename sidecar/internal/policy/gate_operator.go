@@ -42,20 +42,14 @@ func (gate *authorizationGate) operatorWindowDecision(
 	if req.Contract.RiskTier != RiskModerate && req.Contract.RiskTier != RiskHigh {
 		return Decision{}, false
 	}
-	if approvedMitigation(req) {
+	if approvedMitigation(req) || req.assumeWindowOpen {
 		return Decision{}, false
 	}
 	now := gate.now()
 	trustWindowOpen := !runtime.WindowConfigured || runtime.InConfiguredWindow
-	if trustWindowOpen && inAnyWindow(doc.MaintenanceWindows, now) {
-		return Decision{}, false
-	}
-	if validDeadlineOverride(doc, req.Deadline, now) {
-		decision := gate.decision(req, VerdictExecute, ReasonDeadlineOverride)
-		decision.OffWindowOK = true
-		return decision, true
-	}
-	return gate.decision(req, VerdictBlocked, ReasonOutsideMaintenanceWindow), true
+	inWindow := trustWindowOpen && inAnyWindow(doc.MaintenanceWindows, now)
+	return gate.windowVerdict(doc, req, inWindow,
+		inWindow && gate.windowClosing(doc, runtime, runtime.WindowConfigured, now))
 }
 
 // approvedMitigation reports a human-approved, mitigation-only backend

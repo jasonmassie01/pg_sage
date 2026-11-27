@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/testdb"
-	"github.com/pg-sage/sidecar/internal/value"
 )
 
 // TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries proves the
@@ -19,7 +18,10 @@ import (
 func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	t.Cleanup(cancel)
-	testPool, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
+	// A database of its own: the exact sums below must not count the real
+	// credits other tests here earn (the freeze route tests credit
+	// xid_wraparound near-misses in the package database).
+	testPool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "value_metrics"))
 	if err != nil {
 		t.Fatalf("connect test database: %v", err)
 	}
@@ -30,8 +32,10 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 
 	seedValueMetricsFixture(t, ctx, testPool)
 
+	withMetricsRegistry(t)
+	registerValueRefresher(t, "primary", testPool).refresh(ctx)
 	var b strings.Builder
-	writeValueMetrics(&b, ctx, []value.Source{{Name: "primary", Pool: testPool}})
+	writeValueMetrics(&b, processMetrics.views())
 	output := b.String()
 
 	// D3: the series carries the instance name, never an empty label.
@@ -52,7 +56,7 @@ func TestWriteValueMetricsEmitsVerifiedToilAndIncidentSeries(t *testing.T) {
 	}
 	for _, header := range []string{
 		"# TYPE pg_sage_toil_minutes_saved gauge",
-		"# TYPE pg_sage_incidents_avoided_total counter",
+		"# TYPE pg_sage_incidents_avoided_total gauge",
 		`pg_sage_value_metrics_up{database="primary"} 1`,
 	} {
 		if !strings.Contains(output, header) {
@@ -143,8 +147,10 @@ func TestWriteValueMetricsReportsQueryFailure(t *testing.T) {
 	}
 	closed.Close()
 
+	withMetricsRegistry(t)
+	registerValueRefresher(t, "primary", closed).refresh(ctx)
 	var b strings.Builder
-	writeValueMetrics(&b, ctx, []value.Source{{Name: "primary", Pool: closed}})
+	writeValueMetrics(&b, processMetrics.views())
 	output := b.String()
 	if !strings.Contains(output, `pg_sage_value_metrics_up{database="primary"} 0`) {
 		t.Fatalf("missing failure indicator in:\n%s", output)

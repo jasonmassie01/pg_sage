@@ -176,8 +176,9 @@ All packages meet coverage thresholds (lowest touched: api 79.3%, cmd 79.8%, mcp
    placement is fixed product-wide by another agent.) A background verifier and a UI
    surface for source-fix reports remain open.
 4. MCP resources/prompts (findings, schema) are still not served.
-5. Legacy intent tools other than `apply_migration` are not strictly validated against their
-   schemas by the server.
+5. (Closed by mcp-08: every intent tool is validated against its schema's property set and
+   types; unknown arguments get -32602.) Legacy intent tools other than `apply_migration`
+   were not strictly validated against their schemas by the server.
 6. Pre-existing: `internal/retention/exemptions.go` is not gofmt-clean on master (one
    misaligned line); left untouched.
 

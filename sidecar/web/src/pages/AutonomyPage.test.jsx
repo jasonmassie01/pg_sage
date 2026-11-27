@@ -92,7 +92,9 @@ const history = {
   }],
 }
 
-let apiData = { view, history }
+const gameDaysOff = { enabled: false, items: [] }
+
+let apiData = { view, history, gameDays: gameDaysOff }
 
 vi.mock('../hooks/useAPI', () => ({
   useAPI: path => {
@@ -100,7 +102,7 @@ vi.mock('../hooks/useAPI', () => ({
       return { data: apiData.history, loading: false, error: null, refetch }
     }
     if (path?.startsWith('/api/v1/sre/autonomy/game-days')) {
-      return { data: { enabled: false, items: [] }, loading: false, error: null, refetch }
+      return { data: apiData.gameDays, loading: false, error: null, refetch }
     }
     if (path?.startsWith('/api/v1/sre/autonomy/rollouts')) {
       return { data: { items: [] }, loading: false, error: null, refetch }
@@ -115,7 +117,7 @@ const viewer = { role: 'viewer', email: 'viewer@example.com' }
 
 describe('AutonomyPage', () => {
   beforeEach(() => {
-    apiData = { view, history }
+    apiData = { view, history, gameDays: gameDaysOff }
     globalThis.fetch = vi.fn(() => Promise.resolve({
       ok: true, status: 200, json: () => Promise.resolve({ ok: true }),
     }))
@@ -220,8 +222,101 @@ describe('AutonomyPage', () => {
   })
 
   it('warns when enforcement is off', () => {
-    apiData = { view: { ...view, enforced: false }, history }
+    apiData = { view: { ...view, enforced: false }, history, gameDays: gameDaysOff }
     render(<AutonomyPage database="orders" user={viewer} />)
     expect(screen.getByText(/not enforced/i)).toBeInTheDocument()
+  })
+
+  // benches-08: a game day shows what it scored; one that scored nothing
+  // is a warning, distinct from game days being off.
+  const gameDaysOn = {
+    enabled: true,
+    items: [
+      {
+        id: 'gd-unscored', status: 'completed_unscored', started_at: '2026-10-05T03:00:00Z',
+        families: ['wal_retention', 'lock_blocking'],
+        eval_run_id: '22222222-2222-4222-8222-222222222222',
+        summary: {
+          scored: 0, skipped: 7, errored: 0,
+          top_skips: [
+            { reason: 'needs superuser (CHECKPOINT)', count: 5 },
+            { reason: 'max_prepared_transactions is 0', count: 2 },
+          ],
+        },
+      },
+      {
+        id: 'gd-scored', status: 'completed', started_at: '2026-09-28T03:00:00Z',
+        families: [], eval_run_id: '33333333-3333-4333-8333-333333333333',
+        summary: { scored: 9, skipped: 1, errored: 0,
+          top_skips: [{ reason: 'max_prepared_transactions is 0', count: 1 }] },
+      },
+      { id: 'gd-legacy', status: 'completed', started_at: '2026-09-21T03:00:00Z',
+        families: [] },
+    ],
+  }
+
+  it('shows what each game day scored and why runs were skipped', () => {
+    apiData = { view, history, gameDays: gameDaysOn }
+    render(<AutonomyPage database="orders" user={viewer} />)
+    const unscored = screen.getByTestId('game-day-gd-unscored')
+    expect(within(unscored).getByText(/scored 0 \/ skipped 7/)).toBeInTheDocument()
+    expect(within(unscored).getByText(/needs superuser \(CHECKPOINT\) \(5\)/))
+      .toBeInTheDocument()
+    expect(within(unscored).getByText(/max_prepared_transactions is 0 \(2\)/))
+      .toBeInTheDocument()
+    expect(within(unscored).getByText(/22222222-2222-4222-8222-222222222222/))
+      .toBeInTheDocument()
+    const scored = screen.getByTestId('game-day-gd-scored')
+    expect(within(scored).getByText(/scored 9 \/ skipped 1/)).toBeInTheDocument()
+    expect(within(scored).queryByRole('alert')).toBeNull()
+    const legacy = screen.getByTestId('game-day-gd-legacy')
+    expect(within(legacy).queryByText(/scored/)).toBeNull()
+    expect(screen.queryByText(/^Off:/)).toBeNull()
+  })
+
+  it('warns on a game day that scored nothing', () => {
+    apiData = { view, history, gameDays: gameDaysOn }
+    render(<AutonomyPage database="orders" user={viewer} />)
+    const unscored = screen.getByTestId('game-day-gd-unscored')
+    const status = within(unscored).getByTestId('game-day-status')
+    expect(status).toHaveTextContent(/scored nothing/i)
+    expect(status).toHaveAttribute('data-tone', 'warning')
+    const ok = within(screen.getByTestId('game-day-gd-scored')).getByTestId('game-day-status')
+    expect(ok).toHaveTextContent('completed')
+    expect(ok).not.toHaveAttribute('data-tone', 'warning')
+  })
+
+  it('links a game day family to its game-day check on the path', () => {
+    const climbing = {
+      ...view,
+      view: {
+        ...view.view,
+        families: view.view.families.map(f => f.family !== 'lock_blocking' ? f : {
+          ...f,
+          classes: f.classes.map(c => ({
+            ...c,
+            next: { ...c.next, checks: [...c.next.checks, {
+              name: 'game_day_safe_pass', met: false, observed: '1/2',
+              required: '>= 100% Safe Pass on game days, if any',
+            }] },
+          })),
+        }),
+      },
+    }
+    apiData = { view: climbing, history, gameDays: gameDaysOn }
+    render(<AutonomyPage database="orders" user={viewer} />)
+    const unscored = screen.getByTestId('game-day-gd-unscored')
+    const link = within(unscored).getByRole('link', { name: 'lock_blocking' })
+    expect(link).toHaveAttribute('href', '#path-lock_blocking-backend_cancel')
+    expect(document.getElementById('path-lock_blocking-backend_cancel'))
+      .not.toBeNull()
+    expect(within(unscored).queryByRole('link', { name: 'wal_retention' })).toBeNull()
+    expect(within(unscored).getByText(/wal_retention/)).toBeInTheDocument()
+  })
+
+  it('still says game days are off when they are', () => {
+    render(<AutonomyPage database="orders" user={viewer} />)
+    expect(screen.getByText(/Off: needs sre.autonomy.game_days/)).toBeInTheDocument()
+    expect(screen.queryByTestId('game-day-status')).toBeNull()
   })
 })

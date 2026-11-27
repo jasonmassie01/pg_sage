@@ -2,29 +2,41 @@ package selfmonitor
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"net"
+	"io"
 )
 
 // maxMessageBytes bounds one protocol message the wrapper will buffer; it
 // is far above anything pgx sends and only stops a corrupt length.
 const maxMessageBytes = 1 << 30
 
-// TagConn wraps the connection pgx speaks the PostgreSQL protocol over
-// (after TLS) and places StatementTag after the first keyword of every
-// statement of a Query message (placeTags) and of a Parse message's
-// statement (placeTag). All other bytes pass through unchanged. It is installed through ConfigurePool, so the tag covers
-// every statement from every code path, including pgx's own.
-func TagConn(conn net.Conn) net.Conn {
-	if conn == nil {
+// TagWriter wraps the writer pgx's protocol frontend sends through and
+// places StatementTag after the first keyword of every statement of a
+// Query message (placeTags) and of a Parse message's statement
+// (placeTag). All other bytes pass through unchanged. ConfigureConn
+// installs it through the connection's BuildFrontend, so the tag covers
+// every statement pgx sends through its frontend, its own included.
+//
+// It wraps the frontend's writer, not the network connection: pgx enables
+// SCRAM channel binding only when the connection it holds is a *tls.Conn,
+// so a wrapped connection refused channel_binding=require and silently
+// dropped to SCRAM-SHA-256 under the default prefer. One pgx path writes
+// past the frontend: a batch sent in QueryExecModeExec (pgconn ExecBatch)
+// goes out untagged. TestBatchSQLCensus (internal/selfcost) checks every
+// SQL text a non-test Queue call can receive with the leading comments
+// PostgreSQL 18 drops removed: IsStatementText must still recognize it (a
+// pg_sage tag after its first keyword, or a sage object), and a tag it
+// carries must keep its component. SQL the census cannot resolve must be
+// on its allow-list with a reason.
+func TagWriter(w io.Writer) io.Writer {
+	if w == nil {
 		return nil
 	}
-	return &tagConn{Conn: conn}
+	return &tagWriter{w: w}
 }
 
-type tagConn struct {
-	net.Conn
+type tagWriter struct {
+	w       io.Writer
 	started bool   // the untyped startup message has been forwarded
 	pending []byte // an incomplete message carried to the next Write
 }
@@ -32,7 +44,7 @@ type tagConn struct {
 // Write consumes all of p. Complete messages are forwarded (rewritten
 // when they carry a statement); an incomplete tail is held until the next
 // Write completes it.
-func (c *tagConn) Write(p []byte) (int, error) {
+func (c *tagWriter) Write(p []byte) (int, error) {
 	buf := p
 	if len(c.pending) > 0 {
 		buf = append(c.pending, p...)
@@ -48,7 +60,7 @@ func (c *tagConn) Write(p []byte) (int, error) {
 	if len(out) == 0 {
 		return len(p), nil
 	}
-	n, err := c.Conn.Write(out)
+	n, err := c.w.Write(out)
 	if err != nil {
 		if n == 0 {
 			return 0, err
@@ -60,9 +72,16 @@ func (c *tagConn) Write(p []byte) (int, error) {
 
 // rewrite returns the bytes to send for every complete message in buf and
 // the incomplete remainder.
-func (c *tagConn) rewrite(buf []byte) ([]byte, []byte, error) {
+func (c *tagWriter) rewrite(buf []byte) ([]byte, []byte, error) {
 	var out []byte
 	for len(buf) > 0 {
+		if !c.started && buf[0] != 0 {
+			// A frontend rebuilt mid-session (pgconn.Construct after a
+			// Hijack) starts at a typed message: no startup message comes.
+			// A startup message's length is far below 2^24, so its first
+			// byte is 0, and no message type is 0.
+			c.started = true
+		}
 		header := 5
 		if !c.started {
 			header = 4 // StartupMessage: no type byte
@@ -148,6 +167,3 @@ func cString(b []byte) (string, bool) {
 	}
 	return "", false
 }
-
-// errNilConn is returned when pgx hands the hook no connection.
-var errNilConn = errors.New("pg_sage statement tagger: no network connection")

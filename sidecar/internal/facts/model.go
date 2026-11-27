@@ -67,7 +67,10 @@ Subjects: index and table subjects are schema.name, a schema subject is a name, 
 	`matches any characters. Never propose anything in the sage, pg_catalog or ` +
 	`information_schema schemas.
 Propose only what the evidence supports, and cite the evidence IDs (E1, E2, ...) each ` +
-	`fact rests on. Respond with only a JSON array, no prose:
+	`fact rests on. Each fact cites evidence about its own subject: a schema fact its ` +
+	`schema: line, a slot fact its slot: line, an index fact its drop_index: line; a ` +
+	`subject with '*' cites at least two objects it matches. No table evidence is shown, ` +
+	`so propose no table facts. Respond with only a JSON array, no prose:
 [{"type": "...", "subject_kind": "...", "subject": "...", "value": {}, ` +
 	`"evidence": ["E1"], "rationale": "one sentence"}]
 Return [] when nothing is supported.
@@ -85,7 +88,8 @@ func (m *ModelProposer) Propose(ctx context.Context, evidence []EvidenceItem) (
 	}
 	user := "Catalog evidence:\n" + llm.UntrustedData("catalog_evidence",
 		strings.Join(lines, "\n"))
-	raw, _, err := m.client.Chat(ctx, modelSystemPrompt+llm.UntrustedDataRule, user,
+	pctx := llm.WithPurpose(ctx, "facts") // llm-04: usage ledger label
+	raw, _, err := m.client.Chat(pctx, modelSystemPrompt+llm.UntrustedDataRule, user,
 		modelMaxTokens)
 	if err != nil {
 		return nil, fmt.Errorf("model fact proposals: %w", err)
@@ -130,6 +134,9 @@ func ParseModelProposals(raw string, evidence []EvidenceItem, now time.Time) (
 	var rejected []error
 	for _, item := range items {
 		p, err := Validate(item.proposal(byID, now))
+		if err == nil {
+			err = grounded(p)
+		}
 		if err != nil {
 			rejected = append(rejected, fmt.Errorf("%s %q: %w", item.Type, item.Subject, err))
 			continue
@@ -158,4 +165,66 @@ func (item modelItem) proposal(byID map[string]EvidenceItem, now time.Time) Prop
 		}
 	}
 	return p
+}
+
+// groundingRefs is the evidence ref prefix that can ground a model fact of
+// each subject kind (CollectModelEvidence). No table evidence is shown to
+// the model, so a table fact from it is never grounded.
+var groundingRefs = map[Kind]string{KindSchema: "schema", KindSlot: "slot",
+	KindIndex: "drop_index"}
+
+// grounded requires a model proposal (normalized by Validate) to cite
+// evidence about its own subject: a ref of its kind that the subject
+// matches, and two distinct such objects when the subject has '*'. A ref
+// that names no object is ignored, never trusted.
+func grounded(p Proposal) error {
+	prefix, ok := groundingRefs[p.Kind]
+	if !ok {
+		return fmt.Errorf("%w: no %s evidence is collected for model proposals",
+			ErrUngrounded, p.Kind)
+	}
+	pattern, err := ParsePattern(p.Kind, p.Subject)
+	if err != nil {
+		return err
+	}
+	matched := map[ObjectRef]bool{}
+	for _, c := range p.Evidence {
+		if ref, ok := citedRef(prefix, c.Ref); ok && pattern.Matches(ref) {
+			matched[ref] = true
+		}
+	}
+	need := 1
+	if strings.Contains(p.Subject, "*") {
+		need = 2
+	}
+	if len(matched) < need {
+		return fmt.Errorf("%w: %d cited %s: refs match %s, %d needed", ErrUngrounded,
+			len(matched), prefix, p.Subject, need)
+	}
+	return nil
+}
+
+// citedRef reads a citation ref "<prefix>:<ident>" as the object it names.
+// A ref of another kind, with a wildcard, or not fully qualified names no
+// object (an unqualified ref would match every schema).
+func citedRef(prefix, raw string) (ObjectRef, bool) {
+	kind, ident, ok := strings.Cut(strings.TrimSpace(raw), ":")
+	if !ok || kind != prefix || strings.Contains(ident, "*") {
+		return ObjectRef{}, false
+	}
+	if kind == "slot" {
+		ident = strings.TrimSpace(ident)
+		return ObjectRef{Kind: KindSlot, Name: ident}, slotPattern.MatchString(ident)
+	}
+	parts, err := splitIdent(strings.TrimSpace(ident))
+	if err != nil {
+		return ObjectRef{}, false
+	}
+	switch {
+	case kind == "schema" && len(parts) == 1:
+		return ObjectRef{Kind: KindSchema, Schema: parts[0].text}, true
+	case kind == "drop_index" && len(parts) == 2:
+		return ObjectRef{Kind: KindIndex, Schema: parts[0].text, Name: parts[1].text}, true
+	}
+	return ObjectRef{}, false
 }

@@ -6,12 +6,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
 var (
 	ErrRepositoryUnavailable = errors.New("ledger repository unavailable")
 	ErrEvidenceConflict      = errors.New("evidence ID conflict")
+	// ErrInvalidRiskTier rejects a tier sage.decision's CHECK would refuse,
+	// before any SQL runs (policy-01).
+	ErrInvalidRiskTier = errors.New("invalid decision risk_tier")
 )
 
 type Repository interface {
@@ -87,15 +91,21 @@ func validateDecision(input DecisionInput) error {
 		{strings.TrimSpace(input.Feature) == "", "feature"},
 		{strings.TrimSpace(input.Intent) == "", "intent"},
 		{strings.TrimSpace(input.Reason) == "", "reason"},
-		{input.PolicyVersion <= 0, "policy_version"},
 	}
 	for _, check := range checks {
 		if check.missing {
 			return fmt.Errorf("decision %s is required", check.name)
 		}
 	}
+	if err := validatePolicyProvenance(input); err != nil {
+		return err
+	}
 	if !validVerdict(input.Verdict) {
 		return fmt.Errorf("decision verdict %q is invalid", input.Verdict)
+	}
+	if !validRiskTier(input.RiskTier) {
+		return fmt.Errorf("%w %q: want read_only, safe, moderate or high",
+			ErrInvalidRiskTier, input.RiskTier)
 	}
 	if input.DeadlineKind != "" && input.DeadlineHardAt == nil {
 		return errors.New("decision deadline requires deadline_hard_at")
@@ -103,10 +113,40 @@ func validateDecision(input DecisionInput) error {
 	return nil
 }
 
+// validatePolicyProvenance mirrors sage.decision's CHECK on the hash. A
+// decision made before any policy read has version 0 and no hash; a hash
+// always names the version it is the hash of.
+func validatePolicyProvenance(input DecisionInput) error {
+	switch {
+	case input.PolicyVersion < 0:
+		return fmt.Errorf("decision policy_version %d is negative", input.PolicyVersion)
+	case input.PolicySHA256 == "":
+		return nil
+	case !policyHashPattern.MatchString(input.PolicySHA256):
+		return fmt.Errorf("decision policy_doc_sha256 %q is not 64 lower-case hex digits",
+			input.PolicySHA256)
+	case input.PolicyVersion == 0:
+		return errors.New("decision policy_doc_sha256 requires the policy_version it hashes")
+	}
+	return nil
+}
+
+var policyHashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 func validVerdict(verdict Verdict) bool {
 	switch verdict {
 	case VerdictExecute, VerdictQueueApproval, VerdictPark,
 		VerdictBlocked, VerdictObserveOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// validRiskTier mirrors sage.decision's CHECK on risk_tier.
+func validRiskTier(tier string) bool {
+	switch tier {
+	case "read_only", "safe", "moderate", "high":
 		return true
 	default:
 		return false

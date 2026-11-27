@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -91,11 +92,19 @@ type Deps struct {
 	Proposer       Proposer
 	Starter        InvestigationStarter
 	// Budget overrides the loop's per-question bounds (zero: DefaultBudget
-	// with MaxTokens from Config.MaxTokensPerQuestion).
+	// with MaxTokens from Config.MaxTokensPerQuestion and Wall from
+	// Config.MaxSecondsPerQuestion).
 	Budget   agentloop.Budget
 	Protocol agentloop.Protocol
 	Now      func() time.Time
 	Log      func(level, format string, args ...any)
+	// RunCtx is the context asynchronous runs execute on: the database
+	// runtime's, so a run outlives its request and ends with the sidecar
+	// (nil: context.Background()).
+	RunCtx context.Context
+	// Instance names this sidecar on its runs (default: the host name);
+	// at start a sidecar recovers only its own abandoned runs.
+	Instance string
 }
 
 // Service is one database's Ask Sage.
@@ -103,13 +112,15 @@ type Service struct {
 	d      Deps
 	store  *store
 	budget *Budget
+	runs   *runTracker
 }
 
-// DefaultBudget bounds one question: six model calls within 25 s (inside
-// the API's 30 s request deadline), ten tool calls, 1500 completion
-// tokens a call.
+// DefaultBudget bounds one question: six model calls of at most 15 s each
+// within ask.max_seconds_per_question's default (the API gives the ask
+// route that plus 5 s), ten tool calls, 1500 completion tokens a call.
 func DefaultBudget() agentloop.Budget {
-	return agentloop.Budget{MaxSteps: 6, MaxCalls: 10, MaxCost: 10, Wall: 25 * time.Second,
+	return agentloop.Budget{MaxSteps: 6, MaxCalls: 10, MaxCost: 10,
+		Wall:      time.Duration(config.DefaultAskMaxSecondsPerQuestion) * time.Second,
 		MaxTokens: config.DefaultAskMaxTokensPerQuestion, StepTokens: 1500,
 		StepTimeout: 15 * time.Second}
 }
@@ -133,13 +144,40 @@ func New(d Deps) (*Service, error) {
 		if d.Config.MaxTokensPerQuestion > 0 {
 			d.Budget.MaxTokens = d.Config.MaxTokensPerQuestion
 		}
+		if d.Config.MaxSecondsPerQuestion > 0 {
+			d.Budget.Wall = time.Duration(d.Config.MaxSecondsPerQuestion) * time.Second
+		}
 	}
 	if d.Protocol == "" {
 		d.Protocol = agentloop.ProtocolAuto
 	}
+	runDefaults(&d)
 	return &Service{d: d, store: newStore(d.Pool), budget: NewBudget(d.Pool,
 		int64(d.Config.DailyTokensPerDatabase), int64(d.Config.DailyTokensPerUser),
-		d.Now)}, nil
+		d.Now), runs: newRunTracker(d.Config.MaxConcurrentRuns)}, nil
+}
+
+// runDefaults fills the asynchronous-run settings left zero.
+func runDefaults(d *Deps) {
+	if d.RunCtx == nil {
+		d.RunCtx = context.Background()
+	}
+	if d.Config.MaxConcurrentRuns <= 0 {
+		d.Config.MaxConcurrentRuns = config.DefaultAskMaxConcurrentRuns
+	}
+	if strings.TrimSpace(d.Instance) == "" {
+		d.Instance = hostInstance()
+	}
+}
+
+// hostInstance is this sidecar's instance name: the host name, which a
+// restarted sidecar keeps.
+func hostInstance() string {
+	host, err := os.Hostname()
+	if err != nil || strings.TrimSpace(host) == "" {
+		return "sidecar"
+	}
+	return clip(host, 200)
 }
 
 // Database is the database the service answers about.

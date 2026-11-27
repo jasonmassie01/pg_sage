@@ -46,11 +46,10 @@ check_metric() {
 check_metric "pg_sage_info"                      "pg_sage_info present"
 check_metric "pg_sage_mode"                      "pg_sage_mode present"
 check_metric "pg_sage_connection_up"             "pg_sage_connection_up present"
-check_metric "pg_sage_findings_total"            "pg_sage_findings_total present"
-check_metric "pg_sage_collector_last_run"        "pg_sage_collector_last_run_timestamp present"
-check_metric "pg_sage_connections_total"         "pg_sage_connections_total present"
+check_metric "pg_sage_findings_open"             "pg_sage_findings_open present"
+check_metric "pg_sage_collector_last_success_timestamp_seconds" \
+    "pg_sage_collector_last_success_timestamp_seconds present"
 check_metric "pg_sage_database_size_bytes"       "pg_sage_database_size_bytes present"
-check_metric "pg_sage_cache_hit_ratio"           "pg_sage_cache_hit_ratio present"
 
 # ---------------------------------------------------------------
 # Check for LLM metrics (should show pg_sage_llm_enabled)
@@ -65,10 +64,10 @@ check_metric "pg_sage_optimizer_enabled"         "pg_sage_optimizer_enabled pres
 # ---------------------------------------------------------------
 # Verify severity labels on findings
 # ---------------------------------------------------------------
-if echo "$METRICS_BODY" | grep -q 'pg_sage_findings_total{severity='; then
-    pass "pg_sage_findings_total has severity labels"
+if echo "$METRICS_BODY" | grep -q 'pg_sage_findings_open{database=.*severity='; then
+    pass "pg_sage_findings_open has database and severity labels"
 else
-    fail "pg_sage_findings_total labels" "expected severity labels"
+    fail "pg_sage_findings_open labels" "expected database and severity labels"
 fi
 
 # ---------------------------------------------------------------

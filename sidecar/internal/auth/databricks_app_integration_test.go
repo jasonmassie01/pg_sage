@@ -29,7 +29,7 @@ func TestDatabricksAppBootstrapMigratesOnlyExplicitOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	owner, err := ResolveDatabricksAppUser(ctx, p, cfg, cfg.AdminEmail)
+	owner, err := ResolveDatabricksAppUser(ctx, p, cfg, cfg.AdminEmail, "")
 	if err != nil || owner.ID != id || owner.Role != RoleAdmin {
 		t.Fatalf("owner = %+v, %v", owner, err)
 	}
@@ -42,7 +42,8 @@ func TestDatabricksAppBootstrapMigratesOnlyExplicitOwner(t *testing.T) {
 	if other, err := Authenticate(ctx, p, "another@example.com", "another-password"); err != nil || other.ID != otherID {
 		t.Fatalf("unrelated account was changed: %+v, %v", other, err)
 	}
-	if _, err := ResolveDatabricksAppUser(ctx, p, cfg, "another@example.com"); !errors.Is(err, ErrOAuthLinkRequired) {
+	if _, err := ResolveDatabricksAppUser(ctx, p, cfg, "another@example.com", ""); !errors.Is(
+		err, ErrOAuthLinkRequired) {
 		t.Fatalf("unconfigured account was silently linked: %v", err)
 	}
 }
@@ -54,20 +55,21 @@ func TestDatabricksAppViewerIdentityAndLiveRole(t *testing.T) {
 	if err := BootstrapDatabricksAppAdmin(ctx, p, cfg); err != nil {
 		t.Fatal(err)
 	}
-	viewer, err := ResolveDatabricksAppUser(ctx, p, cfg, "viewer@example.com")
+	viewer, err := ResolveDatabricksAppUser(ctx, p, cfg, "viewer@example.com", "")
 	if err != nil || viewer.ID <= 0 || viewer.Role != RoleViewer {
 		t.Fatalf("viewer = %+v, %v", viewer, err)
 	}
 	if _, err := p.Exec(ctx, "UPDATE sage.users SET role='operator' WHERE id=$1", viewer.ID); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := ResolveDatabricksAppUser(ctx, p, cfg, viewer.Email)
+	updated, err := ResolveDatabricksAppUser(ctx, p, cfg, viewer.Email, "")
 	if err != nil || updated.ID != viewer.ID || updated.Role != RoleOperator {
 		t.Fatalf("stale role or identity: %+v, %v", updated, err)
 	}
 	otherWorkspace := cfg
 	otherWorkspace.Workspace = "https://another.cloud.databricks.com"
-	if _, err := ResolveDatabricksAppUser(ctx, p, otherWorkspace, viewer.Email); !errors.Is(err, ErrOAuthLinkRequired) {
+	if _, err := ResolveDatabricksAppUser(ctx, p, otherWorkspace, viewer.Email, ""); !errors.Is(
+		err, ErrOAuthLinkRequired) {
 		t.Fatalf("identity crossed workspace boundary: %v", err)
 	}
 }

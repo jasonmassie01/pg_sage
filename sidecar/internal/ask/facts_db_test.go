@@ -113,7 +113,7 @@ func TestFact_ProtectedAndRejectedSubjectsAreRefused(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, err := runSessionTool(t, ss, "propose_fact", args)
-		_, acts := ss.snapshot()
+		acts := ss.actionsTaken()
 		if err != nil || out.Evidence != nil || len(acts) != 1 ||
 			acts[0].Status != ActionRefused {
 			t.Errorf("%s: out %+v err %v actions %+v", name, out, err, acts)
@@ -136,4 +136,79 @@ func runSessionTool(t *testing.T, ss *session, name, args string) (agentloop.Out
 	}
 	t.Fatalf("tool %s is not offered", name)
 	return agentloop.Output{}, nil
+}
+
+// mcp-02: the model cites by the aliases the loop gave it; the fact
+// stores the durable id and digest behind the alias.
+func TestFact_ProposedCitingAnAlias(t *testing.T) {
+	f := newFixture(t)
+	id := f.finding(findingSeed{Object: "public.idx_alias", Title: "Index dropped and back"})
+	m := newFakeLLM(t, calls(toolCall{"get_finding", `{"id":` + itoa(id) + `}`}),
+		calls(toolCall{"propose_fact", factArgs("public.idx_alias", "E1")}),
+		answer(func(string) answerArgs {
+			return answerArgs{NotObserved: []string{"A person confirms the fact."}}
+		}))
+	a := mustAsk(t, f.service(f.deps(m)), operator, "Is idx_alias owned by the app?", "")
+	got, err := facts.NewStore(f.pool).List(f.ctx, facts.Filter{})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("facts = %+v (%v), rejected %+v", got, err, a.Transcript.Rejected)
+	}
+	read := a.Transcript.Steps[0]
+	if read.Tool != "get_finding" || read.Alias != "E1" || read.Digest == "" {
+		t.Fatalf("first step = %+v, want get_finding cited as E1", read)
+	}
+	ev := got[0].Evidence
+	if len(ev) != 1 || ev[0].Ref != "finding:"+itoa(id) || ev[0].Kind != "ask_sage:finding" ||
+		!strings.Contains(ev[0].Detail, "sha256:"+read.Digest) {
+		t.Fatalf("citations = %+v, want finding:%d with digest %s", ev, id, read.Digest)
+	}
+	if n := a.Transcript.Rejected[agentloop.RejectInvalidArgs]; n != 0 {
+		t.Fatalf("the alias was refused %d times", n)
+	}
+	if len(a.Actions) != 1 || a.Actions[0].Status != ActionProposedFact {
+		t.Fatalf("actions = %+v", a.Actions)
+	}
+}
+
+func TestFact_UnissuedAliasAndTooManyRefsAreRefused(t *testing.T) {
+	f := newFixture(t)
+	id := f.finding(findingSeed{Object: "public.idx_x", Title: "x"})
+	seven := []string{"E1", "E1", "E1", "E1", "E1", "E1", "E1"}
+	m := newFakeLLM(t, calls(toolCall{"get_finding", `{"id":` + itoa(id) + `}`}),
+		calls(toolCall{"propose_fact", factArgs("public.idx_x", "E9")}),
+		calls(toolCall{"propose_fact", factArgs("public.idx_x", seven...)}),
+		answer(func(string) answerArgs {
+			return answerArgs{NotObserved: []string{"No fact was proposed."}}
+		}))
+	a := mustAsk(t, f.service(f.deps(m)), operator, "Is idx_x owned by the app?", "")
+	if n := a.Transcript.Rejected[agentloop.RejectInvalidArgs]; n != 2 {
+		t.Fatalf("invalid_args refusals = %d (%+v), want 2", n, a.Transcript.Rejected)
+	}
+	if n := f.count(`SELECT count(*) FROM sage.facts`); n != 0 {
+		t.Fatalf("refused proposals wrote %d facts", n)
+	}
+	if len(a.Actions) != 0 {
+		t.Fatalf("actions = %+v, want none", a.Actions)
+	}
+}
+
+func TestFact_MixedAliasAndDurableIDGiveTwoCitations(t *testing.T) {
+	f := newFixture(t)
+	id1 := f.finding(findingSeed{Object: "public.idx_m1", Title: "first"})
+	id2 := f.finding(findingSeed{Object: "public.idx_m2", Title: "second"})
+	m := newFakeLLM(t, calls(toolCall{"get_finding", `{"id":` + itoa(id1) + `}`}),
+		calls(toolCall{"get_finding", `{"id":` + itoa(id2) + `}`}),
+		calls(toolCall{"propose_fact", factArgs("public.idx_m1", "E1", "finding:"+itoa(id2))}),
+		answer(func(string) answerArgs {
+			return answerArgs{NotObserved: []string{"A person confirms the fact."}}
+		}))
+	mustAsk(t, f.service(f.deps(m)), operator, "Are these owned by the app?", "")
+	got, err := facts.NewStore(f.pool).List(f.ctx, facts.Filter{})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("facts = %+v (%v)", got, err)
+	}
+	ev := got[0].Evidence
+	if len(ev) != 2 || ev[0].Ref != "finding:"+itoa(id1) || ev[1].Ref != "finding:"+itoa(id2) {
+		t.Fatalf("citations = %+v, want finding:%d then finding:%d", ev, id1, id2)
+	}
 }

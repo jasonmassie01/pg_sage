@@ -59,17 +59,8 @@ func TestDatabricksAppConfigRequiresExplicitTrustedRuntime(t *testing.T) {
 			}
 		})
 	}
-	for _, mode := range []string{"", "session"} {
-		cfg, err := LoadDatabricksAppConfigFromEnv(func(key string) string {
-			if key == "SAGE_AUTH_MODE" {
-				return mode
-			}
-			return base[key]
-		})
-		if err != nil || cfg != nil {
-			t.Fatalf("ordinary mode = %+v, %v", cfg, err)
-		}
-	}
+	// Ordinary session auth (mode unset or session) outside Apps is pinned by
+	// TestSessionAuthOutsideAppsUnchanged; with the port set it now fails closed.
 }
 
 func TestDatabricksAppAudienceConfig(t *testing.T) {
@@ -108,8 +99,11 @@ func TestDatabricksAppAudienceConfig(t *testing.T) {
 	}
 	// Standalone authentication does not adopt App-specific audience policy.
 	_, err = LoadDatabricksAppConfigFromEnv(func(key string) string {
-		if key == "SAGE_AUTH_MODE" {
+		switch key {
+		case "SAGE_AUTH_MODE":
 			return "session"
+		case "DATABRICKS_APP_PORT":
+			return ""
 		}
 		return "invalid policy"
 	})
@@ -130,7 +124,7 @@ func TestDatabricksAppAudienceExactDomainBeforeAccountStore(t *testing.T) {
 		"viewer@example-com.test", cfg.AdminEmail,
 	} {
 		t.Run(email, func(t *testing.T) {
-			_, err := ResolveDatabricksAppUser(context.Background(), nil, cfg, email)
+			_, err := ResolveDatabricksAppUser(context.Background(), nil, cfg, email, "")
 			if !errors.Is(err, ErrDatabricksAppAudienceDenied) {
 				t.Fatalf("denied identity reached nil account store: %v", err)
 			}

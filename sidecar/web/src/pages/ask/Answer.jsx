@@ -1,4 +1,4 @@
-import { citationNumbers, statusLabel } from '../../lib/ask'
+import { citationKey, citationNumbers, statementRefs, statusLabel } from '../../lib/ask'
 import { CitationList, CitationMarkers } from './Citations'
 import { AnswerActions } from './AnswerActions'
 
@@ -19,7 +19,7 @@ const STATUS_COLORS = {
 export function Answer({ answer }) {
   const citations = list(answer.citations)
   const numbers = citationNumbers(citations)
-  const byId = new Map(citations.map(c => [c.id, c]))
+  const byKey = new Map(citations.map(c => [citationKey(c), c]))
   return (
     <article data-testid={`ask-answer-${answer.id}`} className="rounded p-4 space-y-3"
       style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
@@ -27,19 +27,27 @@ export function Answer({ answer }) {
         <p data-testid="ask-question" className="flex-1 font-medium" style={strong}>
           {answer.question}
         </p>
+        {answer.read_only && (
+          <span data-testid="ask-read-only" className="rounded px-2 py-0.5 text-xs"
+            title="Asked read-only: nothing could be queued, opened or proposed"
+            style={{ ...muted, border: '1px solid var(--border)' }}>
+            Answer only
+          </span>
+        )}
         <StatusBadge status={answer.status} />
       </div>
       <StatusMessage answer={answer} />
       {list(answer.statements).map((s, i) => (
         <p key={i} data-testid="ask-statement" className="text-sm" style={strong}>
           {s.text}
-          <CitationMarkers ids={s.citations} numbers={numbers} byId={byId} />
+          <CitationMarkers ids={statementRefs(s)} numbers={numbers} byId={byKey}
+            database={answer.database} />
         </p>
       ))}
       <NotVerified items={list(answer.not_verified)} />
       <Dropped items={list(answer.dropped)} />
       <AnswerActions actions={list(answer.actions)} />
-      <CitationList citations={citations} />
+      <CitationList citations={citations} database={answer.database} />
     </article>
   )
 }

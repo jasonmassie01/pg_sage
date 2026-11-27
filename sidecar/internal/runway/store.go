@@ -117,9 +117,10 @@ func (m *Monitor) loadLast(ctx context.Context) error {
 }
 
 // report upserts the runways' findings, resolves the cleared findings of
-// the evaluated categories and starts the investigations.
-func (m *Monitor) report(ctx context.Context, runways []Runway,
-	evaluated []string) (int, []string, error) {
+// the evaluated categories (a held series is not cleared: its finding is
+// marked stale instead) and starts the investigations.
+func (m *Monitor) report(ctx context.Context, runways []Runway, evaluated []string,
+	held map[string]map[string]string, scope clusterScope) (int, []string, error) {
 	findings := make([]analyzer.Finding, 0, len(runways))
 	active := map[string]map[string]bool{}
 	for _, r := range runways {
@@ -135,11 +136,16 @@ func (m *Monitor) report(ctx context.Context, runways []Runway,
 	var resolved []string
 	var errs []error
 	for _, cat := range evaluated {
-		if err := analyzer.ResolveCleared(ctx, m.pool, active[cat], cat); err != nil {
+		keep := keepOpen(active, held, cat)
+		scope.keepCluster(cat, keep)
+		if err := analyzer.ResolveCleared(ctx, m.pool, keep, cat); err != nil {
 			errs = append(errs, fmt.Errorf("resolve cleared %s findings: %w", cat, err))
 			continue
 		}
 		resolved = append(resolved, cat)
+	}
+	if err := m.markStale(ctx, held); err != nil {
+		errs = append(errs, fmt.Errorf("mark held runway findings stale: %w", err))
 	}
 	started := 0
 	if m.opts.Investigate && m.starter != nil {

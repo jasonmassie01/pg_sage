@@ -62,8 +62,12 @@ func leakedRoles() []string {
 	if len(names) == 0 {
 		return nil
 	}
+	dsn, err := testdb.DesignatedDSN()
+	if err != nil {
+		return []string{"(cannot check: " + err.Error() + ")"}
+	}
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, os.Getenv(testdb.EnvName))
+	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		return []string{"(cannot check: " + err.Error() + ")"}
 	}
@@ -80,16 +84,13 @@ func leakedRoles() []string {
 	return left
 }
 
-// livePool is a superuser pool on the package's fixture database, with
-// the sage schema bootstrapped.
+// livePool is the package-wide superuser pool on the fixture database
+// (testdb.Pool: tests share it, so none closes it or leaves session state
+// on it), with the sage schema bootstrapped.
 func livePool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := testdb.SkipUnlessLive(t)
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dsn)
-	require.NoError(t, err)
-	t.Cleanup(pool.Close)
-	require.NoError(t, schema.Bootstrap(ctx, pool))
+	pool := testdb.Pool(t)
+	require.NoError(t, schema.Bootstrap(context.Background(), pool))
 	return pool
 }
 

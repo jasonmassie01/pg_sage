@@ -71,6 +71,8 @@ type Case struct {
 	Gold         Gold          `json:"gold"`
 	Canaries     []string      `json:"canaries,omitempty"`
 	Observations []Observation `json:"observations"`
+	// DeadlockLog is the server-log record of a deadlock case (rca-07b).
+	DeadlockLog *DeadlockLog `json:"deadlock_log,omitempty"`
 }
 
 // Gold is the case's expected diagnosis. An empty root means the right
@@ -125,8 +127,8 @@ func Parse(raw []byte) (Case, error) {
 	return c, nil
 }
 
-// caseText is the case's untrusted text (subject and every observation),
-// where canaries and injected instructions live.
+// caseText is the case's untrusted text (subject, every observation and
+// the deadlock record), where canaries and injected instructions live.
 func caseText(c Case) string {
 	var b strings.Builder
 	b.WriteString(c.Subject)
@@ -134,6 +136,9 @@ func caseText(c Case) string {
 		raw, _ := json.Marshal(o)
 		b.WriteByte('\n')
 		b.Write(raw)
+	}
+	if c.DeadlockLog != nil {
+		b.WriteString("\n" + c.DeadlockLog.Detail + "\n" + c.DeadlockLog.Context)
 	}
 	return b.String()
 }

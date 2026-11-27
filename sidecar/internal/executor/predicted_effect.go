@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/verify"
@@ -149,6 +150,7 @@ func (e *Executor) predictAction(
 	ctx context.Context, sql string, detail map[string]any, before map[string]any,
 ) verify.Prediction {
 	p := e.predictEffect(ctx, sql, detail, before)
+	p.Ladder = actionLadder(ctx, detail, sql, time.Now())
 	if len(p.TargetQueryIDs) > 0 {
 		before["target_queryids"] = p.TargetQueryIDs
 		before["verify_baseline"] = e.freezeBaseline(ctx, verificationClass(sql),
@@ -186,6 +188,8 @@ func (e *Executor) predictEffect(
 		e.statisticsBaseline(ctx, sql, &p, before)
 	case verify.ClassReindex:
 		e.reindexBaseline(ctx, sql, &p, before)
+	case verify.ClassRoleTimeout:
+		e.recordCancelWatch(ctx, detail, before)
 	}
 	return p
 }

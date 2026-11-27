@@ -3,17 +3,22 @@ package autoexplain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/extschema"
 	"github.com/pg-sage/sidecar/internal/planhash"
 	"github.com/pg-sage/sidecar/internal/sanitize"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
@@ -23,7 +28,6 @@ type CollectorConfig struct {
 	CollectIntervalSeconds int
 	MaxPlansPerCycle       int
 	LogMinDurationMs       int
-	PreferSessionLoad      bool
 }
 
 // Collector ingests auto_explain plans and stores them in
@@ -35,6 +39,18 @@ type Collector struct {
 	logFn func(string, string, ...any)
 	// serverVersionNum caches server_version_num (0 = not read yet).
 	serverVersionNum int
+	// statementsRel overrides the qualified pg_stat_statements view, which
+	// is otherwise resolved from the catalog each cycle: a test seam for a
+	// fixture table with chosen candidates.
+	statementsRel string
+}
+
+// statements is the qualified pg_stat_statements view the cycle reads.
+func (c *Collector) statements(ctx context.Context) (string, error) {
+	if c.statementsRel != "" {
+		return c.statementsRel, nil
+	}
+	return extschema.StatementsRel(ctx, c.pool, "pg_stat_statements")
 }
 
 // NewCollector creates a Collector wired to the given pool.
@@ -82,7 +98,13 @@ func (c *Collector) Run(ctx context.Context) {
 // Collect finds slow queries without recent plans and captures
 // execution plans for them on-demand.
 func (c *Collector) Collect(ctx context.Context) error {
-	rows, err := c.pool.Query(ctx, candidateSQL,
+	ctx, done := selfbudget.Process().TrackFor(ctx, "auto_explain")
+	defer done()
+	rel, err := c.statements(ctx)
+	if err != nil {
+		return fmt.Errorf("query slow queries: %w", err)
+	}
+	rows, err := c.pool.Query(ctx, candidateSQL(rel),
 		float64(c.cfg.LogMinDurationMs),
 		c.cfg.MaxPlansPerCycle,
 	)
@@ -91,10 +113,6 @@ func (c *Collector) Collect(ctx context.Context) error {
 	}
 	defer rows.Close()
 
-	type candidate struct {
-		queryID int64
-		query   string
-	}
 	var candidates []candidate
 	for rows.Next() {
 		var cand candidate
@@ -110,27 +128,64 @@ func (c *Collector) Collect(ctx context.Context) error {
 		return fmt.Errorf("iterate candidates: %w", err)
 	}
 
-	for _, cand := range candidates {
-		if !isExplainable(cand.query) {
-			continue
-		}
-		if err := c.captureOnDemand(
-			ctx, cand.queryID, cand.query,
-		); err != nil {
-			c.logFn(
-				"WARN", "autoexplain: capture queryid=%d: %v", cand.queryID, err,
-			)
-		}
-	}
+	c.captureCandidates(ctx, candidates)
 	return nil
 }
 
-var candidateSQL = `
+// candidate is one slow statement without a recent plan.
+type candidate struct {
+	queryID int64
+	query   string
+}
+
+// captureCandidates captures a plan for each explainable candidate. A
+// candidate whose relation lock is busy (DDL queued on it) is skipped for
+// this cycle and retried on the next one; the cycle reports the skips once.
+func (c *Collector) captureCandidates(ctx context.Context, candidates []candidate) {
+	skipped := 0
+	for _, cand := range candidates {
+		if ok, _ := workload.Plannable(cand.query); !ok {
+			continue
+		}
+		if c.reportCapture(cand.queryID, c.captureOnDemand(ctx, cand.queryID, cand.query)) {
+			skipped++
+		}
+	}
+	if skipped > 0 {
+		c.logFn("INFO", "autoexplain: %d candidates skipped: lock busy", skipped)
+	}
+}
+
+// reportCapture logs a capture's outcome and reports whether it was
+// skipped for a busy lock: that is DEBUG, every other failure is WARN.
+func (c *Collector) reportCapture(queryID int64, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, errLockBusy):
+		c.logFn("DEBUG", "autoexplain: skip queryid=%d this cycle: %v", queryID, err)
+		return true
+	default:
+		c.logFn("WARN", "autoexplain: capture queryid=%d: %v", queryID, err)
+		return false
+	}
+}
+
+// candidateSQL reads slow statements from rel, the qualified
+// pg_stat_statements view, that have no plan from the last day or whose
+// newest plan predates an ANALYZE (auto or manual) of a relation it reads:
+// a plan flip after a statistics refresh is then seen within one capture
+// interval (guard-02c). Each statement's newest plan is read through
+// idx_explain_queryid.
+func candidateSQL(rel string) string {
+	return `
 		SELECT s.queryid, s.query
-		FROM pg_stat_statements s
-		LEFT JOIN sage.explain_cache e
-			ON e.queryid = s.queryid AND e.source <> 'lakebase_plan_history'
-			AND e.captured_at > now() - interval '1 day'
+		FROM ` + rel + ` s
+		LEFT JOIN LATERAL (
+			SELECT e.captured_at, e.plan_json FROM sage.explain_cache e
+			 WHERE e.queryid = s.queryid AND e.source <> 'lakebase_plan_history'
+			   AND e.captured_at > now() - interval '1 day'
+			 ORDER BY e.captured_at DESC LIMIT 1) e ON true
 		WHERE s.mean_exec_time > $1
 			AND s.calls > 10
 			AND s.dbid = (
@@ -138,9 +193,14 @@ var candidateSQL = `
 				WHERE datname = current_database()
 			)
 			AND ` + workload.AdviceSQL("s.query") + `
-			AND e.id IS NULL
+			AND (e.captured_at IS NULL OR EXISTS (
+				SELECT 1
+				  FROM jsonb_path_query(e.plan_json, 'strict $.**."Relation Name"') AS r(name)
+				  JOIN pg_catalog.pg_stat_user_tables t ON t.relname = r.name #>> '{}'
+				 WHERE GREATEST(t.last_analyze, t.last_autoanalyze) > e.captured_at))
 		ORDER BY s.mean_exec_time DESC
 		LIMIT $2`
+}
 
 // captureOnDemand runs EXPLAIN on a single query inside a read-only,
 // rolled-back transaction so there are no side effects.
@@ -159,7 +219,7 @@ func (c *Collector) captureOnDemand(
 	if err := sanitize.RejectMultiStatement(query); err != nil {
 		return fmt.Errorf("unsafe query text: %w", err)
 	}
-	source := "auto_explain"
+	source := estimateSource
 	generic := parameterCount(query) > 0
 	if generic {
 		version, err := c.serverVersion(ctx)
@@ -175,16 +235,51 @@ func (c *Collector) captureOnDemand(
 	}
 	planJSON, err := c.explainReadOnly(ctx, query, generic)
 	if err != nil {
-		return err
+		return lockBusy(err)
 	}
 	totalCost, execTime := extractPlanMetrics(planJSON)
 	return c.storePlan(ctx, queryID, query, planJSON, source, totalCost, execTime)
 }
 
-// explainReadOnly returns the EXPLAIN JSON for query. auto_explain
-// settings are applied with SET LOCAL so they end with the transaction
-// instead of leaking into the pooled session (G1-B15). The connection is
-// released before the plan is stored.
+// estimateSource labels an on-demand plain EXPLAIN: an estimate, never
+// an executed plan. auto_explain logs only executed statements, so the
+// capture is not an auto_explain plan (rca-04); the auto_explain log's own
+// plans are stored as auto_explain_log.
+const estimateSource = "explain_estimate"
+
+// sqlStateLockNotAvailable is the SQLSTATE of a lock_timeout.
+const sqlStateLockNotAvailable = "55P03"
+
+// errLockBusy marks a capture that gave up waiting for a relation lock.
+var errLockBusy = errors.New("relation lock busy")
+
+// lockBusy wraps a lock_timeout in errLockBusy, keeping the server error;
+// any other error is returned as it is.
+func lockBusy(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == sqlStateLockNotAvailable {
+		return fmt.Errorf("%w: %w", errLockBusy, err)
+	}
+	return err
+}
+
+// The on-demand EXPLAIN is a probe of the monitored database, bounded like
+// the SRE probes (rca-05). Planning takes AccessShare or RowExclusive locks:
+// queued behind an ALTER TABLE it would hold the statement's other locks
+// for the whole statement_timeout, so it gives up after the shared probe
+// lock timeout. The idle timeout ends the session if the transaction is
+// ever left open, so it cannot keep its snapshot or its locks.
+var (
+	explainLockTimeoutSQL = fmt.Sprintf("SET LOCAL lock_timeout = '%dms'",
+		selfmonitor.ProbeLockTimeout.Milliseconds())
+	explainIdleTimeoutSQL = "SET LOCAL idle_in_transaction_session_timeout = '10s'"
+)
+
+// explainReadOnly returns the EXPLAIN JSON for query. The bounds are
+// applied with SET LOCAL so they end with the transaction instead of
+// leaking into the pooled session (G1-B15). No auto_explain setting is
+// sent: auto_explain never logs an EXPLAIN statement (rca-04). The
+// connection is released before the plan is stored.
 func (c *Collector) explainReadOnly(
 	ctx context.Context, query string, generic bool,
 ) ([]byte, error) {
@@ -206,12 +301,16 @@ func (c *Collector) explainReadOnly(
 	if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = '5s'"); err != nil {
 		return nil, fmt.Errorf("set statement_timeout: %w", err)
 	}
-	if c.avail != nil && (c.avail.SessionLoad || c.avail.SharedPreload ||
-		c.avail.AlreadyLoaded) {
-		scfg := DefaultSessionConfig(c.cfg.LogMinDurationMs)
-		if err := ConfigureTransaction(ctx, tx, c.avail, scfg); err != nil {
-			return nil, fmt.Errorf("configure auto_explain: %w", err)
-		}
+	if _, err := tx.Exec(ctx, explainLockTimeoutSQL); err != nil {
+		return nil, fmt.Errorf("set lock_timeout: %w", err)
+	}
+	if _, err := tx.Exec(ctx, explainIdleTimeoutSQL); err != nil {
+		return nil, fmt.Errorf("set idle_in_transaction_session_timeout: %w", err)
+	}
+	// The statement is the application's: plan it on its search_path, not
+	// pg_sage's pinned one (security-01c-n).
+	if err := apppath.Pin(ctx, tx); err != nil {
+		return nil, err
 	}
 	explain := "EXPLAIN (FORMAT JSON) "
 	if generic {
@@ -264,14 +363,19 @@ func parameterCount(query string) int {
 	return maxParam
 }
 
-// planHashParam fingerprints a plan for sage.explain_cache.plan_hash.
-// A plan that cannot be fingerprinted is still stored, with NULL.
-func planHashParam(planJSON []byte) *string {
-	h, err := planhash.Compute(planJSON)
+// planHashParam fingerprints a plan for sage.explain_cache.plan_hash,
+// naming partitions by their roots as read from db, the monitored
+// database the plan ran on (collection-09). A plan that cannot be
+// fingerprinted is stored with NULL. When the roots cannot be read the
+// hash is the unresolved v2u fingerprint and the read error is returned
+// beside it for the caller to log.
+func planHashParam(ctx context.Context, db planhash.Beginner, planJSON []byte) (*string, error) {
+	roots, resolveErr := planhash.Resolve(ctx, db, planJSON)
+	h, err := planhash.ComputeWith(planJSON, planhash.Options{Roots: roots})
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	return &h
+	return &h, resolveErr
 }
 
 // storePlan inserts a captured plan into sage.explain_cache.
@@ -284,13 +388,17 @@ func (c *Collector) storePlan(
 	totalCost float64,
 	execTime float64,
 ) error {
+	hash, resolveErr := planHashParam(ctx, c.pool, planJSON)
+	if resolveErr != nil {
+		c.logFn("WARN", "autoexplain: query %d plan stored with an unresolved "+
+			"fingerprint: %v", queryID, resolveErr)
+	}
 	_, err := c.pool.Exec(ctx, `
 		INSERT INTO sage.explain_cache
 			(queryid, query_text, plan_json, source,
 			 total_cost, execution_time, plan_hash)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		queryID, queryText, planJSON, source, totalCost, execTime,
-		planHashParam(planJSON),
+		queryID, queryText, planJSON, source, totalCost, execTime, hash,
 	)
 	if err != nil {
 		return fmt.Errorf("insert explain_cache: %w", err)
@@ -314,29 +422,4 @@ func extractPlanMetrics(planJSON []byte) (float64, float64) {
 		return 0, 0
 	}
 	return wrapper[0].Plan.TotalCost, wrapper[0].ExecutionTime
-}
-
-// isExplainable returns true if the query is a DML statement that
-// can be wrapped in EXPLAIN. Utility commands (SET, VACUUM, COPY,
-// DDL) are filtered out.
-func isExplainable(query string) bool {
-	q := strings.TrimSpace(query)
-	if q == "" {
-		return false
-	}
-	upper := strings.ToUpper(q)
-	for _, prefix := range explainablePrefixes {
-		if strings.HasPrefix(upper, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-var explainablePrefixes = []string{
-	"SELECT",
-	"INSERT",
-	"UPDATE",
-	"DELETE",
-	"WITH",
 }

@@ -38,9 +38,9 @@ func TestPlans_WithBothSignalsLeaveRoomForTheModelProbe(t *testing.T) {
 		}
 	}
 	// lock, connections, WAL, plan, SLO burn, operator triage (roadmap
-	// 2.1), 4 reactive, 3 runway kinds.
-	if planned != 13 {
-		t.Fatalf("%d trigger kinds have a plan, want 13", planned)
+	// 2.1), 4 reactive, 3 runway kinds, workload anomaly (market-02).
+	if planned != 14 {
+		t.Fatalf("%d trigger kinds have a plan, want 14", planned)
 	}
 }
 

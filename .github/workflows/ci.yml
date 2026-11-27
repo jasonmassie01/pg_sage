@@ -12,12 +12,32 @@ on:
   # Manual runs, e.g. the first live-model arm after its secret is set.
   workflow_dispatch:
 
+# ci-01: the token is read-only unless a job asks for more. Jobs that pull
+# the CI images from ghcr.io add packages: read; jobs that publish keep
+# their own permissions.
+permissions:
+  contents: read
+
+# ci-03: a newer push to a pull request cancels the older run. Master, tag,
+# nightly and manual runs get a group of their own (the run id), so they are
+# never cancelled and never queue behind another run: bench-sign always
+# signs the reports of a finished run. (Keyed by ref alone, a third master
+# push would cancel the second one while it waited.)
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04, which Playwright 1.59 cannot install
+    # Chromium's dependencies on; stay on 24.04 until Playwright supports it.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -32,14 +52,28 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-      SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench
-      # Roadmap 1.1: every PGIncidentBench report names the pg_sage build it
-      # scored, so a sidecar refuses a report made for another build.
-      SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
-      SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
-      PGHOST: localhost
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
+      PGHOST: 127.0.0.1
       PGPORT: "5432"
       PGUSER: postgres
       PGPASSWORD: postgres
@@ -47,49 +81,107 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # There is no root go.sum or package-lock.json, so each cache names its
+      # lockfile or it never restores.
       - uses: actions/setup-go@v5
         with:
           go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sidecar/web/package-lock.json
 
-      - name: Prepare PostgreSQL (HypoPG, pg_hint_plan, pg_stat_statements)
-        run: scripts/ci/setup-test-postgres.sh ${{ job.services.postgres.id }} 17
+      # ci-03b: the image has HypoPG, pg_hint_plan, pg_stat_statements and
+      # the test server settings baked in (scripts/ci/images); this only
+      # checks the server, it installs and restarts nothing.
+      - name: Check the PostgreSQL server (CI image)
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} 17
 
       - name: Verify and build frontend
         working-directory: sidecar/web
         run: |
           npm ci
           npm run lint
-          npm run test -- --maxWorkers=2
+          npm run test -- --coverage --maxWorkers=2
           npm run build
+          npm run check:bundle
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      # ci-08: the mocked dashboard suite (sidecar/web/e2e, every /api route
+      # stubbed by fixtures.ts) runs on every push. The browser cache is keyed
+      # on the lockfile, so a Playwright bump downloads the matching build.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('sidecar/web/package-lock.json') }}
+
+      - name: Playwright gate scripts (unit tests)
+        run: node --test scripts/ci/*.test.mjs
+
+      - name: Dashboard browser tests (mocked API)
+        working-directory: sidecar/web
+        env:
+          CI: "1"
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/playwright-report.json
+        run: |
+          npx playwright install --with-deps chromium
+          status=0
+          npx playwright test --reporter=list,json || status=$?
+          node ../../scripts/ci/playwright-skip-gate.mjs test-results/playwright-report.json || status=1
+          exit $status
+
+      - name: Upload dashboard browser test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-mocked-test-results
+          path: sidecar/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Go vet
         working-directory: sidecar
         run: go vet ./...
 
+      # migration-11 (CHECK-24): the docs/migration-ci.md gate against the
+      # fixture migrations, statically and against this job's PostgreSQL.
+      # Each fixture must exit with its expected code (0 safe, 1 review,
+      # 2 risky); a tool error (3) fails the step.
+      - name: Migration lint gate (fixture migrations)
+        env:
+          SAGE_LINT_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+        run: |
+          (cd sidecar && go build -o ../pg_sage_sidecar ./cmd/pg_sage_sidecar)
+          scripts/ci/lint-migration-fixtures.sh ./pg_sage_sidecar
+
+      # ci-04: compile every tagged suite (go vet builds test files and runs
+      # nothing), so a live suite cannot rot unbuilt. Keep this list in step
+      # with internal/testsupport/buildtags, which fails on a missing tag.
+      - name: Go vet (tagged suites, compile only)
+        working-directory: sidecar
+        run: go vet -tags=integration,e2e,perfgate,providerlive,cloudlive,convertscale ./...
+
       - name: Databricks Apps packaging tests
         run: python3 -m unittest discover -s deploy/databricks-apps -p 'test_*.py' -v
 
       # Each suite writes go test -json for the skip budget and prints the
-      # verbose log; the step fails with the suite's own exit status.
-      - name: Unit tests (race detector)
+      # verbose log; the step fails with the suite's own exit status. One run
+      # covers the untagged and the integration-tagged tests, both under the
+      # race detector (ci-03: a second, untagged run only repeated them).
+      - name: Unit and integration tests (race detector)
         working-directory: sidecar
         run: |
           status=0
-          go test ./... -race -cover -count=1 -timeout 900s -json > ../unit.json || status=$?
+          go test ./... -race -cover -tags=integration -count=1 -timeout 2400s -json \
+            > ../unit.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../unit.json
-          exit $status
-
-      - name: Integration tests
-        working-directory: sidecar
-        run: |
-          status=0
-          go test ./... -cover -tags=integration -count=1 -timeout 600s -json \
-            > ../integration.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../integration.json
           exit $status
 
       - name: Sidecar end-to-end tests
@@ -100,166 +192,40 @@ jobs:
           jq -rj 'select(.Action=="output") | .Output' ../e2e.json
           exit $status
 
-      # Performance gate: the real runtime against a large synthetic catalog
-      # with pre-seeded sage history; fails on a seq scan of a large sage
-      # table, slow statements, O(objects) writes or a catalog query over
-      # the 500 ms incident budget (internal/testsupport/perfgate/budgets.go).
-      # Pull requests run the small scale; the nightly run the large one.
-      # Blocking: any offender fails the build. TestPerfGateFirstLook times the
-      # catalog-only first look, Agent posture included (G0-04): 5 s small and
-      # 20 s large over 10k+ relations, no degraded check, no user-table scan.
-      # The gate gets a fresh server of its own: the shared one holds what the
-      # suites above left behind, and cluster-wide reads (the databases'
-      # total size stats every file of every database) would charge pg_sage
-      # for it (153 ms there, 40 ms on a clean server, nightly 2026-10-07).
-      - name: Log in to the GitHub container registry
-        if: ${{ !cancelled() }}
-        run: echo "${{ secrets.GITHUB_TOKEN }}" |
-          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Start a clean PostgreSQL for the performance gate
-        if: ${{ !cancelled() }}
-        run: |
-          docker run -d --name perfgate-pg -e POSTGRES_PASSWORD=postgres \
-            -p 5433:5432 ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17 >/dev/null
-          for _ in $(seq 1 60); do
-            docker exec perfgate-pg pg_isready -U postgres >/dev/null 2>&1 && break
-            sleep 1
-          done
-          scripts/ci/setup-test-postgres.sh perfgate-pg 17
-
-      - name: Performance gate
-        if: ${{ !cancelled() }}
-        working-directory: sidecar
-        timeout-minutes: 30
-        env:
-          SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5433/postgres?sslmode=disable
-          PG_SAGE_PERF_SCALE: ${{ github.event_name == 'schedule' && 'large' || 'small' }}
-          PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
-        run: |
-          go test ./cmd/pg_sage_sidecar -tags=perfgate \
-            -run '^(TestPerfGate|TestPerfGateFirstLook)$' -count=1 -timeout 1800s -v
-
-      - name: Upload performance gate report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: perfgate-pg17
-          path: perfgate/
-          if-no-files-found: warn
-
-      # The bench runs in shards by incident family (SAGE_BENCH_FAMILIES), each
-      # its own step under 20 minutes, so it neither crowds the ./... suites
-      # nor needs one long timeout. Every bench family must be in exactly one
-      # shard (sre-bench/ci_split_test.go). The later shards run even when
-      # an earlier shard failed.
-      - name: PGIncidentBench (core families)
-        id: bench-core
-        working-directory: sidecar
-        timeout-minutes: 40
-        env:
-          SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
-          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/core
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
-        run: |
-          status=0
-          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-core.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-core.json
-          exit $status
-
-      - name: PGIncidentBench (M6 reactive families)
-        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
-        working-directory: sidecar
-        timeout-minutes: 40
-        env:
-          SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion,replication_lag,lwlock_contention
-          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/reactive
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
-        run: |
-          status=0
-          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-reactive.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-reactive.json
-          exit $status
-
-      - name: PGIncidentBench (M6 runway families)
-        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
-        working-directory: sidecar
-        timeout-minutes: 40
-        env:
-          SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway,sequence_runway
-          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/runway
-          # A release report must meet the promotion bar's n >= 10 per
-          # family (the smallest family has 3 scored scenarios).
-          SAGE_BENCH_REPEATS: ${{ startsWith(github.ref, 'refs/tags/v') && '4' || '1' }}
-        run: |
-          status=0
-          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-runway.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-runway.json
-          exit $status
-
-      # PGIncidentBench writes its JSON result and Markdown summary here.
-      - name: Upload PGIncidentBench report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: pgincidentbench-pg17
-          path: pgincidentbench/
-          if-no-files-found: warn
-
-      # AgentSafetyBench v0 (G0-08): runs on PG17 here. Only bench machinery
-      # errors fail the step; the measured numbers are reported, not gated.
-      - name: AgentSafetyBench
-        id: safety-bench
-        if: ${{ !cancelled() }}
-        working-directory: sidecar
-        timeout-minutes: 15
-        env:
-          SAGE_SAFETY_BENCH_RUN: "1"
-          SAGE_SAFETY_BENCH_REPORT_DIR: ${{ github.workspace }}/agentsafetybench
-        run: |
-          status=0
-          go test ./safety-bench -run '^TestAgentSafetyBench$' -count=1 -timeout 600s \
-            -json > ../safety-bench.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../safety-bench.json
-          exit $status
-
-      # The PG17 report is signed by safety-bench-sign and shipped; the other
-      # majors (integration-matrix) upload unsigned artifacts.
-      - name: Upload AgentSafetyBench report (PG17)
-        if: ${{ !cancelled() && steps.safety-bench.conclusion != 'skipped' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: agentsafetybench-pg17
-          path: agentsafetybench/
-          if-no-files-found: warn
-
-      # Fails on any skipped test not justified in sidecar/.skip-allowlist.
+      # Fails on any skipped test not justified in sidecar/.skip-allowlist for
+      # PostgreSQL 17, and unless the alerting and notify database tests passed
+      # (alerting-12). shell: bash adds pipefail, so a missing -json file fails.
       - name: Skip budget
         if: ${{ !cancelled() }}
         working-directory: sidecar
-        run: cat ../unit.json ../integration.json ../e2e.json | go run ./cmd/skipbudget
+        shell: bash
+        run: |
+          cat ../unit.json ../e2e.json | go run ./cmd/skipbudget -pg 17 \
+            -require 'internal/alerting TestEvaluate_.*' \
+            -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*'
+
+      # ci-20: fails when a package's statement coverage in the unit stream
+      # is under its floor in sidecar/.coverage-floors (70% by default).
+      - name: Coverage floors
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        shell: bash
+        run: go run ./cmd/covfloor < ../unit.json
 
   # PostgreSQL 17 runs in the test job above; this covers the rest of the
   # supported range with the race detector and integration tags.
   integration-matrix:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
         pg: ["14", "15", "16", "18"]
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -274,8 +240,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 
@@ -284,80 +269,350 @@ jobs:
           go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
-      - name: Prepare PostgreSQL ${{ matrix.pg }}
-        run: scripts/ci/setup-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+      - name: Check the PostgreSQL server (CI image)
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} ${{ matrix.pg }}
 
+      # 2400 s: cmd/pg_sage_sidecar alone took 1250-1500 s under the race
+      # detector (a five-minute real-time collector test among them), and the
+      # 1500 s budget timed it out on a loaded runner (PG15, 2026-11-25).
       - name: Integration tests (race detector)
         working-directory: sidecar
         run: |
           status=0
-          go test ./... -race -tags=integration -count=1 -timeout 1200s -json \
+          go test ./... -race -tags=integration -count=1 -timeout 2400s -json \
             > ../integration.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../integration.json
           exit $status
 
-      # The same shards as the PostgreSQL 17 job: the M6 probes have
-      # per-version variants (pg_stat_bgwriter vs pg_stat_checkpointer,
-      # pg_stat_wal columns removed in 18), so every family runs on every
-      # version.
-      - name: PGIncidentBench (core families)
-        id: bench-core
+      - name: Skip budget
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        shell: bash
+        run: |
+          go run ./cmd/skipbudget -pg ${{ matrix.pg }} \
+            -require 'internal/alerting TestEvaluate_.*' \
+            -require 'internal/notify TestPhase2_(ProcessRule|LoadChannel|LoadMatchingRules)_.*' \
+            < ../integration.json
+
+  # ci-03b: the benches and the performance gate run in jobs of their own,
+  # in parallel with the suites, so the critical path is the slowest job
+  # and not the suites plus every bench in a row. Each gets a clean server
+  # of its own.
+  #
+  # Performance gate: the real runtime against a large synthetic catalog
+  # with pre-seeded sage history; fails on a seq scan of a large sage
+  # table, slow statements, O(objects) writes or a catalog query over
+  # the 500 ms incident budget (internal/testsupport/perfgate/budgets.go).
+  # Pull requests run the small scale; the nightly run the large one.
+  # Blocking: any offender fails the build. TestPerfGateFirstLook times the
+  # catalog-only first look, Agent posture included (G0-04): 5 s small and
+  # 20 s large over 10k+ relations, no degraded check, no user-table scan.
+  # The service is the gate's alone: a server other suites used would
+  # charge pg_sage for what they left behind (cluster-wide reads such as
+  # the databases' total size stat every file of every database: 153 ms
+  # there, 40 ms on a clean server, nightly 2026-10-07).
+  perfgate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    services:
+      postgres:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+    env:
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Check the PostgreSQL server (CI image)
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} 17
+
+      - name: Performance gate
+        working-directory: sidecar
+        timeout-minutes: 30
+        env:
+          PG_SAGE_PERF_SCALE: ${{ github.event_name == 'schedule' && 'large' || 'small' }}
+          PG_SAGE_PERF_REPORT: ${{ github.workspace }}/perfgate/report.md
+        shell: bash
+        run: |
+          status=0
+          go test ./cmd/pg_sage_sidecar -tags=perfgate \
+            -run '^(TestPerfGate|TestPerfGateFirstLook)$' -count=1 -timeout 1800s -json \
+            > ../perfgate.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../perfgate.json
+          go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'cmd/pg_sage_sidecar TestPerfGate' \
+            -require 'cmd/pg_sage_sidecar TestPerfGateFirstLook' < ../perfgate.json || status=1
+          exit $status
+
+      - name: Upload performance gate report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: perfgate-pg17
+          path: perfgate/
+          if-no-files-found: warn
+
+  # PGIncidentBench: one leg per PostgreSQL major and shard of incident
+  # families (SAGE_BENCH_FAMILIES). The M6 probes have per-version variants
+  # (pg_stat_bgwriter vs pg_stat_checkpointer, pg_stat_wal columns removed
+  # in 18), so every family runs on every major. Every family is in exactly
+  # one shard, and every shard fits its 2400 s timeout at the repeats a
+  # tag's SAGE_BENCH_MIN_RUNS_PER_FAMILY=10 sizes (4 for a family of 3
+  # scored scenarios): at most 18 scenarios, 16 in the shard that replays
+  # the corpus (sre-bench/ci_split_test.go). A failed leg cancels no other.
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["14", "15", "16", "17", "18"]
+        shard:
+          # The replay corpus is the same in every shard: only core part A
+          # replays it, so the signed release keeps one replay section
+          # (benches-11).
+          - name: core-a
+            families: lock_blocking,connection_pressure
+            replay: "1"
+          - name: core-b
+            families: wal_retention,plan_regression
+          - name: reactive-a
+            families: checkpoint_storm,temp_file_explosion
+          - name: reactive-b
+            families: replication_lag,lwlock_contention
+          - name: runway-a
+            families: wraparound_runway,disk_wal_runway
+          - name: runway-b
+            families: sequence_runway
+    services:
+      postgres:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+    env:
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
+      # Roadmap 1.1: every PGIncidentBench report names the pg_sage build it
+      # scored, so a sidecar refuses a report made for another build.
+      SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
+      SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Check the PostgreSQL server (CI image)
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} ${{ matrix.pg }}
+
+      - name: PGIncidentBench (${{ matrix.shard.name }})
         working-directory: sidecar
         timeout-minutes: 40
         env:
           SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: lock_blocking,connection_pressure,wal_retention,plan_regression
+          SAGE_BENCH_FAMILIES: ${{ matrix.shard.families }}
+          SAGE_BENCH_REPLAY: ${{ matrix.shard.replay }}
+          SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench/${{ matrix.shard.name }}
+          # PG17's reports are signed and shipped (bench-sign), so on a tag
+          # they must meet the promotion bar's n >= 10 scored top-1 runs per
+          # family (earned MinTop1N): the bench sizes the repeats, tops up
+          # families that skips left short and fails on one still short
+          # (benches-06). The other majors run one pass. 17 is a number, not
+          # '17': the shard budget contract reads quoted literals as counts.
+          SAGE_BENCH_MIN_RUNS_PER_FAMILY: ${{ matrix.pg == 17 && startsWith(github.ref, 'refs/tags/v') && '10' || '' }}
+          # On tags a scenario skip the manifest does not allow fails the
+          # shard (benches-06), so every family is measured on every major.
+          SAGE_BENCH_EXPECTED: ${{ startsWith(github.ref, 'refs/tags/v') && 'testdata/ci-expected.json' || '' }}
+        shell: bash
         run: |
           status=0
           go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-core.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-core.json
+            > ../bench.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../bench.json
+          go run ./cmd/skipbudget -pg ${{ matrix.pg }} -stale=off \
+            -require 'sre-bench TestPGIncidentBench' < ../bench.json || status=1
           exit $status
 
-      - name: PGIncidentBench (M6 reactive families)
-        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
-        working-directory: sidecar
-        timeout-minutes: 40
+      # PGIncidentBench writes its JSON result and Markdown summary under
+      # pgincidentbench/<shard>; bench-sign merges the PG17 legs.
+      - name: Upload PGIncidentBench report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgincidentbench-pg${{ matrix.pg }}-${{ matrix.shard.name }}
+          path: pgincidentbench/
+          if-no-files-found: warn
+
+  # AgentSafetyBench v0 (G0-08) on every major. It fails on bench
+  # machinery errors, on self-checks, and on any cell that differs from
+  # sidecar/safety-bench/testdata/baseline.json (with its pg_overrides for
+  # the major): a regression names the design and case, and through this
+  # job fails the release and the tag image. The PG17 report is signed by
+  # safety-bench-sign and shipped; the other majors' are unsigned
+  # artifacts. The EXPLAIN guard's hard gate,
+  # TestExplainGuardHoldsTheReadOnlyCorpus, runs with the test suites.
+  safety-bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ["14", "15", "16", "17", "18"]
+    services:
+      postgres:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
-          SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: checkpoint_storm,temp_file_explosion,replication_lag,lwlock_contention
-        run: |
-          status=0
-          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-reactive.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-reactive.json
-          exit $status
-
-      - name: PGIncidentBench (M6 runway families)
-        if: ${{ !cancelled() && steps.bench-core.conclusion != 'skipped' }}
-        working-directory: sidecar
-        timeout-minutes: 40
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
-          SAGE_BENCH_RUN: "1"
-          SAGE_BENCH_FAMILIES: wraparound_runway,disk_wal_runway,sequence_runway
-        run: |
-          status=0
-          go test ./sre-bench -run '^TestPGIncidentBench$' -count=1 -timeout 2400s -json \
-            > ../bench-runway.json || status=$?
-          jq -rj 'select(.Action=="output") | .Output' ../bench-runway.json
-          exit $status
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+    env:
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
+      SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
+      SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+    steps:
+      - uses: actions/checkout@v4
 
-      # AgentSafetyBench v0 on the rest of the supported range. These reports
-      # are uploaded unsigned (PG17's is the signed, shipped one). Only bench
-      # machinery errors fail the step.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Check the PostgreSQL server (CI image)
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} ${{ matrix.pg }}
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} ${{ matrix.pg }}
+
+      # An improvement fails too and asks for the baseline to be regenerated
+      # (go run ./safety-bench/cmd/baseline), so the published numbers in
+      # safety-bench/testdata/baseline.json stay true.
       - name: AgentSafetyBench
         id: safety-bench
-        if: ${{ !cancelled() }}
         working-directory: sidecar
         timeout-minutes: 15
         env:
           SAGE_SAFETY_BENCH_RUN: "1"
           SAGE_SAFETY_BENCH_REPORT_DIR: ${{ github.workspace }}/agentsafetybench
+        shell: bash
         run: |
           status=0
           go test ./safety-bench -run '^TestAgentSafetyBench$' -count=1 -timeout 600s \
             -json > ../safety-bench.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../safety-bench.json
+          go run ./cmd/skipbudget -pg ${{ matrix.pg }} -stale=off \
+            -require 'safety-bench TestAgentSafetyBench' < ../safety-bench.json || status=1
           exit $status
 
       - name: Upload AgentSafetyBench report (PG${{ matrix.pg }})
@@ -368,10 +623,99 @@ jobs:
           path: agentsafetybench/
           if-no-files-found: warn
 
-      - name: Skip budget
-        if: ${{ !cancelled() }}
+  # Nightly only (ci-03b): the race suite in a shuffled order, twice, to
+  # surface tests that depend on the order or on state another test left.
+  # It is reported, never gating: continue-on-error keeps the run green, no
+  # job needs it, and pull requests, pushes and tags keep one ordered run
+  # with no retries (flakes are fixed at the root). The run summary lists
+  # the failed tests; the go test -json report (with each package's
+  # -test.shuffle seed, to replay an order) is an artifact.
+  shuffle:
+    if: github.event_name == 'schedule'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: read
+    services:
+      postgres:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+    env:
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Check the PostgreSQL server (CI image)
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} 17
+
+      - name: Unit and integration tests (race detector, shuffled, twice)
         working-directory: sidecar
-        run: go run ./cmd/skipbudget < ../integration.json
+        shell: bash
+        run: |
+          status=0
+          go test ./... -race -shuffle=on -count=2 -tags=integration -timeout 5400s -json \
+            > ../shuffle.json || status=$?
+          failed=$(jq -r 'select(.Action=="fail" and .Test != null) |
+            "- \(.Package) \(.Test)"' ../shuffle.json | sort -u)
+          {
+            echo "### Shuffled race suite (nightly, not gating)"
+            if [ "$status" -eq 0 ]; then
+              echo "Every test passed in a shuffled order, twice."
+            else
+              echo "go test exited $status. Failed tests (seeds in shuffle-race-report):"
+              echo "${failed:-none named: a build failure or a timeout, see the report}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Upload the shuffled run's report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: shuffle-race-report
+          path: shuffle.json
+          if-no-files-found: warn
 
   # Agent governance tests that need servers of their own, so they skip in
   # the shared suites (listed in sidecar/.skip-allowlist) and none may skip
@@ -383,8 +727,11 @@ jobs:
   # for E2's real pgaudit correlation and G1-10's dealloc fallback.
   agent-servers:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     env:
-      KILL_TOPOLOGY_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17
+      KILL_TOPOLOGY_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
     steps:
       - uses: actions/checkout@v4
 
@@ -429,17 +776,42 @@ jobs:
         timeout-minutes: 10
         run: |
           status=0
-          url=postgres://postgres:postgres@localhost:5435/postgres?sslmode=disable
-          SAGE_TEST_DATABASE_URL=$url SAGE_TEST_PSS_SMALL_URL=$url             go test ./internal/pgaudit ./internal/agentguard/broker -race -count=1             -timeout 600s -json             -run '^(TestRealPGAuditCorrelation|TestActivityReportsDeallocAndFallsBack)$'             > ../agent-audit.json || status=$?
+          url=postgres://postgres:postgres@127.0.0.1:5435/postgres?sslmode=disable
+          SAGE_TEST_DATABASE_URL=$url SAGE_TEST_PSS_SMALL_URL=$url             go test ./internal/pgaudit ./internal/agentguard/broker -race -count=1             -timeout 600s -json             -run '^(TestRealPGAuditCorrelation|TestRealPGAuditTaggedLongAction|TestActivityReportsDeallocAndFallsBack)$'             > ../agent-audit.json || status=$?
           jq -rj 'select(.Action=="output") | .Output' ../agent-audit.json
           exit $status
 
+      # The heap bound is meaningless under the race detector, which every
+      # other suite runs with, so the test runs here without it.
+      - name: Audit chain memory bound (no race detector)
+        if: ${{ !cancelled() }}
+        working-directory: sidecar
+        timeout-minutes: 10
+        run: |
+          status=0
+          url=postgres://postgres:postgres@127.0.0.1:5435/postgres?sslmode=disable
+          SAGE_TEST_DATABASE_URL=$url go test ./internal/auditchain -tags=integration \
+            -count=1 -timeout 600s -json -run '^TestFullVerificationMemoryIsBounded$' \
+            > ../norace.json || status=$?
+          jq -rj 'select(.Action=="output") | .Output' ../norace.json
+          exit $status
+
+      # -require: a renamed test would make -run select nothing and pass.
       - name: Skip budget (no test may skip on its own servers)
         if: ${{ !cancelled() }}
         working-directory: sidecar
+        shell: bash
         run: |
-          cat ../kill.json ../agent-audit.json | go run ./cmd/skipbudget
-          if cat ../kill.json ../agent-audit.json |
+          cat ../kill.json ../agent-audit.json ../norace.json |
+            go run ./cmd/skipbudget -pg 17 -stale=off \
+            -require 'internal/agentguard TestKill_.*' \
+            -require 'internal/agentguard TestUnfreeze_.*' \
+            -require 'internal/agentguard TestRelease_.*' \
+            -require 'internal/pgaudit TestRealPGAuditCorrelation' \
+            -require 'internal/pgaudit TestRealPGAuditTaggedLongAction' \
+            -require 'internal/auditchain TestFullVerificationMemoryIsBounded' \
+            -require 'internal/agentguard/broker TestActivityReportsDeallocAndFallsBack'
+          if cat ../kill.json ../agent-audit.json ../norace.json |
             jq -e 'select(.Action=="skip" and .Test != null)' >/dev/null; then
             echo "a test skipped on its dedicated server" >&2
             exit 1
@@ -451,7 +823,107 @@ jobs:
           scripts/ci/kill-replica-topology.sh down 17 killtopo
           docker rm -f agentaudit-pg >/dev/null 2>&1 || true
 
-  lint:
+  # ci-08: the root Playwright suite (e2e/) drives the real binary through
+  # the real dashboard: approvals, emergency stop, role boundaries and the
+  # walkthrough. scripts/ci/full-surface-fixture.sh builds its disposable
+  # fleet (one PostgreSQL 17 container, a metadata database and three
+  # targets, a random test-only key and admin). Mutating specs restore
+  # config in finally, so the suite runs serially. Any skipped test fails
+  # the job. Nightly, tag and manual runs only; the release waits for it.
+  # The browser layer does not vary by major, so PostgreSQL 17 only; the
+  # Go matrix covers the others.
+  web-e2e-full:
+    # ubuntu-latest moved to 26.04, which Playwright 1.59 cannot install
+    # Chromium's dependencies on; stay on 24.04 until Playwright supports it.
+    runs-on: ubuntu-24.04
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sidecar/web/package-lock.json
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+
+      - name: Log in to the GitHub container registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" |
+          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Start the full-surface fixture (PostgreSQL 17)
+        run: bash scripts/ci/full-surface-fixture.sh 17
+
+      - name: Fixture input checks
+        run: bash scripts/ci/full-surface-fixture-test.sh "$PG_SAGE_E2E_PG_CONTAINER"
+
+      - name: Install the root suite and Chromium
+        working-directory: e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Root browser suite (full surface)
+        working-directory: e2e
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/full-surface.json
+        run: |
+          status=0
+          npx playwright test --grep-invert 'encryption-key requirement' --workers=1 \
+            --reporter=list,json || status=$?
+          node ../scripts/ci/playwright-skip-gate.mjs test-results/full-surface.json || status=1
+          exit $status
+
+      # The missing-key check needs a server without a key, which the
+      # encrypted metadata fleet above cannot be.
+      - name: Encryption-key requirement (keyless standalone server)
+        run: |
+          bash scripts/ci/full-surface-fixture.sh keyless
+          cd e2e
+          status=0
+          PG_SAGE_E2E_BASE_URL=http://127.0.0.1:8087 \
+            PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/keyless.json \
+            npx playwright test --grep 'encryption-key requirement' --workers=1 \
+            --reporter=list,json || status=$?
+          node ../scripts/ci/playwright-skip-gate.mjs test-results/keyless.json || status=1
+          exit $status
+
+      - name: Sidecar logs
+        if: failure()
+        run: tail -n 200 "$RUNNER_TEMP"/pg_sage_e2e/*.log || true
+
+      - name: Upload root browser test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-full-surface-test-results
+          path: e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ci-01 (also security-04): the vulnerability gate. govulncheck blocks
+  # on vulnerabilities the code can reach, npm audit on high or critical
+  # advisories in the dashboard's shipped dependencies, and on master and
+  # tags Trivy blocks on fixable HIGH/CRITICAL findings in the image.
+  # docker and release need it, so nothing is published past a finding.
+  security:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -461,12 +933,156 @@ jobs:
           go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # govulncheck type-checks the standard library of the toolchain it
+      # runs under, so it must be built with go.mod's toolchain: one built
+      # with an older Go cannot parse a newer toolchain's sources.
+      - name: Install govulncheck
+        working-directory: sidecar
+        run: |
+          GOTOOLCHAIN="$(awk '/^toolchain /{print $2}' go.mod)"
+          export GOTOOLCHAIN
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+
+      - name: govulncheck (reachable vulnerabilities)
+        working-directory: sidecar
+        run: govulncheck ./...
+
+      - name: npm audit (shipped dashboard dependencies)
+        working-directory: sidecar/web
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build the image to scan
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+        run: docker build -t pg_sage:scan sidecar/
+
+      # Pinned to the v0.36.0 commit, not a tag: Trivy's release tags were
+      # moved in the March 2026 compromise (GHSA-69fq-xp46-6x23).
+      - name: Trivy (fixable HIGH/CRITICAL in the image)
+        if: >-
+          github.event_name == 'push' &&
+          (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: pg_sage:scan
+          version: v0.76.1
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: "true"
+          exit-code: "1"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the ledger check compares with the last release tag.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ci-30: files stay under 500 lines and the long-function count never
+      # grows (scripts/ci/line-limits.allow may shrink a row, never add one).
+      - name: File-length ratchet
+        run: |
+          bash scripts/ci/line-limits_test.sh
+          bash scripts/ci/line-limits.sh
+
+      # ci-30 (ledger-pin): a released migration step never changes.
+      - name: Migration ledger is append-only
+        run: |
+          bash scripts/ci/ledger-append-only_test.sh
+          base="$(git describe --tags --abbrev=0 --match 'v*')"
+          bash scripts/ci/ledger-append-only.sh "$base"
+
+      # release-notes: the script that writes the GitHub release body
+      # (temporary CHANGELOGs, then this repository's own).
+      - name: Release notes script
+        run: bash scripts/ci/release-notes_test.sh
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      # golangci-lint refuses a module whose toolchain is newer than the Go
+      # it was built with: v2.14.0 is built with go1.27.0 (ci-01).
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
           working-directory: sidecar
-          version: v2.11.4
-          args: --timeout 5m
+          version: v2.14.0
+          args: --timeout 15m
+
+  # observability-09: the shipped alert rules load and their unit tests
+  # pass, with a pinned promtool (CHECK-23). sidecar/cmd/gen_metrics_doc's
+  # Go tests check the rules against the metrics registry.
+  alert-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: promtool check and test rules
+        run: |
+          docker run --rm -v "$PWD/deploy/prometheus:/rules:ro" -w /rules \
+            --entrypoint promtool prom/prometheus:v2.55.1 check rules pg_sage.rules.yml
+          docker run --rm -v "$PWD/deploy/prometheus:/rules:ro" -w /rules \
+            --entrypoint promtool prom/prometheus:v2.55.1 test rules pg_sage.rules_test.yml
+
+  # market-12: the Helm chart lints, renders with its default values and
+  # each deploy/helm/pg-sage/tests values file, and the output validates
+  # against the Kubernetes schemas. The image is the appVersion, never
+  # latest (CHECK-01); the only RBAC verb is get (CHECK-02). The Go tests in
+  # sidecar/internal/config render the same chart without helm.
+  helm-chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: helm lint and template
+        run: |
+          set -euo pipefail
+          chart=deploy/helm/pg-sage
+          helm() { docker run --rm -v "$PWD:/w" -w /w alpine/helm:3.16.2 "$@"; }
+          helm lint "$chart"
+          mkdir -p rendered
+          helm template sage "$chart" > rendered/default.yaml
+          for f in "$chart"/tests/values-*.yaml; do
+            helm lint "$chart" -f "$f"
+            helm template sage "$chart" -f "$f" > "rendered/$(basename "$f")"
+          done
+          app=$(awk '/^appVersion:/ {gsub(/"/, "", $2); print $2}' "$chart/Chart.yaml")
+          grep -q "image: \"ghcr.io/jasonmassie01/pg_sage:${app}\"" rendered/default.yaml
+          if grep -q ':latest"' rendered/*.yaml; then exit 1; fi
+          grep -q 'verbs: \["get"\]' rendered/values-cnpg.yaml
+          if grep -E 'verbs:.*(patch|update|create|delete|list|watch|\*)' rendered/*.yaml; then
+            exit 1
+          fi
+
+      - name: kubeconform
+        run: |
+          docker run --rm -v "$PWD/rendered:/r:ro" ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -summary -ignore-missing-schemas /r
+
+  # vacuum-03: float-to-Duration overflow differs by architecture (amd64
+  # wraps to MinInt64, arm64 saturates), so the freeze deadline and the
+  # policy checks that consume it also run on arm64. Unit tests only.
+  test-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sidecar/go.mod
+          cache-dependency-path: sidecar/go.sum
+
+      - name: Freeze deadline and policy tests (arm64)
+        working-directory: sidecar
+        run: go test -count=1 ./internal/custodian/freeze/... ./internal/policy/...
 
   # Roadmap 1.1: sign this commit's PGIncidentBench reports keyless
   # (Sigstore, GitHub OIDC; no key to keep) for the image and the release.
@@ -474,7 +1090,9 @@ jobs:
   # own verifier with the trusted root the binaries will embed.
   bench-sign:
     runs-on: ubuntu-latest
-    needs: test
+    # ci-03b: the reports come from the bench matrix's PG17 legs; signing
+    # still waits for the suites too.
+    needs: [test, bench]
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
@@ -482,6 +1100,23 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # benches-10: sign only in the repository the sidecar pins by ID
+      # (ReleaseIdentity in sidecar/internal/benchsig/benchsig.go). A
+      # repository registered later under this name has other IDs, and a
+      # certificate from it would be refused by every shipped sidecar.
+      - name: Refuse to sign outside the pinned repository
+        env:
+          REPO_ID: ${{ github.repository_id }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+        run: |
+          set -euo pipefail
+          if [ "$REPO_ID" != "1185895123" ] || [ "$OWNER_ID" != "143746527" ]; then
+            echo "::error::$GITHUB_REPOSITORY has repository ID $REPO_ID, owner ID $OWNER_ID."
+            echo "::error::Sidecars trust signatures only from 1185895123/143746527; change"
+            echo "::error::benchsig.ReleaseIdentity and this check together in a release."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
@@ -489,9 +1124,12 @@ jobs:
           go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
+      # One artifact per PG17 shard leg, each holding its <shard>/ report
+      # directory: merged, they are the six directories signed below.
       - uses: actions/download-artifact@v4
         with:
-          name: pgincidentbench-pg17
+          pattern: pgincidentbench-pg17-*
+          merge-multiple: true
           path: sidecar/release-bench
 
       - name: Refresh the embedded Sigstore trusted root (TUF)
@@ -508,7 +1146,7 @@ jobs:
           # evidence and would be refused at every ingest).
           find . -maxdepth 1 -type f ! -name README.md -delete
           reports=(*/pgincidentbench.json)
-          test "${#reports[@]}" -eq 3
+          test "${#reports[@]}" -eq 6
           for f in "${reports[@]}"; do
             cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
           done
@@ -540,11 +1178,11 @@ jobs:
 
   # G0-08: sign the PG17 AgentSafetyBench report keyless (Sigstore, GitHub
   # OIDC), the same pattern as bench-sign but a separate job so it never
-  # touches the PGIncidentBench 3-shard check. The report is not sidecar
+  # touches the PGIncidentBench shard-count check. The report is not sidecar
   # ledger evidence, so it is verified by cosign only (no pg_sage verifier).
   safety-bench-sign:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, safety-bench]
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
@@ -552,6 +1190,23 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # benches-10: sign only in the repository the sidecar pins by ID
+      # (ReleaseIdentity in sidecar/internal/benchsig/benchsig.go). A
+      # repository registered later under this name has other IDs, and a
+      # certificate from it would be refused by every shipped sidecar.
+      - name: Refuse to sign outside the pinned repository
+        env:
+          REPO_ID: ${{ github.repository_id }}
+          OWNER_ID: ${{ github.repository_owner_id }}
+        run: |
+          set -euo pipefail
+          if [ "$REPO_ID" != "1185895123" ] || [ "$OWNER_ID" != "143746527" ]; then
+            echo "::error::$GITHUB_REPOSITORY has repository ID $REPO_ID, owner ID $OWNER_ID."
+            echo "::error::Sidecars trust signatures only from 1185895123/143746527; change"
+            echo "::error::benchsig.ReleaseIdentity and this check together in a release."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
@@ -614,7 +1269,7 @@ jobs:
       signed: ${{ steps.sign.outputs.signed }}
     services:
       postgres:
-        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
         credentials:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
@@ -629,8 +1284,27 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+      # ci-12: a second server, from the same image, that only the tests
+      # measuring cluster-wide state use, one at a time (testdb.Exclusive).
+      postgres-exclusive:
+        image: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
     env:
-      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SAGE_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      SAGE_TEST_EXCLUSIVE_URL: postgres://postgres:postgres@127.0.0.1:5433/postgres?sslmode=disable
       SAGE_BENCH_REPORT_DIR: ${{ github.workspace }}/pgincidentbench-live
       SAGE_BENCH_PG_SAGE_COMMIT: ${{ github.sha }}
       SAGE_BENCH_PG_SAGE_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
@@ -655,9 +1329,11 @@ jobs:
           go-version-file: sidecar/go.mod
           cache-dependency-path: sidecar/go.sum
 
-      - name: Prepare PostgreSQL
+      - name: Check the PostgreSQL server (CI image)
         if: steps.secret.outputs.ready == 'true'
-        run: scripts/ci/setup-test-postgres.sh ${{ job.services.postgres.id }} 17
+        run: |
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres.id }} 17
+          scripts/ci/verify-test-postgres.sh ${{ job.services.postgres-exclusive.id }} 17
 
       # The caps cover one model arm's replay of the corpus, not both: a v*
       # tag measures the review arm (the release's root authority reads its
@@ -733,8 +1409,10 @@ jobs:
   # Roadmap 2.4: a v* tag's signed live-model report goes on the GitHub
   # release as assets once both have finished. Only this job waits for
   # bench-live; the release is never held back by it (an unsigned, failed
-  # or skipped live run attaches nothing). Ingesting these assets in the
-  # sidecar is a follow-up.
+  # or skipped live run attaches nothing). benches-09: the release notes
+  # gain the two asset URLs and the "pg_sage bench install" command that
+  # verifies them and puts them in sre.autonomy.bench_results_path, where
+  # the sidecar ingests them as a signed release report.
   bench-live-release-assets:
     runs-on: ubuntu-latest
     needs: [bench-live, release]
@@ -763,20 +1441,92 @@ jobs:
             assets/pgincidentbench-live.json.sigstore.json \
             assets/pgincidentbench-live.md
 
-  docker:
+      - name: List the signed live-model report in the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json body --jq .body > notes.md
+          if grep -q '^### Signed live-model report' notes.md; then
+            exit 0
+          fi
+          {
+            printf '\n### Signed live-model report\n\n'
+            printf 'Model-root authority counts only this signed report. Download both:\n\n'
+            printf -- '- %s/pgincidentbench-live.json\n' "$url"
+            printf -- '- %s/pgincidentbench-live.json.sigstore.json\n\n' "$url"
+            printf 'then, next to the sidecar (same binary, same config.yaml):\n\n'
+            printf '    pg_sage bench install --config config.yaml pgincidentbench-live.json\n\n'
+            printf 'It verifies the bundle for this release and copies both into '
+            printf '`sre.autonomy.bench_results_path`; the sidecar ingests them hourly.\n'
+          } >> notes.md
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+
+  # ci-06: the image HEALTHCHECK must report a plain and a TLS deployment
+  # healthy (docker inspect); docker publishes nothing past a failure here.
+  container-health:
     runs-on: ubuntu-latest
-    needs: [test, agent-servers, lint, bench-sign]
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to the GitHub container registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" |
+          docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Plain and TLS containers report healthy
+        timeout-minutes: 20
+        env:
+          PG_IMAGE: ghcr.io/jasonmassie01/pg_sage-ci-pgvector:0.8.2-pg17-r2
+        run: scripts/ci/container-healthcheck.sh
+
+  # ci-05: one leg per arch on a native runner (no QEMU). Each leg pushes
+  # its image by digest only, with provenance and an SBOM, and smoke-tests
+  # it; docker-manifest then tags and signs the merged list, so no tag
+  # ever points at an image that was not run.
+  docker:
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    needs: [test, test-arm64, agent-servers, lint, bench-sign, integration-matrix, security,
+      container-health, bench, safety-bench, perfgate]
     # master pushes publish :edge and :sha-*; release tags publish the
-    # semver tags and move :latest, so :latest is always a release.
+    # semver tags, and stable ones (no -rc) move :latest, so :latest is
+    # always a stable release.
     # A tag image needs verified signed bench reports; :edge is published
     # without them when bench-sign fails or is skipped (the sidecar starts
-    # cleanly with no shipped reports).
+    # cleanly with no shipped reports). A tag image also needs the
+    # integration matrix (PG14, 15, 16, 18), the agent servers and the
+    # arm64 tests (ci-05); :edge does not wait on them. The benches and the
+    # performance gate gate both, as they did while they were steps of the
+    # test job (ci-03b moved them into jobs of their own).
     if: >-
       always() && github.event_name == 'push' &&
       needs.test.result == 'success' && needs.lint.result == 'success' &&
+      needs.security.result == 'success' &&
+      needs.container-health.result == 'success' &&
+      needs.bench.result == 'success' && needs.safety-bench.result == 'success' &&
+      needs.perfgate.result == 'success' &&
       (github.ref == 'refs/heads/master' ||
-       (startsWith(github.ref, 'refs/tags/v') && needs.bench-sign.result == 'success'))
+       (startsWith(github.ref, 'refs/tags/v') && needs.bench-sign.result == 'success')) &&
+      (github.ref == 'refs/heads/master' || needs.integration-matrix.result == 'success') &&
+      (github.ref == 'refs/heads/master' ||
+       (needs.agent-servers.result == 'success' && needs.test-arm64.result == 'success'))
+    # This block replaces the top-level one, so the checkout's contents: read
+    # is named here too.
     permissions:
+      contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
@@ -787,6 +1537,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: docker/setup-buildx-action@v3
+
+      # :latest moves on a stable tag only; a v*-rc tag publishes :X.Y.Z-rcN.
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -795,7 +1548,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             type=edge,branch=master
             type=sha
 
@@ -814,24 +1567,178 @@ jobs:
           name: sigstore-trusted-root
           path: sidecar/internal/benchsig
 
-      - uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: sidecar/
           file: sidecar/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=ghcr.io/jasonmassie01/pg_sage,push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max
+          sbom: true
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ github.event.head_commit.timestamp }}
 
+      # ci-05: the pushed image answers --version with this build's
+      # version and the libpg_query parser.
+      - name: Smoke-test the image (--version)
+        run: |
+          bash scripts/ci/smoke-version.sh "${{ steps.meta.outputs.version }}" \
+            docker run --rm "ghcr.io/jasonmassie01/pg_sage@${{ steps.build.outputs.digest }}"
+
+      - name: Export the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ci-05: both legs pushed and smoke-tested: tag the manifest list (the
+  # tags :edge/:sha-* on master, semver and :latest on a tag) and sign it
+  # keyless with the bench reports' identity and issuer. !cancelled(): a
+  # grandparent the docker job tolerates on master (bench-sign) must not
+  # skip the merge.
+  docker-manifest:
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: ${{ !cancelled() && needs.docker.result == 'success' }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/jasonmassie01/pg_sage
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+            type=edge,branch=master
+            type=sha
+
+      - name: Create the tagged manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          test "$(ls | wc -l)" -eq 2
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/jasonmassie01/pg_sage@sha256:%s ' *)
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign the manifest list (keyless)
+        id: sign
+        run: |
+          set -euo pipefail
+          tag="$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+          digest="$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' |
+            jq -r .digest)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          cosign sign --yes "ghcr.io/jasonmassie01/pg_sage@$digest"
+
+      - name: Verify the image signature (cosign)
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}
+          ISSUER: https://token.actions.githubusercontent.com
+          IMAGE: ghcr.io/jasonmassie01/pg_sage@${{ steps.sign.outputs.digest }}
+        run: |
+          cosign verify "$IMAGE" --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" > /dev/null
+
+  # ci-05: a pull request that changes how releases are built runs
+  # goreleaser check and a snapshot release (nothing is published or
+  # signed; the committed dashboard build is embedded) and smoke-tests the
+  # snapshot's linux/amd64 binary.
+  release-dry-run:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Did this pull request change the release files?
+        id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changed="$(git diff --name-only "$BASE" HEAD)"
+          release_files='\.goreleaser\.yml|sidecar/Dockerfile|\.github/workflows/ci\.yml'
+          release_files+='|scripts/ci/(smoke-version|release-notes)\.sh'
+          release_files+='|scripts/ci/(line-limits|ledger-append-only)\.sh'
+          if grep -qxE "$release_files" <<< "$changed"; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No release files changed; the release dry run is skipped."
+          fi
+
+      - name: Stage placeholder bench reports
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          mkdir -p bench/dry-run
+          echo "release dry run: no signed reports" > bench/dry-run/README.md
+
+      - name: goreleaser check and snapshot release
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo -e GOTOOLCHAIN=go1.27.4 \
+            --entrypoint bash ghcr.io/goreleaser/goreleaser-cross:v1.27.3 -c \
+            'export GOBIN=/tmp/release-tools PATH="/tmp/release-tools:$PATH" &&
+             go install github.com/anchore/syft/cmd/syft@v1.42.0 &&
+             git config --global --add safe.directory /repo &&
+             goreleaser check &&
+             goreleaser release --snapshot --clean --skip=before,validate,publish,sign'
+
+      - name: Smoke-test the snapshot linux/amd64 binary
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          smoke="$(mktemp -d)"
+          tar -xzf dist/pg_sage_linux_amd64.tar.gz -C "$smoke"
+          bash scripts/ci/smoke-version.sh "$(jq -r .version dist/metadata.json)" "$smoke/pg_sage"
+
   release:
     runs-on: ubuntu-latest
-    needs: [test, agent-servers, bench-sign, safety-bench-sign]
+    # ci-05: a release waits for the whole green matrix. Without always()
+    # in the if, any need that failed or was skipped skips the release.
+    needs: [test, test-arm64, integration-matrix, agent-servers, lint, security,
+      container-health, bench, safety-bench, perfgate, bench-sign, safety-bench-sign,
+      web-e2e-full, helm-chart]
     if: startsWith(github.ref, 'refs/tags/v')
+    # id-token: goreleaser signs checksums.txt keyless (ci-05).
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -839,7 +1746,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sidecar/web/package-lock.json
 
       # Rebuild the embedded dashboard from the tagged sources so the shipped UI
       # always matches them. The rebuild changes asset hashes versus the
@@ -872,7 +1781,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
-          for shard in core reactive runway; do
+          for shard in core-a core-b reactive-a reactive-b runway-a runway-b; do
             for ext in json json.sigstore.json md; do
               cp "bench/$shard/pgincidentbench.$ext" "release-assets/pgincidentbench-$shard.$ext"
             done
@@ -882,13 +1791,83 @@ jobs:
             cp "safety-bench/agentsafetybench.$ext" "release-assets/agentsafetybench.$ext"
           done
 
+      # market-12: the Helm chart ships as a release asset, its version and
+      # appVersion set to the tag, so its default image is this release.
+      - name: Package the Helm chart as a release asset
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          docker run --rm -v "$PWD:/w" -w /w alpine/helm:3.16.2 package \
+            deploy/helm/pg-sage --version "$v" --app-version "$v" -d release-assets
+
+      # ci-05: goreleaser runs cosign (signs checksums.txt) and syft (an
+      # SBOM per archive) inside the goreleaser-cross container. cosign is
+      # bench-sign's pinned installer's static binary, mounted at
+      # /opt/release/bin.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Stage cosign for goreleaser
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release/bin"
+          cp "$(command -v cosign)" "$RUNNER_TEMP/release/bin/cosign"
+
+      # ci-05: the release notes are the tag's CHANGELOG section; a stable
+      # tag without one fails here, before anything is built.
+      - name: Release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          bash scripts/ci/release-notes.sh "$GITHUB_REF_NAME" CHANGELOG.md \
+            > "$RUNNER_TEMP/release/notes.md"
+          cat "$RUNNER_TEMP/release/notes.md"
+
       # cgo release: goreleaser-cross carries a C cross-compiler per target
       # (osxcross for darwin) so libpg_query links into every binary.
-      - name: GoReleaser (cgo cross-compile)
+      # syft is built in the container at an exact module version (checked
+      # against the Go checksum database), so it links the container's libc.
+      # cosign signs keyless with the runner's OIDC request token.
+      - name: GoReleaser (cgo cross-compile, signed checksums, SBOMs)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          docker run --rm -e GITHUB_TOKEN -v "$PWD:/repo" -w /repo \
-            --entrypoint bash ghcr.io/goreleaser/goreleaser-cross:v1.25.0 -c \
-            'git config --global --add safe.directory /repo &&
-             goreleaser release --clean --skip=before,validate'
+          docker run --rm -e GITHUB_TOKEN -e GOTOOLCHAIN=go1.27.4 \
+            -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+            -v "$RUNNER_TEMP/release:/opt/release:ro" -v "$PWD:/repo" -w /repo \
+            --entrypoint bash ghcr.io/goreleaser/goreleaser-cross:v1.27.3 -c \
+            'export GOBIN=/tmp/release-tools PATH="/tmp/release-tools:/opt/release/bin:$PATH" &&
+             go install github.com/anchore/syft/cmd/syft@v1.42.0 &&
+             git config --global --add safe.directory /repo &&
+             goreleaser release --clean --skip=before,validate \
+               --release-notes /opt/release/notes.md'
+
+      # ci-05: checksums.txt verifies with the bench reports' identity and
+      # issuer, the archives match it, and each archive has its SBOM.
+      - name: Verify the signed checksums
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/ci.yml@${{ github.ref }}
+          ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          set -euo pipefail
+          cosign verify-blob --bundle dist/checksums.txt.sigstore.json \
+            --certificate-identity "$IDENTITY" --certificate-oidc-issuer "$ISSUER" \
+            dist/checksums.txt
+          (cd dist && sha256sum --ignore-missing -c checksums.txt) | tee "$RUNNER_TEMP/sums"
+          grep -Fx "pg_sage_linux_amd64.tar.gz: OK" "$RUNNER_TEMP/sums"
+          for archive in dist/pg_sage_*.tar.gz; do
+            test -s "$archive.sbom.json"
+          done
+
+      # ci-05: goreleaser leaves the release a draft. The archived linux
+      # binary must answer --version with the tag and libpg_query before
+      # the release is made public.
+      - name: Smoke-test the archived linux/amd64 binary
+        run: |
+          set -euo pipefail
+          smoke="$(mktemp -d)"
+          tar -xzf dist/pg_sage_linux_amd64.tar.gz -C "$smoke"
+          bash scripts/ci/smoke-version.sh "${GITHUB_REF_NAME#v}" "$smoke/pg_sage"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

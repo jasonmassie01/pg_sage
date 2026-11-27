@@ -178,7 +178,7 @@ func aliasNote(alias string) string {
 // execute runs a tool call that passed every budget.
 func (r *run) execute(ctx context.Context, t Tool, a action, s Step, key string) error {
 	start := time.Now()
-	out, err := t.Run(ctx, a.args)
+	out, err := t.Run(withAliases(ctx, r.aliases), a.args)
 	s.ElapsedMS = time.Since(start).Milliseconds()
 	var abort *AbortError
 	switch {
@@ -210,13 +210,14 @@ func (r *run) execute(ctx context.Context, t Tool, a action, s Step, key string)
 	return nil
 }
 
-// cite registers citable evidence under the next alias.
+// cite registers a copy of citable evidence under the next alias: the
+// tool that returned it may keep and rewrite its own.
 func (r *run) cite(ev *Evidence) string {
 	if ev == nil || ev.ID == "" {
 		return ""
 	}
 	alias := fmt.Sprintf("E%d", len(r.aliases)+1)
-	r.aliases[alias] = *ev
+	r.aliases[alias] = ev.clone()
 	return alias
 }
 

@@ -70,3 +70,11 @@ func (c *Coordinator) SourceAllowed(id probes.ID) bool { return c.readPolicy.All
 
 // ReadPolicy returns a copy of the trusted policy bound to this coordinator.
 func (c *Coordinator) ReadPolicy() *probes.ReadPolicy { return c.readPolicy.Clone() }
+
+// ReadProbe runs one probe outside any run, through the coordinator's
+// runner: the trusted read policy and the probe's own statement and lock
+// bounds apply. An operator evidence refresh (playbooks-06) uses it.
+func (c *Coordinator) ReadProbe(ctx context.Context, id probes.ID,
+	args probes.Args) probes.Result {
+	return c.runner.Run(ctx, id, args)
+}

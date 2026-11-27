@@ -44,7 +44,16 @@ func executorDispatcher(d *notify.Dispatcher, pool *pgxpool.Pool, name string,
 		l.Waits = ex.VerificationWaits()
 	}
 	return approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper).
-		WithTrust(ex.TrustLevel)
+		WithTrust(ex.TrustLevel).WithChatCap(chatApprovalCap())
+}
+
+// chatApprovalCap is notification_policy.chat_approval_max_tier (ux-09a,
+// D7); "" (no config yet) is the default, moderate.
+func chatApprovalCap() string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.NotificationPolicy.ChatApprovalMaxTier
 }
 
 // approvalCardLoader reads a database's cards with the executor's trust
@@ -67,7 +76,7 @@ func startApprovalCardLoop(ctx context.Context, controlPool *pgxpool.Pool,
 				return inst.Pool
 			}
 			return nil
-		}}
+		}, Fence: followupFence}
 	go func() {
 		ticker := time.NewTicker(approvalCardInterval)
 		defer ticker.Stop()
@@ -84,6 +93,17 @@ func startApprovalCardLoop(ctx context.Context, controlPool *pgxpool.Pool,
 	}()
 }
 
+// followupFence is the lease follow-ups are claimed under: the fleet
+// leader's, or none when election is disabled.
+func followupFence() (chatops.ClaimFence, bool) {
+	el := currentFleetLeader()
+	if el == nil {
+		return chatops.ClaimFence{}, true
+	}
+	tok, ok := el.Fence()
+	return chatops.ClaimFence{Scope: tok.Scope, Holder: tok.Holder, Epoch: tok.Epoch}, ok
+}
+
 // runApprovalCardCycle posts due follow-ups and re-sends ended snoozes.
 func runApprovalCardCycle(ctx context.Context, f *approvalcard.Followups,
 	d *notify.Dispatcher, mgr *fleet.DatabaseManager) {
@@ -95,7 +115,8 @@ func runApprovalCardCycle(ctx context.Context, f *approvalcard.Followups,
 			continue
 		}
 		l := approvalCardLoader(inst.Pool, inst.Name, inst.Executor.TrustLevel())
-		n := approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper)
+		n := approvalcard.NewNotifier(d, l).WithLog(logStructuredWrapper).
+			WithChatCap(chatApprovalCap())
 		if _, err := approvalcard.RenotifySnoozed(ctx, l, n); err != nil {
 			logWarn("approvals", "db %q: re-send snoozed approval cards: %v", inst.Name, err)
 		}

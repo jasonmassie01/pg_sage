@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/servertls"
 )
 
@@ -30,7 +34,8 @@ func newAPITLS(c *config.Config) (*servertls.Reloader, error) {
 		return nil, nil
 	}
 	reloader, err := servertls.New(c.TLSCert, c.TLSKey, servertls.Options{
-		Logf: func(format string, args ...any) { logWarn("tls", format, args...) },
+		Logf:   func(format string, args ...any) { logWarn("tls", format, args...) },
+		Errorf: func(format string, args ...any) { logError("tls", format, args...) },
 	})
 	if err != nil {
 		return nil, err
@@ -56,4 +61,50 @@ func apiListenLog(addr string, reloader *servertls.Reloader) string {
 		return "listening on " + addr
 	}
 	return fmt.Sprintf("listening on %s (TLS)", addr)
+}
+
+// tlsExpiryCheckInterval is how often a never-rotated certificate's expiry
+// is re-checked, so it is reported even when no reload ever happens.
+const tlsExpiryCheckInterval = time.Hour
+
+// startTLSExpiryWatch checks the serving certificate's expiry every
+// interval until ctx ends. A nil reloader (plain HTTP) starts nothing.
+func startTLSExpiryWatch(ctx context.Context, reloader *servertls.Reloader,
+	interval time.Duration) {
+	if reloader == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				reloader.CheckExpiry()
+			}
+		}
+	}()
+}
+
+// apiTLSExpiringFunc feeds /ready its tls_expiring detail; nil (no detail)
+// when the API serves plain HTTP.
+func apiTLSExpiringFunc(reloader *servertls.Reloader) func() bool {
+	if reloader == nil {
+		return nil
+	}
+	return reloader.Expiring
+}
+
+// writeTLSMetrics exposes the serving certificate's expiry and the failed
+// reload count. Nothing is written when the API serves plain HTTP.
+func writeTLSMetrics(b *strings.Builder, reloader *servertls.Reloader) {
+	if reloader == nil {
+		return
+	}
+	metricsreg.Header(b, "pg_sage_api_tls_cert_not_after_seconds")
+	fmt.Fprintf(b, "pg_sage_api_tls_cert_not_after_seconds %d\n\n", reloader.NotAfter().Unix())
+	metricsreg.Header(b, "pg_sage_api_tls_reload_failures_total")
+	fmt.Fprintf(b, "pg_sage_api_tls_reload_failures_total %d\n\n", reloader.ReloadFailures())
 }

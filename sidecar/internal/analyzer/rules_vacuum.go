@@ -37,8 +37,9 @@ func ioSaturated(snap *collector.Snapshot) bool {
 
 // ruleTableBloat flags tables where the dead tuple ratio exceeds the
 // configured threshold. When the system is I/O-saturated, findings
-// are downgraded from "warning" to "info" to avoid recommending
-// aggressive vacuum on an already I/O-bound system.
+// are downgraded from "warning" to "info" and carry no SQL (detail
+// deferred_reason = io_saturated): the VACUUM is deferred, so neither the
+// recommendation store nor the executor can act on it (vacuum-06).
 func ruleTableBloat(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
@@ -87,7 +88,7 @@ func ruleTableBloat(
 			recommendation += " Note: this is an UNLOGGED table " +
 				"(no WAL, not crash-safe)."
 		}
-		findings = append(findings, Finding{
+		finding := Finding{
 			Category:         "table_bloat",
 			Severity:         severity,
 			ObjectType:       "table",
@@ -98,11 +99,15 @@ func ruleTableBloat(
 			),
 			Detail:         detail,
 			Recommendation: recommendation,
-			RecommendedSQL: fmt.Sprintf("VACUUM %s;",
-				sanitize.QuoteQualifiedName(
-					t.SchemaName, t.RelName)),
-			ActionRisk: "safe",
-		})
+		}
+		if saturated {
+			detail["deferred_reason"] = "io_saturated"
+		} else {
+			finding.RecommendedSQL = fmt.Sprintf("VACUUM %s;",
+				sanitize.QuoteQualifiedName(t.SchemaName, t.RelName))
+			finding.ActionRisk = "safe"
+		}
+		findings = append(findings, finding)
 	}
 	return findings
 }

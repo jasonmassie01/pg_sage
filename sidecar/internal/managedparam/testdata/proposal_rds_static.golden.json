@@ -1,0 +1,31 @@
+{
+  "provider": "rds",
+  "mechanism": "parameter_group",
+  "target": "orders-pg16",
+  "region": "us-east-1",
+  "instance": "orders",
+  "parameter_group": "orders-pg16",
+  "parameter": "shared_buffers",
+  "value": "524288",
+  "pg_value": "4GB",
+  "unit": "8kB",
+  "current_value": "{DBInstanceClassMemory/32768}",
+  "running_value": "131072",
+  "apply_method": "pending-reboot",
+  "reboot_required": true,
+  "rollback": {
+    "reset": true,
+    "apply_method": "pending-reboot",
+    "cli": "aws rds reset-db-parameter-group --region us-east-1 --db-parameter-group-name orders-pg16 --parameters '[{\"ParameterName\":\"shared_buffers\",\"ApplyMethod\":\"pending-reboot\"}]'"
+  },
+  "cli": "aws rds modify-db-parameter-group --region us-east-1 --db-parameter-group-name orders-pg16 --parameters '[{\"ParameterName\":\"shared_buffers\",\"ParameterValue\":\"524288\",\"ApplyMethod\":\"pending-reboot\"}]'\naws rds reboot-db-instance --region us-east-1 --db-instance-identifier orders",
+  "console_url": "https://us-east-1.console.aws.amazon.com/rds/home?region=us-east-1#parameter-group-details:parameter-group-name=orders-pg16",
+  "notes": [
+    "The change is pending until the instance reboots; the reboot is an outage (Multi-AZ shortens it with a failover)."
+  ],
+  "requires_approval": true,
+  "auto_apply": false,
+  "auto_apply_withheld": "pg_sage never applies provider parameter changes in this release: an operator runs the command (most need a reboot, an outage) and pg_sage verifies the running value afterwards",
+  "reason": "requires a restart",
+  "fingerprint": "v2:daa2c75dc829e7d9"
+}

@@ -11,13 +11,16 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/inbox"
 )
 
 // Binding facts (roadmap 2.3). GET /api/v1/facts lists a database's facts
 // (?status=a,b, ?type=); POST /api/v1/facts declares an operator's fact,
 // confirmed by the declaration; POST /api/v1/facts/{id}/confirm|reject|
 // expire decides one; GET /api/v1/facts/match?object=... answers which
-// facts are about given objects (findings, approval cards). Every
+// facts are about given objects (findings, approval cards); GET
+// /api/v1/facts/coverage?kind=&subject= answers which objects a subject
+// matches today (facts-09), before anyone confirms or declares it. Every
 // signed-in role reads; operators and admins decide. Confirmed facts only
 // narrow or redirect what pg_sage does.
 
@@ -29,15 +32,29 @@ const (
 type factHandlers struct{ mgr *fleet.DatabaseManager }
 
 func registerFactRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	viewer := RequireRole("admin", "operator", "viewer")
-	operatorUp := RequireRole("admin", "operator")
 	h := factHandlers{mgr: mgr}
-	mux.Handle("GET /api/v1/facts", viewer(http.HandlerFunc(h.list)))
-	mux.Handle("GET /api/v1/facts/match", viewer(http.HandlerFunc(h.match)))
-	mux.Handle("POST /api/v1/facts", operatorUp(http.HandlerFunc(h.declare)))
-	for _, verb := range []string{"confirm", "reject", "expire"} {
-		mux.Handle("POST /api/v1/facts/{id}/"+verb, operatorUp(h.decide(verb)))
+	// Facts resolve their database like approval cards (factHandlers.target).
+	factDB := approvalCardDatabase(mgr)
+	for _, read := range []struct {
+		path string
+		fn   func(factHandlers, http.ResponseWriter, *http.Request)
+	}{
+		{"/api/v1/facts", factHandlers.list}, {"/api/v1/facts/match", factHandlers.match},
+		{"/api/v1/facts/coverage", factHandlers.coverage},
+	} {
+		routeAggregate(mux, "GET "+read.path, gateViewer, mgr,
+			func(m *fleet.DatabaseManager) http.Handler {
+				v := factHandlers{mgr: m}
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					read.fn(v, w, r)
+				})
+			})
 	}
+	routeDB(mux, "POST /api/v1/facts", gateOperator, factDB, http.HandlerFunc(h.declare))
+	for _, verb := range []string{"confirm", "reject", "expire"} {
+		routeDB(mux, "POST /api/v1/facts/{id}/"+verb, gateOperator, factDB, h.decide(verb))
+	}
+	registerFactPeakRoute(mux, mgr)
 }
 
 // factView is a fact as served: with its database, its words and who
@@ -167,6 +184,9 @@ func (h factHandlers) decide(verb string) http.HandlerFunc {
 			writeFactError(w, r, err)
 			return
 		}
+		if verb != "expire" {
+			recordDecision(r, inbox.KindFact, f.CreatedAt)
+		}
 		jsonResponse(w, map[string]any{"fact": viewOf(inst.Name, f)})
 	}
 }
@@ -174,11 +194,13 @@ func (h factHandlers) decide(verb string) http.HandlerFunc {
 func decideFact(r *http.Request, s *facts.Store, id int64, verb, note string) (facts.Fact,
 	error) {
 	if verb == "expire" {
-		reason := "expired by " + factActor(r)
-		if strings.TrimSpace(note) != "" {
-			reason += ": " + note
+		// The actor is recorded in expired_by and the fact history; the
+		// reason is the operator's note, or says who when there is none.
+		reason := strings.TrimSpace(note)
+		if reason == "" {
+			reason = "expired by " + factActor(r)
 		}
-		return s.Expire(r.Context(), id, reason)
+		return s.Expire(r.Context(), id, factActor(r), reason)
 	}
 	return s.Decide(r.Context(), id, facts.Decision{Confirm: verb == "confirm",
 		Actor: factActor(r), Note: note})
@@ -222,6 +244,24 @@ func (h factHandlers) match(w http.ResponseWriter, r *http.Request) {
 		out[object] = entry
 	}
 	jsonResponse(w, map[string]any{"database": inst.Name, "objects": out})
+}
+
+// coverage lists the objects ?kind= and ?subject= match on one database:
+// at most facts.CoverageLimit names and whether there were more.
+func (h factHandlers) coverage(w http.ResponseWriter, r *http.Request) {
+	inst, ok := h.target(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	got, err := facts.CoverageOf(r.Context(), inst.Pool, facts.Kind(q.Get("kind")),
+		q.Get("subject"))
+	if err != nil {
+		writeFactError(w, r, err)
+		return
+	}
+	jsonResponse(w, map[string]any{"database": inst.Name, "objects": got.Objects,
+		"truncated": got.Truncated})
 }
 
 func writeFactError(w http.ResponseWriter, r *http.Request, err error) {

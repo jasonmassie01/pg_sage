@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +14,15 @@ import (
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 )
 
 // No parallel fixtures: collection and analysis ordering is the subject of these tests.
+// Without a test server they skip through testdb's live check.
 func preflightPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
-	p, err := pgxpool.New(context.Background(), os.Getenv("SAGE_TEST_DATABASE_URL"))
+	p, err := pgxpool.New(context.Background(), testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +102,40 @@ func preflightCapture(t *testing.T, p *pgxpool.Pool, c *collector.Collector,
 	return 0
 }
 
+// preflightInterval runs sql n times and waits until the two newest
+// snapshots differ by at least n calls of qid (a snapshot read in the
+// middle of the run splits it, so the run repeats).
+func preflightInterval(t *testing.T, p *pgxpool.Pool, c *collector.Collector, sql string,
+	qid int64, n int64) {
+	t.Helper()
+	calls := func(s *collector.Snapshot) int64 {
+		if s == nil {
+			return -1
+		}
+		for _, q := range s.Queries {
+			if q.QueryID == qid {
+				return q.Calls
+			}
+		}
+		return -1
+	}
+	for try := 0; try < 10; try++ {
+		before := c.LatestSnapshot()
+		for i := int64(0); i < n; i++ {
+			preflightSQL(t, p, sql)
+		}
+		for deadline := time.Now().Add(5 * time.Second); c.LatestSnapshot() == before &&
+			time.Now().Before(deadline); {
+			time.Sleep(20 * time.Millisecond)
+		}
+		prev, cur := calls(c.PreviousSnapshot()), calls(c.LatestSnapshot())
+		if prev >= 0 && cur-prev >= n {
+			return
+		}
+	}
+	t.Fatalf("no snapshot interval with %d calls of query %d", n, qid)
+}
+
 // preflightWaitFailure waits for the collector to report that it could
 // not read pg_stat_statements. Since dogfood lifeos-1 a failed category
 // no longer fails the snapshot: the snapshot is kept with the queries
@@ -141,6 +176,9 @@ func TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding(t *testing.T) {
 	var ident string
 	for attempt := 0; ; attempt++ {
 		qid := preflightCapture(t, p, c, "SELECT pg_sleep(0.02)", "pg_sleep")
+		// rules-05: slow_query judges the interval between the two newest
+		// snapshots, so the workload must run in that interval.
+		preflightInterval(t, p, c, "SELECT pg_sleep(0.02)", qid, 5)
 		a.cycle(ctx)
 		ident = fmt.Sprintf("queryid:%d", qid)
 		err := p.QueryRow(ctx, sql, ident).Scan(&beforeCount, &beforeSeen)
@@ -174,10 +212,16 @@ func TestPreflightEvidenceStaleSnapshotDoesNotRefreshFinding(t *testing.T) {
 func TestPreflightEvidencePercentCollectorToRatioRule(t *testing.T) {
 	p, ctx := preflightPool(t)
 	preflightSQL(t, p, "CREATE SCHEMA preflight_catalog")
+	// collection-06: the rule reads the interval, so the shadow counters
+	// grow 80,000 hits and 20,000 reads per second of transaction time.
 	preflightSQL(t, p, `CREATE VIEW preflight_catalog.pg_stat_database AS
-		SELECT datname,80::bigint blks_hit,20::bigint blks_read,
-		deadlocks,blk_read_time,blk_write_time FROM pg_catalog.pg_stat_database`)
-	pcfg, err := pgxpool.ParseConfig(os.Getenv("SAGE_TEST_DATABASE_URL"))
+		SELECT datname,
+		(80000 * extract(epoch FROM now()))::bigint blks_hit,
+		(20000 * extract(epoch FROM now()))::bigint blks_read,
+		deadlocks,blk_read_time,blk_write_time,xact_commit,xact_rollback,temp_bytes,
+		sessions
+		FROM pg_catalog.pg_stat_database`)
+	pcfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,6 +233,11 @@ func TestPreflightEvidencePercentCollectorToRatioRule(t *testing.T) {
 	t.Cleanup(shadow.Close)
 	c, cfg, _ := preflightCollector(t, shadow)
 	snap := c.LatestSnapshot()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline) &&
+		(snap.System.Interval == nil || snap.System.Interval.CacheHitRatio == nil); {
+		time.Sleep(50 * time.Millisecond)
+		snap = c.LatestSnapshot()
+	}
 	findings := ruleCacheHitRatio(snap, nil, cfg, nil)
 	t.Logf("catalog input hit=80 read=20; collected=%f threshold=%f findings=%d",
 		snap.System.CacheHitRatio, cfg.Analyzer.CacheHitRatioWarning, len(findings))

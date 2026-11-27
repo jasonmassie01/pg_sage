@@ -17,44 +17,57 @@ const redactedLiteral = "'***'"
 // as far as literals are concerned; callers must still gate egress with
 // llmEgressAllowed because identifiers can be sensitive in context.
 func sanitizeDDL(sql string) string {
+	clean, _ := scanDDL(sql)
+	return clean
+}
+
+// scanDDL is sanitizeDDL that also reports whether every literal, quoted
+// identifier, dollar-quoted body and block comment was closed. Text that
+// ends inside one is redacted to its end, so it can hide statements.
+func scanDDL(sql string) (string, bool) {
 	var b strings.Builder
 	b.Grow(len(sql))
+	closed := true
 	for i := 0; i < len(sql); {
-		next, token := scanToken(sql, i)
+		next, token, ok := scanToken(sql, i)
 		b.WriteString(token)
+		closed = closed && ok
 		i = next
 	}
-	return strings.TrimSpace(b.String())
+	return strings.TrimSpace(b.String()), closed
 }
 
 // scanToken consumes one lexical unit starting at i and returns the
-// index after it together with its sanitized replacement.
-func scanToken(sql string, i int) (int, string) {
+// index after it, its sanitized replacement, and whether it was closed.
+func scanToken(sql string, i int) (int, string, bool) {
 	c := sql[i]
 	switch {
 	case c == '-' && strings.HasPrefix(sql[i:], "--"):
 		end := strings.IndexByte(sql[i:], '\n')
 		if end < 0 {
-			return len(sql), " "
+			return len(sql), " ", true
 		}
-		return i + end, " "
+		return i + end, " ", true
 	case c == '/' && strings.HasPrefix(sql[i:], "/*"):
-		return skipBlockComment(sql, i), " "
+		end, ok := skipBlockComment(sql, i)
+		return end, " ", ok
 	case c == '\'':
-		return skipQuoted(sql, i, isEscapeString(sql, i)), redactedLiteral
+		end, ok := skipQuoted(sql, i, isEscapeString(sql, i))
+		return end, redactedLiteral, ok
 	case c == '"':
-		end := skipIdentifier(sql, i)
-		return end, sql[i:end]
+		end, ok := skipIdentifier(sql, i)
+		return end, sql[i:end], ok
 	case c == '$':
-		if end, ok := skipDollarQuoted(sql, i); ok {
-			return end, redactedLiteral
+		if end, isQuote, ok := skipDollarQuoted(sql, i); isQuote {
+			return end, redactedLiteral, ok
 		}
 	}
-	return i + 1, sql[i : i+1]
+	return i + 1, sql[i : i+1], true
 }
 
-// skipBlockComment handles PostgreSQL's nested /* */ comments.
-func skipBlockComment(sql string, i int) int {
+// skipBlockComment handles PostgreSQL's nested /* */ comments. It returns
+// the index after the comment and whether the comment was closed.
+func skipBlockComment(sql string, i int) (int, bool) {
 	depth := 0
 	for j := i; j < len(sql)-1; j++ {
 		switch {
@@ -65,14 +78,14 @@ func skipBlockComment(sql string, i int) int {
 			depth--
 			j++
 			if depth == 0 {
-				return j + 1
+				return j + 1, true
 			}
 		}
 	}
-	return len(sql)
+	return len(sql), false
 }
 
-// isEscapeString reports whether the quote at i opens an E'' string,
+// isEscapeString reports whether the quote at i opens an E'...' string,
 // where backslash escapes the next character.
 func isEscapeString(sql string, i int) bool {
 	if i == 0 || (sql[i-1] != 'E' && sql[i-1] != 'e') {
@@ -81,7 +94,9 @@ func isEscapeString(sql string, i int) bool {
 	return i < 2 || !isIdentByte(sql[i-2])
 }
 
-func skipQuoted(sql string, i int, backslashEscapes bool) int {
+// skipQuoted returns the index after the literal opened at i and whether
+// its closing quote was found.
+func skipQuoted(sql string, i int, backslashEscapes bool) (int, bool) {
 	for j := i + 1; j < len(sql); j++ {
 		switch {
 		case backslashEscapes && sql[j] == '\\':
@@ -91,47 +106,50 @@ func skipQuoted(sql string, i int, backslashEscapes bool) int {
 				j++
 				continue
 			}
-			return j + 1
+			return j + 1, true
 		}
 	}
-	return len(sql)
+	return len(sql), false
 }
 
-func skipIdentifier(sql string, i int) int {
+// skipIdentifier returns the index after the quoted identifier opened at
+// i and whether its closing quote was found.
+func skipIdentifier(sql string, i int) (int, bool) {
 	for j := i + 1; j < len(sql); j++ {
 		if sql[j] == '"' {
 			if j+1 < len(sql) && sql[j+1] == '"' {
 				j++
 				continue
 			}
-			return j + 1
+			return j + 1, true
 		}
 	}
-	return len(sql)
+	return len(sql), false
 }
 
 // skipDollarQuoted recognizes $$...$$ and $tag$...$tag$. Positional
-// parameters ($1) and identifiers containing $ are not quotes.
-func skipDollarQuoted(sql string, i int) (int, bool) {
+// parameters ($1) and identifiers containing $ are not quotes. It returns
+// the index after the body, whether i opens one, and whether it closed.
+func skipDollarQuoted(sql string, i int) (int, bool, bool) {
 	if i > 0 && isIdentByte(sql[i-1]) {
-		return 0, false
+		return 0, false, false
 	}
 	k := i + 1
 	if k < len(sql) && sql[k] >= '0' && sql[k] <= '9' {
-		return 0, false
+		return 0, false, false
 	}
 	for k < len(sql) && isIdentByte(sql[k]) && sql[k] != '$' {
 		k++
 	}
 	if k >= len(sql) || sql[k] != '$' {
-		return 0, false
+		return 0, false, false
 	}
 	tag := sql[i : k+1]
 	closing := strings.Index(sql[k+1:], tag)
 	if closing < 0 {
-		return len(sql), true
+		return len(sql), true, false
 	}
-	return k + 1 + closing + len(tag), true
+	return k + 1 + closing + len(tag), true, true
 }
 
 func isIdentByte(c byte) bool {
@@ -148,7 +166,8 @@ func splitStatements(clean string) []string {
 	for i := 0; i < len(clean); i++ {
 		switch clean[i] {
 		case '"':
-			i = skipIdentifier(clean, i) - 1
+			end, _ := skipIdentifier(clean, i)
+			i = end - 1
 		case ';':
 			out = appendStatement(out, clean[start:i])
 			start = i + 1

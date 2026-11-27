@@ -57,6 +57,20 @@ func TestSLOObjectivesFromConfig(t *testing.T) {
 	}
 }
 
+// The optional Prometheus coverage query reaches the objective.
+func TestSLOObjectivesCoverageQuery(t *testing.T) {
+	s := config.DefaultConfig().SRE
+	q := "min_over_time(timestamp(requests)[$window:1m])"
+	s.SLO.Prometheus.URL = "http://prom:9090"
+	s.SLO.Objectives = []config.SREObjectiveConfig{{Name: "checkout", Source: "prometheus",
+		Target: 0.999, BadQuery: "errors[$window]", EligibleQuery: "requests[$window]",
+		CoverageQuery: q}}
+	objs, err := sloObjectives(s.SLO, "orders")
+	if err != nil || len(objs) != 1 || objs[0].CoverageQuery != q {
+		t.Fatalf("objectives = %+v err=%v", objs, err)
+	}
+}
+
 func TestSLORulesAndProxyConfig(t *testing.T) {
 	s := config.DefaultConfig().SRE
 	rules, err := sloRules(s.SLO)
@@ -148,6 +162,13 @@ type signalsRig struct {
 
 func signalsFixture(t *testing.T, settings config.SREConfig) signalsRig {
 	t.Helper()
+	return signalsFixtureNamed(t, settings, "orders")
+}
+
+// signalsFixtureNamed builds the signals and investigator of the named
+// database (each with its own runtime key, so its own database scope).
+func signalsFixtureNamed(t *testing.T, settings config.SREConfig, name string) signalsRig {
+	t.Helper()
 	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
@@ -159,7 +180,7 @@ func signalsFixture(t *testing.T, settings config.SREConfig) signalsRig {
 	if err := schema.Bootstrap(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	sig, err := newSRESignals(sreSignalsDeps{control: pool, monitored: pool, name: "orders",
+	sig, err := newSRESignals(sreSignalsDeps{control: pool, monitored: pool, name: name,
 		settings: settings, logFn: func(string, string, ...any) {}})
 	if err != nil {
 		t.Fatalf("newSRESignals: %v", err)

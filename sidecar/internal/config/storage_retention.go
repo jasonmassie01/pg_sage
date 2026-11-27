@@ -21,8 +21,23 @@ const MinSnapshotCapBytes int64 = 256 << 20
 
 const maxRetentionQueryStoreDays = 3650
 
+// DefaultRetentionQueryRollupHourlyDays keeps the hourly per-query rollup
+// 35 days: two weeks for every hour-of-week bucket twice plus the
+// baseline's minimum weeks (R6 section 6). DefaultRetentionQueryRollupDailyDays
+// keeps the daily tier and the hourly coverage 400 days, so a long window
+// can still state its coverage after the hourly rows are gone (evid-01b).
+const (
+	DefaultRetentionQueryRollupHourlyDays = 35
+	DefaultRetentionQueryRollupDailyDays  = 400
+)
+
+// DefaultRetentionWorkloadPacksDays keeps a stored workload evidence pack
+// (evid-02a) half a year after it was built.
+const DefaultRetentionWorkloadPacksDays = 180
+
 // validateStorage refuses query_store_days outside 0-3650 and
-// snapshots_max_pct outside 0-100 (0 disables either).
+// snapshots_max_pct outside 0-100 (0 disables either), and the rollup
+// windows (validateRollup).
 func (r RetentionConfig) validateStorage() error {
 	if r.QueryStoreDays < 0 || r.QueryStoreDays > maxRetentionQueryStoreDays {
 		return fmt.Errorf("retention.query_store_days must be 0-%d, got %d",
@@ -32,5 +47,49 @@ func (r RetentionConfig) validateStorage() error {
 		return fmt.Errorf("retention.snapshots_max_pct must be 0-100, got %d",
 			r.SnapshotsMaxPct)
 	}
+	return r.validateRollup()
+}
+
+// validateRollup refuses rollup and workload pack windows outside 0-3650
+// (0 disables), an
+// hourly window longer than the snapshots it is rebuilt from (the default
+// follows a smaller snapshots_days instead), and a daily window shorter
+// than the hourly one (an hour is purged only once its day is rolled).
+func (r RetentionConfig) validateRollup() error {
+	for _, k := range []struct {
+		key  string
+		days int
+	}{
+		{"query_rollup_hourly_days", r.QueryRollupHourlyDays},
+		{"query_rollup_daily_days", r.QueryRollupDailyDays},
+		{"workload_packs_days", r.WorkloadPacksDays},
+	} {
+		if k.days < 0 || k.days > maxRetentionQueryStoreDays {
+			return fmt.Errorf("retention.%s must be 0-%d, got %d", k.key,
+				maxRetentionQueryStoreDays, k.days)
+		}
+	}
+	h := r.QueryRollupHourlyDays
+	if h != DefaultRetentionQueryRollupHourlyDays && h > 0 && r.SnapshotsDays > 0 &&
+		h > r.SnapshotsDays {
+		return fmt.Errorf("retention.query_rollup_hourly_days (%d) cannot exceed "+
+			"retention.snapshots_days (%d): the hourly rollup is rebuilt from the "+
+			"snapshots", h, r.SnapshotsDays)
+	}
+	if d := r.QueryRollupDailyDays; d > 0 && h > 0 && d < h {
+		return fmt.Errorf("retention.query_rollup_daily_days (%d) must be at least "+
+			"retention.query_rollup_hourly_days (%d): an hourly row is removed only "+
+			"once its day is in the daily tier", d, h)
+	}
 	return nil
+}
+
+// EffectiveQueryRollupHourlyDays is the hourly rollup's retention: the
+// configured days, never past a smaller (non-zero) snapshots_days.
+func (r RetentionConfig) EffectiveQueryRollupHourlyDays() int {
+	h := r.QueryRollupHourlyDays
+	if h > 0 && r.SnapshotsDays > 0 && r.SnapshotsDays < h {
+		return r.SnapshotsDays
+	}
+	return h
 }

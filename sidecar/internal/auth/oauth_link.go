@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -58,7 +57,7 @@ func LinkOAuthIdentity(
 		"UPDATE sage.users SET oauth_issuer = $1, oauth_subject = $2, "+
 			"oauth_provider = $3 "+
 			"WHERE id = $4 AND oauth_issuer IS NULL AND lower(email) = lower($5)",
-		id.Issuer, id.Subject, provider, userID, id.Email)
+		id.Issuer, id.Subject, provider, userID, NormalizeEmail(id.Email))
 	if isUniqueViolation(err) {
 		return ErrOAuthLinkConflict
 	}
@@ -91,9 +90,8 @@ func UnlinkOAuthIdentity(
 	if tag.RowsAffected() == 0 {
 		return unlinkMissReason(ctx, tx, userID)
 	}
-	if _, err := tx.Exec(ctx,
-		"DELETE FROM sage.sessions WHERE user_id = $1", userID); err != nil {
-		return fmt.Errorf("ending sessions on unlink: %w", err)
+	if _, err := EndUserSessions(ctx, tx, userID, ""); err != nil {
+		return fmt.Errorf("unlinking oauth identity: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit unlink: %w", err)
@@ -121,7 +119,7 @@ func unlinkMissReason(ctx context.Context, tx pgx.Tx, userID int) error {
 func CreateSSOOnlyUser(
 	ctx context.Context, pool *pgxpool.Pool, email, role string,
 ) (int, error) {
-	email = strings.TrimSpace(email)
+	email = NormalizeEmail(email)
 	if email == "" {
 		return 0, fmt.Errorf("email required")
 	}
@@ -131,8 +129,11 @@ func CreateSSOOnlyUser(
 	var id int
 	err := pool.QueryRow(ctx,
 		"INSERT INTO sage.users (email, password, role, oauth_provider) "+
-			"VALUES ($1, NULL, $2, '') RETURNING id",
+			"SELECT $1::text, NULL, $2::text, '' "+newEmailOnlySQL+" RETURNING id",
 		email, role).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("creating sso-only user: %w", ErrEmailInUse)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("creating sso-only user: %w", err)
 	}

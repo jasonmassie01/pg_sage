@@ -152,7 +152,7 @@ func TestCompat_NewFieldsAreOptional(t *testing.T) {
 
 func TestCompat_MinorRevisionBumped(t *testing.T) {
 	info := func(doc map[string]any) map[string]any { return doc["info"].(map[string]any) }
-	if v := info(currentDoc(t))["version"]; v != "1.1.0" {
+	if v := info(currentDoc(t))["version"]; v != "1.2.0" {
 		t.Fatalf("an additive change bumps the minor revision: %v", v)
 	}
 	if v := info(baselineDoc(t))["version"]; v != "1.0.0" {

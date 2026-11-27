@@ -26,6 +26,9 @@ const (
 	RouteExcluded Route = "excluded"
 	// RouteWait: the table's window decides when work may run.
 	RouteWait Route = "wait_for_window"
+	// RouteHold: the owner said the object must not be touched; nothing
+	// runs on it until a person expires the fact (evid-03b).
+	RouteHold Route = "hold"
 )
 
 // Request is what a binding is judged on: the action, its SQL, its target
@@ -38,11 +41,13 @@ type Request struct {
 	Now              time.Time
 }
 
-// Binding is one confirmed fact that binds a request.
+// Binding is one confirmed fact that binds a request. Database names the
+// sibling database the fact belongs to; empty is the request's own.
 type Binding struct {
-	Fact   Fact
-	Object string
-	Route  Route
+	Fact     Fact
+	Object   string
+	Route    Route
+	Database string
 }
 
 // ddlActions change an object's definition; exemptActions undo pg_sage's
@@ -51,8 +56,9 @@ var (
 	ddlActions = map[string]bool{"create_index_concurrently": true,
 		"drop_unused_index": true, "alter_table": true, "set_table_autovacuum": true,
 		"create_statistics": true, "replace_index": true}
-	exemptActions = map[string]bool{"revert_created_index": true}
-	ddlVerbs      = map[string]bool{"CREATE INDEX": true, "CREATE STATISTICS": true,
+	exemptActions = map[string]bool{"revert_created_index": true,
+		"restore_dropped_index": true}
+	ddlVerbs = map[string]bool{"CREATE INDEX": true, "CREATE STATISTICS": true,
 		"CREATE TABLE": true, "CREATE TRIGGER": true, "DROP INDEX": true,
 		"DROP STATISTICS": true, "DROP TABLE": true, "DROP SCHEMA": true,
 		"ALTER INDEX": true, "ALTER TABLE": true, "ALTER SCHEMA": true,
@@ -133,6 +139,10 @@ func routeFor(f Fact, class requestClass, req Request) (Route, bool) {
 		return RouteExcluded, !req.OperatorApproved
 	case TypeTableWindow:
 		return RouteWait, !req.OperatorApproved && windowHolds(f, req.Now)
+	case TypeDoNotTouch:
+		return RouteHold, true // every class, operator-approved or not
+	case TypeOwnerBrief:
+		return "", false // context only: it never narrows or widens
 	}
 	return "", false
 }

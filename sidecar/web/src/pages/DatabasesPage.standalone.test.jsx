@@ -11,7 +11,7 @@ function mockFetch({ running, managed }) {
     if (url === '/api/v1/config/global') {
       return { ok: true, json: async () => ({ mode: 'standalone' }) }
     }
-    if (url === '/api/v1/databases') {
+    if (url.split('?')[0] === '/api/v1/databases') {
       return { ok: true, json: async () => ({ databases: running }) }
     }
     if (url === '/api/v1/databases/managed') {
@@ -68,7 +68,7 @@ describe('DatabasesPage in standalone mode', () => {
     ).toHaveTextContent('lifeos'))
     expect(screen.getByTestId('config-file-databases'))
       .not.toHaveTextContent('orders')
-    expect(screen.getAllByText('orders')).toHaveLength(1)
+    expect(await screen.findAllByText('orders')).toHaveLength(1)
   })
 
   it('omits the config-file section when every database is managed',
@@ -89,7 +89,7 @@ describe('DatabasesPage in standalone mode', () => {
       mockFetch({ running: [], managed: [{ id: 3, name: 'orders', enabled: true }] })
       const base = globalThis.fetch
       globalThis.fetch = vi.fn(async url => {
-        if (url === '/api/v1/databases') return { ok: false, json: async () => ({}) }
+        if (url.split('?')[0] === '/api/v1/databases') return { ok: false, json: async () => ({}) }
         return base(url)
       })
       render(<DatabasesPage />)
@@ -99,7 +99,7 @@ describe('DatabasesPage in standalone mode', () => {
       ).toBeInTheDocument())
       expect(screen.queryByTestId('config-file-databases'))
         .not.toBeInTheDocument()
-      expect(screen.getByText('orders')).toBeInTheDocument()
+      expect(await screen.findByText('orders')).toBeInTheDocument()
       expect(screen.getByRole('alert')).toHaveTextContent('Failed to load runtime database inventory')
       expect(screen.getByTestId('fleet-inventory-summary')).toHaveTextContent('Runtime connectionsUnavailable')
       expect(screen.queryByTestId('fleet-inventory-empty')).toBeNull()
@@ -161,7 +161,7 @@ describe('DatabasesPage in standalone mode', () => {
     const base = globalThis.fetch
     let malformed = true
     globalThis.fetch = vi.fn(async url => {
-      if (url === '/api/v1/databases' && malformed) return { ok: true, json: async () => ({}) }
+      if (url.split('?')[0] === '/api/v1/databases' && malformed) return { ok: true, json: async () => ({}) }
       return base(url)
     })
     render(<DatabasesPage />)

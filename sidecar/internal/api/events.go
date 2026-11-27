@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,10 @@ const (
 	EventActions   EventType = "actions"
 	EventHealth    EventType = "health"
 	EventHeartbeat EventType = "heartbeat"
+	// EventDecisions follows every successful API write (a person's
+	// decision among them) so in-process waiters (MCP wait_for_decision,
+	// mcp-01b) re-read at once. The dashboard stream never shows it.
+	EventDecisions EventType = "decisions"
 )
 
 // Event is the envelope sent to every subscriber.
@@ -38,6 +43,7 @@ type Event struct {
 type EventBroker struct {
 	mu          sync.RWMutex
 	subscribers map[chan Event]struct{}
+	stopped     bool // guarded by mu: Stop closed every subscription
 	started     atomic.Bool
 	stopCh      chan struct{}
 }
@@ -52,10 +58,16 @@ func NewEventBroker() *EventBroker {
 }
 
 // Subscribe registers a new listener. The returned cancel function
-// drops the subscription and closes the channel.
+// drops the subscription and closes the channel. After Stop the channel
+// is closed at once, so no listener waits on a stopped broker.
 func (b *EventBroker) Subscribe() (<-chan Event, func()) {
 	ch := make(chan Event, 32)
 	b.mu.Lock()
+	if b.stopped {
+		b.mu.Unlock()
+		close(ch)
+		return ch, func() {}
+	}
 	b.subscribers[ch] = struct{}{}
 	b.mu.Unlock()
 	return ch, func() {
@@ -117,12 +129,20 @@ func (b *EventBroker) Start(
 	go b.heartbeatLoop(ctx, heartbeatInterval)
 }
 
-// Stop is safe to call multiple times.
+// Stop ends the loops and closes every subscription. It is safe to call
+// multiple times.
 func (b *EventBroker) Stop() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	select {
 	case <-b.stopCh:
 	default:
 		close(b.stopCh)
+	}
+	b.stopped = true
+	for ch := range b.subscribers {
+		delete(b.subscribers, ch)
+		close(ch)
 	}
 }
 
@@ -134,6 +154,7 @@ func (b *EventBroker) heartbeatLoop(
 	for {
 		select {
 		case <-ctx.Done():
+			b.Stop() // the process is shutting down: release every listener
 			return
 		case <-b.stopCh:
 			return
@@ -186,6 +207,10 @@ func eventsHandlerWithLifetime(b *EventBroker, lifetime time.Duration) http.Hand
 		}
 		flusher.Flush()
 
+		// A scoped caller's visible databases are read once, at connect
+		// (apiauth-08b): a revoked grant applies at the next reconnect,
+		// at most one lifetime later.
+		visible, scoped := visibleDatabasesFrom(r.Context())
 		ch, cancel := b.Subscribe()
 		defer cancel()
 
@@ -200,20 +225,47 @@ func eventsHandlerWithLifetime(b *EventBroker, lifetime time.Duration) http.Hand
 				if !open {
 					return
 				}
-				data, err := json.Marshal(evt)
-				if err != nil {
+				if evt.Type == EventDecisions || !eventVisible(evt, visible, scoped) {
 					continue
 				}
-				// "event:" lets client code dispatch per type if
-				// it prefers addEventListener over onmessage.
-				if _, err := fmt.Fprintf(w, "event: %s\n", evt.Type); err != nil {
-					return
-				}
-				if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				if !writeEventFrame(w, evt) {
 					return
 				}
 				flusher.Flush()
 			}
 		}
 	}
+}
+
+// writeEventFrame writes one SSE frame; false when the client is gone. An
+// event that cannot be encoded is skipped.
+func writeEventFrame(w io.Writer, evt Event) bool {
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return true
+	}
+	// "event:" lets client code dispatch per type if it prefers
+	// addEventListener over onmessage.
+	if _, err := fmt.Fprintf(w, "event: %s\n", evt.Type); err != nil {
+		return false
+	}
+	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+	return err == nil
+}
+
+// fleetWideEventTypes are the event types with no per-database payload; a
+// scoped stream passes them only when they name no database.
+var fleetWideEventTypes = map[EventType]bool{EventHeartbeat: true}
+
+// eventVisible reports whether a stream may deliver evt (apiauth-08b): an
+// unscoped stream gets everything; a scoped one gets its visible
+// databases' events and the fleet-wide types that name no database.
+func eventVisible(evt Event, visible map[string]bool, scoped bool) bool {
+	if !scoped {
+		return true
+	}
+	if evt.Database != "" {
+		return visible[evt.Database]
+	}
+	return fleetWideEventTypes[evt.Type]
 }

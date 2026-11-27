@@ -17,7 +17,7 @@ import (
 const startupLookbackBytes int64 = 1024 * 1024
 
 // Tailer follows a single PostgreSQL log file and emits new lines.
-// It uses polling (no fsnotify) and handles copytruncate rotation
+// It polls (it uses no file-change notification) and handles copytruncate rotation
 // as well as new-file rotation.
 type Tailer struct {
 	dir          string
@@ -37,19 +37,26 @@ type Tailer struct {
 	// a producer writes a huge line or never terminates one.
 	discardUntilNewline bool
 	queue               [][]byte
-	checkpoint          []byte
-	checkpointOffset    int64
-	started             bool
-	pumpRequests        chan chan struct{}
-	stopCh              chan struct{}
-	doneCh              chan struct{}
-	mu                  sync.Mutex
+	// criticalHead counts the leading queued lines known to be critical;
+	// dropped counts lines overflow evicted since TakeDropped (rca-06).
+	criticalHead int
+	dropped      int
+	// oversized counts records dropped for their size since TakeOversized.
+	oversized        int
+	checkpoint       []byte
+	checkpointOffset int64
+	started          bool
+	pumpRequests     chan chan struct{}
+	stopCh           chan struct{}
+	doneCh           chan struct{}
+	mu               sync.Mutex
 }
 
 // NewTailer creates a Tailer that will watch dir for log files in the
 // given format. pollInterval controls how often the single offset-owning
-// pump checks for new data. maxLineLen silently discards any line exceeding
-// that length. logFn is called for diagnostic messages (level, msg, args).
+// pump checks for new data. A record longer than maxLineLen is dropped and
+// counted, except an auto_explain plan record, which may reach
+// PlanRecordMaxBytes. logFn is called for diagnostic messages (level, msg, args).
 func NewTailer(
 	dir, format string,
 	pollInterval time.Duration,
@@ -140,6 +147,7 @@ func (t *Tailer) openAndSeek(path string) error {
 	t.partial = nil
 	t.discardUntilNewline = false
 	t.queue = nil
+	t.criticalHead = 0
 	t.captureCheckpoint()
 	return nil
 }
@@ -170,8 +178,10 @@ func alignToNewline(f *os.File, pos int64) (int64, error) {
 // csvlog records that may contain quoted newlines), prepending any
 // partial record from the previous call. An incomplete trailing chunk
 // (no terminating newline) is saved in t.partial for next time,
-// but bounded at maxLineLen — once exceeded, the partial is dropped
-// and subsequent bytes are discarded until the next newline to resync.
+// but bounded at maxLineLen (PlanRecordMaxBytes for an auto_explain plan
+// record) — once exceeded, the partial is dropped and subsequent bytes are
+// discarded until the next newline to resync. Each record dropped for its
+// size is counted (TakeOversized).
 func (t *Tailer) splitLines(raw []byte) [][]byte {
 	if len(raw) == 0 {
 		return nil
@@ -183,11 +193,8 @@ func (t *Tailer) splitLines(raw []byte) [][]byte {
 		if i < 0 {
 			return nil // still no newline — drop everything
 		}
-		raw = raw[i+1:]
+		raw = raw[i+1:] // may be empty: nothing is split then
 		t.discardUntilNewline = false
-		if len(raw) == 0 {
-			return nil
-		}
 	}
 	// Prepend leftover partial from last read.
 	if len(t.partial) > 0 {
@@ -203,8 +210,9 @@ func (t *Tailer) splitLines(raw []byte) [][]byte {
 		}
 		line := raw[start:i]
 		start = i + 1
-		if len(line) > t.maxLineLen {
-			continue // silently discard oversized lines
+		if len(line) > t.recordLimit(line) {
+			t.oversized++ // counted in the source's dropped lines (rca-04)
+			continue
 		}
 		// Strip trailing \r for Windows-style line endings.
 		if len(line) > 0 && line[len(line)-1] == '\r' {
@@ -219,21 +227,26 @@ func (t *Tailer) splitLines(raw []byte) [][]byte {
 	}
 	// Anything after the last newline is a partial line.
 	if start < len(raw) {
-		remain := raw[start:]
-		if len(remain) > t.maxLineLen {
-			// Oversized partial: drop it and resync at the next
-			// newline to prevent unbounded buffer growth.
-			t.log("warn",
-				"partial log line exceeded max_line_len (%d bytes); discarding to next newline",
-				len(remain))
-			t.partial = nil
-			t.discardUntilNewline = true
-		} else {
-			t.partial = make([]byte, len(remain))
-			copy(t.partial, remain)
-		}
+		t.keepPartial(raw[start:])
 	}
 	return lines
+}
+
+// keepPartial saves an incomplete trailing record for the next read. Over
+// its limit it is dropped and counted instead, and bytes are discarded up
+// to the next newline to resync without unbounded buffer growth.
+func (t *Tailer) keepPartial(remain []byte) {
+	if limit := t.recordLimit(remain); len(remain) > limit {
+		t.log("warn",
+			"partial log record exceeded its %d-byte limit (%d bytes); discarding "+
+				"to next newline", limit, len(remain))
+		t.oversized++
+		t.partial = nil
+		t.discardUntilNewline = true
+		return
+	}
+	t.partial = make([]byte, len(remain))
+	copy(t.partial, remain)
 }
 
 // maybeRotate checks whether a newer log file exists. If so, it
@@ -269,6 +282,13 @@ func (t *Tailer) openFileAtStart(path string) error {
 	return nil
 }
 
+// CurrentPath is the log file the tailer reads now; it changes on rotation.
+func (t *Tailer) CurrentPath() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.currentPath
+}
+
 // Stop closes the underlying file handle.
 func (t *Tailer) Stop() {
 	t.mu.Lock()
@@ -293,6 +313,7 @@ func (t *Tailer) Stop() {
 		t.file = nil
 	}
 	t.queue = nil
+	t.criticalHead = 0
 	t.partial = nil
 	t.checkpoint = nil
 	t.pumpRequests = nil

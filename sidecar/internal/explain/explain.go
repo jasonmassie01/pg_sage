@@ -10,20 +10,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/planfresh"
 	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // ErrExplainInvalidRequest wraps errors caused by client-side input
-// problems (missing query, DDL, unsupported query_id lookup). Handlers
+// problems (missing query, DDL, a query_id with no statement). Handlers
 // surface these as a 400 response and expose the message verbatim —
 // the caller needs it to fix their request. Any other error from
 // Explain() originates in PG execution and must be treated as a 500
@@ -35,18 +35,23 @@ var ErrExplainInvalidRequest = errors.New("invalid explain request")
 // ExplainRequest is the API input.
 type ExplainRequest struct {
 	Query    string   `json:"query,omitempty"`
-	QueryID  int64    `json:"query_id,omitempty"`
+	QueryID  QueryID  `json:"query_id,omitempty"`
 	PlanOnly bool     `json:"plan_only,omitempty"`
 	Params   []string `json:"params,omitempty"`
 }
 
-// ExplainResult is the API output.
+// ExplainResult is the API output. SlowBecause and Recommendations hold
+// the rule entries first, then the model's; Insights tags each entry with
+// its source ("rules" or "llm"). PlanSource is "explain" (planned now) or
+// "explain_cache" (a captured executed plan, PlanCapture naming the
+// capture), and PlanAgeS the plan's age in seconds (tuning-10).
 type ExplainResult struct {
 	Query           string          `json:"query"`
 	PlanJSON        json.RawMessage `json:"plan_json"`
 	Summary         string          `json:"summary"`
 	SlowBecause     []string        `json:"slow_because"`
 	Recommendations []string        `json:"recommendations"`
+	Insights        []Insight       `json:"insights"`
 	NodeBreakdown   []NodeExplain   `json:"node_breakdown"`
 	EstimatedCost   float64         `json:"estimated_cost"`
 	ActualTimeMs    *float64        `json:"actual_time_ms,omitempty"`
@@ -56,14 +61,19 @@ type ExplainResult struct {
 	// is then estimate-only.
 	AnalyzeRefused string     `json:"analyze_refused,omitempty"`
 	CachedAt       *time.Time `json:"cached_at,omitempty"`
+	PlanSource     string     `json:"plan_source,omitempty"`
+	PlanCapture    string     `json:"plan_capture,omitempty"`
+	PlanAgeS       *int64     `json:"plan_age_s,omitempty"`
 }
 
-// NodeExplain explains a single plan node.
+// NodeExplain explains a single plan node. TimeMs is inclusive of the
+// node's children and summed over its loops (Actual Total Time x Loops).
 type NodeExplain struct {
 	NodeType    string   `json:"node_type"`
 	Relation    string   `json:"relation,omitempty"`
 	Description string   `json:"description"`
 	TimeMs      *float64 `json:"time_ms,omitempty"`
+	Loops       *int64   `json:"loops,omitempty"`
 	Rows        int64    `json:"rows"`
 	RowEstimate int64    `json:"row_estimate"`
 	Warning     string   `json:"warning,omitempty"`
@@ -81,6 +91,10 @@ type Explainer struct {
 	// inspect parses a query for the analyze guard; nil means
 	// sqlast.InspectReadQuery (tests substitute it).
 	inspect func(string) (sqlast.ReadQuery, error)
+	// planMaxAge bounds a captured plan's age (0: planfresh default).
+	planMaxAge time.Duration
+	// now is the clock; nil means time.Now.
+	now func() time.Time
 }
 
 // New creates an Explainer without LLM support.
@@ -113,16 +127,11 @@ func NewWithLLM(
 func (ex *Explainer) Explain(
 	ctx context.Context, req ExplainRequest,
 ) (*ExplainResult, error) {
-	// 1. Validate input.
-	if req.Query == "" && req.QueryID == 0 {
-		return nil, fmt.Errorf(
-			"%w: query or query_id is required",
-			ErrExplainInvalidRequest)
-	}
-	if req.QueryID != 0 {
-		return nil, fmt.Errorf(
-			"%w: query_id lookup not yet implemented",
-			ErrExplainInvalidRequest)
+	// 1. Validate input; a query_id resolves to its statement text and,
+	// when one is fresh and executed, its captured plan.
+	req, captured, err := ex.target(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	// 2. Single read-statement allowlist (G6-B01). The body is the
@@ -133,6 +142,9 @@ func (ex *Explainer) Explain(
 		return nil, err
 	}
 	req.Query = body
+	if captured != nil {
+		return ex.capturedResult(ctx, body, *captured), nil
+	}
 
 	// 3. Check cache. The key separates plan-only from ANALYZE requests.
 	dbName := ex.databaseName()
@@ -142,6 +154,7 @@ func (ex *Explainer) Explain(
 		ex.logFn("WARN", "explain: cache lookup failed: %v", err)
 	}
 	if cached != nil {
+		ageCached(cached, ex.clock())
 		return cached, nil
 	}
 
@@ -164,13 +177,16 @@ func (ex *Explainer) Explain(
 func (ex *Explainer) execute(
 	ctx context.Context, req ExplainRequest,
 ) (*ExplainResult, error) {
-	hasParams := hasParamPlaceholder(req.Query)
+	nParams, err := paramPlaceholders(req.Query)
+	if err != nil {
+		return nil, err
+	}
+	hasParams := nParams > 0
 	var planJSON json.RawMessage
 	var analyzed bool
 	var refused string
-	var err error
 	if hasParams {
-		planJSON, err = ex.runExplainParameterized(ctx, req.Query, req.Params)
+		planJSON, err = ex.runExplainParameterized(ctx, req.Query, req.Params, nParams)
 	} else {
 		planJSON, analyzed, refused, err = ex.runExplain(ctx, req.Query, !req.PlanOnly)
 	}
@@ -180,7 +196,45 @@ func (ex *Explainer) execute(
 	result := buildResult(req.Query, planJSON, analyzed)
 	result.Note = explainNote(req.PlanOnly, hasParams, refused)
 	result.AnalyzeRefused = refused
+	fresh := int64(0)
+	result.PlanSource, result.PlanAgeS = planfresh.SourceExplain, &fresh
+	ex.applyRules(ctx, result, analyzed)
 	return result, nil
+}
+
+// target checks the request and, for a query_id, sets the query to the
+// statement's text and returns its captured plan (nil: explain afresh).
+func (ex *Explainer) target(ctx context.Context, req ExplainRequest,
+) (ExplainRequest, *planfresh.Plan, error) {
+	if err := checkTarget(req); err != nil || req.QueryID == 0 {
+		return req, nil, err
+	}
+	text, plan, err := ex.resolve(ctx, req)
+	if err != nil {
+		return req, nil, fmt.Errorf("explain: %w", err)
+	}
+	req.Query = text
+	return req, plan, nil
+}
+
+// checkTarget requires exactly one of query and query_id.
+func checkTarget(req ExplainRequest) error {
+	switch {
+	case req.Query == "" && req.QueryID == 0:
+		return fmt.Errorf("%w: query or query_id is required", ErrExplainInvalidRequest)
+	case req.Query != "" && req.QueryID != 0:
+		return fmt.Errorf("%w: give query or query_id, not both", ErrExplainInvalidRequest)
+	}
+	return nil
+}
+
+// ageCached adds the time since a cached result was stored to its plan age.
+func ageCached(r *ExplainResult, now time.Time) {
+	if r.PlanAgeS == nil || r.CachedAt == nil {
+		return
+	}
+	age := *r.PlanAgeS + max(int64(now.Sub(*r.CachedAt)/time.Second), 0)
+	r.PlanAgeS = &age
 }
 
 // ---------- EXPLAIN execution ----------
@@ -213,7 +267,7 @@ func (ex *Explainer) runExplain(
 
 const explainStmtName = "_sage_explain"
 
-// runExplainParameterized handles queries with $N placeholders
+// runExplainParameterized handles queries with nParams $N placeholders
 // (typically from pg_stat_statements). PG cannot EXPLAIN these
 // directly. We use PREPARE + EXPLAIN EXECUTE with NULL values to
 // get the plan. If the caller provided explicit params, those are
@@ -224,9 +278,9 @@ const explainStmtName = "_sage_explain"
 // "SELECT $1; COMMIT; DELETE ..." cannot leave the READ ONLY
 // transaction (G6-B01).
 func (ex *Explainer) runExplainParameterized(
-	ctx context.Context, query string, params []string,
+	ctx context.Context, query string, params []string, nParams int,
 ) (json.RawMessage, error) {
-	paramList, err := explainParamList(query, params)
+	paramList, err := explainParamList(nParams, params)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +298,7 @@ func (ex *Explainer) runExplainParameterized(
 	}
 	// Without a value for every parameter the custom plan folds "x = NULL"
 	// to a constant-false Result; the generic plan is the query's real one.
-	if hasUnboundParam(query, params) {
+	if hasUnboundParam(nParams, params) {
 		if _, err = conn.Exec(ctx, "SET LOCAL plan_cache_mode = force_generic_plan"); err != nil {
 			return nil, fmt.Errorf("set plan_cache_mode: %w", err)
 		}
@@ -269,11 +323,11 @@ func (ex *Explainer) runExplainParameterized(
 	return collectPlanJSON(ctx, conn, explainExec)
 }
 
-// explainParamList renders EXECUTE arguments: provided params as
+// explainParamList renders the n EXECUTE arguments: provided params as
 // escaped SQL literals, NULL otherwise. EXECUTE arguments are SQL
 // expressions, so user input must never be interpolated raw.
-func explainParamList(query string, params []string) (string, error) {
-	values := make([]string, countParamPlaceholders(query))
+func explainParamList(n int, params []string) (string, error) {
+	values := make([]string, n)
 	for i := range values {
 		values[i] = "NULL"
 		if i < len(params) && params[i] != "" {
@@ -287,9 +341,9 @@ func explainParamList(query string, params []string) (string, error) {
 	return strings.Join(values, ", "), nil
 }
 
-// hasUnboundParam reports a placeholder without a value (planned as NULL).
-func hasUnboundParam(query string, params []string) bool {
-	n := countParamPlaceholders(query)
+// hasUnboundParam reports one of n placeholders without a value (planned
+// as NULL).
+func hasUnboundParam(n int, params []string) bool {
 	for i := 0; i < n; i++ {
 		if i >= len(params) || params[i] == "" {
 			return true
@@ -298,25 +352,9 @@ func hasUnboundParam(query string, params []string) bool {
 	return false
 }
 
-// countParamPlaceholders returns the highest $N placeholder number
-// found in the query (e.g. "$3" means 3 parameters).
-func countParamPlaceholders(query string) int {
-	matches := paramNumRe.FindAllStringSubmatch(query, -1)
-	max := 0
-	for _, m := range matches {
-		if len(m) > 1 {
-			var n int
-			if _, err := fmt.Sscanf(m[1], "%d", &n); err == nil {
-				if n > max {
-					max = n
-				}
-			}
-		}
-	}
-	return max
-}
-
-// prepareConn opens a read-only transaction with statement_timeout.
+// prepareConn opens a read-only transaction with statement_timeout, on
+// the application's search_path (apppath.Pin), never pg_sage's own: the
+// analyze guard and the plan resolve the statement's names on it.
 func (ex *Explainer) prepareConn(
 	ctx context.Context, conn *pgxpool.Conn,
 ) error {
@@ -331,7 +369,7 @@ func (ex *Explainer) prepareConn(
 	); err != nil {
 		return fmt.Errorf("set transaction_read_only: %w", err)
 	}
-	return nil
+	return apppath.Pin(ctx, conn)
 }
 
 func explainSQL(query string, analyze bool) string {
@@ -388,23 +426,28 @@ func collectPlanJSON(
 func buildResult(
 	query string, planJSON json.RawMessage, analyzed bool,
 ) *ExplainResult {
+	planJSON = normalizePlan(planJSON)
 	nodes := extractNodes(planJSON)
 
 	result := &ExplainResult{
 		Query:           query,
 		PlanJSON:        planJSON,
-		Summary:         "Raw plan (LLM analysis pending)",
 		SlowBecause:     []string{},
 		Recommendations: []string{},
+		Insights:        []Insight{},
 		NodeBreakdown:   nodes,
 	}
+	result.Summary = "the plan could not be read"
+	if len(nodes) > 0 {
+		result.Summary = nodes[0].Description
+	}
 
-	// Extract top-level cost and timing from the root plan node.
+	// Top-level cost from the root plan node; the statement's time is its
+	// Execution Time, else (older captures) the root node's time.
 	type topLevel struct {
 		Plan struct {
-			TotalCost    float64 `json:"Total Cost"`
-			ActualTime   float64 `json:"Actual Total Time"`
-			PlanningTime float64 `json:"Planning Time"`
+			TotalCost  float64 `json:"Total Cost"`
+			ActualTime float64 `json:"Actual Total Time"`
 		} `json:"Plan"`
 		PlanningTime  *float64 `json:"Planning Time"`
 		ExecutionTime *float64 `json:"Execution Time"`
@@ -414,10 +457,11 @@ func buildResult(
 		result.EstimatedCost = plans[0].Plan.TotalCost
 		if analyzed {
 			at := plans[0].Plan.ActualTime
-			result.ActualTimeMs = &at
-			if plans[0].PlanningTime != nil {
-				result.PlanningTimeMs = plans[0].PlanningTime
+			if plans[0].ExecutionTime != nil {
+				at = *plans[0].ExecutionTime
 			}
+			result.ActualTimeMs = &at
+			result.PlanningTimeMs = plans[0].PlanningTime
 		}
 	}
 
@@ -429,35 +473,6 @@ func buildResult(
 }
 
 // ---------- helpers ----------
-
-var paramRe = regexp.MustCompile(`\$\d`)
-var paramNumRe = regexp.MustCompile(`\$(\d+)`)
-
-// hasParamPlaceholder returns true if the query contains $1-style placeholders.
-func hasParamPlaceholder(query string) bool {
-	return paramRe.MatchString(query)
-}
-
-// queryHash computes an FNV-64a hash of the normalised query and params.
-func queryHash(query string, params []string) int64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(normalizeQuery(query)))
-	for _, p := range params {
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(p))
-	}
-	return int64(h.Sum64())
-}
-
-var wsRe = regexp.MustCompile(`\s+`)
-var commentRe = regexp.MustCompile(`(?s)/\*.*?\*/|--[^\n]*`)
-
-// normalizeQuery strips comments and collapses whitespace.
-func normalizeQuery(query string) string {
-	q := commentRe.ReplaceAllString(query, " ")
-	q = wsRe.ReplaceAllString(q, " ")
-	return strings.TrimSpace(q)
-}
 
 // databaseName extracts the database name from the pool config.
 func (ex *Explainer) databaseName() string {

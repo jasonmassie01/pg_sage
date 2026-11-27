@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { login, getConsoleErrors } from './helpers';
+import { fixturePgPort, fixtureTargets } from './fixture-targets';
 
 const ADMIN_EMAIL = process.env.PG_SAGE_ADMIN_EMAIL || 'admin@pg-sage.local';
 const ADMIN_PASS = process.env.PG_SAGE_ADMIN_PASS || 'admin';
@@ -141,8 +142,8 @@ test.describe('Databases (admin)', () => {
       const name = `codex-create-${testInfo.workerIndex}-${Date.now()}`;
       await page.locator('[data-testid="db-name"]').fill(name);
       await page.locator('[data-testid="db-host"]').fill('127.0.0.1');
-      await page.locator('[data-testid="db-port"]').fill('5455');
-      await page.locator('[data-testid="db-database"]').fill('audit_browser_target1');
+      await page.locator('[data-testid="db-port"]').fill(String(fixturePgPort));
+      await page.locator('[data-testid="db-database"]').fill(fixtureTargets[0].db);
       await page.locator('[data-testid="db-username"]').fill('postgres');
       await page.locator('[data-testid="db-password"]').fill('postgres');
       await page.locator('[data-testid="db-sslmode"]').selectOption('disable');

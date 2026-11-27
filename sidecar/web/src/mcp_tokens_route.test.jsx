@@ -53,7 +53,7 @@ describe('MCP tokens route', () => {
     api.useAPI.mockImplementation(url => ({
       data: url === '/api/v1/databases' ? fleet
         : url?.startsWith(TOKENS) ? { tokens: [] }
-          : url === '/api/v1/actions/pending/count' ? { count: 0 }
+          : url === '/api/v1/inbox/count' ? { total: 0 }
             : null,
       loading: false, error: null, refetch: vi.fn(),
     }))
@@ -64,27 +64,37 @@ describe('MCP tokens route', () => {
     vi.restoreAllMocks()
   })
 
-  it('links MCP tokens in the nav and opens the page for an admin', async () => {
+  // ux-11: MCP tokens are the admin tab of Agents; #/mcp-tokens opens it.
+  it('opens the MCP tokens tab of Agents for an admin', async () => {
     signIn('admin')
     render(<App />)
     await screen.findByTestId('app-loaded')
-    const link = screen.getByTestId('nav-mcp-tokens')
-    expect(link).toHaveAccessibleName('MCP tokens')
-    expect(link).toHaveAttribute('href', '#/mcp-tokens')
-    expect(screen.getByRole('heading', { level: 1, name: 'MCP tokens' }))
-      .toBeInTheDocument()
+    expect(window.location.hash).toBe('#/agents?tab=tokens')
+    expect(screen.queryByTestId('nav-mcp-tokens')).toBeNull()
+    expect(screen.getByTestId('nav-agents')).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('heading', { level: 1, name: 'Agents' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'MCP tokens' }))
+      .toHaveAttribute('aria-selected', 'true')
     expect(await screen.findByTestId('mcp-tokens-page')).toBeInTheDocument()
     expect(screen.queryByTestId('access-denied')).toBeNull()
   })
 
-  it.each(['operator', 'viewer'])('hides the link and denies the page to a %s',
-    async role => {
-      signIn(role)
-      render(<App />)
-      await screen.findByTestId('app-loaded')
-      expect(screen.queryByTestId('nav-mcp-tokens')).toBeNull()
-      expect(screen.getByTestId('access-denied')).toBeInTheDocument()
-      expect(screen.queryByTestId('mcp-tokens-page')).toBeNull()
-      expect(askedForTokens()).toBe(false)
-    })
+  it('gives an operator the agent list and never the tokens', async () => {
+    signIn('operator')
+    render(<App />)
+    await screen.findByTestId('app-loaded')
+    expect(screen.queryByTestId('nav-mcp-tokens')).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'MCP tokens' })).toBeNull()
+    expect(screen.queryByTestId('mcp-tokens-page')).toBeNull()
+    expect(askedForTokens()).toBe(false)
+  })
+
+  it('denies a viewer the page and asks for no tokens', async () => {
+    signIn('viewer')
+    render(<App />)
+    await screen.findByTestId('app-loaded')
+    expect(screen.getByTestId('access-denied')).toBeInTheDocument()
+    expect(screen.queryByTestId('mcp-tokens-page')).toBeNull()
+    expect(askedForTokens()).toBe(false)
+  })
 })

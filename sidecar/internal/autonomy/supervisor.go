@@ -60,22 +60,6 @@ func (s *Supervisor) RequestSchemaGuard(database string) error {
 	return fmt.Errorf("schema guard database %s is unknown", database)
 }
 
-func (s *Supervisor) TriggerSchemaGuard(ctx context.Context, database string) error {
-	for _, config := range s.configs {
-		if config.Database != database {
-			continue
-		}
-		if config.Schema == nil {
-			return fmt.Errorf("schema guard for database %s is unavailable", database)
-		}
-		if err := runSchemaGuard(ctx, config); err != nil {
-			return fmt.Errorf("trigger schema guard for %s: %w", database, err)
-		}
-		return nil
-	}
-	return fmt.Errorf("schema guard database %s is unknown", database)
-}
-
 func (s *Supervisor) Start(parent context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

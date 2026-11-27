@@ -33,6 +33,13 @@ func TestRegression_CacheHitRatioUnits(t *testing.T) {
 	for _, tc := range cases {
 		snap := &collector.Snapshot{}
 		snap.System.CacheHitRatio = tc.ratio
+		// collection-06: the rule judges the interval (always a fraction);
+		// the lifetime value, in either unit, is reported in the detail.
+		frac := NormalizeCacheHitRatio(tc.ratio)
+		if frac > 0 {
+			snap.System.Interval = &collector.SystemInterval{Seconds: 60,
+				CacheHitRatio: &frac, BlksAccessed: ivPtrI(100_000)}
+		}
 		got := ruleCacheHitRatio(snap, nil, cfg, nil)
 		if tc.wantSev == "" {
 			if len(got) != 0 {
@@ -49,6 +56,10 @@ func TestRegression_CacheHitRatioUnits(t *testing.T) {
 		}
 		if !strings.Contains(got[0].Title, tc.wantPct) {
 			t.Errorf("ratio %v: title %q lacks %q", tc.ratio, got[0].Title, tc.wantPct)
+		}
+		if got[0].Detail["lifetime_cache_hit_ratio"] != frac {
+			t.Errorf("ratio %v: lifetime detail %v, want %v", tc.ratio,
+				got[0].Detail["lifetime_cache_hit_ratio"], frac)
 		}
 	}
 }
@@ -77,30 +88,24 @@ func TestRegression_PerTableGUCsDoNotConflictAcrossTables(t *testing.T) {
 	}
 }
 
-func autovacuumSnap(reloptions string) *collector.Snapshot {
-	snap := &collector.Snapshot{Tables: []collector.TableStats{{
+// autovacuumSnap puts the reloptions on the table itself, where the
+// collector reads them with the table's stats (rules-02).
+func autovacuumSnap(reloptions ...string) *collector.Snapshot {
+	return &collector.Snapshot{Tables: []collector.TableStats{{
 		SchemaName: "public", RelName: "events",
 		NLiveTup: 2_000_000, NTupUpd: 3_000_000,
+		Reloptions: reloptions,
 	}}}
-	if reloptions != "" {
-		snap.ConfigData = &collector.ConfigSnapshot{
-			TableReloptions: []collector.TableReloption{{
-				SchemaName: "public", RelName: "events",
-				Reloptions: reloptions,
-			}},
-		}
-	}
-	return snap
 }
 
 // G2-B05: a table already tuned at or below the target is not re-flagged.
 func TestRegression_AutovacuumTuningHonorsReloptions(t *testing.T) {
 	cfg := phase2Config()
-	tuned := autovacuumSnap("{autovacuum_vacuum_scale_factor=0.05,fillfactor=90}")
+	tuned := autovacuumSnap("autovacuum_vacuum_scale_factor=0.05", "fillfactor=90")
 	if got := ruleAutovacuumTuning(tuned, nil, cfg, nil); len(got) != 0 {
 		t.Fatalf("already-tuned table flagged: %+v", got)
 	}
-	loose := autovacuumSnap("{autovacuum_vacuum_scale_factor=0.2}")
+	loose := autovacuumSnap("autovacuum_vacuum_scale_factor=0.2")
 	if got := ruleAutovacuumTuning(loose, nil, cfg, nil); len(got) != 1 {
 		t.Fatalf("loosely tuned table findings = %d, want 1", len(got))
 	}
@@ -166,10 +171,10 @@ func fkSnap(indexDefs map[string]string, fks []collector.ForeignKey) *collector.
 	return snap
 }
 
-func fk(col, con string) collector.ForeignKey {
+func fk(con string, cols ...string) collector.ForeignKey {
 	return collector.ForeignKey{
-		TableName: "orders", ReferencedTable: "parent",
-		FKColumn: col, ConstraintName: con,
+		Schema: "public", TableName: "orders", ReferencedTable: "parent",
+		Columns: cols, ConstraintName: con,
 	}
 }
 
@@ -177,15 +182,13 @@ func fk(col, con string) collector.ForeignKey {
 func TestRegression_MissingFKIndexIncludeAndComposite(t *testing.T) {
 	include := fkSnap(map[string]string{
 		"idx_c": "CREATE INDEX idx_c ON public.orders USING btree (customer_id) INCLUDE (total)",
-	}, []collector.ForeignKey{fk("customer_id", "orders_customer_fk")})
+	}, []collector.ForeignKey{fk("orders_customer_fk", "customer_id")})
 	if got := ruleMissingFKIndexes(include, nil, nil, nil); len(got) != 0 {
 		t.Fatalf("INCLUDE index not recognized: %+v", got)
 	}
 	composite := fkSnap(map[string]string{
 		"idx_ot": "CREATE INDEX idx_ot ON public.orders USING btree (order_id, tenant_id)",
-	}, []collector.ForeignKey{
-		fk("tenant_id", "orders_line_fk"), fk("order_id", "orders_line_fk"),
-	})
+	}, []collector.ForeignKey{fk("orders_line_fk", "tenant_id", "order_id")})
 	if got := ruleMissingFKIndexes(composite, nil, nil, nil); len(got) != 0 {
 		t.Fatalf("composite FK split per column: %+v", got)
 	}
@@ -197,7 +200,9 @@ func tenantSnap() *collector.Snapshot {
 			{SchemaName: "tenant_a", RelName: "orders"},
 			{SchemaName: "tenant_b", RelName: "orders"},
 		},
-		ForeignKeys: []collector.ForeignKey{fk("customer_id", "orders_customer_fk")},
+		// A row stored before collection-04: the owning schema is unknown.
+		ForeignKeys: []collector.ForeignKey{{TableName: "orders", ReferencedTable: "parent",
+			Columns: []string{"customer_id"}, ConstraintName: "orders_customer_fk"}},
 		Indexes: []collector.IndexStats{{
 			SchemaName: "tenant_b", RelName: "orders", IndexRelName: "idx_cust",
 			IsValid: true, IdxScan: 0,

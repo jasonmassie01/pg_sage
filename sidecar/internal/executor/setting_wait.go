@@ -57,7 +57,7 @@ func awaitSetting(ctx context.Context, read func(context.Context) (int64, error)
 func walKeepSizeBytes(pool *pgxpool.Pool) func(context.Context) (int64, error) {
 	return func(ctx context.Context) (int64, error) {
 		var b int64
-		err := pool.QueryRow(ctx, `/* pg_sage */ SELECT
+		err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT
 			pg_size_bytes(current_setting('max_slot_wal_keep_size'))`).Scan(&b)
 		return b, err
 	}

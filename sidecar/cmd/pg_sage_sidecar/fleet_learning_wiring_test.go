@@ -47,19 +47,19 @@ func TestFleetLearningScope(t *testing.T) {
 }
 
 func TestFleetLeaderGate(t *testing.T) {
-	prev := fleetLeader
-	t.Cleanup(func() { fleetLeader = prev })
-	fleetLeader = nil
+	prev := currentFleetLeader()
+	t.Cleanup(func() { setFleetLeader(prev) })
+	setFleetLeader(nil)
 	if !fleetLeaderAllows("approval cards") {
 		t.Fatal("without election every sidecar runs fleet-wide jobs")
 	}
-	fleetLeader = leader.NewElector(stubLease{held: false}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: false}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	if fleetLeaderAllows("approval cards") {
 		t.Fatal("a follower must not run fleet-wide jobs")
 	}
-	fleetLeader = leader.NewElector(stubLease{held: true}, "s", "me", time.Minute)
-	_ = fleetLeader.Tick(context.Background())
+	setFleetLeader(leader.NewElector(stubLease{held: true}, "s", "me", time.Minute))
+	_ = currentFleetLeader().Tick(context.Background())
 	if !fleetLeaderAllows("approval cards") {
 		t.Fatal("the leader runs fleet-wide jobs")
 	}

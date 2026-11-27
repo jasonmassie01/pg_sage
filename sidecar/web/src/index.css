@@ -14,6 +14,13 @@
   --green: #72e6c7;
   --yellow: #eac083;
   --red: #ff8b91;
+  /* ux-05a: dark fills for white-labelled Approve, Reject and danger buttons;
+     src/lint/contrast.test.js holds them at WCAG AA (4.5:1) under #fff. */
+  --green-solid: #13705a;
+  --red-solid: #b4232c;
+  /* ux-12: the pending/verifying blue (was only a #3b82f6 fallback, 4:1 on a
+     card); src/lint/colourPairs.test.js checks every stated pair at 4.5:1. */
+  --blue: #93c5fd;
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
 }
 
@@ -45,8 +52,19 @@ button[style*="background: var(--accent)"] {
   background: var(--accent-solid) !important;
   color: #f2fffb !important;
 }
-button[style*="background: var(--accent)"]:hover:not(:disabled) {
+button[style*="background: var(--accent)"]:hover:not(:disabled),
+button[style*="background: var(--accent-solid)"]:hover:not(:disabled) {
   background: #1d826c !important;
+}
+
+/* ux-05a win 25: on narrow screens an approval card's decision row stays in
+   view at the bottom of the screen instead of the end of a long card; ux-12
+   gives Inbox items and the plan approval row the same bar. */
+@media (max-width: 767px) {
+  .approval-action-bar {
+    position: sticky; bottom: 0; z-index: 1;
+    background: var(--bg-card); padding-block: 8px;
+  }
 }
 
 .sage-shell { isolation: isolate; }
@@ -158,6 +176,20 @@ button[style*="background: var(--accent)"]:hover:not(:disabled) {
 .postgres-meme-compact .postgres-meme-readable p { font-size: 11px; }
 .postgres-meme-compact .postgres-meme-readable p:last-child { font-size: 12px; }
 .sage-login-surface { padding: 24px; background-image: radial-gradient(ellipse at 50% 25%, #1b514b55, transparent 65%) !important; }
+/* ux-05c (D5): the breakroom opens on a page's first visit, then folds to a
+   one-line toggle. PageIntro renders nothing below 768 px. */
+.page-intro { margin: 0 0 18px; }
+.page-intro > .page-intro-toggle {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 8px;
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary);
+  font: 11px var(--font-mono); cursor: pointer; background: transparent;
+}
+.page-intro > .page-intro-toggle:hover { color: var(--text-primary); border-color: #83b7ad; }
+.page-intro > .page-intro-toggle:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+.page-intro #page-intro-body { margin-top: 10px; }
+.page-intro .postgres-meme { margin-bottom: 0; }
 .sage-login-card { box-shadow: 0 24px 80px #0005, inset 0 1px #d7efef0b; border-radius: 18px; }
 .sage-login-card h1 { font-family: var(--font-mono); letter-spacing: -1px; }
 .sage-login-caption { margin: -12px 0 24px; font-size: 12px; color: var(--text-secondary); text-align: center; line-height: 1.7; }

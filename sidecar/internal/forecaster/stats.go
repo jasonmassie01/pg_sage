@@ -89,30 +89,3 @@ func DaysUntilThreshold(
 	}
 	return (threshold - current) / slope
 }
-
-// WeekOverWeekGrowthPct computes the percentage change between the
-// average of the last 7 values and the average of the prior 7 values.
-// Requires at least 14 values; returns 0 otherwise or if the prior
-// week average is zero.
-func WeekOverWeekGrowthPct(values []float64) float64 {
-	if len(values) < 14 {
-		return 0
-	}
-	n := len(values)
-
-	var thisSum, lastSum float64
-	for i := n - 7; i < n; i++ {
-		thisSum += values[i]
-	}
-	for i := n - 14; i < n-7; i++ {
-		lastSum += values[i]
-	}
-
-	thisWeek := thisSum / 7
-	lastWeek := lastSum / 7
-
-	if lastWeek == 0 {
-		return 0
-	}
-	return (thisWeek - lastWeek) / lastWeek * 100
-}

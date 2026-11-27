@@ -3,12 +3,14 @@ package decommission
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Handlers serve the §12 inventory and acknowledgement (AGENTDB-SPEC §8.3).
+// Handlers serve the §12 inventory, acknowledgement and legacy table drop
+// (AGENTDB-SPEC §8.3).
 // The API router mounts them admin-only on the control pool.
 type Handlers struct {
 	pool  *pgxpool.Pool
@@ -76,6 +78,54 @@ func (h Handlers) Ack(w http.ResponseWriter, r *http.Request) {
 		h.logf("decommission acknowledgement failed: %v", err)
 		writeJSON(w, http.StatusInternalServerError,
 			map[string]any{"error": "acknowledgement failed; see the sidecar log"})
+	}
+}
+
+// Drop answers POST DropPath: {inventory_sha256, confirm}. It is the only
+// route that deletes anything, and only pg_sage's own legacy tables.
+func (h Handlers) Drop(w http.ResponseWriter, r *http.Request) {
+	if h.pool == nil {
+		writeJSON(w, http.StatusServiceUnavailable,
+			map[string]any{"error": "no control database"})
+		return
+	}
+	actor := h.actor(r)
+	if actor == "" {
+		writeJSON(w, http.StatusUnauthorized,
+			map[string]any{"error": "authentication required"})
+		return
+	}
+	var req DropRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
+	dec.DisallowUnknownFields()
+	// One object and nothing after it: an irreversible drop takes no extras.
+	if err := dec.Decode(&req); err != nil || dec.Decode(&struct{}{}) != io.EOF {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request body"})
+		return
+	}
+	res, err := DropLegacyTables(r.Context(), h.pool, req, actor)
+	if err != nil {
+		h.writeDropError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h Handlers) writeDropError(w http.ResponseWriter, err error) {
+	var dep *DependencyError
+	switch {
+	case errors.Is(err, ErrBadConfirm), errors.Is(err, ErrBadDigest),
+		errors.Is(err, ErrNoActor):
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+	case errors.Is(err, ErrUnacknowledged), errors.Is(err, ErrStaleInventory),
+		errors.Is(err, ErrDropBusy), errors.As(err, &dep):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+	case errors.Is(err, ErrAuditTableMissing):
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
+	default:
+		h.logf("decommission legacy table drop failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError,
+			map[string]any{"error": "legacy table drop failed; see the sidecar log"})
 	}
 }
 

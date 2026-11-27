@@ -1,6 +1,7 @@
 package selfconfig
 
 import (
+	"math"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/config"
@@ -64,6 +65,8 @@ func Step(in StepInput) StepResult {
 	if !in.Proposal.OK {
 		s.next.Note = in.Proposal.Reason
 	}
+	s.dropOtherVersion()
+	s.clampActive()
 	if in.OperatorSet {
 		s.operator()
 		return s.result()
@@ -120,50 +123,103 @@ func (s *stepper) current() float64 {
 	return s.in.Default
 }
 
+// candidate moves the shadow on this pass's candidate with hysteresis: a
+// candidate within one step of the shadow, on the same side of the value
+// in force, is noise and keeps the soak; two or more steps or a change of
+// side restart it. A candidate within one step of a derived value in force
+// starts no shadow (the promoted value already absorbed that noise). At
+// the default, a return to it is noise for a one-step shadow (see
+// boundaryNoise).
 func (s *stepper) candidate() {
-	cand, current := s.in.Proposal.Value, s.current()
+	cand, current, shadow := s.in.Proposal.Value, s.current(), s.next.Shadow
 	switch {
+	case equal(cand, current) && shadow != nil && s.boundaryNoise(*shadow, current):
+		s.soak(current, *shadow)
 	case equal(cand, current):
-		if s.next.Shadow != nil {
-			s.emit(EventCleared, ptr(current), ptr(*s.next.Shadow),
-				"the evidence supports the value in force again")
-			s.next.clearShadow()
-		}
-	case s.next.Shadow == nil || !equal(*s.next.Shadow, cand):
+		s.clear(current, "the evidence supports the value in force again")
+	case shadow != nil && s.keepsShadow(cand, *shadow, current):
+		s.soak(current, *shadow)
+	case s.next.Active != nil && s.withinStep(cand, current):
+		s.clear(current, "the evidence is back within one step of the derived value in force")
+	default:
 		s.emit(EventShadow, ptr(cand), ptr(current), s.in.Proposal.Reason)
 		s.next.clearShadow()
 		s.next.Shadow, s.next.ShadowSince = ptr(cand), s.in.Now
-	default:
-		s.soak(current, cand)
+		s.next.Derivations = appendCapped(nil, s.in.Proposal.Raw)
 	}
 }
 
-func (s *stepper) soak(current, cand float64) {
-	if s.in.Sample != nil {
-		s.next.Samples = append(s.next.Samples, *s.in.Sample)
-		if n := len(s.next.Samples); n > MaxSoakSamples {
-			s.next.Samples = append([]float64(nil), s.next.Samples[n-MaxSoakSamples:]...)
-		}
+// keepsShadow: cand is within one step of shadow, on the same side of the
+// value in force.
+func (s *stepper) keepsShadow(cand, shadow, current float64) bool {
+	return s.withinStep(cand, shadow) && (cand > current) == (shadow > current)
+}
+
+func (s *stepper) withinStep(a, b float64) bool {
+	return math.Abs(a-b) <= s.in.Rule.Step+1e-9
+}
+
+// clear drops the shadow (if any) with a ledger row.
+func (s *stepper) clear(current float64, reason string) {
+	if s.next.Shadow == nil {
+		return
 	}
+	s.emit(EventCleared, ptr(current), ptr(*s.next.Shadow), reason)
+	s.next.clearShadow()
+}
+
+// soak records this pass and, once the soak has passed, promotes the
+// shadow (a cost-like rule: the p90 of its derivations) when the
+// comparison is not worse. A hold is recorded only when its outcome
+// changes; the latest reason stays on the state.
+func (s *stepper) soak(current, shadow float64) {
+	s.next.Samples = appendCapped(s.next.Samples, s.in.Sample)
+	s.next.Derivations = appendCapped(s.next.Derivations, s.in.Proposal.Raw)
 	if s.in.Now.Sub(s.next.ShadowSince) < s.in.Soak {
 		return
 	}
-	v := s.in.Rule.Judge(current, cand, s.next.Samples, s.in.Cfg)
+	if s.soakSupports(current) {
+		s.clear(current, "over the soak the evidence supports the value in force")
+		return
+	}
+	target := s.promotion(shadow)
+	v := s.in.Rule.Judge(current, target, s.next.Samples, s.in.Cfg)
 	if v.Outcome == OutcomeNotWorse {
 		reason := v.Reason
 		if s.in.Restart && s.in.Phase != PhaseStartup {
 			reason += "; restart-bound, takes effect at the next restart"
 		}
-		s.emit(EventPromoted, ptr(cand), ptr(current), reason)
-		s.next.Active = ptr(cand)
+		s.emit(EventPromoted, ptr(target), ptr(current), reason)
+		s.next.Active = ptr(target)
 		s.next.clearShadow()
 		return
 	}
-	if v.Outcome != s.next.ShadowOutcome ||
-		(v.Outcome == OutcomeWorse && v.Reason != s.next.ShadowReason) {
-		s.emit(EventHeld, ptr(cand), ptr(current), v.Reason)
+	if v.Outcome != s.next.ShadowOutcome {
+		s.emit(EventHeld, ptr(target), ptr(current), v.Reason)
 	}
 	s.next.ShadowOutcome, s.next.ShadowReason = v.Outcome, v.Reason
+}
+
+// promotion is the value a passed soak promotes: the shadow, or for a
+// cost-like rule the p90 of the soak's derivations rounded up to the step
+// (one cheap pass does not set the cadence); clamped to the bounds.
+func (s *stepper) promotion(shadow float64) float64 {
+	if p, ok := percentile90(s.next.Derivations); ok && s.in.Rule.PromoteP90 {
+		return s.candidateOf(p)
+	}
+	return s.candidateOf(shadow)
+}
+
+// appendCapped appends *v (nil: nothing), keeping the newest MaxSoakSamples.
+func appendCapped(xs []float64, v *float64) []float64 {
+	if v == nil {
+		return xs
+	}
+	xs = append(xs, *v)
+	if n := len(xs); n > MaxSoakSamples {
+		xs = append([]float64(nil), xs[n-MaxSoakSamples:]...)
+	}
+	return xs
 }
 
 // settle decides the value in force and whether the runtime is written.
@@ -201,6 +257,7 @@ func copyState(in State) State {
 	out.Pinned = copyPtr(in.Pinned)
 	out.Operator = copyPtr(in.Operator)
 	out.Samples = append([]float64(nil), in.Samples...)
+	out.Derivations = append([]float64(nil), in.Derivations...)
 	out.Evidence = append([]Citation(nil), in.Evidence...)
 	return out
 }

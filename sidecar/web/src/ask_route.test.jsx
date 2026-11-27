@@ -53,7 +53,7 @@ describe('Ask Sage route', () => {
     api.useAPI.mockReset()
     api.useAPI.mockImplementation(url => ({
       data: url === '/api/v1/databases' ? fleet
-        : url === '/api/v1/actions/pending/count' ? { count: 0 } : null,
+        : url === '/api/v1/inbox/count' ? { total: 0 } : null,
       loading: false, error: null, refetch: vi.fn(),
     }))
   })
@@ -64,15 +64,16 @@ describe('Ask Sage route', () => {
   })
 
   it.each(['viewer', 'operator', 'admin'])(
-    'links Ask Sage after Facts and opens the page for a %s', async role => {
+    'links Ask Sage after Issues and opens the page for a %s', async role => {
       signIn(role)
       render(<App />)
       await screen.findByTestId('app-loaded')
       const link = screen.getByTestId('nav-ask')
       expect(link).toHaveAccessibleName('Ask Sage')
       expect(link).toHaveAttribute('href', '#/ask')
-      const facts = screen.getByTestId('nav-facts')
-      expect(facts.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING)
+      // ux-11: Ask closes Operate, after Issues; Facts moved to Evidence.
+      const issues = screen.getByTestId('nav-cases')
+      expect(issues.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING)
         .toBeTruthy()
       expect(screen.getByRole('heading', { level: 1, name: 'Ask Sage' }))
         .toBeInTheDocument()

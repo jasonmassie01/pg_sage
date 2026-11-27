@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -45,7 +46,7 @@ func intentContract(
 			Kind string `json:"kind"`
 		}
 		if json.Unmarshal(arguments, &request) != nil || strings.TrimSpace(request.Kind) == "" {
-			return "", "", errors.New("change intent kind is required")
+			return "", "", fmt.Errorf("%w: change intent kind is required", ErrIntentInvalid)
 		}
 		tool = request.Kind
 	}
@@ -61,7 +62,7 @@ func intentContract(
 	case "register_consumer":
 		return "config_guc", policy.RiskSafe, nil
 	default:
-		return "", "", errors.New("unsupported mutation intent")
+		return "", "", fmt.Errorf("%w: unsupported mutation intent", ErrIntentInvalid)
 	}
 }
 

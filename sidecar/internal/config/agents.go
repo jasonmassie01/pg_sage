@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // AgentsConfig configures agent posture (G0, spec §6.15 and §9): which
@@ -16,6 +17,8 @@ type AgentsConfig struct {
 	ExposedRoles   []string            `yaml:"exposed_roles" doc:"Roles untrusted clients reach (a PostgREST anonymous role). PUBLIC is always exposed; anon and authenticated are added when both exist (Supabase). Default: none."`
 	ClientPatterns []string            `yaml:"client_patterns" doc:"Case-insensitive regexes, each anchored with ^, over application_name that hint a session is an agent. Empty disables hints. Default: ^mcp ^claude ^cursor ^codex ^langgraph ^crewai."`
 	Posture        AgentsPostureConfig `yaml:"posture"`
+	// Exposure is the exposure sweep (agents_exposure.go, fleetpol-02a).
+	Exposure AgentsExposureConfig `yaml:"exposure"`
 	// Roles, Broker and SingleOperatorMode are the G1 core (agents_core.go).
 	Roles  AgentsRolesConfig  `yaml:"roles"`
 	Broker AgentsBrokerConfig `yaml:"broker"`
@@ -32,6 +35,10 @@ type AgentsConfig struct {
 	// Capabilities and ReconcileIntervalSeconds: agents_grants.go (spec §6.6).
 	Capabilities             AgentsCapabilitiesConfig `yaml:"capabilities"`
 	ReconcileIntervalSeconds int                      `yaml:"reconcile_interval_seconds" doc:"Seconds between agent reconcile passes on the leader sidecar (grant expiry). 10-3600. Default: 60."`
+	// CodeHost is the application repository's code host (agents_codehost.go, pr-01a).
+	CodeHost AgentsCodeHostConfig `yaml:"code_host"`
+	// PRMode opens pull requests on that host (agents_prmode.go, pr-01b).
+	PRMode AgentsPRModeConfig `yaml:"pr_mode"`
 }
 
 // AgentsPostureConfig tunes the agent posture checks.
@@ -56,12 +63,14 @@ func defaultAgentsConfig() AgentsConfig {
 		DefaultEnvironment: DefaultAgentsEnvironment,
 		Posture: AgentsPostureConfig{MemoryGrowthGBDay: DefaultPostureMemoryGrowthGBDay,
 			DailyAt: DefaultPostureDailyAt},
-		Roles: defaultAgentsRoles(), Broker: defaultAgentsBroker(),
+		Exposure: AgentsExposureConfig{SweepSeconds: DefaultExposureSweepSeconds},
+		Roles:    defaultAgentsRoles(), Broker: defaultAgentsBroker(),
 		KillVerifyTimeoutSeconds: DefaultKillVerifyTimeoutSeconds,
 		KillFallbackLog:          DefaultKillFallbackLog,
 		Query:                    defaultAgentsQuery(),
 		Capabilities:             AgentsCapabilitiesConfig{MaxDurationMinutes: DefaultAgentGrantMaxMinutes},
-		ReconcileIntervalSeconds: DefaultAgentReconcileIntervalSecs}
+		ReconcileIntervalSeconds: DefaultAgentReconcileIntervalSecs,
+		CodeHost:                 defaultCodeHost(), PRMode: defaultPRMode()}
 }
 
 func (a AgentsConfig) validate() error {
@@ -82,6 +91,9 @@ func (a AgentsConfig) validate() error {
 	if _, _, err := ParseDailyAt(a.Posture.DailyAt); err != nil {
 		return fmt.Errorf("agents.posture.daily_at: %w", err)
 	}
+	if err := a.Exposure.validate(); err != nil {
+		return err
+	}
 	if err := a.validateCore(); err != nil {
 		return err
 	}
@@ -94,14 +106,24 @@ func (a AgentsConfig) validate() error {
 	if err := a.validateGrants(); err != nil {
 		return err
 	}
+	if err := a.CodeHost.validate(); err != nil {
+		return err
+	}
+	if err := a.PRMode.validate(a.CodeHost); err != nil {
+		return err
+	}
 	return a.validateEnvironment()
 }
 
 // ValidExposedRole checks one agents.exposed_roles entry: a role name,
-// not PUBLIC, which is always exposed.
+// not PUBLIC, which is always exposed, without quotes or control
+// characters (posture names the role in manual scripts and messages).
 func ValidExposedRole(name string) error {
 	if strings.TrimSpace(name) == "" {
 		return errors.New("a role name is empty")
+	}
+	if strings.ContainsAny(name, `"'`) || strings.ContainsFunc(name, unicode.IsControl) {
+		return fmt.Errorf("role name %q has a quote or a control character", name)
 	}
 	if strings.EqualFold(name, "public") {
 		return errors.New("PUBLIC is always exposed; list only roles")

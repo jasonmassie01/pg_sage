@@ -416,18 +416,6 @@ func TestCoverage_OAuthCallbackHandler_NilProvider(t *testing.T) {
 	}
 }
 
-func TestCoverage_OAuthCallbackHandler_MissingCode(t *testing.T) {
-	// Use a non-nil provider to get past the nil check.
-	// We need a real provider object, so we use a minimal one.
-	// But since OAuthProvider requires config, and we just need
-	// to get past the nil check, we test with nil provider
-	// separately, and test missing params with a non-nil-like path.
-	// Actually, with nil provider, missing code check is unreachable.
-	// We tested the nil path above. The missing code path needs
-	// a non-nil provider -- skip since we can't construct one
-	// without real OAuth config.
-}
-
 // ================================================================
 // processCSVImport
 // ================================================================
@@ -464,14 +452,6 @@ func TestCoverage_ProcessCSVImport_BadHeader(t *testing.T) {
 		t.Errorf("error: got %q, want invalid CSV header",
 			result.Errors[0].Error)
 	}
-}
-
-func TestCoverage_ProcessCSVImport_HeaderOnly(t *testing.T) {
-	// nil store will panic if we try to call ds.Count, so
-	// we only test empty/bad header paths through processCSVImport.
-	// The validCSVHeader function is tested directly below.
-	_ = strings.NewReader(
-		"name,host,port,database_name,username,password,sslmode\n")
 }
 
 // ================================================================
@@ -1135,7 +1115,7 @@ func TestCoverage_Actions_WithOffset(t *testing.T) {
 func TestCoverage_ConfigUpdate_Observation(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"level":"observation"}}`)
+		`{"trust":{"level":"observation"},"expected_generation":1}`)
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
 	}
@@ -1144,7 +1124,7 @@ func TestCoverage_ConfigUpdate_Observation(t *testing.T) {
 func TestCoverage_ConfigUpdate_Autonomous(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"level":"autonomous"}}`)
+		`{"trust":{"level":"autonomous"},"expected_generation":1}`)
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
 	}
@@ -1153,7 +1133,7 @@ func TestCoverage_ConfigUpdate_Autonomous(t *testing.T) {
 func TestCoverage_ConfigUpdate_InvalidTrustLevel(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"level":"dangerous"}}`)
+		`{"trust":{"level":"dangerous"},"expected_generation":1}`)
 	if w.Code != 400 {
 		t.Errorf("status: %d, want 400", w.Code)
 	}
@@ -1161,20 +1141,21 @@ func TestCoverage_ConfigUpdate_InvalidTrustLevel(t *testing.T) {
 
 func TestCoverage_ConfigUpdate_EmptyObject(t *testing.T) {
 	r := testRouter("db1")
-	w := put(t, r, "/api/v1/config", `{}`)
+	w := put(t, r, "/api/v1/config", `{"expected_generation":1}`)
 	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
+		t.Fatalf("status: %d; body=%s", w.Code, w.Body.String())
 	}
 	m := decodeJSON(t, w)
-	if m["status"] != "updated" {
-		t.Errorf("status: got %v", m["status"])
+	// A save that changes nothing keeps the generation.
+	if m["desired_generation"] != float64(1) {
+		t.Errorf("desired_generation: got %v, want 1", m["desired_generation"])
 	}
 }
 
 func TestCoverage_ConfigUpdate_NonTrustKey(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"other":"value"}`)
+		`{"other":"value","expected_generation":1}`)
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
 	}
@@ -1183,7 +1164,7 @@ func TestCoverage_ConfigUpdate_NonTrustKey(t *testing.T) {
 func TestCoverage_ConfigUpdate_TrustNotMap(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":"string_not_map"}`)
+		`{"trust":"string_not_map","expected_generation":1}`)
 	// Trust is present but not a map. Handler should skip
 	// but succeed.
 	if w.Code != 200 {
@@ -1194,97 +1175,15 @@ func TestCoverage_ConfigUpdate_TrustNotMap(t *testing.T) {
 func TestCoverage_ConfigUpdate_TrustNoLevel(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"other":"value"}}`)
+		`{"trust":{"other":"value"},"expected_generation":1}`)
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
 	}
 }
 
 // ================================================================
-// isAllowedOrigin — additional coverage
+// CORS — the API grants no cross-origin access (apiauth-10)
 // ================================================================
-
-func TestCoverage_IsAllowedOrigin(t *testing.T) {
-	tests := []struct {
-		origin string
-		want   bool
-	}{
-		{"", false},
-		{"http://localhost:5173", true},
-		{"http://localhost:8080", true},
-		{"http://127.0.0.1:5173", true},
-		{"http://127.0.0.1:8080", true},
-		{"https://localhost:5173", false},
-		{"http://localhost:3000", false},
-		{"http://example.com", false},
-		{"https://evil.com", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.origin, func(t *testing.T) {
-			got := isAllowedOrigin(tt.origin)
-			if got != tt.want {
-				t.Errorf("isAllowedOrigin(%q): got %v, want %v",
-					tt.origin, got, tt.want)
-			}
-		})
-	}
-}
-
-// ================================================================
-// CORS middleware — additional methods
-// ================================================================
-
-func TestCoverage_CORS_PreflightHeaders(t *testing.T) {
-	r := testRouter("db1")
-	req := httptest.NewRequest(
-		"OPTIONS", "/api/v1/databases", nil)
-	req.Header.Set("Origin", "http://localhost:5173")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	methods := w.Header().Get("Access-Control-Allow-Methods")
-	if !strings.Contains(methods, "GET") {
-		t.Errorf("methods should contain GET: %q", methods)
-	}
-	if !strings.Contains(methods, "POST") {
-		t.Errorf("methods should contain POST: %q", methods)
-	}
-	if !strings.Contains(methods, "PUT") {
-		t.Errorf("methods should contain PUT: %q", methods)
-	}
-	if !strings.Contains(methods, "DELETE") {
-		t.Errorf("methods should contain DELETE: %q", methods)
-	}
-
-	headers := w.Header().Get("Access-Control-Allow-Headers")
-	if !strings.Contains(headers, "Content-Type") {
-		t.Errorf("headers should contain Content-Type: %q",
-			headers)
-	}
-
-	creds := w.Header().Get("Access-Control-Allow-Credentials")
-	if creds != "true" {
-		t.Errorf("credentials: got %q, want true", creds)
-	}
-}
-
-func TestCoverage_CORS_NonPreflightWithOrigin(t *testing.T) {
-	r := testRouter("db1")
-	req := httptest.NewRequest(
-		"GET", "/api/v1/databases", nil)
-	req.Header.Set("Origin", "http://127.0.0.1:8080")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	origin := w.Header().Get("Access-Control-Allow-Origin")
-	if origin != "http://127.0.0.1:8080" {
-		t.Errorf("origin: got %q", origin)
-	}
-	// Non-OPTIONS should proceed to handler.
-	if w.Code != 200 {
-		t.Errorf("status: %d", w.Code)
-	}
-}
 
 func TestCoverage_CORS_NoOrigin(t *testing.T) {
 	r := testRouter("db1")
@@ -1443,44 +1342,6 @@ func TestCoverage_NewRouterFull_FleetActions(t *testing.T) {
 	r.ServeHTTP(w2, req2)
 	if w2.Code != http.StatusBadRequest {
 		t.Errorf("approve status: got %d, want 400", w2.Code)
-	}
-}
-
-// ================================================================
-// configGlobalPutHandler — syncTrustLevelToFleet path
-// ================================================================
-
-func TestCoverage_ConfigGlobalPut_SyncsTrustToFleet(
-	t *testing.T,
-) {
-	// syncTrustLevelToFleet is tested directly via
-	// TestSyncTrustLevelToFleet. The configGlobalPutHandler
-	// calls applyConfigOverrides which requires a real
-	// ConfigStore (backed by pgxpool). Testing the full
-	// handler path with trust.level sync requires integration
-	// tests. We verify the sync function is correct separately.
-	cfg := &config.Config{}
-	mgr := fleet.NewManager(cfg)
-	mgr.RegisterInstance(&fleet.DatabaseInstance{
-		Name:   "db1",
-		Config: config.DatabaseConfig{Name: "db1"},
-		Status: &fleet.InstanceStatus{TrustLevel: "observation"},
-	})
-
-	// Test the handler with empty body (no store needed).
-	handler := configGlobalPutHandler(nil, cfg, mgr)
-	w := doRequest(
-		handler, "PUT", "/api/v1/config/global", `{}`)
-	if w.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want 200", w.Code)
-	}
-
-	// Directly verify sync function works.
-	syncTrustLevelToFleet(mgr, "autonomous")
-	inst := mgr.GetInstance("db1")
-	if inst.Status.TrustLevel != "autonomous" {
-		t.Errorf("fleet trust: got %q, want autonomous",
-			inst.Status.TrustLevel)
 	}
 }
 
@@ -1685,7 +1546,7 @@ func TestCoverage_ConfigGet_PerDatabaseTags(t *testing.T) {
 		},
 		Status: &fleet.InstanceStatus{Connected: true},
 	})
-	r := NewRouter(mgr, cfg, nil)
+	r := NewRouter(mgr, cfg, nil, fakeAdminMiddleware)
 	w := get(t, r, "/api/v1/config?database=prod")
 	if w.Code != 200 {
 		t.Fatalf("status: %d", w.Code)
@@ -1786,19 +1647,6 @@ func TestCoverage_CSVImportResult_ZeroValue(t *testing.T) {
 	}
 	if result.Skipped != 0 {
 		t.Errorf("skipped: got %d", result.Skipped)
-	}
-}
-
-// ================================================================
-// applyConfigOverrides — additional empty body path
-// ================================================================
-
-func TestCoverage_ApplyConfigOverrides_EmptyBody(t *testing.T) {
-	cfg := &config.Config{}
-	errs := applyConfigOverrides(
-		nil, nil, cfg, map[string]any{}, 0, 0)
-	if len(errs) != 0 {
-		t.Errorf("errs: got %v, want empty", errs)
 	}
 }
 
@@ -2170,7 +2018,7 @@ func TestCoverage_NewRouterFull_WithDBDeps(t *testing.T) {
 	})
 
 	dbDeps := &DatabaseDeps{Store: nil}
-	r := NewRouterFull(mgr, cfg, nil, nil, dbDeps, nil)
+	r := NewRouterFull(mgr, cfg, nil, nil, dbDeps, nil, fakeAdminMiddleware)
 
 	// dbDeps.Store is nil, so registerDatabaseRoutes is skipped.
 	// Verify router was created and core routes still work.
@@ -2332,7 +2180,7 @@ func TestCoverage_MiddlewareStack(t *testing.T) {
 		})
 	}
 
-	r := NewRouter(mgr, cfg, nil, testMiddleware)
+	r := NewRouter(mgr, cfg, nil, testMiddleware, fakeAdminMiddleware)
 
 	req := httptest.NewRequest(
 		"GET", "/api/v1/databases", nil)
@@ -2386,19 +2234,6 @@ func TestCoverage_MultipleMiddlewares(t *testing.T) {
 	if w.Header().Get("X-MW2") != "yes" {
 		t.Error("MW2 not applied")
 	}
-}
-
-// ================================================================
-// SPA fallback — static file with dot in path
-// ================================================================
-
-func TestCoverage_Dashboard_StaticFile(t *testing.T) {
-	r := testRouter("db1")
-	// Path with a dot should be served as a static file.
-	w := get(t, r, "/app.js")
-	// Will be 404 since no real app.js exists in embedded FS,
-	// but the handler should try to serve it.
-	_ = w // Just exercising the code path.
 }
 
 // ================================================================

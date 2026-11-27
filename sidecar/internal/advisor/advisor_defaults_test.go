@@ -38,7 +38,7 @@ func countingAdvisorLLM(t *testing.T, content string) (string, *atomic.Int32) {
 	return srv.URL, &calls
 }
 
-func walSnapshots() (*collector.Snapshot, *collector.Snapshot) {
+func walSnapshots() *collector.Snapshot {
 	now := time.Now()
 	snap := &collector.Snapshot{
 		CollectedAt: now,
@@ -46,11 +46,9 @@ func walSnapshots() (*collector.Snapshot, *collector.Snapshot) {
 			{Name: "max_wal_size", Setting: "1024", Unit: "MB"},
 			{Name: "checkpoint_timeout", Setting: "300", Unit: "s"},
 		}},
-		System: collector.SystemStats{TotalCheckpoints: 400},
+		System: walFixtureCounters,
 	}
-	prev := &collector.Snapshot{CollectedAt: now.Add(-time.Hour),
-		System: collector.SystemStats{TotalCheckpoints: 100}}
-	return snap, prev
+	return snap
 }
 
 // walAdvice claims its own action_risk; the advisor must ignore it.
@@ -68,8 +66,9 @@ func TestAdvisorDefaultsCallConfiguredLLM(t *testing.T) {
 	cfg.LLM.Endpoint, cfg.LLM.APIKey, cfg.LLM.Model = url, "k", "m"
 	client := llm.New(&cfg.LLM, noopLog)
 	mgr := llm.NewManager(client, nil, cfg.LLM.OptimizerLLM.FallbackToGeneral)
-	snap, prev := walSnapshots()
-	findings, err := analyzeWAL(context.Background(), mgr, snap, prev, cfg, noopLog)
+	snap := walSnapshots()
+	findings, err := analyzeWAL(withWALFixtureWindow(context.Background()), mgr, snap, cfg,
+		noopLog)
 	if err != nil {
 		t.Fatalf("analyzeWAL: %v", err)
 	}
@@ -94,8 +93,8 @@ func TestAdvisorDefaultLLMBlockWithoutEndpointNeverCalls(t *testing.T) {
 	url, calls := countingAdvisorLLM(t, walAdvice)
 	client := llm.New(&cfg.LLM, noopLog)
 	mgr := llm.NewManager(client, nil, true)
-	snap, prev := walSnapshots()
-	findings, err := analyzeWAL(context.Background(), mgr, snap, prev, cfg, noopLog)
+	snap := walSnapshots()
+	findings, err := analyzeWAL(context.Background(), mgr, snap, cfg, noopLog)
 	if err == nil || len(findings) != 0 {
 		t.Fatalf("findings=%+v err=%v, want an LLM-unavailable error", findings, err)
 	}

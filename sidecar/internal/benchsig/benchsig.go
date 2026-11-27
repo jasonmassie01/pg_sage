@@ -3,7 +3,8 @@
 // (cosign sign-blob with the GitHub Actions OIDC identity); the sidecar
 // verifies the bundle offline against the Sigstore trusted root embedded
 // in its binary and accepts only the pg_sage CI workflow of the pg_sage
-// repository, on master or a v* tag.
+// repository (pinned by its immutable GitHub repository and owner IDs),
+// on master or a v* tag.
 package benchsig
 
 import (
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/sigstore/sigstore-go/pkg/bundle"
+	"github.com/sigstore/sigstore-go/pkg/fulcio/certificate"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/verify"
 )
@@ -44,11 +46,24 @@ type Identity struct {
 	// SANPattern is an anchored regexp the certificate's subject
 	// alternative name (the workflow identity) must match.
 	SANPattern string
+	// RepositoryID and OwnerID are the immutable numeric GitHub IDs of the
+	// source repository and its owner (Fulcio extensions
+	// 1.3.6.1.4.1.57264.1.15 and .17). They pin the repository itself, not
+	// its name: a repository renamed or transferred and registered again
+	// under the old name has other IDs.
+	RepositoryID string
+	OwnerID      string
 }
 
-// ReleaseIdentity is the pg_sage release workflow.
+// ReleaseIdentity is the pg_sage release workflow of the
+// jasonmassie01/pg_sage repository (IDs from
+// gh api repos/jasonmassie01/pg_sage --jq '.id, .owner.id', and in every
+// release certificate since v2.4.0). The bench-sign jobs in ci.yml check
+// the same IDs before signing.
 func ReleaseIdentity() Identity {
-	return Identity{Issuer: GitHubIssuer, SANPattern: releaseSANPattern}
+	return Identity{Issuer: GitHubIssuer, SANPattern: releaseSANPattern,
+		RepositoryID: "1185895123",
+		OwnerID:      "143746527"}
 }
 
 // Signature is what a verified signature proves.
@@ -74,29 +89,35 @@ type Verifier struct {
 
 // NewVerifier verifies against material for signatures of id: a Fulcio
 // certificate with an embedded SCT, a transparency-log entry and an
-// observer timestamp (log integration time or a TSA timestamp).
+// observer timestamp (log integration time or a TSA timestamp), issued to
+// the repository and owner whose numeric IDs id pins.
 func NewVerifier(material root.TrustedMaterial, id Identity) (*Verifier, error) {
-	return newVerifier(material, id, 1)
+	return newVerifier(material, id, 1, true)
 }
 
-// newVerifier is NewVerifier with a CT-log threshold: always 1 in the
-// sidecar (Fulcio embeds an SCT in every certificate); the virtual
-// Sigstore of the tests cannot issue SCTs.
-func newVerifier(material root.TrustedMaterial, id Identity, scts int) (*Verifier,
-	error) {
-	switch {
-	case material == nil:
+// newVerifier is NewVerifier with a CT-log threshold and the repository
+// pin as arguments: the sidecar always requires 1 SCT and pinned IDs. The
+// virtual Sigstore of the tests can neither issue SCTs nor put repository
+// IDs in its certificates, so only tests pass 0 or pinRepo false.
+func newVerifier(material root.TrustedMaterial, id Identity, scts int,
+	pinRepo bool) (*Verifier, error) {
+	if material == nil {
 		return nil, errors.New("benchsig: no trusted material")
-	case strings.TrimSpace(id.Issuer) == "":
-		return nil, errors.New("benchsig: no certificate issuer")
-	case !strings.HasPrefix(id.SANPattern, "^") || !strings.HasSuffix(id.SANPattern, "$"):
-		return nil, fmt.Errorf("benchsig: identity pattern %q must be anchored (^...$)",
-			id.SANPattern)
 	}
-	if _, err := regexp.Compile(id.SANPattern); err != nil {
+	if err := validateIdentity(id, pinRepo); err != nil {
+		return nil, err
+	}
+	san, err := verify.NewSANMatcher("", id.SANPattern)
+	if err != nil {
 		return nil, fmt.Errorf("benchsig: identity pattern: %w", err)
 	}
-	certID, err := verify.NewShortCertificateIdentity(id.Issuer, "", "", id.SANPattern)
+	issuer, err := verify.NewIssuerMatcher(id.Issuer, "")
+	if err != nil {
+		return nil, fmt.Errorf("benchsig: certificate issuer: %w", err)
+	}
+	certID, err := verify.NewCertificateIdentity(san, issuer, certificate.Extensions{
+		SourceRepositoryIdentifier:      id.RepositoryID,
+		SourceRepositoryOwnerIdentifier: id.OwnerID})
 	if err != nil {
 		return nil, fmt.Errorf("benchsig: certificate identity: %w", err)
 	}
@@ -110,6 +131,49 @@ func newVerifier(material root.TrustedMaterial, id Identity, scts int) (*Verifie
 		return nil, fmt.Errorf("benchsig: verifier: %w", err)
 	}
 	return &Verifier{verifier: v, identity: certID}, nil
+}
+
+// validateIdentity refuses an identity that would accept more signers
+// than it names: no issuer, an unanchored or invalid SAN pattern, or
+// (when pinRepo) a repository or owner without its numeric ID.
+func validateIdentity(id Identity, pinRepo bool) error {
+	switch {
+	case strings.TrimSpace(id.Issuer) == "":
+		return errors.New("benchsig: no certificate issuer")
+	case !strings.HasPrefix(id.SANPattern, "^") || !strings.HasSuffix(id.SANPattern, "$"):
+		return fmt.Errorf("benchsig: identity pattern %q must be anchored (^...$)",
+			id.SANPattern)
+	}
+	if _, err := regexp.Compile(id.SANPattern); err != nil {
+		return fmt.Errorf("benchsig: identity pattern: %w", err)
+	}
+	if !pinRepo {
+		return nil
+	}
+	if !isGitHubID(id.RepositoryID) {
+		return fmt.Errorf("benchsig: repository ID %q is not a numeric GitHub ID; "+
+			"without it any repository registered under the name would be trusted",
+			id.RepositoryID)
+	}
+	if !isGitHubID(id.OwnerID) {
+		return fmt.Errorf("benchsig: owner ID %q is not a numeric GitHub ID; "+
+			"without it any owner registered under the name would be trusted", id.OwnerID)
+	}
+	return nil
+}
+
+// isGitHubID reports whether s is a positive decimal ID as GitHub and
+// Fulcio write it (no sign, no leading zero, no spaces).
+func isGitHubID(s string) bool {
+	if s == "" || s[0] == '0' {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // EmbeddedTrustedRoot is the Sigstore trusted root built into this

@@ -10,7 +10,11 @@ from urllib.parse import urlsplit
 
 REQUIRED = {"app_name", "host", "endpoint", "branch", "database_resource", "database_name", "secret_scope", "secret_key", "databricks_admin_email"}
 OPTIONAL = {"pg_user", "gateway_endpoint", "gateway_model", "gateway_json_mode", "description", "lakebase_observability", "databricks_allowed_email_domains"}
-RESOURCE = re.compile(r"projects/[a-z0-9-]+/branches/[a-z0-9-]+")
+# One Lakebase project, branch or endpoint ID; the same text as the Go
+# lakebaseid.Pattern (test_package.py reads the Go source to keep them equal).
+SEGMENT = r"[a-z0-9][a-z0-9-]{0,62}"
+RESOURCE = re.compile(r"projects/" + SEGMENT + r"/branches/" + SEGMENT)
+ENDPOINT = re.compile(RESOURCE.pattern + r"/endpoints/" + SEGMENT)
 HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+", re.I)
 RUNTIME_FILES = ["app.yaml", "binary.json", "binary.part-*", "config.json", "launch.py", "databricks.yml"]
 
@@ -47,7 +51,8 @@ def telemetry_config(settings: dict) -> dict | None:
     raw = settings["lakebase_observability"]
     bounds = {"poll_interval_seconds": (30, 3600), "query_timeout_seconds": (1, 120),
               "max_rows": (1, 10000), "max_bytes": (1024, 16777216), "queries_per_poll": (1, 1000),
-              "window_seconds": (1, 604800), "retention_hours": (1, 168)}
+              "window_seconds": (1, 604800), "retention_hours": (1, 168),
+              "settle_lag_seconds": (1, 3600), "short_lookback_seconds": (1, 604800)}
     allowed = set(bounds) | {"enabled", "warehouse_id", "allow_payload", "allow_compute", "streams"}
     if not isinstance(raw, dict) or set(raw) - allowed:
         raise ValueError("lakebase_observability accepts bounded non-secret settings only; its resource binding is derived from the selected database")
@@ -85,8 +90,9 @@ def render(settings: dict) -> tuple[dict, dict]:
     branch = settings["branch"]
     if not RESOURCE.fullmatch(branch):
         raise ValueError("branch must be projects/<project>/branches/<branch>")
-    for field, suffix in (("endpoint", "/endpoints/"), ("database_resource", "/databases/")):
-        if not re.fullmatch(re.escape(branch + suffix) + r"[a-z0-9-]+", settings[field]):
+    for field, suffix, segment in (("endpoint", "/endpoints/", SEGMENT),
+                                   ("database_resource", "/databases/", r"[a-z0-9-]+")):
+        if not re.fullmatch(re.escape(branch + suffix) + segment, settings[field]):
             raise ValueError(field + " must belong to the explicitly selected branch")
     if not HOST.fullmatch(settings["host"]) or len(settings["host"]) > 253:
         raise ValueError("host must be the endpoint hostname, without credentials, a scheme or a port")

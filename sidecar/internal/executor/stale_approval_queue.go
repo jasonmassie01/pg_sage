@@ -42,7 +42,7 @@ type rowsQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }
 
-const queuedApprovalsSQL = `/* pg_sage */ SELECT id, status, expires_at <= now(),
+const queuedApprovalsSQL = `/* pg_sage executor */ SELECT id, status, expires_at <= now(),
 	recommendation_id, COALESCE(content_hash, ''), proposed_sql,
 	COALESCE(snoozed_until > now(), false)
 	FROM sage.action_queue
@@ -157,7 +157,7 @@ func candidateMoved(ctx context.Context, tx pgx.Tx, cand *recommendation.Candida
 	}
 	var state string
 	var revision int
-	err := tx.QueryRow(ctx, `/* pg_sage */ SELECT state, revision
+	err := tx.QueryRow(ctx, `/* pg_sage executor */ SELECT state, revision
 		FROM sage.recommendation WHERE id = $1`, cand.ID).Scan(&state, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return true, nil
@@ -174,7 +174,7 @@ func (e *Executor) supersedeQueued(
 	if len(ids) == 0 {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, `/* pg_sage */ UPDATE sage.action_queue
+	if _, err := tx.Exec(ctx, `/* pg_sage executor */ UPDATE sage.action_queue
 		SET status = 'superseded', reason = $2
 		WHERE id = ANY($1) AND status = 'pending'`, ids, reason); err != nil {
 		return fmt.Errorf("supersede queued proposals %v: %w", ids, err)

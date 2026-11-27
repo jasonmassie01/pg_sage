@@ -15,6 +15,10 @@ CREATE INDEX IF NOT EXISTS idx_explain_cache_captured
     ON sage.explain_cache (captured_at);
 CREATE INDEX IF NOT EXISTS idx_alert_log_sent
     ON sage.alert_log (sent_at);
+-- alerting-04: resolve delivery state is per (finding, channel); the
+-- alerting loop looks up sent, resolved and resolve_error rows by all three.
+CREATE INDEX IF NOT EXISTS idx_alert_log_finding_channel_status
+    ON sage.alert_log (finding_id, channel, status);
 CREATE INDEX IF NOT EXISTS idx_verification_created
     ON sage.verification (created_at);
 CREATE INDEX IF NOT EXISTS idx_sre_change_events_received

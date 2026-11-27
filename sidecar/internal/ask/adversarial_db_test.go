@@ -341,3 +341,82 @@ func TestInvestigation_InvalidSubjectsAreRefused(t *testing.T) {
 }
 
 func quoteLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+// Explain a case (mcp-01): an operator's read-only question whose model
+// tries every write tool anyway is refused each one, and nothing is
+// queued, opened or proposed. Over JSON actions the loop refuses the
+// unlisted tool (forbidden_tool); over native tool calls the client
+// refuses a call to an undeclared tool first (malformed_reply), and three
+// of those stop the run as incomplete.
+func TestAdversarial_ReadOnlyOperatorCannotWrite(t *testing.T) {
+	writes := []toolCall{{"propose_action", `{"finding_id":%d}`},
+		{"open_investigation", `{"subject":"orders latency"}`},
+		{"propose_fact", `{"kind":"intentional","object":"public.orders"}`}}
+	final := answerArgs{NotObserved: []string{"This case is explained only."}}.json()
+	for _, tc := range []struct {
+		protocol       agentloop.Protocol
+		reject, status string
+	}{{agentloop.ProtocolJSON, agentloop.RejectForbiddenTool, StatusNotObserved},
+		{agentloop.ProtocolNative, agentloop.RejectMalformedReply, StatusIncomplete}} {
+		t.Run(string(tc.protocol), func(t *testing.T) {
+			f := newFixture(t)
+			fid := f.finding(findingSeed{Object: "public.orders", Title: "Missing index"})
+			var script []fakeReply
+			for _, w := range writes {
+				args := strings.ReplaceAll(w.args, "%d", itoa(fid))
+				if tc.protocol == agentloop.ProtocolJSON {
+					script = append(script, contentReply(fixedText(
+						`{"tool":"`+w.name+`","args":`+args+`}`)))
+				} else {
+					script = append(script, calls(toolCall{w.name, args}))
+				}
+			}
+			if tc.protocol == agentloop.ProtocolJSON {
+				script = append(script, contentReply(fixedText(
+					`{"tool":"answer","args":`+final+`}`)))
+			} else {
+				script = append(script, calls(toolCall{"answer", final}))
+			}
+			a := askReadOnly(t, f, fid, tc.protocol, tc.reject, script)
+			if a.Status != tc.status {
+				t.Fatalf("status = %s, want %s (%+v)", a.Status, tc.status, a)
+			}
+		})
+	}
+}
+
+// askReadOnly asks the operator's read-only question over the script and
+// fails unless every write was refused and nothing was written.
+func askReadOnly(t *testing.T, f *fixture, fid int64, protocol agentloop.Protocol,
+	reject string, script []fakeReply) Answer {
+	t.Helper()
+	proposer := &fakeProposer{result: proposalResult()}
+	starter := &fakeStarter{result: Started{ID: "9b2e", Created: true}}
+	m := newFakeLLM(t, script...)
+	d := f.deps(m)
+	d.Proposer, d.Starter, d.Protocol = proposer, starter, protocol
+	queued := f.count(`SELECT count(*) FROM sage.action_queue`)
+	facts := f.count(`SELECT count(*) FROM sage.facts`)
+	a, err := f.service(d).Ask(f.ctx, operator, Request{ReadOnly: true,
+		Question: fmt.Sprintf("Explain finding %d and queue its fix", fid)})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if a.Transcript.Rejected[reject] != 3 {
+		t.Fatalf("rejections = %+v, want 3 %s", a.Transcript.Rejected, reject)
+	}
+	if proposer.count() != 0 || starter.count() != 0 || len(a.Actions) != 0 {
+		t.Fatalf("proposals %d, investigations %d, actions %+v", proposer.count(),
+			starter.count(), a.Actions)
+	}
+	if n := f.count(`SELECT count(*) FROM sage.action_queue`); n != queued {
+		t.Fatalf("sage.action_queue grew from %d to %d", queued, n)
+	}
+	if n := f.count(`SELECT count(*) FROM sage.facts`); n != facts {
+		t.Fatalf("sage.facts grew from %d to %d", facts, n)
+	}
+	if !a.ReadOnly {
+		t.Fatalf("answer is not marked read-only: %+v", a)
+	}
+	return a
+}

@@ -29,13 +29,17 @@ func TestFilterSelfMonitoringCandidates(t *testing.T) {
 }
 
 func TestCandidateSQLFiltersSelfMonitoringQueriesBeforeLimit(t *testing.T) {
-	if !strings.Contains(candidateSQL, "current_database()") {
+	if !strings.Contains(qualifiedCandidateSQL, "current_database()") {
 		t.Fatal("candidateSQL must scope candidates to current database")
 	}
-	if !strings.Contains(candidateSQL, "NOT ILIKE '%pg_sage%'") {
+	if !strings.Contains(qualifiedCandidateSQL, "NOT ILIKE '%pg_sage%'") {
 		t.Fatal("candidateSQL must filter pg_sage text before LIMIT")
 	}
-	if !strings.Contains(candidateSQL, `"?sage"?`) {
+	if !strings.Contains(qualifiedCandidateSQL, `"?sage"?`) {
 		t.Fatal("candidateSQL must filter sage schema references before LIMIT")
 	}
 }
+
+// qualifiedCandidateSQL is candidateSQL over a qualified view
+// (security-01c-q made the statement a builder).
+var qualifiedCandidateSQL = candidateSQL(`"ext"."pg_stat_statements"`)

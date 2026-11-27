@@ -3,6 +3,7 @@ package facts
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -22,27 +23,37 @@ var guidance = map[Type]string{
 		"could invalidate it; alert instead.",
 	TypeAppendOnly: "Its rows are never updated or deleted: keep its data and its " +
 		"indexes (they serve rare reads).",
+	TypeDoNotTouch: "Never propose any change to it.",
+}
+
+// promptPriority orders the facts of a prompt before its budget cuts: the
+// owner brief (about the whole database), what must not be touched, then
+// the facts behind WAL and vacuum advice, so many index ownership facts
+// never crowd them out. Ties go by fact id.
+var promptPriority = map[Type]int{TypeOwnerBrief: 0, TypeDoNotTouch: 1,
+	TypeSlotConsumer: 2, TypeTableWindow: 3, TypeAppendOnly: 4, TypeAppMigrations: 5,
+	TypeTestFixture: 6}
+
+func promptRank(t Type) int {
+	if p, ok := promptPriority[t]; ok {
+		return p
+	}
+	return len(promptPriority)
 }
 
 // PromptLines renders the confirmed, unexpired facts relevant to objects
-// (all of them when objects is empty) as bounded prompt lines in fact
-// order. Proposed, rejected and expired facts are never included.
+// (all of them when objects is empty) as bounded prompt lines, by type
+// priority and then fact order. Proposed, rejected and expired facts are
+// never included. When the bounds cut facts, a last line says how many,
+// and the lines with it stay within maxPromptChars.
 func PromptLines(facts []Fact, now time.Time, objects ...string) []string {
-	refs := make([]ObjectRef, 0, len(objects))
-	for _, o := range objects {
-		if ref, err := ParseObjectRef(o); err == nil {
-			refs = append(refs, ref)
-		}
-	}
+	picked := promptFacts(facts, now, objects)
 	var out []string
 	used := 0
-	for _, f := range facts {
-		if !f.binds(now) || (len(objects) > 0 && !relevant(f, refs)) {
-			continue
-		}
+	for i, f := range picked {
 		line := clip(promptLine(f), maxPromptLine)
 		if len(out) == maxPromptLines || used+len(line)+1 > maxPromptChars {
-			break
+			return withOmittedNote(out, used, len(picked)-i)
 		}
 		out = append(out, line)
 		used += len(line) + 1
@@ -50,7 +61,53 @@ func PromptLines(facts []Fact, now time.Time, objects ...string) []string {
 	return out
 }
 
+// promptFacts are the binding facts relevant to objects, in prompt order;
+// the caller's slice is left as it is.
+func promptFacts(facts []Fact, now time.Time, objects []string) []Fact {
+	refs := make([]ObjectRef, 0, len(objects))
+	for _, o := range objects {
+		if ref, err := ParseObjectRef(o); err == nil {
+			refs = append(refs, ref)
+		}
+	}
+	var picked []Fact
+	for _, f := range facts {
+		if f.binds(now) && (len(objects) == 0 || relevant(f, refs)) {
+			picked = append(picked, f)
+		}
+	}
+	sort.SliceStable(picked, func(i, j int) bool {
+		ri, rj := promptRank(picked[i].Type), promptRank(picked[j].Type)
+		return ri < rj || (ri == rj && picked[i].ID < picked[j].ID)
+	})
+	return picked
+}
+
+// withOmittedNote ends out (used characters) with a note naming the
+// omitted facts, dropping fact lines until the note fits the budget.
+func withOmittedNote(out []string, used, omitted int) []string {
+	for {
+		note := omittedNote(omitted)
+		if used+len(note)+1 <= maxPromptChars || len(out) == 0 {
+			return append(out, note)
+		}
+		used -= len(out[len(out)-1]) + 1
+		out = out[:len(out)-1]
+		omitted++
+	}
+}
+
+func omittedNote(n int) string {
+	if n == 1 {
+		return "- 1 more confirmed fact omitted."
+	}
+	return fmt.Sprintf("- %d more confirmed facts omitted.", n)
+}
+
 func promptLine(f Fact) string {
+	if f.Type == TypeOwnerBrief {
+		return briefPromptLine(f)
+	}
 	how := guidance[f.Type]
 	if f.Type == TypeTableWindow {
 		how = "Act on it only inside that window."
@@ -63,8 +120,12 @@ func promptLine(f Fact) string {
 }
 
 // relevant reports a fact about one of refs; an index fact is relevant to
-// any object in its schema (the object's indexes are not listed).
+// any object in its schema (the object's indexes are not listed), and a
+// database fact (the owner brief) to every object.
 func relevant(f Fact, refs []ObjectRef) bool {
+	if f.Kind == KindDatabase {
+		return true
+	}
 	p, err := ParsePattern(f.Kind, f.Subject)
 	if err != nil {
 		return false
@@ -79,7 +140,7 @@ func relevant(f Fact, refs []ObjectRef) bool {
 }
 
 // PromptLines renders the database's confirmed facts about objects for a
-// model prompt (optimizer, advisor, investigator). A read error yields no
+// model prompt (advisor, investigator). A read error yields no
 // lines: the prompt goes without them and the gate still binds.
 func (s *Store) PromptLines(ctx context.Context, objects ...string) []string {
 	facts, err := s.Confirmed(ctx)

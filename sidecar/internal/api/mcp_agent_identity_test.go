@@ -57,7 +57,7 @@ func TestMCPBearerAgentTokenBindsItsPrincipal(t *testing.T) {
 	require.True(t, capture.identity.Principal.Sponsored())
 
 	_, err := agentguard.NewStore(pool).SetStatus(context.Background(), tok.PrincipalID,
-		agentguard.StatusRetired, "")
+		agentguard.StatusRetired, agentguard.Audit{})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusUnauthorized, postMCP(h, tok.Secret),
 		"a retired principal's token is refused")

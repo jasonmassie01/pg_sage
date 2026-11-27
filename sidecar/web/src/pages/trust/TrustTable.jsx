@@ -1,5 +1,8 @@
 import { checkText } from '../autonomy/checkText'
+import { holdsText } from '../autonomy/holdsText'
 import { ShadowDecisions, ShadowSummary } from './ShadowDecisions'
+import { formatTime } from '../../lib/time'
+import { modeSentence } from '../../lib/autonomy'
 
 // One database's trust grid for one kind (self-initiated classes or
 // incident remediations): level, evidence counts, last change and why,
@@ -15,15 +18,16 @@ const KIND_TITLE = {
 }
 
 const KIND_NOTE = {
-  self_initiated: 'Tuning classes earn trust only from improved verdicts; hygiene '
-    + 'classes also from neutral verdicts that held. A regressed verdict, an operator '
+  self_initiated: 'Tuning classes earn trust only from improved outcomes; hygiene '
+    + 'classes also from neutral outcomes that held. A regressed outcome, an operator '
     + 'rollback or a rejection demotes the class one level.',
   incident: 'Earned from bench, shadow-review and live-recovery evidence '
-    + '(Advanced > Earned autonomy).',
+    + '(see History, downgrades, bench and game days below).',
 }
 
-export function TrustTable({ database, kind, rows, isAdmin, onApprove, shadow = [] }) {
+export function TrustTable({ database, kind, rows, isAdmin, onRevalidate, shadow = [] }) {
   if (rows.length === 0) return null
+  const hasMode = rows.some(r => typeof r.mode === 'string' && r.mode !== '')
   return (
     <div data-testid={`trust-section-${database}-${kind}`} className="space-y-1">
       <h4 className="text-xs font-semibold uppercase tracking-wide" style={muted}>
@@ -34,17 +38,18 @@ export function TrustTable({ database, kind, rows, isAdmin, onApprove, shadow = 
         <table className="w-full text-left">
           <thead>
             <tr className="text-xs" style={muted}>
-              <th className={cell}>Family / class</th>
-              <th className={cell}>Level</th>
-              <th className={cell}>Evidence</th>
-              <th className={cell}>Last change</th>
-              <th className={cell}>Path to next level</th>
+              <th scope="col" className={cell}>Family / class</th>
+              {hasMode && <th scope="col" className={cell}>What pg_sage may do</th>}
+              <th scope="col" className={cell}>Level</th>
+              <th scope="col" className={cell}>Evidence</th>
+              <th scope="col" className={cell}>Last change</th>
+              <th scope="col" className={cell}>Path to next level</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(row => (
               <TrustRow key={`${row.family}-${row.class}`} database={database}
-                row={row} isAdmin={isAdmin} onApprove={onApprove}
+                row={row} isAdmin={isAdmin} onRevalidate={onRevalidate} hasMode={hasMode}
                 shadow={shadow.find(s => s.family === row.family && s.class === row.class)} />
             ))}
           </tbody>
@@ -54,7 +59,7 @@ export function TrustTable({ database, kind, rows, isAdmin, onApprove, shadow = 
   )
 }
 
-function TrustRow({ database, row, isAdmin, onApprove, shadow }) {
+function TrustRow({ database, row, isAdmin, onRevalidate, shadow, hasMode }) {
   return (
     <tr data-testid={`trust-row-${database}-${row.family}-${row.class}`}
       style={{ borderTop: '1px solid var(--border)' }}>
@@ -65,9 +70,15 @@ function TrustRow({ database, row, isAdmin, onApprove, shadow }) {
         )}
         <div style={muted}>{row.reversibility}</div>
       </td>
-      <td className={cell}><Level row={row} /></td>
+      {hasMode && <td className={cell}><ModeCell row={row} /></td>}
+      <td className={cell}>
+        <Level row={row} />
+        <MajorCap database={database} row={row} isAdmin={isAdmin}
+          onRevalidate={onRevalidate} />
+      </td>
       <td className={cell} data-testid="trust-evidence" style={muted}>
         <Evidence counts={row.evidence || {}} />
+        {row.bench && <BenchReport bench={row.bench} />}
         {shadow && (
           <div className="mt-1">
             <ShadowSummary summary={shadow} />
@@ -79,8 +90,7 @@ function TrustRow({ database, row, isAdmin, onApprove, shadow }) {
         <LastChange change={row.last_change || {}} />
       </td>
       <td className={cell} data-testid="trust-next" style={muted}>
-        <NextLevel database={database} row={row} isAdmin={isAdmin}
-          onApprove={onApprove} />
+        <NextLevel row={row} />
       </td>
     </tr>
   )
@@ -97,6 +107,11 @@ function Level({ row }) {
       {row.effective && (
         <div style={muted}>
           now <span data-testid="trust-effective">{row.effective}</span>
+        </div>
+      )}
+      {row.holds_until && (
+        <div data-testid="trust-holds-until" style={muted}>
+          {holdsText(row.level, row.holds_until, row.expiring_checks)}
         </div>
       )}
       {row.provenance && row.provenance !== 'ledger' && (
@@ -141,29 +156,76 @@ function Evidence({ counts }) {
   )
 }
 
+// BenchReport is the report the row's bench checks read: the newest that
+// counts for this build, whatever its origin (earned-10).
+function BenchReport({ bench }) {
+  const generated = bench.generated_at
+    ? `, generated ${formatTime(bench.generated_at)}` : ''
+  return (
+    <div data-testid="trust-bench" data-origin={bench.origin || ''}
+      title={`bench report ${bench.id || ''}${generated}`}>
+      bench: {bench.provenance}
+    </div>
+  )
+}
+
 function LastChange({ change }) {
   if (!change.at) return <span>default (never changed)</span>
   return (
     <span>
       <span style={strong}>{change.event || 'changed'}</span>
-      {' '}{new Date(change.at).toLocaleString()}
+      {' '}{formatTime(change.at)}
       {change.by && <span> by {change.by}</span>}
       {change.reason && <div>{change.reason}</div>}
     </span>
   )
 }
 
-function NextLevel({ database, row, isAdmin, onApprove }) {
+// earned-07: a self-initiated L3 granted on another PostgreSQL major runs at
+// L2 until improved outcomes on the new major, or an admin, re-validate it.
+function MajorCap({ database, row, isAdmin, onRevalidate }) {
+  if (!row.major_cap) return null
+  return (
+    <div data-testid="trust-major-cap" style={{ color: 'var(--red)' }}>
+      {row.major_cap.text}
+      {isAdmin && onRevalidate && (
+        <button type="button" className="ml-2 rounded px-2 py-0.5"
+          style={{ border: '1px solid var(--green)', color: 'var(--green)' }}
+          onClick={() => onRevalidate(database, row.family, row.class)}>
+          Re-approve
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ModeCell is the class's sentence on the one autonomy scale (ux-06b) and
+// why, the limiting input first; the server computes both from the gate's
+// own inputs.
+function ModeCell({ row }) {
+  const because = Array.isArray(row.mode_because) ? row.mode_because : []
+  return (
+    <div data-testid="trust-mode" data-mode={row.mode || ''}>
+      <div className="font-semibold" style={strong}>{modeSentence(row.mode)}</div>
+      {because.length > 0 && (
+        <ul className="list-disc pl-4" data-testid="trust-mode-because" style={muted}>
+          {because.map(why => <li key={why}>{why}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function NextLevel({ row }) {
   if (row.pending) {
     return (
       <div>
-        Promotion to {row.pending.to} proposed, waiting for an admin.
-        {isAdmin && (
-          <button type="button" className="ml-2 rounded px-2 py-0.5"
-            style={{ border: '1px solid var(--green)', color: 'var(--green)' }}
-            onClick={() => onApprove(database, row.pending.id)}>
-            Approve
-          </button>
+        Promotion to {row.pending.to} proposed: approve or reject it under Waiting
+        promotions.
+        {row.bench && (
+          <div data-testid="trust-pending-bench">
+            Deciding bench report: {row.bench.provenance}
+          </div>
         )}
       </div>
     )
@@ -183,7 +245,7 @@ function NextLevel({ database, row, isAdmin, onApprove }) {
       {unmet.map(c => (
         <li key={c.name}>
           {checkText(c)}
-          {c.eta && <span style={strong}> (ETA {new Date(c.eta).toLocaleString()})</span>}
+          {c.eta && <span style={strong}> (ETA {formatTime(c.eta)})</span>}
         </li>
       ))}
     </ul>

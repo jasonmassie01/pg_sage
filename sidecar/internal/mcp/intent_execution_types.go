@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 
 	"github.com/pg-sage/sidecar/internal/migration/plan"
+	"github.com/pg-sage/sidecar/internal/migration/rehearsal"
 	migrationruntime "github.com/pg-sage/sidecar/internal/migration/runtime"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 type TableContractDeclaration struct {
@@ -67,15 +69,41 @@ type MigrationRecord struct {
 	EvidenceID string
 	SourceSQL  string
 	Verdict    string
+	// Reason is the gate's reason code for a blocked plan (empty otherwise).
+	Reason string
 }
 
 type MigrationOutcome struct {
-	Verdict                string            `json:"verdict"`
-	EvidenceID             string            `json:"evidence_id,omitempty"`
-	ContractNotBeforeCycle int               `json:"contract_not_before_cycle,omitempty"`
-	Plan                   plan.Plan         `json:"plan"`
-	Actions                []ChangeCandidate `json:"actions,omitempty"`
+	Verdict string `json:"verdict"`
+	// Reason says why the verdict is what it is; it is always set
+	// (migration-06): the gate's reason, the rehearsal's (clone-cleanup
+	// failures included), or contract_pending after an expand.
+	Reason                 string `json:"reason"`
+	EvidenceID             string `json:"evidence_id,omitempty"`
+	ContractNotBeforeCycle int    `json:"contract_not_before_cycle,omitempty"`
+	// PendingContractSQL lists the contract steps pg_sage did not run.
+	PendingContractSQL []string `json:"pending_contract_sql,omitempty"`
+	// ContractScript is a forward-fix script for PendingContractSQL that
+	// asserts the expand phase's proof first; pg_sage never runs it.
+	ContractScript string            `json:"contract_script,omitempty"`
+	Plan           plan.Plan         `json:"plan"`
+	Actions        []ChangeCandidate `json:"actions,omitempty"`
+	// AffectedQueries is what the clone rehearsal measured of the
+	// statements that reference the table, and Ladder its tier-2 record
+	// with the clone receipt (lab-04b).
+	AffectedQueries []rehearsal.QueryMeasurement `json:"affected_queries,omitempty"`
+	Ladder          *verify.LadderRecord         `json:"ladder,omitempty"`
 }
+
+// Reasons for apply_migration outcomes that never reach the rehearsal
+// runtime.
+const (
+	// ReasonPlanOnly: the request was planned, not rehearsed or applied.
+	ReasonPlanOnly = "plan_only"
+	// ReasonNoRehearsalRuntime: no clone provider is configured, so the
+	// plan is a recommendation.
+	ReasonNoRehearsalRuntime = "no_rehearsal_runtime"
+)
 
 type MigrationRuntime interface {
 	Apply(context.Context, migrationruntime.Request) (migrationruntime.Result, error)

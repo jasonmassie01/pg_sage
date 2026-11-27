@@ -68,18 +68,18 @@ func TestStandingGateWithoutDeciderCapsAgentsAtApproval(t *testing.T) {
 func TestLedgerInputRecordsPrincipal(t *testing.T) {
 	req := policy.ActionRequest{Feature: "index", ArtifactHash: "sha256:abc",
 		Principal: &policy.PrincipalRef{ID: "agp_aaaaaaaaaaaaaaaaaaaa", TaskID: "t-1"}}
-	in := ledgerInput(nil, 1, req, policy.Decision{Verdict: policy.VerdictQueueApproval})
+	in := ledgerInputAt(nil, 1, req, policy.Decision{Verdict: policy.VerdictQueueApproval})
 	if in.PrincipalID != "agp_aaaaaaaaaaaaaaaaaaaa" || in.TaskID != "t-1" ||
 		in.ArtifactHash != "sha256:abc" {
 		t.Fatalf("ledger input = %+v, want principal, task and artifact hash", in)
 	}
-	other := ledgerInput(nil, 1, policy.ActionRequest{Feature: "index",
+	other := ledgerInputAt(nil, 1, policy.ActionRequest{Feature: "index",
 		Principal: &policy.PrincipalRef{ID: "agp_bbbbbbbbbbbbbbbbbbbb"}},
 		policy.Decision{Verdict: policy.VerdictQueueApproval})
 	if in.Fingerprint == other.Fingerprint {
 		t.Fatal("two agents' withheld decisions must not fold into one row")
 	}
-	own := ledgerInput(nil, 1, policy.ActionRequest{Feature: "index"},
+	own := ledgerInputAt(nil, 1, policy.ActionRequest{Feature: "index"},
 		policy.Decision{Verdict: policy.VerdictQueueApproval})
 	if own.PrincipalID != "" || own.TaskID != "" {
 		t.Fatalf("pg_sage's own decision = %+v, want no principal", own)

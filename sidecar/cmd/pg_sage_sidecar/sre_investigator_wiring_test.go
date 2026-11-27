@@ -27,7 +27,7 @@ import (
 
 func TestSREInvestigatorConfig_FollowsTheMode(t *testing.T) {
 	settings := config.DefaultConfig().SRE
-	got := sreInvestigatorConfig(settings, nil)
+	got := sreInvestigatorConfig(settings, nil, nil)
 	if got == nil || got.Explainer != nil {
 		t.Fatalf("default mode without a monitored pool = %+v, want the investigator "+
 			"without EXPLAIN", got)
@@ -36,7 +36,7 @@ func TestSREInvestigatorConfig_FollowsTheMode(t *testing.T) {
 		t.Fatalf("wired investigator config invalid: %v", err)
 	}
 	settings.LLM.Mode = config.SRELLMModeReview
-	if got := sreInvestigatorConfig(settings, nil); got != nil {
+	if got := sreInvestigatorConfig(settings, nil, nil); got != nil {
 		t.Fatalf("review mode = %+v, want no investigator", got)
 	}
 }

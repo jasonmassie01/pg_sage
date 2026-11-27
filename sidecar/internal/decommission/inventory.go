@@ -40,6 +40,9 @@ type Inventory struct {
 	Items           []Item       `json:"items"`
 	Credentials     []Credential `json:"credentials"`
 	Unacknowledged  int          `json:"unacknowledged"`
+	// InventorySHA256 identifies the items (not their acknowledgement); the
+	// legacy table drop requires the digest of the inventory the admin reviewed.
+	InventorySHA256 string `json:"inventory_sha256"`
 }
 
 // Item is one resource to review and, if it still exists, delete by hand.
@@ -127,5 +130,6 @@ func buildInventory(
 		}
 	}
 	inv.Credentials = credentials(lookupEnv, environ, envRefs)
+	inv.InventorySHA256 = inventoryDigest(inv)
 	return inv
 }

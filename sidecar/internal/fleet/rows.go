@@ -37,19 +37,11 @@ type ActionRow struct {
 }
 
 // FindingFilters are query parameters for finding listings.
-// Source is a subsystem filter. Accepted values and their mapping to
-// sage.findings.category are documented in docs/ui-redesign-v2.md
-// §16 and implemented in api.buildFindingsWhere:
-//
-//	""               — no filter
-//	"schema_lint"    — category LIKE 'schema_lint:%'
-//	"rules"          — analyzer Tier-1 rule categories
-//	"forecaster"     — forecast_* / storage_forecast categories
-//	"query_tuning"   — query_tuning / runaway_query / stale_statistics
-//	"advisor"        — LLM advisor output (detail->>'subsystem')
-//	"optimizer"      — LLM optimizer output (detail->>'subsystem')
-//	"migration_advisor" — reserved, not yet emitted
-//	"incident"       — incident-class categories
+// Source is a subsystem filter: "" applies none, "migration_advisor" is
+// reserved and matches nothing, and every other value is a subsystem of the
+// finding category registry (internal/findingcat), listed with its
+// categories in docs/generated/finding-catalog.md and implemented in
+// api.buildSourceClause.
 //
 // ThematicCategory filters on detail->>'thematic_category' and is
 // only meaningful when Source=="schema_lint".

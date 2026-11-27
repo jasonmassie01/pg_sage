@@ -25,12 +25,17 @@ type createMCPTokenBody struct {
 	OwnerUserID   int      `json:"owner_user_id"`
 }
 
+// tokenAudit is the audit of a token change the signed-in admin makes;
+// the store writes it in the change's own transaction (agentgov-05).
+func tokenAudit(r *http.Request) mcptoken.Audit {
+	return mcptoken.Audit{ActorUserID: sessionUserID(r), SourceIP: requestClientIP(r)}
+}
+
 func registerMCPTokenRoutes(mux *http.ServeMux, pool *pgxpool.Pool) {
 	store := mcptoken.NewStore(pool)
-	adminOnly := RequireRole("admin")
-	mux.Handle("GET /api/v1/mcp/tokens", adminOnly(listMCPTokensHandler(store)))
-	mux.Handle("POST /api/v1/mcp/tokens", adminOnly(createMCPTokenHandler(store)))
-	mux.Handle("DELETE /api/v1/mcp/tokens/{id}", adminOnly(revokeMCPTokenHandler(store)))
+	route(mux, "GET /api/v1/mcp/tokens", gateAdmin, listMCPTokensHandler(store))
+	route(mux, "POST /api/v1/mcp/tokens", gateAdmin, createMCPTokenHandler(store))
+	route(mux, "DELETE /api/v1/mcp/tokens/{id}", gateAdmin, revokeMCPTokenHandler(store))
 }
 
 func listMCPTokensHandler(store *mcptoken.Store) http.HandlerFunc {
@@ -58,17 +63,20 @@ func createMCPTokenHandler(store *mcptoken.Store) http.HandlerFunc {
 				http.StatusBadRequest)
 			return
 		}
+		if !mintWithinOwnerGrants(w, r, store.Pool(), body) {
+			return
+		}
 		tok, err := store.Create(r.Context(), mcptoken.CreateRequest{
 			Name: body.Name, Kind: mcptoken.Kind(body.Kind), Scopes: body.Scopes,
 			Databases:   body.Databases,
 			ExpiresIn:   time.Duration(body.ExpiresInDays) * 24 * time.Hour,
 			OwnerUserID: body.OwnerUserID, CreatedBy: authenticatedActor(r),
+			Audit: tokenAudit(r),
 		})
 		if err != nil {
 			mcpTokenError(w, r, "create mcp token", err)
 			return
 		}
-		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(tok)
@@ -77,7 +85,8 @@ func createMCPTokenHandler(store *mcptoken.Store) http.HandlerFunc {
 
 func revokeMCPTokenHandler(store *mcptoken.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		tok, err := store.Revoke(r.Context(), r.PathValue("id"), authenticatedActor(r))
+		tok, err := store.Revoke(r.Context(), r.PathValue("id"), authenticatedActor(r),
+			tokenAudit(r))
 		if err != nil {
 			mcpTokenError(w, r, "revoke mcp token", err)
 			return

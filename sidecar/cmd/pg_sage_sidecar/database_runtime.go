@@ -12,18 +12,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/autonomy"
 	"github.com/pg-sage/sidecar/internal/briefing"
+	"github.com/pg-sage/sidecar/internal/budget"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/facts"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/ha"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/logwatch"
 	"github.com/pg-sage/sidecar/internal/managedparam"
 	"github.com/pg-sage/sidecar/internal/notify"
+	"github.com/pg-sage/sidecar/internal/pressure"
+	"github.com/pg-sage/sidecar/internal/providerobs"
 	"github.com/pg-sage/sidecar/internal/rca"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/sre"
 	sreaction "github.com/pg-sage/sidecar/internal/sre/action"
 	"github.com/pg-sage/sidecar/internal/sre/changefeed"
@@ -31,6 +37,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/sre/slo"
 	"github.com/pg-sage/sidecar/internal/startup"
 	"github.com/pg-sage/sidecar/internal/store"
+	"github.com/pg-sage/sidecar/internal/tuning"
 )
 
 // databaseRuntimeSpec is everything that legitimately differs between the
@@ -49,6 +56,10 @@ type databaseRuntimeSpec struct {
 	// LLM gates, and the PostgreSQL database name.
 	Config config.DatabaseConfig
 	Pool   *pgxpool.Pool
+	// ActionPool is the separate action identity (action_dsn): changes and
+	// backend signals run on it. Nil runs everything on Pool. The caller
+	// owns it like Pool; the fleet registration closes it with Pool.
+	ActionPool *pgxpool.Pool
 	// ControlPool holds the standing policy and the notification rules the
 	// API writes (G5-B10, G5-B11). Nil means the monitored pool.
 	ControlPool *pgxpool.Pool
@@ -76,6 +87,7 @@ type databaseRuntime struct {
 	cfg        *config.Config
 	checks     *startup.CheckResult
 	provider   string
+	probed     string // the probe outcome before any provider override
 	generalLLM *llm.Client
 	llmManager *llm.Manager
 	llmOn      bool
@@ -86,6 +98,10 @@ type databaseRuntime struct {
 	dispatcher *notify.Dispatcher
 	rca        *rca.Engine
 	rcaAdapter *rcaAdapter
+	// lockObs is the latest lock-chain observation, shared by the RCA fast
+	// path, the analyzer cycle and the migration detector (migration-05);
+	// nil without RCA.
+	lockObs *analyzer.LockChainObserver
 	// probes is the database's one catalog probe runner (at most one
 	// probe at a time on it), shared by RCA narration and Sage SRE.
 	probes *probes.Runner
@@ -96,22 +112,69 @@ type databaseRuntime struct {
 	// sreActions proposes, hands off and verifies Sage SRE actions (M5).
 	sreActions *sreaction.ActionService
 	sreStarted bool
+	// tempDetector is the investigator's reactive detector (nil without
+	// one); self-configuration samples its temp-file window peaks.
+	tempDetector *sre.ReactiveDetector
 	// sloEngine and changeFeed are the M5 signals (nil when off).
 	sloEngine  *slo.Engine
 	changeFeed *changefeed.Feed
 	// runwayAdvisor attaches custodian proposals to runway investigations.
 	runwayAdvisor *runwayAdvisor
-	logFanout     *logwatch.LogFanout
-	brief         *briefing.Worker
-	features      []string
-	inst          *fleet.DatabaseInstance
-	// facts is the database's fact store (roadmap 2.3).
-	facts *facts.Store
+	// ha is the database's one HA monitor (ha_loop.go).
+	ha        *ha.Monitor
+	logFanout *logwatch.LogFanout
+	// budgetMonitor is the workload budget detector, fed the log's
+	// statement-timeout cancels once the fanout exists (market-08b).
+	budgetMonitor *budget.Monitor
+	// providerLogs is set when RCA reads the provider's log API instead of
+	// the cluster's log files (Supabase).
+	providerLogs atomic.Bool
+	brief        *briefing.Worker
+	features     []string
+	inst         *fleet.DatabaseInstance
+	// pressure and pressureJobs are check_pressure and the backfill job
+	// store (guard-01a, guard-01b); nil without a pool.
+	pressure     *pressure.Checker
+	pressureJobs pressure.JobRegistry
+	// firstLook is the database's first look, kept for operator re-checks
+	// (firstlook-05).
+	firstLook *firstLookRun
+	// facts is the database's fact store (roadmap 2.3); factCluster is its
+	// place among the process's databases of the same cluster (facts-02).
+	facts       *facts.Store
+	factCluster *factClusterMember
+	// rehearser is the database's clone rehearser (lab-04a), built once by
+	// cloneRehearser; nil without a clone provider.
+	rehearserOnce sync.Once
+	rehearser     tuning.Rehearser
+	// instanceOwner is the runtime's place among the process's databases
+	// of one instance (advisors-08); nil in single-database mode.
+	instanceOwner *instanceMember
 	// cloud is managed-cloud host telemetry and cloudResolver the managed
 	// change target (nil when the provider has none).
-	lakebaseScope atomic.Value // verified immutable resource/policy pair, loaded by plan capture
+	lakebaseScope atomic.Value // verified immutable resource/policy pair, read by history
 	cloud         *cloudtel.Runtime
 	cloudResolver managedparam.Resolver
+	// backupNote logs a withheld backup freshness once per reason.
+	backupNote reasonLatch
+	// isolationNote logs a withheld backup isolation read once per reason.
+	isolationNote reasonLatch
+	// azureParams is the database's Azure ARM adapter (nil off Azure or
+	// without the azure: identity): the managed-change worker reads server
+	// parameters through it.
+	azureParams executor.ManagedConfigAdapter
+
+	// freeze is the database's one freeze custodian: its sampler is the
+	// only horizon reader and rate state of the analyzer, the runway
+	// advisor and the autonomy worker (vacuum-08).
+	freeze     *autonomy.PostgresFreezeCustodian
+	freezeOnce sync.Once
+	// providerObs is Supabase observability (nil: not running); its memory
+	// backs the gates when there is no managed-cloud telemetry.
+	providerObs atomic.Pointer[providerobs.Runtime]
+	// dataAPI is the Supabase Data API exposure reader (fleetpol-02c), set
+	// before the analyzer starts; nil off Supabase or without a token.
+	dataAPI *cloudtel.SupabaseDataAPI
 }
 
 // buildDatabaseRuntime is the only per-database runtime constructor. It
@@ -130,8 +193,12 @@ func buildDatabaseRuntime(
 	}
 	migrateRecommendations(ctx, spec)
 	rt := newDatabaseRuntime(spec, checks)
+	rt.startHA()
 	if err := rt.installHistory(ctx); err != nil { // history_store_wiring.go
+		// Drain what already started (the HA loop, the LLM release) so no
+		// worker of a refused runtime outlives the refusal (env-race).
 		rt.cancel()
+		rt.workers.Wait()
 		return nil, err
 	}
 	rt.initOnboarding(ctx)
@@ -143,9 +210,16 @@ func buildDatabaseRuntime(
 	rt.startActionOutcomeFeed() // M7: approved M5 runs feed the ledger
 	rt.startRunways()
 	rt.startAsk()
+	rt.startSourceFixVerifier() // mcp-06: verdicts decided in the background
+	rt.startPRMode()            // pr-01b: one PR per change it cannot apply
 	rt.startSelfConfig()
 	rt.logExecutorSettings()
+	rt.startPressure() // guard-01a, guard-01b
 	rt.inst = rt.instance()
+	rt.startMetricsRefresher() // metrics_refresher.go
+	rt.startCapabilityRefresh()
+	rt.startProviderReprobe()
+	rt.startDeferredIndexBuilder() // config-04c: large sage indexes, in the background
 	logInfo(spec.Scope, "db %q: initialized (%s)", spec.Name,
 		strings.Join(rt.features, "+"))
 	runtimeBuilt(rt)
@@ -175,7 +249,8 @@ func runtimePrerequisites(
 }
 
 // prepareMonitoredDatabase bootstraps the sage schema (which includes the
-// config migration) and checks prerequisites. A failed bootstrap always
+// config migration), warns on a non-read-committed isolation default
+// (audit-02) and checks prerequisites. A failed bootstrap always
 // refuses the database, because nothing can persist without the schema
 // (G5-B16); a failed check either refuses it or degrades it (G5-B13).
 func prepareMonitoredDatabase(
@@ -184,6 +259,9 @@ func prepareMonitoredDatabase(
 	if err := bootstrapManagedDatabaseSchema(ctx, pool); err != nil {
 		return nil, fmt.Errorf("bootstrap schema for %q: %w", name, err)
 	}
+	if pool != nil {
+		warnIsolationDefault(ctx, pool, name, logWarn)
+	}
 	checks, err := instanceChecksOrDegraded(ctx, pool)
 	// A missing pg_stat_statements degrades even a required database: the
 	// first look and the catalog rules need no query statistics, and they
@@ -191,13 +269,8 @@ func prepareMonitoredDatabase(
 	if err != nil && requireChecks && !errors.Is(err, startup.ErrStatementsUnavailable) {
 		return nil, fmt.Errorf("prerequisite checks for %q: %w", name, err)
 	}
-	if err != nil {
-		logWarn("runtime", "db %q: prerequisite checks failed; monitoring "+
-			"degraded: %v", name, err)
-	} else if !checks.QueryTextVisible {
-		logWarn("runtime", "db %q: query text not visible; GRANT "+
-			"pg_read_all_stats to the monitoring role", name)
-	}
+	reportChecks(name, checks, err, logWarn)
+	logDoctorCounts(ctx, pool, name, logInfo, logWarn)
 	logInfo("runtime", "db %q: PG version %d, WAL columns: %v, plan_time "+
 		"columns: %v", name, checks.PGVersionNum, checks.HasWALColumns,
 		checks.HasPlanTimeColumns)
@@ -210,20 +283,26 @@ func newDatabaseRuntime(
 	if parent == nil {
 		parent = context.Background()
 	}
+	// Every worker's loop is tracked under this database (footprint-07).
+	parent = selfbudget.WithDatabase(parent, spec.Name)
 	if spec.ControlPool == nil {
 		spec.ControlPool = spec.Pool
 	}
 	rt := &databaseRuntime{spec: spec, checks: checks, workers: &sync.WaitGroup{}}
 	rt.ctx, rt.cancel = context.WithCancel(parent)
-	rt.facts = newFactStore(spec.Pool)
-	rt.provider = detectCloudEnv(spec.Pool)
-	logInfo(spec.Scope, "db %q: cloud environment: %s", spec.Name, rt.provider)
+	rt.initFacts()
+	rt.provider = rt.detectProvider(parent)
 	rt.cfg = rt.runtimeConfig()
 	rt.probes = probes.NewRunner(spec.Pool, probes.Catalog(), sreProbeLimiter, rt.sreReadPolicy())
+	rt.probes.SetDatabaseName(spec.Name)
 	rt.deriveSettingsAtStartup()
 	rt.initCloudTelemetry()
 	rt.resolveLLM()
 	rt.dispatcher = sharedNotifyDispatcher(spec.ControlPool)
+	rt.registerFactCards()
+	rt.registerPlanCards()
+	rt.ha = newInstanceHAMonitor(spec.Pool, spec.ControlPool, spec.Name,
+		rt.recordID(), haCadence(rt.cfg), rt.cfg.SRE.Autonomy.FailoverCooldown())
 	return rt
 }
 
@@ -238,9 +317,7 @@ func (rt *databaseRuntime) runtimeConfig() *config.Config {
 		runtimeCfg.CloudEnvironment = rt.provider
 		return runtimeCfg
 	}
-	cfg.PGVersionNum = rt.checks.PGVersionNum
-	cfg.HasWALColumns = rt.checks.HasWALColumns
-	cfg.HasPlanTimeColumns = rt.checks.HasPlanTimeColumns
+	withCapabilityFlags(cfg, rt.checks)
 	cfg.CloudEnvironment = rt.provider
 	return cfg
 }
@@ -254,7 +331,10 @@ func (rt *databaseRuntime) resolveLLM() {
 		rt.generalLLM, rt.llmManager = newFleetDBLLMClients(
 			rt.spec.Name, rt.spec.Config.IsLLMEnabled(),
 		)
-		releaseLLMClientsOnDone(rt.ctx, rt.llmManager)
+		releaseLLMClientsOnDone(rt.ctx, rt.workers, rt.llmManager)
+	}
+	if rt.llmManager != nil {
+		rt.attachPolicyCeiling(rt.llmManager.General, rt.llmManager.Optimizer)
 	}
 	rt.llmOn = rt.generalLLM != nil && rt.generalLLM.IsEnabled()
 }
@@ -268,6 +348,15 @@ func (rt *databaseRuntime) note(feature string) {
 	rt.features = append(rt.features, feature)
 }
 
+// recordID is the database's control-plane id, nil without one.
+func (rt *databaseRuntime) recordID() *int {
+	if rt.spec.DatabaseID <= 0 {
+		return nil
+	}
+	id := rt.spec.DatabaseID
+	return &id
+}
+
 func (rt *databaseRuntime) pgVersion() int {
 	return rt.checks.PGVersionNum
 }
@@ -278,22 +367,33 @@ func (rt *databaseRuntime) pgVersion() int {
 func (rt *databaseRuntime) instance() *fleet.DatabaseInstance {
 	return &fleet.DatabaseInstance{
 		Name: rt.spec.Name, DatabaseID: rt.spec.DatabaseID,
-		Config: rt.spec.Config, Pool: rt.spec.Pool,
+		Config: rt.spec.Config, Pool: rt.spec.Pool, ActionPool: rt.spec.ActionPool,
 		Collector: rt.collector, Analyzer: rt.analyzer, Executor: rt.executor,
+		HA:             rt.ha,
 		Investigations: rt.sreService,
 		SLO:            rt.sloEngine,
 		Changes:        rt.changeFeed,
 		Actions:        rt.sreActions,
+		LogSource:      rt.logSourceStatus,
 		Cancel:         rt.cancel, Workers: rt.workers,
 		ExecutorShutdown: rt.executor.Shutdown,
 		// Removal and replacement let in-flight actions finish first.
-		Quiesce: rt.executor.Quiesce,
+		Quiesce:          rt.executor.Quiesce,
+		InstanceOwner:    rt.instanceOwnership(),
+		FirstLookRecheck: rt.firstLookRecheck(),
+		PlanCaps:         rt.planCaps(),
+		DiskCapacity:     rt.forecastCapacity(),
+		Pressure:         rt.pressure,     // guard-01a
+		PressureJobs:     rt.pressureJobs, // guard-01b
 		Status: &fleet.InstanceStatus{
 			Connected:    true,
 			Platform:     rt.provider,
 			TrustLevel:   rt.executor.TrustLevel(),
 			DatabaseName: rt.spec.Name,
 			LastSeen:     time.Now(),
+			// Unknown until the first status refresh reads them (cases-11).
+			IncidentsCritical: fleet.IncidentsUnknown,
+			IncidentsWarning:  fleet.IncidentsUnknown,
 			Capabilities: fleet.CollectProviderCapabilities(
 				rt.ctx, rt.spec.Pool, rt.provider,
 				fleet.ExecutorFamilyExplainer(rt.executor),

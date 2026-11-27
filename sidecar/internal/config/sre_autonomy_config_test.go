@@ -27,11 +27,12 @@ func TestSREAutonomyDefaults_NoConfigFile(t *testing.T) {
 		t.Fatalf("autonomy defaults = %+v", a)
 	}
 	g := a.GameDays
-	if g.Enabled || g.IntervalHours != 168 || g.LocalDSN != "" || len(g.Families) != 0 {
+	if g.Enabled || g.IntervalHours != 168 || g.LocalDSN != "" || len(g.Families) != 0 ||
+		g.CustomerPrograms != nil {
 		t.Fatalf("game day defaults = %+v", g)
 	}
 	c := a.Canary
-	if c.CanaryInstances != 1 || c.RegressionLimitPct != 10 || c.SettleSeconds != 60 {
+	if c.CanaryInstances != 1 || c.RegressionLimitPct != 10 {
 		t.Fatalf("canary defaults = %+v", c)
 	}
 }
@@ -104,8 +105,6 @@ func TestSREAutonomy_GameDayAndCanaryBoundaries(t *testing.T) {
 		{"canary:\n      regression_limit_pct: -1", "canary.regression_limit_pct", false},
 		{"canary:\n      regression_limit_pct: 100", "", true},
 		{"canary:\n      regression_limit_pct: 101", "canary.regression_limit_pct", false},
-		{"canary:\n      settle_seconds: -1", "canary.settle_seconds", false},
-		{"canary:\n      settle_seconds: 3601", "canary.settle_seconds", false},
 	}
 	for _, c := range cases {
 		_, err := loadRCAYAML(t, "sre:\n  autonomy:\n    "+c.yaml+"\n")
@@ -131,5 +130,29 @@ func TestSREAutonomy_LocalDSNIsSecret(t *testing.T) {
 	field, ok := reflect.TypeOf(SREGameDaysConfig{}).FieldByName("LocalDSN")
 	if !ok || field.Tag.Get("secret") != "true" {
 		t.Fatalf("game_days.local_dsn must be a secret field: %v", field.Tag)
+	}
+}
+
+// benches-12: customer_programs is tri-state. Absent stays nil (the game
+// day then decides by the clone provider); an explicit value is kept.
+func TestSREAutonomy_CustomerProgramsTriState(t *testing.T) {
+	cfg, err := loadRCAYAML(t, "sre:\n  autonomy:\n    game_days:\n      enabled: true\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.SRE.Autonomy.GameDays.CustomerPrograms; got != nil {
+		t.Fatalf("absent customer_programs = %v, want nil", *got)
+	}
+	for _, want := range []bool{false, true} {
+		yaml := "sre:\n  autonomy:\n    game_days:\n      customer_programs: " +
+			strconv.FormatBool(want) + "\n"
+		cfg, err := loadRCAYAML(t, yaml)
+		if err != nil {
+			t.Fatalf("customer_programs: %v rejected: %v", want, err)
+		}
+		got := cfg.SRE.Autonomy.GameDays.CustomerPrograms
+		if got == nil || *got != want {
+			t.Fatalf("customer_programs: %v loaded as %v", want, got)
+		}
 	}
 }

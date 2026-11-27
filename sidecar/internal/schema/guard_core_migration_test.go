@@ -1,7 +1,13 @@
 package schema
 
 import (
+	"context"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Agent governance G1 core (AGENTDB-SPEC §7): principals, cluster roles,
@@ -110,5 +116,150 @@ func TestGuardCoreMigration_ProvenanceAndProposedVia(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, insert, "chat"); err == nil {
 		t.Fatal("proposed_via chat was accepted")
+	}
+}
+
+// agentgov-04: sage.guard_principal_files belonged to a declarative
+// principals package that had no caller and was removed. Bootstrap drops
+// the table on upgraded installs and never creates it on fresh ones, and
+// it leaves the principals and identity bindings alone.
+
+// legacyPrincipalFilesDDL is the table as the removed E2 migration made it.
+const legacyPrincipalFilesDDL = `CREATE TABLE sage.guard_principal_files (
+    principal_id text PRIMARY KEY
+                 REFERENCES sage.guard_principals(id) ON DELETE CASCADE,
+    file_name    text NOT NULL CHECK (file_name ~ '^[a-z][a-z0-9-]{1,62}$'),
+    applied_by   text NOT NULL,
+    applied_at   timestamptz NOT NULL DEFAULT now()
+)`
+
+// No concurrent-bootstrap test: Bootstrap holds its advisory lock, so one
+// drop runs per database at a time (bootstrap_lock_test.go covers the lock).
+
+func TestGuardCoreMigration_DropsPrincipalFiles(t *testing.T) {
+	ctx := context.Background()
+	pool := freshSchemaPool(t, "schema_principal_files")
+	const id = "agp_aaaaaaaaaaaaaaaaaaag"
+	for _, seed := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO sage.guard_principals (id, name, profile, created_by)
+			VALUES ($1, 'file-managed', 'legacy', 'test')`, []any{id}},
+		{`INSERT INTO sage.guard_identity_bindings (issuer, subject, principal_id,
+			created_by) VALUES ('https://idp.test', 'sub-1', $1, 'test')`, []any{id}},
+		{legacyPrincipalFilesDDL, nil},
+		{`INSERT INTO sage.guard_principal_files (principal_id, file_name, applied_by)
+			VALUES ($1, 'agents-prod', 'test')`, []any{id}},
+	} {
+		if _, err := pool.Exec(ctx, seed.sql, seed.args...); err != nil {
+			t.Fatalf("seed an install from before the removal: %v: %s", err, seed.sql)
+		}
+	}
+	for run := range 2 { // the drop, then a re-run that must be a no-op
+		if err := Bootstrap(ctx, pool); err != nil {
+			t.Fatalf("bootstrap %d over a legacy principal files table: %v", run, err)
+		}
+		assertPrincipalFilesGone(t, pool)
+		assertPrincipalKept(t, pool, id)
+	}
+}
+
+// assertPrincipalFilesGone fails unless sage.guard_principal_files is gone.
+func assertPrincipalFilesGone(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	var gone bool
+	if err := pool.QueryRow(context.Background(),
+		`SELECT to_regclass('sage.guard_principal_files') IS NULL`).Scan(&gone); err != nil {
+		t.Fatalf("look up sage.guard_principal_files: %v", err)
+	}
+	if !gone {
+		t.Fatal("sage.guard_principal_files still exists after bootstrap")
+	}
+}
+
+// assertPrincipalKept fails unless the principal, its binding and the
+// binding's foreign key to sage.guard_principals all survived.
+func assertPrincipalKept(t *testing.T, pool *pgxpool.Pool, id string) {
+	t.Helper()
+	var name, status, bound string
+	var fks int
+	if err := pool.QueryRow(context.Background(), `SELECT p.name, p.status, b.subject,
+		(SELECT count(*) FROM pg_constraint
+		  WHERE conrelid = 'sage.guard_identity_bindings'::regclass AND contype = 'f'
+		    AND confrelid = 'sage.guard_principals'::regclass)
+		FROM sage.guard_principals p
+		JOIN sage.guard_identity_bindings b ON b.principal_id = p.id
+		WHERE p.id = $1`, id).Scan(&name, &status, &bound, &fks); err != nil {
+		t.Fatalf("principal %s or its identity binding is gone: %v", id, err)
+	}
+	if name != "file-managed" || status != "active" || bound != "sub-1" || fks != 1 {
+		t.Fatalf("principal %s changed: name %q status %q binding %q fks %d",
+			id, name, status, bound, fks)
+	}
+}
+
+// A fresh database bootstraps without ever creating the table: an event
+// trigger records every table the bootstrap creates.
+func TestGuardCoreMigration_FreshNeverCreatesPrincipalFiles(t *testing.T) {
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, testdb.CreateDatabase(t, "schema_principal_files_fresh"))
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if _, err := pool.Exec(ctx, createdTablesTriggerSQL); err != nil {
+		t.Fatalf("install the created-tables event trigger (needs superuser): %v", err)
+	}
+	for run := range 2 {
+		if err := Bootstrap(ctx, pool); err != nil {
+			t.Fatalf("bootstrap %d: %v", run, err)
+		}
+	}
+	var created, principalFiles int
+	if err := pool.QueryRow(ctx, `SELECT count(*),
+		count(*) FILTER (WHERE identity = 'sage.guard_principal_files')
+		FROM public.created_tables`).Scan(&created, &principalFiles); err != nil {
+		t.Fatalf("read created tables: %v", err)
+	}
+	if created == 0 {
+		t.Fatal("the event trigger saw no table created; the test cannot judge")
+	}
+	if principalFiles != 0 {
+		t.Fatalf("bootstrap created sage.guard_principal_files %d time(s)", principalFiles)
+	}
+	assertPrincipalFilesGone(t, pool)
+}
+
+// createdTablesTriggerSQL logs every CREATE TABLE into public.created_tables.
+const createdTablesTriggerSQL = `
+CREATE TABLE public.created_tables (identity text NOT NULL);
+CREATE FUNCTION public.log_created_tables() RETURNS event_trigger
+LANGUAGE plpgsql AS $fn$
+BEGIN
+    INSERT INTO public.created_tables (identity)
+    SELECT object_identity FROM pg_event_trigger_ddl_commands()
+     WHERE command_tag = 'CREATE TABLE';
+END $fn$;
+CREATE EVENT TRIGGER log_created_tables ON ddl_command_end
+    WHEN TAG IN ('CREATE TABLE') EXECUTE FUNCTION public.log_created_tables();
+`
+
+// The migration text itself: no CREATE of the table, an idempotent drop
+// guarded by a catalog check, and a bounded lock wait.
+func TestDDLGuardIdentityBindings_DropsPrincipalFiles(t *testing.T) {
+	ddl := strings.Join(strings.Fields(ddlGuardIdentityBindings), " ")
+	if strings.Contains(ddl, "CREATE TABLE IF NOT EXISTS sage.guard_principal_files") {
+		t.Error("ddlGuardIdentityBindings still creates sage.guard_principal_files")
+	}
+	for _, want := range []string{
+		"DROP TABLE IF EXISTS sage.guard_principal_files;",
+		"to_regclass('sage.guard_principal_files') IS NOT NULL",
+		"SET LOCAL lock_timeout",
+		"CREATE TABLE IF NOT EXISTS sage.guard_identity_bindings",
+	} {
+		if !strings.Contains(ddl, want) {
+			t.Errorf("ddlGuardIdentityBindings lacks %q", want)
+		}
 	}
 }

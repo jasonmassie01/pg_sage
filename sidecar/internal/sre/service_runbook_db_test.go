@@ -116,7 +116,7 @@ func TestService_RunbookLifecycle(t *testing.T) {
 	edited := idleRunbook()
 	edited.Description = "v2"
 	v2, err := svc.ReviseRunbook(ctx, rb.ID, 1, edited, "user:2")
-	if err != nil || v2.Runnable || v2.LatestVersion != 2 {
+	if err != nil || !v2.Runnable || v2.RunningVersion != 1 || v2.LatestVersion != 2 {
 		t.Fatalf("revise: %+v, %v", v2, err)
 	}
 	if _, err := svc.RetireRunbook(ctx, rb.ID, "user:3"); err != nil {

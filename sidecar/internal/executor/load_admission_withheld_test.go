@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Withheld-admission counting (perf-selfexcl). PostgreSQL's
@@ -27,7 +28,7 @@ import (
 func smallPoolAdmission(t *testing.T, conns int32) (admissionFixture, *pgxpool.Pool) {
 	t.Helper()
 	f := newAdmissionFixture(t, learningAdmission())
-	cfg, err := pgxpool.ParseConfig(testDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse DSN: %v", err)
 	}

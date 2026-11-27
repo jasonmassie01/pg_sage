@@ -21,8 +21,8 @@ func TestLegacyDiagnosticFindingResolvesNextCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed legacy finding: %v", err)
 	}
-	cur := adviceSnapshot(time.Now(), 1)
-	findings := dropNonWorkloadFindings(ruleSlowQueries(cur, nil, adviceConfig(), nil))
+	cur, prev := slowAdvicePair(time.Now())
+	findings := dropNonWorkloadFindings(ruleSlowQueries(cur, prev, adviceConfig(), nil))
 	a.finalizeCycle(ctx, findings, map[string]bool{"slow_query": true})
 
 	if n := countFindingRows(t, pool, "slow_query", "queryid:-3534472208683223210",

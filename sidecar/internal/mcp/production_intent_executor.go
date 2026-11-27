@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pg-sage/sidecar/internal/ledger"
 	"github.com/pg-sage/sidecar/internal/migration/plan"
 	migrationruntime "github.com/pg-sage/sidecar/internal/migration/runtime"
 	"github.com/pg-sage/sidecar/internal/policy"
@@ -91,7 +92,8 @@ func (executor *ProductionIntentExecutor) declareTableContract(
 		Exemptions json.RawMessage `json:"exemptions"`
 	}
 	if err := json.Unmarshal(request.Arguments, &input); err != nil {
-		return WriteOutcome{}, fmt.Errorf("decode table contract: %w", err)
+		return WriteOutcome{}, fmt.Errorf("%w: decode table contract: %v", ErrIntentInvalid,
+			err)
 	}
 	schemaName, tableName, err := qualifiedName(input.Table)
 	if err != nil {
@@ -119,10 +121,12 @@ func (executor *ProductionIntentExecutor) registerConsumer(
 		Identity string `json:"consumer_identity"`
 	}
 	if err := json.Unmarshal(request.Arguments, &input); err != nil {
-		return WriteOutcome{}, fmt.Errorf("decode consumer registration: %w", err)
+		return WriteOutcome{}, fmt.Errorf("%w: decode consumer registration: %v",
+			ErrIntentInvalid, err)
 	}
 	if strings.TrimSpace(input.SlotName) == "" || strings.TrimSpace(input.Owner) == "" {
-		return WriteOutcome{}, errors.New("slot_name and owner are required")
+		return WriteOutcome{}, fmt.Errorf("%w: slot_name and owner are required",
+			ErrIntentInvalid)
 	}
 	return executor.store.RegisterConsumer(ctx, ConsumerRegistration{
 		SlotName: strings.TrimSpace(input.SlotName), Owner: strings.TrimSpace(input.Owner),
@@ -130,40 +134,19 @@ func (executor *ProductionIntentExecutor) registerConsumer(
 	})
 }
 
+// planMigration returns the safe plan for an apply_migration the gate
+// authorized and records it as recommend_only; it never runs the DDL.
 func (executor *ProductionIntentExecutor) planMigration(
 	ctx context.Context, request policy.ActionRequest, decision policy.Decision,
 ) (MigrationOutcome, error) {
-	var input struct {
-		SQL   string `json:"sql"`
-		DDL   string `json:"ddl"`
-		Table string `json:"table"`
-		Cycle int    `json:"cycle"`
-	}
-	if err := json.Unmarshal(request.Arguments, &input); err != nil {
-		return MigrationOutcome{}, fmt.Errorf("decode migration: %w", err)
-	}
-	if input.SQL == "" {
-		input.SQL = input.DDL
-	}
-	schemaName, tableName, err := qualifiedName(input.Table)
+	input, planned, err := executor.buildMigrationPlan(ctx, request)
 	if err != nil {
 		return MigrationOutcome{}, err
 	}
-	planned, err := executor.planner.Plan(ctx, plan.Request{
-		SQL: input.SQL, Cycle: input.Cycle,
-		Table: plan.TableFacts{Schema: schemaName, Name: tableName},
-	})
-	if err != nil {
-		return MigrationOutcome{}, fmt.Errorf("build safe migration plan: %w", err)
-	}
-	const verdict = "recommend_only"
-	if err := executor.store.RecordMigration(ctx, MigrationRecord{
-		DatabaseID: request.DatabaseID, EvidenceID: decision.EvidenceID,
-		SourceSQL: input.SQL, Verdict: verdict,
-	}); err != nil {
-		return MigrationOutcome{}, err
-	}
-	return MigrationOutcome{Verdict: verdict, Plan: planned}, nil
+	return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
+		Verdict: "recommend_only", Reason: ReasonPlanOnly, EvidenceID: decision.EvidenceID,
+		Plan: planned,
+	}, "")
 }
 
 func (executor *ProductionIntentExecutor) findCandidates(
@@ -221,31 +204,42 @@ func (executor *ProductionIntentExecutor) authorizeMigration(
 	}
 	actions, blocked := executor.preflightMigration(ctx, request, input, planned)
 	if blocked != nil {
-		if err := executor.store.RecordMigration(ctx, MigrationRecord{
-			DatabaseID: request.DatabaseID, EvidenceID: blocked.EvidenceID,
-			SourceSQL: input.sql, Verdict: "blocked",
-		}); err != nil {
-			return MigrationOutcome{}, err
-		}
-		return MigrationOutcome{Verdict: "blocked", EvidenceID: blocked.EvidenceID,
-			Plan: planned, Actions: actions}, nil
+		return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
+			Verdict: "blocked", Reason: string(blocked.Reason), EvidenceID: blocked.EvidenceID,
+			Plan: planned, Actions: actions,
+		}, string(blocked.Reason))
 	}
 	if executor.migrationRuntime != nil {
 		return executor.runMigration(ctx, request, input, planned)
 	}
-	evidenceID := "migration-recommendation"
-	if len(actions) > 0 && actions[0].EvidenceID != "" {
+	evidenceID := ""
+	if len(actions) > 0 {
 		evidenceID = actions[0].EvidenceID
 	}
+	return executor.recordMigrationPlan(ctx, request, input, MigrationOutcome{
+		Verdict: "recommend_only", Reason: ReasonNoRehearsalRuntime, EvidenceID: evidenceID,
+		Plan: planned, Actions: actions,
+	}, "")
+}
+
+// recordMigrationPlan writes a migration plan that never reaches the
+// rehearsal runtime to sage.migration_run. A plan without gate evidence
+// gets a fresh evidence id: a shared literal made every such run update
+// one row (evidence_id is unique) and hid the runs after the first.
+func (executor *ProductionIntentExecutor) recordMigrationPlan(
+	ctx context.Context, request policy.ActionRequest, input migrationInput,
+	outcome MigrationOutcome, reason string,
+) (MigrationOutcome, error) {
+	if outcome.EvidenceID == "" {
+		outcome.EvidenceID = ledger.NewEvidenceID()
+	}
 	if err := executor.store.RecordMigration(ctx, MigrationRecord{
-		DatabaseID: request.DatabaseID, EvidenceID: evidenceID,
-		SourceSQL: input.sql, Verdict: "recommend_only",
+		DatabaseID: request.DatabaseID, EvidenceID: outcome.EvidenceID,
+		SourceSQL: input.sql, Verdict: outcome.Verdict, Reason: reason,
 	}); err != nil {
 		return MigrationOutcome{}, err
 	}
-	return MigrationOutcome{
-		Verdict: "recommend_only", Plan: planned, Actions: actions,
-	}, nil
+	return outcome, nil
 }
 
 // preflightMigration asks the gate about every expand step before any
@@ -290,9 +284,23 @@ func (executor *ProductionIntentExecutor) runMigration(
 		return MigrationOutcome{}, fmt.Errorf("run rehearsed migration: %w", err)
 	}
 	return MigrationOutcome{
-		Verdict: string(result.Verdict), EvidenceID: result.EvidenceID,
-		ContractNotBeforeCycle: result.ContractNotBeforeCycle, Plan: planned,
+		Verdict: string(result.Verdict), Reason: runtimeReason(result),
+		EvidenceID:             result.EvidenceID,
+		ContractNotBeforeCycle: result.ContractNotBeforeCycle,
+		PendingContractSQL:     result.PendingContractSQL,
+		ContractScript:         result.ContractScript, Plan: planned,
+		AffectedQueries: result.AffectedQueries,
+		Ladder:          result.Ladder,
 	}, nil
+}
+
+// runtimeReason is the runtime's reason, or the verdict when it gave
+// none, so the outcome always says why (migration-06).
+func runtimeReason(result migrationruntime.Result) string {
+	if result.Reason != "" {
+		return result.Reason
+	}
+	return string(result.Verdict)
 }
 
 type migrationInput struct {
@@ -326,8 +334,15 @@ func (executor *ProductionIntentExecutor) buildMigrationPlan(
 		SQL: raw.SQL, Cycle: raw.Cycle,
 		Table: plan.TableFacts{Schema: schemaName, Name: tableName},
 	})
-	if err != nil {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return migrationInput{}, plan.Plan{}, fmt.Errorf("build safe migration plan: %w", err)
+	}
+	if err != nil {
+		// Every other planner error refuses the SQL as written (shape,
+		// option, name, or a build without the parse tree): the caller
+		// must change the request or plan it by hand (migration-02b).
+		return migrationInput{}, plan.Plan{}, fmt.Errorf("%w: build safe migration plan: %w",
+			ErrIntentInvalid, err)
 	}
 	return migrationInput{
 		sql: raw.SQL, table: raw.Table, schema: schemaName,
@@ -338,7 +353,8 @@ func (executor *ProductionIntentExecutor) buildMigrationPlan(
 func qualifiedName(value string) (string, string, error) {
 	parts := strings.Split(strings.TrimSpace(value), ".")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", errors.New("table must be a schema-qualified name")
+		return "", "", fmt.Errorf("%w: table must be a schema-qualified name",
+			ErrIntentInvalid)
 	}
 	return parts[0], parts[1], nil
 }

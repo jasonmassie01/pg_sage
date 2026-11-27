@@ -3,6 +3,7 @@ package optimizer
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -17,7 +18,7 @@ func TestHypoPGNilPoolFailsClosed(t *testing.T) {
 		t.Fatal("nil pool reported HypoPG available")
 	}
 	res, err := h.Validate(t.Context(), Recommendation{}, nil)
-	if err == nil || res != (WhatIfResult{}) {
+	if err == nil || !reflect.DeepEqual(res, WhatIfResult{}) {
 		t.Fatalf("nil pool must fail closed: %+v %v", res, err)
 	}
 }
@@ -26,6 +27,13 @@ func hypopgSessionPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	admin := connectTestDB(t)
 	t.Cleanup(admin.Close)
+	return hypopgSessionPoolOn(t, admin)
+}
+
+// hypopgSessionPoolOn is hypopgSessionPool on admin's database: HypoPG in
+// hypopg_session_test, and a one-connection pool on admin's settings.
+func hypopgSessionPoolOn(t *testing.T, admin *pgxpool.Pool) *pgxpool.Pool {
+	t.Helper()
 	var available bool
 	if err := admin.QueryRow(t.Context(), `SELECT EXISTS
 		(SELECT 1 FROM pg_available_extensions WHERE name='hypopg')`).Scan(&available); err != nil {
@@ -109,7 +117,7 @@ func TestHypoPGFailureAndEmptyQueriesCleanSession(t *testing.T) {
 	}
 	assertHypoPGSessionClean(t, pool)
 	res, err = h.Validate(t.Context(), rec, nil)
-	if err != nil || res != (WhatIfResult{}) {
+	if err != nil || !reflect.DeepEqual(res, WhatIfResult{}) {
 		t.Fatalf("empty workload must produce no evidence: %+v %v", res, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -206,7 +214,7 @@ func TestHypoPGConcurrentSessionsAndAvailability(t *testing.T) {
 
 func TestHypoPGCleanupFailureDiscardsConnection(t *testing.T) {
 	pool := hypopgSessionPool(t)
-	session, err := openHypoPGSession(t.Context(), pool)
+	session, err := openHypoPGSession(t.Context(), pool, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

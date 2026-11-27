@@ -8,10 +8,10 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/api"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/mcp"
-	"github.com/pg-sage/sidecar/internal/migration/plan"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/value"
 )
@@ -32,7 +32,8 @@ func startMCPRuntime() {
 		return
 	}
 	server := mcp.NewServer(backend).WithDirectory(fleetMCPDirectory{manager: fleetMgr}).
-		WithVersion(version)
+		WithVersion(version).
+		WithDecisionEvents(brokerSignals{broker: api.DefaultEventBroker()}) // mcp-01b
 	runtime, err := mcp.NewRuntime(cfg.MCP, server, os.Stdin, os.Stdout)
 	if err != nil {
 		logError("mcp", "runtime: %v", err)
@@ -56,28 +57,31 @@ func mcpDependencies() mcp.ProductionDependencies {
 	access := &fleetMCPAccess{manager: fleetMgr, fallback: pool}
 	standingGate := mcp.NeverApproved(&fleetStandingPolicyGate{manager: fleetMgr})
 	return mcp.ProductionDependencies{
-		Gate:    standingGate,
-		Planner: mcp.DeterministicIntentPlanner{},
+		Gate: standingGate, Planner: mcp.DeterministicIntentPlanner{},
 		Executor: &fleetIntentExecutor{
 			access: access, gate: standingGate, cloneConfig: cfg.Clone,
 			migrationFactory: configuredMCPMigrationRuntime,
 		},
 		Policy: access, Ledger: access, Value: access, Guarantees: access,
-		// Sage SRE read tools (sre_list_incidents, sre_get_investigation,
-		// sre_get_evidence) resolve through the same fleet.
-		Investigations: access,
-		// SLO and change-feed read tools (sre_list_slos, sre_get_slo,
-		// sre_list_changes).
-		Signals: access,
+		// SRE reads (sre_list_incidents, sre_get_investigation, sre_get_evidence) and
+		// SLO and change-feed reads (sre_list_slos, sre_get_slo, sre_list_changes).
+		Investigations: access, Signals: access,
 		// Sage SRE action tools (sre_propose_action, sre_request_execution)
 		// propose and queue; they never execute.
 		Actions: access,
+		// Statistics maintenance (playbooks-06): refresh, propose and queue;
+		// rollback is an admin person's.
+		Maintenance: access,
 		// Earned autonomy: read; operator downgrade/review/evaluate (never approval).
 		Autonomy: autonomyMCPBackend{registry: processAutonomy().registry, manager: fleetMgr},
 		// Binding facts: read, propose (stays proposed), decide (a person).
 		Facts: factsMCPBackend{manager: fleetMgr},
+		// Plans: read and propose (stays proposed); no MCP path approves.
+		Plans: plansMCPBackend{manager: fleetMgr},
 		// Fleet findings across the databases the caller may see.
 		FleetLearning: fleetFindingsMCP{},
+		// A workload pack's model tier, never its local tier (evid-02c).
+		WorkloadPacks: workloadPackMCPBackend{manager: fleetMgr},
 		// agent_query and agent_whoami (agent_broker_wiring.go).
 		AgentBroker: agentBrokerMCP{},
 		// Coding-agent tools (roadmap phase 3) on the resolved database.
@@ -88,6 +92,37 @@ func mcpDependencies() mcp.ProductionDependencies {
 		Specialist: processSpecialistMCP{},
 		// agent_request_capability (agent_grants_wiring.go).
 		Grants: agentGrantMCP(cfg, fleetMgr, globalMetaState),
+		// tools/list hides a tool family where it cannot be served (mcp-09).
+		Availability: newMCPAvailability(fleetMgr), ReviewGrade: api.ReviewGradeMCP(fleetMgr),
+		ReviewScorecard: api.ReviewScorecardMCP(fleetMgr, cfg), // review-05a
+		// The latest-briefing resource of each database (llm-06b).
+		Briefings: fleetBriefingsMCP{manager: fleetMgr},
+		// upgrade_readiness (market-05): read-only, on the resolved database.
+		UpgradeReadiness: upgradeReadinessMCP{manager: fleetMgr},
+		// get_inbox, get_outcomes, restore_drills, review_grade, check_pressure,
+		// why_not (ux-08b): reads only.
+		Inbox:    api.InboxMCP(fleetMgr, processAutonomy().registry),
+		Outcomes: api.OutcomesMCP(fleetMgr), RestoreDrills: mcpRestoreDrills(fleetMgr),
+		Pressure: api.PressureMCP(fleetMgr), WhyNot: api.WhyNotMCP(fleetMgr),
+		// get_request_status and wait_for_decision (mcp-01b): the
+		// requester's own held item, read from its store.
+		RequestStatus: mcp.NewRequestStatusReader(fleetStatusPools(fleetMgr)),
+	}
+}
+
+// fleetStatusPools is a monitored database's pool for the status reads.
+func fleetStatusPools(manager *fleet.DatabaseManager) mcp.StatusPools {
+	return func(_ context.Context, database string) (*pgxpool.Pool, error) {
+		if manager == nil {
+			return nil, fmt.Errorf("request status: no monitored databases: %w",
+				mcp.ErrIntentUnavailable)
+		}
+		inst := manager.GetInstance(database)
+		if inst == nil || inst.Pool == nil {
+			return nil, fmt.Errorf("request status: database %q is not connected: %w",
+				database, mcp.ErrIntentUnavailable)
+		}
+		return inst.Pool, nil
 	}
 }
 
@@ -165,7 +200,7 @@ func (access *fleetMCPAccess) GetLedger(
 // the targets.
 func (access *fleetMCPAccess) GetValue(ctx context.Context) (map[string]any, error) {
 	if access == nil || access.manager == nil {
-		return nil, fmt.Errorf("MCP value fleet is unavailable")
+		return nil, fmt.Errorf("MCP value fleet: %w", mcp.ErrIntentUnavailable)
 	}
 	manager := access.manager
 	name, named := mcp.DatabaseFromContext(ctx)
@@ -209,7 +244,7 @@ func (executor *fleetIntentExecutor) Execute(
 	if err != nil {
 		return nil, err
 	}
-	production := mcp.NewProductionIntentExecutor(adapter, plan.NewPlanner(), executor.gate)
+	production := mcp.NewProductionIntentExecutor(adapter, migrationPlanner(cfg), executor.gate)
 	return production.Execute(ctx, request, decision)
 }
 
@@ -220,7 +255,7 @@ func (executor *fleetIntentExecutor) ExecuteConcrete(
 	if err != nil {
 		return nil, err
 	}
-	production := mcp.NewProductionIntentExecutor(adapter, plan.NewPlanner(), executor.gate)
+	production := mcp.NewProductionIntentExecutor(adapter, migrationPlanner(cfg), executor.gate)
 	if request.Contract != nil && request.Contract.ActionType == "apply_migration" {
 		factory := executor.migrationFactory
 		if factory == nil {
@@ -232,7 +267,13 @@ func (executor *fleetIntentExecutor) ExecuteConcrete(
 				delegate: executor.gate, databaseID: request.DatabaseID,
 			})
 			runtime, runtimeErr := factory(targetPool, boundGate, executor.cloneConfig)
-			if runtimeErr == nil && runtime != nil {
+			if runtimeErr != nil {
+				// A broken clone provider must not silently turn rehearsed
+				// apply_migration off (migration-07).
+				logError("mcp", "apply_migration is recommend-only: the migration "+
+					"runtime is unavailable (clone.provider %q): %v",
+					executor.cloneConfig.Provider, runtimeErr)
+			} else if runtime != nil {
 				production.WithMigrationRuntime(runtime)
 			}
 		}
@@ -278,7 +319,7 @@ func (access *fleetMCPAccess) targetPool(
 	if databaseID == nil && !named && access.fallback != nil {
 		return access.fallback, nil
 	}
-	return nil, fmt.Errorf("MCP target database is unavailable")
+	return nil, fmt.Errorf("MCP target database: %w", mcp.ErrIntentUnavailable)
 }
 
 // mcpInstanceFor is the instance an MCP request targets: the database the

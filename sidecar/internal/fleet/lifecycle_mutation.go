@@ -1,6 +1,9 @@
 package fleet
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // LifecycleMutation is the exclusive publication scope for managed database
 // lifecycle changes. Reads remain available while a mutation prepares a new
@@ -16,6 +19,9 @@ func (m *DatabaseManager) WithLifecycle(
 	ctx context.Context,
 	fn func(*LifecycleMutation) error,
 ) error {
+	if m.readOnly {
+		return ErrReadOnlyView
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -56,13 +62,11 @@ func (op *LifecycleMutation) PublishReplacement(
 ) error {
 	m := op.manager
 	m.restorePersistedStop(candidate)
-	inherited, err := m.commitReplacement(oldName, old, candidate)
+	pending, err := m.commitReplacement(oldName, old, candidate)
 	if err != nil {
 		return err
 	}
-	if inherited {
-		m.persistInheritedStop(candidate)
-	}
+	m.persistInheritedStops(pending)
 	return nil
 }
 
@@ -89,14 +93,18 @@ func (op *LifecycleMutation) PublishRegistration(
 	m := op.manager
 	m.restorePersistedStop(inst)
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.instances[inst.Name] != nil {
+		m.mu.Unlock()
 		return replacementConflict(inst.Name)
 	}
 	if m.primaryName == "" && inst.Pool != nil {
 		m.primaryName = inst.Name
 	}
+	stampRegistered(inst, time.Now())
 	m.instances[inst.Name] = inst
+	pending := m.applyFleetLatchLocked(inst, false)
+	m.mu.Unlock()
+	m.persistInheritedStops(pending)
 	return nil
 }
 

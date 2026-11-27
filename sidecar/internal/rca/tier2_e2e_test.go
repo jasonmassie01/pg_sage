@@ -128,7 +128,6 @@ func TestTier2E2E_HappyPath(t *testing.T) {
 	eng := testEngine()
 	eng.WithLLM(tier2LLMClient(srv.URL))
 	eng.cfg.LLMCorrelationThreshold = 3
-
 	curr, prev, lcf := realTier2Inputs()
 	incidents := eng.Analyze(curr, prev, testConfig(), lcf)
 
@@ -157,9 +156,10 @@ func TestTier2E2E_HappyPath(t *testing.T) {
 	if llmInc.ActionRisk != "high" {
 		t.Errorf("ActionRisk = %q, want high", llmInc.ActionRisk)
 	}
-	if !strings.Contains(llmInc.RecommendedSQL, "pg_terminate_backend") {
-		t.Errorf("RecommendedSQL = %q, want pg_terminate_backend",
-			llmInc.RecommendedSQL)
+	// pg_terminate_backend is not read-only: withheld, with a note (security-05).
+	if llmInc.RecommendedSQL != "" || withheldNote(*llmInc) == "" {
+		t.Errorf("RecommendedSQL = %q chain %+v, want withheld with a note",
+			llmInc.RecommendedSQL, llmInc.CausalChain)
 	}
 	if !stringsEqual(llmInc.SignalIDs, []string{"idle_in_tx_elevated"}) {
 		t.Errorf("SignalIDs = %v, want [idle_in_tx_elevated]",

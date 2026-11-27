@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/pg-sage/sidecar/internal/sqlast"
 )
 
 // Bounds of untrusted text copied into a packet.
@@ -184,11 +186,11 @@ func detailString(detail map[string]any, key string) string {
 
 // untrustedText copies the finding's free text, bounded.
 func untrustedText(f finding) UntrustedText {
-	u := UntrustedText{Title: clipBytes(f.Title, maxUntrustedTitle),
-		Recommendation: clipBytes(f.Recommendation, maxUntrustedText), Queries: []string{}}
+	u := UntrustedText{Title: sqlast.ClipBytes(f.Title, maxUntrustedTitle),
+		Recommendation: sqlast.ClipBytes(f.Recommendation, maxUntrustedText), Queries: []string{}}
 	for _, key := range []string{"llm_rationale", "rationale"} {
 		if r := detailString(f.Detail, key); r != "" {
-			u.Rationale = clipBytes(r, maxUntrustedText)
+			u.Rationale = sqlast.ClipBytes(r, maxUntrustedText)
 			break
 		}
 	}
@@ -196,7 +198,7 @@ func untrustedText(f finding) UntrustedText {
 		list, _ := f.Detail[key].([]any)
 		for _, q := range list {
 			if s, ok := q.(string); ok && len(u.Queries) < maxUntrustedCount {
-				u.Queries = append(u.Queries, clipBytes(s, maxUntrustedQuery))
+				u.Queries = append(u.Queries, sqlast.ClipBytes(s, maxUntrustedQuery))
 			}
 		}
 	}

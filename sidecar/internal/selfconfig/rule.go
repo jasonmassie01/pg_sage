@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -47,11 +48,15 @@ type Bounds struct {
 	Note    string  `json:"note,omitempty"`
 }
 
-// Citation is one number a derivation rests on.
+// Citation is one number a derivation rests on. Source names where a cost
+// measure came from ("probe" or "collector"); Detail adds context, such as
+// the collector step that ran the slowest statement.
 type Citation struct {
-	Name  string  `json:"name"`
-	Value float64 `json:"value"`
-	Unit  string  `json:"unit,omitempty"`
+	Name   string  `json:"name"`
+	Value  float64 `json:"value"`
+	Unit   string  `json:"unit,omitempty"`
+	Source string  `json:"source,omitempty"`
+	Detail string  `json:"detail,omitempty"`
 }
 
 // Derivation is a rule's raw answer before rounding and clamping.
@@ -63,8 +68,10 @@ type Derivation struct {
 
 // Proposal is a rule's final candidate for one database.
 type Proposal struct {
-	OK       bool
-	Value    float64
+	OK    bool
+	Value float64
+	// Raw is the derivation before rounding and clamping (nil: none).
+	Raw      *float64
 	Reason   string
 	Evidence []Citation
 	Bounds   Bounds
@@ -98,6 +105,10 @@ type Rule struct {
 	Cap                     CapKind
 	CapNote                 string
 	Step                    float64 // values are rounded up to a multiple
+	// PromoteP90: a cost-like rule promotes the p90 of the soak's
+	// derivations (rounded up and clamped), not the shadow value, so one
+	// cheap pass does not set the cadence.
+	PromoteP90 bool
 	// Cites names the evidence a derivation of this key rests on.
 	Cites            []string
 	HardMin, HardMax float64
@@ -155,7 +166,7 @@ func (r Rule) Evaluate(ev Evidence, cfg *config.Config) Proposal {
 		p.Reason = "the rule produced no number"
 		return p
 	}
-	p.OK, p.Reason = true, d.Reason
+	p.OK, p.Reason, p.Raw = true, d.Reason, ptr(d.Value)
 	p.Value = Clamp(roundUp(d.Value, r.Step), b)
 	return p
 }
@@ -187,6 +198,20 @@ func Clamp(v float64, b Bounds) float64 {
 		v = b.Default
 	}
 	return math.Min(b.Max, math.Max(b.Min, v))
+}
+
+// validBounds: bounds were computed (not the zero value) and are not empty.
+func validBounds(b Bounds) bool { return b != (Bounds{}) && b.Min <= b.Max }
+
+// percentile90 is the nearest-rank 90th percentile of xs (false: none).
+func percentile90(xs []float64) (float64, bool) {
+	if len(xs) == 0 {
+		return 0, false
+	}
+	sorted := append([]float64(nil), xs...)
+	sort.Float64s(sorted)
+	rank := (9*len(sorted) + 9) / 10 // ceil(0.9 n) in integers
+	return sorted[rank-1], true
 }
 
 // roundUp rounds v up to a multiple of step, tolerating float noise.

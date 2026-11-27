@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,7 +17,7 @@ import (
 // ---------------------------------------------------------------------------
 
 const insertIncidentSQL = `/* pg_sage */
-INSERT INTO sage.incidents (
+INSERT INTO sage.incidents AS n (
     id, detected_at, last_detected_at, severity, root_cause,
     causal_chain, affected_objects, signal_ids, recommended_sql,
     rollback_sql, action_risk, source, confidence, resolved_at,
@@ -33,7 +34,10 @@ INSERT INTO sage.incidents (
         ORDER BY p.resolved_at DESC LIMIT 1))
 )
 ON CONFLICT (id) DO NOTHING
-RETURNING COALESCE(previous_incident_id::text, '')`
+RETURNING COALESCE(n.previous_incident_id::text, ''),
+    (SELECT p.resolved_at FROM sage.incidents p WHERE p.id = n.previous_incident_id),
+    COALESCE((SELECT p.severity FROM sage.incidents p
+              WHERE p.id = n.previous_incident_id), '')`
 
 const updateIncidentSQL = `/* pg_sage */
 UPDATE sage.incidents SET
@@ -49,7 +53,10 @@ UPDATE sage.incidents SET
     database_name     = COALESCE(NULLIF(database_name, ''), $9),
     resolved_at       = $10,
     resolved_by       = NULLIF($11, ''),
-    resolution_reason = NULLIF($12, '')
+    resolution_reason = NULLIF($12, ''),
+    recommended_sql   = $13,
+    rollback_sql      = $14,
+    action_risk       = $15
 WHERE id = $1 AND resolved_at IS NULL`
 
 const readResolutionSQL = `/* pg_sage */
@@ -74,6 +81,17 @@ type persistResult struct {
 	gone       bool
 	// fingerprint of what this pass wrote; "" when nothing was written.
 	fingerprint string
+	// prevResolvedAt and prevSeverity describe the incident an inserted
+	// recurrence links to (rca-07 re-notify suppression).
+	prevResolvedAt *time.Time
+	prevSeverity   string
+}
+
+// insertedRow is what insertIncidentSQL returns.
+type insertedRow struct {
+	previousID     string
+	prevResolvedAt *time.Time
+	prevSeverity   string
 }
 
 // PersistIncidents writes every tracked incident, then applies what the
@@ -102,7 +120,7 @@ func (e *Engine) PersistIncidents(
 			continue
 		}
 		if !r.gone && r.external == nil {
-			r.fingerprint = storedFingerprint(&it.inc)
+			r.fingerprint = e.persistedFingerprint(ctx, pool, &it.inc)
 		}
 		results = append(results, r)
 	}
@@ -143,13 +161,14 @@ func persistOne(
 ) (persistResult, error) {
 	res := persistResult{id: it.inc.ID}
 	if !it.persisted {
-		prev, inserted, err := insertIncident(ctx, pool, &it.inc)
+		row, inserted, err := insertIncident(ctx, pool, &it.inc)
 		if err != nil {
 			return res, err
 		}
 		if inserted {
 			res.inserted = true
-			res.previousID = prev
+			res.previousID = row.previousID
+			res.prevResolvedAt, res.prevSeverity = row.prevResolvedAt, row.prevSeverity
 			res.resolved = it.inc.ResolvedAt != nil
 			return res, nil
 		}
@@ -159,12 +178,12 @@ func persistOne(
 
 func insertIncident(
 	ctx context.Context, pool *pgxpool.Pool, inc *Incident,
-) (string, bool, error) {
+) (insertedRow, bool, error) {
+	var row insertedRow
 	chain, err := marshalChain(inc.CausalChain)
 	if err != nil {
-		return "", false, err
+		return row, false, err
 	}
-	var prev string
 	err = pool.QueryRow(ctx, insertIncidentSQL,
 		inc.ID, inc.DetectedAt, inc.LastDetectedAt,
 		inc.Severity, inc.RootCause,
@@ -174,14 +193,14 @@ func insertIncident(
 		inc.ResolvedAt, inc.DatabaseName, inc.OccurrenceCount,
 		inc.EscalatedAt, identityKey(inc), inc.ResolvedBy,
 		inc.ResolutionReason, inc.PreviousIncidentID,
-	).Scan(&prev)
+	).Scan(&row.previousID, &row.prevResolvedAt, &row.prevSeverity)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil // row already exists: update it instead
+		return row, false, nil // row already exists: update it instead
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("insert: %w", err)
+		return row, false, fmt.Errorf("insert: %w", err)
 	}
-	return prev, true, nil
+	return row, true, nil
 }
 
 func updateIncident(
@@ -197,6 +216,7 @@ func updateIncident(
 		chain, inc.OccurrenceCount,
 		inc.EscalatedAt, identityKey(inc), inc.DatabaseName,
 		inc.ResolvedAt, inc.ResolvedBy, inc.ResolutionReason,
+		inc.RecommendedSQL, inc.RollbackSQL, nilIfEmpty(inc.ActionRisk),
 	)
 	if err != nil {
 		return res, fmt.Errorf("update: %w", err)

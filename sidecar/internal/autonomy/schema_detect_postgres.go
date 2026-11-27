@@ -130,12 +130,6 @@ func scanSchemaInvariant(row interface{ Scan(...any) error }) (schemaguard.Invar
 	}, nil
 }
 
-func typeTighteningProposal(schemaName, tableName, columnName string) string {
-	return "ALTER TABLE " + quoteIdentifier(schemaName) + "." + quoteIdentifier(tableName) +
-		" ALTER COLUMN " + quoteIdentifier(columnName) +
-		" TYPE bigint USING " + quoteIdentifier(columnName) + "::bigint"
-}
-
 func quoteIdentifiers(values []string) string {
 	quoted := make([]string, 0, len(values))
 	for _, value := range values {

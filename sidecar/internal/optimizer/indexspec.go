@@ -35,32 +35,58 @@ var errNotCreateIndex = errors.New("not a CREATE INDEX statement")
 func ParseIndexDDL(ddl string) (IndexSpec, error) {
 	s := &ddlScanner{src: strings.TrimRight(strings.TrimSpace(ddl), "; \t\n")}
 	var spec IndexSpec
+	if _, err := s.indexHeader(&spec); err != nil {
+		return spec, err
+	}
+	return spec, s.parseBody(&spec)
+}
+
+// indexHeader reads CREATE [UNIQUE] INDEX [CONCURRENTLY] [IF NOT EXISTS]
+// [name] ON [ONLY] table into spec and returns the offset in s.src where
+// the table reference starts.
+func (s *ddlScanner) indexHeader(spec *IndexSpec) (int, error) {
 	if !s.keyword("CREATE") {
-		return spec, errNotCreateIndex
+		return 0, errNotCreateIndex
 	}
 	spec.Unique = s.keyword("UNIQUE")
 	if !s.keyword("INDEX") {
-		return spec, errNotCreateIndex
+		return 0, errNotCreateIndex
 	}
 	s.keyword("CONCURRENTLY")
 	if s.keyword("IF") && (!s.keyword("NOT") || !s.keyword("EXISTS")) {
-		return spec, fmt.Errorf("malformed IF NOT EXISTS")
+		return 0, fmt.Errorf("malformed IF NOT EXISTS")
 	}
 	if !s.peekKeyword("ON") {
 		name, err := s.identifier()
 		if err != nil {
-			return spec, fmt.Errorf("index name: %w", err)
+			return 0, fmt.Errorf("index name: %w", err)
 		}
 		spec.Name = name
 	}
 	if !s.keyword("ON") {
-		return spec, fmt.Errorf("missing ON <table>")
+		return 0, fmt.Errorf("missing ON <table>")
 	}
 	s.keyword("ONLY")
-	if err := s.parseTable(&spec); err != nil {
-		return spec, err
+	s.skipSpace()
+	start := s.pos
+	return start, s.parseTable(spec)
+}
+
+// qualifyIndexTable names schema on the target of an unqualified CREATE
+// INDEX, so the statement resolves in pg_sage's pinned DDL session
+// (search_path = pg_catalog, pg_temp). Every other byte is kept; a
+// qualified target is returned unchanged.
+func qualifyIndexTable(ddl, schema string) (string, error) {
+	s := &ddlScanner{src: ddl}
+	var spec IndexSpec
+	start, err := s.indexHeader(&spec)
+	if err != nil {
+		return "", err
 	}
-	return spec, s.parseBody(&spec)
+	if spec.TableSchema != "" {
+		return ddl, nil
+	}
+	return ddl[:start] + sanitize.QuoteIdentifier(schema) + "." + ddl[start:], nil
 }
 
 func (s *ddlScanner) parseTable(spec *IndexSpec) error {
@@ -88,10 +114,13 @@ func (s *ddlScanner) parseBody(spec *IndexSpec) error {
 		}
 		spec.Method = strings.ToLower(m)
 	}
+	s.skipSpace()
+	s.keysAt = s.pos + 1
 	keys, err := s.parens()
 	if err != nil {
 		return fmt.Errorf("key list: %w", err)
 	}
+	s.keysEnd = s.pos - 1
 	spec.Keys = normalizeFragment(keys)
 	if s.keyword("INCLUDE") {
 		inc, err := s.parens()
@@ -121,6 +150,8 @@ func (s *ddlScanner) parseTail(spec *IndexSpec) error {
 		}
 	}
 	if s.keyword("WHERE") {
+		s.skipSpace()
+		s.whereAt = s.pos
 		spec.Where = normalizeFragment(s.consumeRest())
 		if spec.Where == "" {
 			return fmt.Errorf("empty WHERE predicate")
@@ -133,15 +164,15 @@ func (s *ddlScanner) parseTail(spec *IndexSpec) error {
 }
 
 // Fingerprint is the normalized index definition, independent of the
-// index name and formatting.
+// index name, formatting and pg_catalog qualifiers on its calls.
 func (spec IndexSpec) Fingerprint() string {
 	var b strings.Builder
-	b.WriteString(spec.Method + "(" + spec.Keys + ")")
+	b.WriteString(spec.Method + "(" + dropCatalogQualifiers(spec.Keys) + ")")
 	if spec.Include != "" {
 		b.WriteString(" include(" + spec.Include + ")")
 	}
 	if spec.Where != "" {
-		b.WriteString(" where " + spec.Where)
+		b.WriteString(" where " + dropCatalogQualifiers(spec.Where))
 	}
 	return b.String()
 }
@@ -175,6 +206,11 @@ func canonicalizeRecommendation(rec Recommendation, tc TableContext) (Recommenda
 	if !targetsTable(spec, tc) {
 		return rec, fmt.Errorf("DDL targets %s.%s, not the analyzed table %s.%s",
 			spec.TableSchema, spec.TableName, tc.Schema, tc.Table)
+	}
+	if spec.TableSchema == "" {
+		if rec.DDL, err = qualifyIndexTable(rec.DDL, tc.Schema); err != nil {
+			return rec, fmt.Errorf("qualify the DDL's table: %w", err)
+		}
 	}
 	rec.Table = tc.Schema + "." + tc.Table
 	rec.DropDDL = "DROP INDEX CONCURRENTLY IF EXISTS " +

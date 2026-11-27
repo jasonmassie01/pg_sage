@@ -87,7 +87,11 @@ func shutdownProcess(sig os.Signal, promServer *http.Server) {
 	// of leaking. The per-executor Shutdown waits on its
 	// internal WaitGroup, so we can run them in parallel.
 	drainRuntimeWorkers(shutCtx)
+	if !waitProviderWorkers(shutCtx, &metaDeferredIndexWorkers) { // config-04c
+		logWarn("shutdown", "meta-db: deferred index builder exceeded shutdown deadline")
+	}
 	shutdownExecutors(shutCtx)
+	flushLLMUsageOnShutdown() // fleet-10: after in-flight calls settled
 
 	logInfo("shutdown", "stopped")
 
@@ -102,9 +106,7 @@ func shutdownProcess(sig os.Signal, promServer *http.Server) {
 // stopHTTPServers shuts down the Prometheus and API servers and the login
 // rate-limiter's cleanup goroutine.
 func stopHTTPServers(ctx context.Context, promServer *http.Server) {
-	if err := promServer.Shutdown(ctx); err != nil {
-		logWarn("shutdown", "Prometheus server: %v", err)
-	}
+	shutdownPrometheus(ctx, promServer)
 	if apiServer != nil {
 		if err := apiServer.Shutdown(ctx); err != nil {
 			logWarn("shutdown", "API server: %v", err)

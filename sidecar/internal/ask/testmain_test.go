@@ -12,6 +12,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
@@ -45,7 +46,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatalf("connect test database: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	bootstrapOnce.Do(func() { bootstrapErr = schema.Bootstrap(ctx, pool) })
+	bootstrapOnce.Do(func() { bootstrapErr = bootstrapAsSage(ctx, dsn) })
 	if bootstrapErr != nil {
 		t.Fatalf("bootstrap sage schema: %v", bootstrapErr)
 	}
@@ -54,6 +55,25 @@ func newFixture(t *testing.T) *fixture {
 		sage.action_queue, sage.facts, sage.incidents, sage.findings, sage.action_log
 		CASCADE`)
 	return f
+}
+
+// bootstrapAsSage bootstraps the sage schema on a pool configured as
+// pg_sage's production pools are (selfmonitor.ConfigurePool), so its
+// statements carry the pg_sage tag where pg_stat_statements keeps it: a
+// leading comment is dropped from the stored text on PostgreSQL 18, and
+// untagged bootstrap statements would read as the database's workload.
+func bootstrapAsSage(ctx context.Context, dsn string) error {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return err
+	}
+	selfmonitor.ConfigurePool(cfg)
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	return schema.Bootstrap(ctx, pool)
 }
 
 func (f *fixture) exec(sql string, args ...any) {
@@ -188,5 +208,5 @@ func (f *fixture) service(d Deps) *Service {
 var (
 	viewer   = Caller{Actor: "user:7"}
 	operator = Caller{Actor: "user:1", MayPropose: true}
-	agent    = Caller{Actor: "mcp:token:abc", MayPropose: true, Agent: true}
+	agent    = Caller{Actor: "mcp:token:abc", MayPropose: true}
 )

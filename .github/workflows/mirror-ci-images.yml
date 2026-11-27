@@ -1,38 +1,108 @@
-name: Mirror CI images
+name: Build CI images
 
-# CI pulled its PostgreSQL images from Docker Hub anonymously, and GitHub's
-# shared runners hit Docker Hub's unauthenticated pull limit
-# ("toomanyrequests"), failing every job before a test ran (2026-10-09).
-# This copies the images to this repository's GitHub container registry,
-# where CI pulls them with its own token; weekly, to pick up rebuilt tags.
+# CI's PostgreSQL test servers (ci-03b). CI pulled its PostgreSQL images
+# from Docker Hub anonymously and hit the unauthenticated pull limit
+# ("toomanyrequests", 2026-10-09), so it pulls them from this repository's
+# GitHub container registry with its own token. Each image is pgvector
+# 0.8.2 on a base pinned by digest, with HypoPG, pg_hint_plan and pgaudit
+# baked in and the test server settings in its conf
+# (scripts/ci/images/Dockerfile.pg), so no job installs packages or
+# restarts its server.
+#
+# A revision is published once and never overwritten: a build whose tag
+# exists does nothing, so CI never runs a changed image under the same
+# name. To change an image (a new base digest, package or setting), bump
+# REVISION here and in every pull of the image in the same commit
+# (internal/startup/ci_images_contract_test.go checks both), then run this
+# workflow on that branch before its first CI run:
+#   gh workflow run mirror-ci-images.yml --ref <branch>
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "41 5 * * 1"
+  push:
+    branches: [master]
+    paths:
+      - scripts/ci/images/**
+      - scripts/ci/verify-test-postgres.sh
+      - .github/workflows/mirror-ci-images.yml
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  mirror:
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The index digests of pgvector/pgvector:0.8.2-pg<major> (bookworm,
+        # PGDG builds 14.23, 15.18, 16.14, 17.10 and 18.4).
+        include:
+          - pg: "14"
+            base: sha256:882cdc8d13e4d13708581de5cab4ffb3690381385e9ce819a04610c2c2126702
+          - pg: "15"
+            base: sha256:bd12d6788a617f4147d5a2ae0b56d07921398adabfe5a033bd3f50c245df55a1
+          - pg: "16"
+            base: sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
+          - pg: "17"
+            base: sha256:feb68f4f15446397d8cac7f4fe48fe4586de83160d1fc48b46283312d1a33966
+          - pg: "18"
+            base: sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d
+    env:
+      REVISION: r2
+      TAG: ghcr.io/${{ github.repository_owner }}/pg_sage-ci-pgvector:0.8.2-pg${{ matrix.pg }}-r2
     steps:
       - name: Log in to the GitHub container registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" |
           docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Copy pgvector/pgvector 0.8.2 for PostgreSQL 14-18
+      - name: Skip a revision that is already published
+        id: published
+        # Only the registry's "not found" means unpublished: on any other
+        # error (auth, rate limit, outage) a rebuild could overwrite a
+        # published revision, so the build fails instead.
+        run: |
+          if out=$(docker manifest inspect "$TAG" 2>&1); then
+            echo "::notice title=CI image unchanged::$TAG is published; images are immutable, bump REVISION to change it."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -qiE 'no such manifest|manifest unknown' <<<"$out"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error title=CI image check failed::cannot tell whether $TAG is published: $out"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.published.outputs.exists != 'true'
+
+      # Docker Hub's anonymous pull limit applies to the base too: retry it.
+      - name: Build the image
+        if: steps.published.outputs.exists != 'true'
         run: |
           set -euo pipefail
-          for pg in 14 15 16 17 18; do
-            src="pgvector/pgvector:0.8.2-pg${pg}"
-            dst="ghcr.io/${{ github.repository_owner }}/pg_sage-ci-pgvector:0.8.2-pg${pg}"
-            for attempt in 1 2 3 4 5; do
-              docker pull "$src" && break
-              echo "pull of $src failed (attempt $attempt); waiting"
-              sleep $((attempt * 60))
-            done
-            docker tag "$src" "$dst"
-            docker push "$dst"
+          for attempt in 1 2 3 4 5; do
+            docker build --pull -f scripts/ci/images/Dockerfile.pg \
+              --build-arg PG_MAJOR=${{ matrix.pg }} \
+              --build-arg BASE_DIGEST=${{ matrix.base }} \
+              --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+              --label "org.opencontainers.image.revision=${{ github.sha }}" \
+              -t "$TAG" scripts/ci/images && exit 0
+            echo "build of $TAG failed (attempt $attempt); waiting"
+            sleep $((attempt * 60))
           done
+          exit 1
+
+      - name: Verify the image's server
+        if: steps.published.outputs.exists != 'true'
+        run: |
+          docker run -d --name ci-image-check -e POSTGRES_PASSWORD=postgres "$TAG" >/dev/null
+          status=0
+          scripts/ci/verify-test-postgres.sh ci-image-check ${{ matrix.pg }} || status=$?
+          [ "$status" -eq 0 ] || docker logs ci-image-check
+          docker rm -f -v ci-image-check >/dev/null
+          exit $status
+
+      - name: Publish the image
+        if: steps.published.outputs.exists != 'true'
+        run: docker push "$TAG"

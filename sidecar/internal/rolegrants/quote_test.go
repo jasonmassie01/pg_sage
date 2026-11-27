@@ -1,9 +1,14 @@
 package rolegrants
 
-import "testing"
+import (
+	"testing"
 
-// QuoteRole leaves a plain lower-case name as it is and double-quotes any
-// other, doubling embedded quotes, so a GRANT names exactly that role.
+	"github.com/pg-sage/sidecar/internal/sqlident"
+)
+
+// Role names in a GRANT are quoted by sqlident.Role: a plain lower-case
+// name stays as it is, any other is double-quoted with embedded quotes
+// doubled, and a key word such as user or all is quoted so the GRANT parses.
 func TestQuoteRole(t *testing.T) {
 	cases := map[string]string{
 		"sage_agent":   "sage_agent",
@@ -15,10 +20,12 @@ func TestQuoteRole(t *testing.T) {
 		"2agent":       `"2agent"`,
 		"agent-x":      `"agent-x"`,
 		"":             `""`,
+		"user":         `"user"`,
+		"all":          `"all"`,
 	}
 	for in, want := range cases {
-		if got := QuoteRole(in); got != want {
-			t.Errorf("QuoteRole(%q) = %q, want %q", in, got, want)
+		if got := sqlident.Role(in); got != want {
+			t.Errorf("Role(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

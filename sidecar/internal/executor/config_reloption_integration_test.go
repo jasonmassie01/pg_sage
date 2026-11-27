@@ -193,7 +193,7 @@ func TestConfigOutcome_TempSpillsMeasuredAgainstBaseline(t *testing.T) {
 		rate float64
 		want string
 	}{
-		{1, "success"},     // 600 spills expected in 10 min, none seen
+		{1, "success"},      // 600 spills expected in 10 min, none seen
 		{0, "unverifiable"}, // nothing spilled before: nothing to improve
 	}
 	for _, c := range cases {
@@ -249,7 +249,7 @@ func TestCaptureOutcomeBaseline_Live(t *testing.T) {
 		{metricDeadTuples, "", "n_live_tup"},
 		{metricHotUpdates, table, "n_tup_upd"},
 	} {
-		b, err := captureOutcomeBaseline(ctx, pool, c.metric, c.table)
+		b, err := captureOutcomeBaseline(ctx, pool, c.metric, c.table, time.Now())
 		if err != nil || b == nil {
 			t.Fatalf("%s/%s: %v", c.metric, c.table, err)
 		}
@@ -258,7 +258,7 @@ func TestCaptureOutcomeBaseline_Live(t *testing.T) {
 		}
 	}
 	if _, err := captureOutcomeBaseline(ctx, pool, metricHotUpdates,
-		"public.p0_missing_table"); err == nil {
+		"public.p0_missing_table", time.Now()); err == nil {
 		t.Error("baseline of a missing table succeeded")
 	}
 }

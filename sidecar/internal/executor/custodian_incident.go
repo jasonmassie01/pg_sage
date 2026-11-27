@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/pg-sage/sidecar/internal/custodian/freeze"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 	"github.com/pg-sage/sidecar/internal/value"
 )
 
@@ -20,16 +22,20 @@ func (h freezeHorizon) urgency(thresholds freeze.Thresholds) freeze.Urgency {
 	return freeze.TableUrgency(h.xidAge, h.xidMax, h.mxidAge, h.mxidMax, thresholds)
 }
 
+// readFreezeHorizon measures target the way the custodian ranked it
+// (probes.TableFreezeHorizonSQL): the more advanced of its heap and TOAST,
+// each against its effective maximum. A target without storage of its own
+// (a partitioned parent) or one that is gone is an error, never red.
 func (e *Executor) readFreezeHorizon(
 	ctx context.Context, target string,
 ) (freezeHorizon, error) {
 	var horizon freezeHorizon
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT age(relfrozenxid)::bigint,
-		current_setting('autovacuum_freeze_max_age')::bigint,
-		mxid_age(relminmxid)::bigint,
-		current_setting('autovacuum_multixact_freeze_max_age')::bigint
-		FROM pg_class WHERE oid=to_regclass($1)`, target).Scan(
+	err := e.pool.QueryRow(ctx, probes.TableFreezeHorizonSQL, target).Scan(
 		&horizon.xidAge, &horizon.xidMax, &horizon.mxidAge, &horizon.mxidMax)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return freezeHorizon{}, fmt.Errorf(
+			"read freeze horizon of %s: no such table with storage of its own", target)
+	}
 	if err != nil {
 		return freezeHorizon{}, fmt.Errorf("read freeze horizon of %s: %w", target, err)
 	}

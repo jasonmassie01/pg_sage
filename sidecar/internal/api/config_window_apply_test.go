@@ -3,6 +3,8 @@ package api
 import (
 	"strings"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/notify"
 )
 
 // D2 T7: the config API refuses a window typo before persisting or
@@ -10,7 +12,7 @@ import (
 func TestConfigWritesRejectInvalidMaintenanceWindow(t *testing.T) {
 	writes, errs := validatedConfigWrites(map[string]any{
 		"trust.maintenance_window": "weeknigths",
-	})
+	}, notify.TargetPolicy{})
 	if len(writes) != 0 {
 		t.Fatalf("writes = %+v, want none", writes)
 	}
@@ -20,7 +22,7 @@ func TestConfigWritesRejectInvalidMaintenanceWindow(t *testing.T) {
 	}
 	writes, errs = validatedConfigWrites(map[string]any{
 		"trust.maintenance_window": "weeknights",
-	})
+	}, notify.TargetPolicy{})
 	if len(errs) != 0 || len(writes) != 1 || writes[0].Value != "weeknights" {
 		t.Fatalf("valid window: writes=%+v errs=%q", writes, errs)
 	}

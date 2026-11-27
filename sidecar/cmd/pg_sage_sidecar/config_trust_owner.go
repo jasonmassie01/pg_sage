@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -18,6 +19,11 @@ type trustPolicyOwner struct {
 	// meta-db mode, where every database owns an explicit trust policy and
 	// the global level acts as a ceiling (G5-B14).
 	persist func(context.Context, *fleet.DatabaseInstance, string) error
+	// ceiling installs the live trust ceiling on one database's executor
+	// (default applyTrustCeiling); publish writes it onto the process config
+	// so executors built later inherit it. Both are config-01 seams.
+	ceiling func(*fleet.DatabaseInstance, executor.TrustCeiling) error
+	publish func(executor.TrustCeiling)
 }
 
 // newTrustPolicyOwner builds the process trust owner; in meta-db mode it
@@ -25,7 +31,7 @@ type trustPolicyOwner struct {
 func newTrustPolicyOwner() *trustPolicyOwner {
 	owner := &trustPolicyOwner{manager: func() *fleet.DatabaseManager {
 		return fleetMgr
-	}}
+	}, publish: publishTrustCeiling}
 	if globalMetaState != nil && globalMetaState.Pool != nil {
 		owner.persist = persistMetaTrustLevel
 	}
@@ -49,7 +55,7 @@ func persistMetaTrustLevel(
 	return err
 }
 
-func (o *trustPolicyOwner) Name() string { return "trust_policy" }
+func (o *trustPolicyOwner) Name() string { return config.TrustPolicyOwner }
 
 func (o *trustPolicyOwner) Prepare(
 	_ context.Context, active, desired config.ConfigSnapshot,
@@ -62,6 +68,11 @@ func (o *trustPolicyOwner) Prepare(
 	}
 	manager := o.manager()
 	if manager == nil {
+		return change, nil
+	}
+	change.ceilings = o.prepareCeilings(manager, active, desired)
+	if active.Config.Trust.Level == desired.Config.Trust.Level {
+		// A ceiling-only change never touches per-database trust levels.
 		return change, nil
 	}
 	for _, instance := range manager.Instances() {
@@ -90,8 +101,8 @@ func currentTrustLevel(instance *fleet.DatabaseInstance, global string) string {
 	if status := instance.SnapshotStatus(); status.TrustLevel != "" {
 		return status.TrustLevel
 	}
-	if instance.Config.TrustLevel != "" {
-		return instance.Config.TrustLevel
+	if level := instance.ConfigSnapshot().TrustLevel; level != "" {
+		return level
 	}
 	return global
 }
@@ -103,6 +114,7 @@ type trustPolicyTarget struct {
 
 type preparedTrustPolicy struct {
 	level     string
+	ceilings  *preparedTrustCeiling
 	targets   []trustPolicyTarget
 	committed int
 	notRaised int
@@ -116,16 +128,19 @@ func (p *preparedTrustPolicy) addCeilingTarget(
 	instance *fleet.DatabaseInstance, oldLevel string,
 ) {
 	switch {
-	case trustRank(oldLevel) > trustRank(p.level):
+	case config.TrustRank(oldLevel) > config.TrustRank(p.level):
 		p.targets = append(p.targets, trustPolicyTarget{
 			instance: instance, oldLevel: oldLevel,
 		})
-	case trustRank(oldLevel) < trustRank(p.level):
+	case config.TrustRank(oldLevel) < config.TrustRank(p.level):
 		p.notRaised++
 	}
 }
 
 func (p *preparedTrustPolicy) Commit(ctx context.Context) error {
+	if err := p.ceilings.commit(); err != nil {
+		return err
+	}
 	for i, target := range p.targets {
 		if err := p.set(ctx, target, p.level); err != nil {
 			return fmt.Errorf("db %q trust policy: %w",
@@ -154,7 +169,7 @@ func (p *preparedTrustPolicy) set(
 }
 
 func (p *preparedTrustPolicy) Rollback(ctx context.Context) error {
-	var rollbackErr error
+	rollbackErr := p.ceilings.rollback()
 	for i := p.committed - 1; i >= 0; i-- {
 		target := p.targets[i]
 		restore := trustPolicyTarget{instance: target.instance, oldLevel: p.level}
@@ -167,28 +182,18 @@ func (p *preparedTrustPolicy) Rollback(ctx context.Context) error {
 
 func (*preparedTrustPolicy) Drain(context.Context) error { return nil }
 
-// Warnings reports meta-db databases a global raise left at their own,
-// lower trust policy, so the API does not imply they were escalated.
+// Warnings reports a raised trust ceiling and meta-db databases a global
+// raise left at their own, lower trust policy, so the API does not imply
+// they were escalated.
 func (p *preparedTrustPolicy) Warnings() []string {
+	warnings := p.ceilings.warnings()
 	if p.notRaised == 0 {
-		return nil
+		return warnings
 	}
-	return []string{fmt.Sprintf(
+	return append(warnings, fmt.Sprintf(
 		"trust.level %s is a ceiling in meta-db mode: %d databases were "+
 			"not raised; raise each database's trust level individually",
-		p.level, p.notRaised)}
-}
-
-func trustRank(level string) int {
-	switch level {
-	case "observation":
-		return 0
-	case "advisory":
-		return 1
-	case "autonomous":
-		return 2
-	}
-	return -1
+		p.level, p.notRaised))
 }
 
 func applyTrustPolicyLevel(

@@ -48,7 +48,7 @@ func secretAAD(key string, databaseID int) string {
 
 // sealForStorage returns the value to persist for key.
 func (s *ConfigStore) sealForStorage(key, value string, databaseID int) (string, error) {
-	if !isSecretConfigKey(key) || value == "" {
+	if !IsSecretConfigKey(key) || value == "" {
 		return value, nil
 	}
 	if crypto.IsSealed(value) {
@@ -70,7 +70,7 @@ func (s *ConfigStore) sealForStorage(key, value string, databaseID int) (string,
 func (s *ConfigStore) openSecrets(overrides []ConfigOverride) []ConfigOverride {
 	out := overrides[:0]
 	for _, o := range overrides {
-		if isSecretConfigKey(o.Key) && crypto.IsSealed(o.Value) {
+		if IsSecretConfigKey(o.Key) && crypto.IsSealed(o.Value) {
 			plain, _, err := s.keyring.Open(o.Value, secretAAD(o.Key, o.DatabaseID))
 			if err != nil {
 				kid, _ := crypto.SealedKeyID(o.Value)

@@ -59,7 +59,7 @@ func captureStatisticsTarget(ctx context.Context, q statisticsQuery, schema, tab
 	if len(columns) < 2 || len(columns) > 8 {
 		return t, ErrStatisticsTargetInvalid
 	}
-	err := q.QueryRow(ctx, `/* pg_sage */ SELECT d.oid,c.oid,c.relowner,quote_ident(n.nspname)||'.'||quote_ident(c.relname)
+	err := q.QueryRow(ctx, `/* pg_sage executor */ SELECT d.oid,c.oid,c.relowner,quote_ident(n.nspname)||'.'||quote_ident(c.relname)
  FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
  JOIN pg_catalog.pg_database d ON d.datname=current_database()
  WHERE n.nspname=$1 AND c.relname=$2 AND c.relkind='r' AND n.nspname NOT IN ('sage','pg_catalog','information_schema')

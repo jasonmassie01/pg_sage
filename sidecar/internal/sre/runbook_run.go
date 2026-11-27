@@ -70,13 +70,14 @@ func (c *Coordinator) applyRunbook(ctx context.Context, lease Lease, inv Investi
 			return w.lease, w.d, w.ev, nil, err
 		}
 		c.logFn("WARN", "sre: investigation %s: recording runbook %s v%d failed: %v",
-			inv.ID, rb.ID, rb.Latest.Version, err)
+			inv.ID, rb.ID, rb.Running.Version, err)
 	}
 	return w.lease, w.d, w.ev, &run, nil
 }
 
-// pickRunbook chooses the matching runbook naming the most open graph
-// nodes; ties go to the name, then the id.
+// pickRunbook chooses the runnable runbook whose running version names
+// the most open graph nodes; ties go to the name, then the id. A staged
+// draft never takes part.
 func pickRunbook(rbs []Runbook, kind TriggerKind, open []string) (Runbook, bool) {
 	type candidate struct {
 		rb       Runbook
@@ -84,7 +85,10 @@ func pickRunbook(rbs []Runbook, kind TriggerKind, open []string) (Runbook, bool)
 	}
 	var cs []candidate
 	for _, rb := range rbs {
-		if ok, n := rb.Latest.Definition.Match(string(kind), open); ok && rb.Runnable {
+		if !rb.Runnable || rb.Running == nil {
+			continue
+		}
+		if ok, n := rb.Running.Definition.Match(string(kind), open); ok {
 			cs = append(cs, candidate{rb, n})
 		}
 	}
@@ -96,8 +100,8 @@ func pickRunbook(rbs []Runbook, kind TriggerKind, open []string) (Runbook, bool)
 		if a.specific != b.specific {
 			return a.specific > b.specific
 		}
-		if a.rb.Latest.Name != b.rb.Latest.Name {
-			return a.rb.Latest.Name < b.rb.Latest.Name
+		if a.rb.Running.Name != b.rb.Running.Name {
+			return a.rb.Running.Name < b.rb.Running.Name
 		}
 		return a.rb.ID < b.rb.ID
 	})
@@ -116,7 +120,7 @@ type runbookWalk struct {
 }
 
 func (w *runbookWalk) record() RunbookRun {
-	v := w.rb.Latest
+	v := w.rb.Running
 	return RunbookRun{Label: RunbookRunLabel, RunbookID: w.rb.ID, Version: v.Version,
 		Name: v.Name, ContentHash: v.ContentHash, SignedBy: v.SignedBy, Path: []string{},
 		CreatedAt: time.Now().UTC()}
@@ -125,7 +129,7 @@ func (w *runbookWalk) record() RunbookRun {
 // run walks the DAG from its start. The DAG is acyclic, so the walk ends
 // within one visit per node.
 func (w *runbookWalk) run(ctx context.Context) (RunbookRun, error) {
-	def := w.rb.Latest.Definition
+	def := w.rb.Running.Definition
 	out := w.record()
 	id := def.Start
 	for range def.Nodes {
@@ -176,10 +180,10 @@ func (w *runbookWalk) step(ctx context.Context, n runbook.Node,
 
 // probe runs one probe step under the probe ceiling and the active time.
 // A step committed by an earlier (crashed) run of this investigation is
-// not run again.
+// not run again; a probe refused its slot runs once more (runQueued).
 func (w *runbookWalk) probe(ctx context.Context, n runbook.Node,
 	out *RunbookRun) (bool, error) {
-	key := fmt.Sprintf("runbook-%s-v%d-%s", w.rb.ID, w.rb.Latest.Version, n.ID)
+	key := fmt.Sprintf("runbook-%s-v%d-%s", w.rb.ID, w.rb.Running.Version, n.ID)
 	for _, e := range w.ev {
 		if e.StepKey == key {
 			out.Probes++
@@ -206,7 +210,7 @@ func (w *runbookWalk) probe(ctx context.Context, n runbook.Node,
 	if w.lease, err = w.c.store.Heartbeat(ctx, w.lease); err != nil {
 		return true, err
 	}
-	res := w.c.runner.Run(ctx, probes.ID(n.Probe), stepArgs(n))
+	res := w.c.runQueued(ctx, w.lease, probes.ID(n.Probe), stepArgs(n))
 	_, err = w.c.store.CommitStep(ctx, w.lease, StepResult{IdempotencyKey: key,
 		Results: []probes.Result{res}, NextState: StateCollecting})
 	if errors.Is(err, ErrBudgetExhausted) {

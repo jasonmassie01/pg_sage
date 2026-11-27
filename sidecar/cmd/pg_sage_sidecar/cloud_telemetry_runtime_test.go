@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
+	"github.com/pg-sage/sidecar/internal/azure"
 	"github.com/pg-sage/sidecar/internal/cloudtel"
 	"github.com/pg-sage/sidecar/internal/config"
 )
@@ -24,6 +25,9 @@ func testCloudDeps() cloudDeps {
 		},
 		gcpToken: func(context.Context) (gcpTokenSource, error) {
 			return fakeGCPToken{project: "proj-adc"}, nil
+		},
+		azureToken: func() (azure.TokenSource, error) {
+			return func(context.Context) (string, error) { return "eyJ.x", nil }, nil
 		},
 	}
 }
@@ -43,10 +47,8 @@ type cloudCase struct {
 }
 
 func cloudTelemetryCases() []cloudCase {
-	return []cloudCase{
+	return append(azureAlloyDBCloudCases(), []cloudCase{
 		{name: "self-managed has none", provider: "self-managed", host: "db", wantNil: true},
-		{name: "azure has none", provider: "azure", host: "x.postgres.database.azure.com",
-			wantNil: true},
 		{name: "disabled", provider: "rds",
 			host:    "orders.c9akciq32.us-east-1.rds.amazonaws.com",
 			mutate:  func(c *config.Config) { f := false; c.CloudTelemetry.Enabled = &f },
@@ -55,6 +57,13 @@ func cloudTelemetryCases() []cloudCase {
 			host: "orders.c9akciq32.us-east-1.rds.amazonaws.com", wantProvider: "rds"},
 		{name: "aurora cluster endpoint", provider: "aurora",
 			host: "shop.cluster-c9akciq32.us-west-2.rds.amazonaws.com", wantProvider: "aurora"},
+		{name: "aurora writer instance endpoint", provider: "aurora",
+			host: "writer-1.c9akciq32.us-west-2.rds.amazonaws.com", wantProvider: "aurora"},
+		{name: "aurora standalone instance name", provider: "aurora", host: "10.0.0.5",
+			standalone: true, wantProvider: "aurora", mutate: func(c *config.Config) {
+				c.CloudTelemetry.AWS.Region = "us-east-1"
+				c.CloudTelemetry.AWS.DBInstanceIdentifier = "writer-1"
+			}},
 		{name: "aurora reader endpoint", provider: "aurora",
 			host:         "shop.cluster-ro-c9akciq32.us-west-2.rds.amazonaws.com",
 			wantProvider: "aurora", wantAvailableReason: "reader endpoint"},
@@ -76,6 +85,30 @@ func cloudTelemetryCases() []cloudCase {
 		{name: "cloud sql by hostname cannot be matched", provider: "cloud-sql",
 			host: "db.internal.example", wantProvider: "cloud-sql",
 			wantAvailableReason: "cloud_telemetry.gcp.instance"},
+	}...)
+}
+
+// azureAlloyDBCloudCases are the clouds-09 providers: Azure flexible server
+// and AlloyDB get a runtime; Cosmos DB for PostgreSQL has none.
+func azureAlloyDBCloudCases() []cloudCase {
+	return []cloudCase{
+		{name: "azure from host", provider: "azure", host: "orders.postgres.database.azure.com",
+			wantProvider: "azure", mutate: func(c *config.Config) {
+				c.Azure.SubscriptionID = "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0"
+				c.Azure.ResourceGroup = "rg-shop"
+			}},
+		{name: "azure without a subscription", provider: "azure",
+			host: "orders.postgres.database.azure.com", wantProvider: "azure",
+			wantAvailableReason: "azure.subscription_id"},
+		{name: "alloydb standalone named", provider: "alloydb", host: "10.30.0.5",
+			standalone: true, wantProvider: "alloydb", mutate: func(c *config.Config) {
+				c.CloudTelemetry.AlloyDB.Cluster = "orders"
+				c.CloudTelemetry.AlloyDB.Instance = "orders-primary"
+			}},
+		{name: "alloydb without a name", provider: "alloydb", host: "10.30.0.5",
+			wantProvider: "alloydb", wantAvailableReason: "cloud_resource.gcp.cluster"},
+		{name: "azure cosmos has none", provider: "azure-cosmos",
+			host: "c-x.postgres.cosmos.azure.com", wantNil: true},
 	}
 }
 
@@ -89,7 +122,7 @@ func TestCloudTelemetryForProviders(t *testing.T) {
 				tc.mutate(c)
 			}
 			rt, _ := cloudTelemetryFor(ctx, c, tc.provider, tc.host, "orders",
-				tc.standalone, deps)
+				tc.standalone, config.CloudResourceConfig{}, deps)
 			if tc.wantNil {
 				if rt != nil {
 					t.Fatalf("runtime = %+v, want nil", rt.Status())
@@ -125,7 +158,7 @@ func TestCloudTelemetryForCredentialFailures(t *testing.T) {
 		return nil, cloudtel.ErrNoCredentials
 	}
 	rt, resolver := cloudTelemetryFor(ctx, cloudCfg(), "cloud-sql", "10.20.0.5", "app",
-		true, deps)
+		true, config.CloudResourceConfig{}, deps)
 	if rt == nil || rt.Status().Available || resolver != nil ||
 		!strings.Contains(rt.Status().Reason, "credentials") {
 		t.Fatalf("no GCP credentials: %+v resolver=%v", rt.Status(), resolver)
@@ -135,7 +168,8 @@ func TestCloudTelemetryForCredentialFailures(t *testing.T) {
 		return nil, errors.New("shared config profile prod not found")
 	}
 	rt, _ = cloudTelemetryFor(ctx, cloudCfg(), "rds",
-		"orders.c9akciq32.us-east-1.rds.amazonaws.com", "app", true, deps)
+		"orders.c9akciq32.us-east-1.rds.amazonaws.com", "app", true,
+		config.CloudResourceConfig{}, deps)
 	if rt == nil || rt.Status().Available ||
 		!strings.Contains(rt.Status().Reason, "profile prod not found") {
 		t.Fatalf("AWS config failure: %+v", rt.Status())
@@ -144,7 +178,8 @@ func TestCloudTelemetryForCredentialFailures(t *testing.T) {
 	deps.gcpToken = func(context.Context) (gcpTokenSource, error) {
 		return fakeGCPToken{}, nil // ADC without a project
 	}
-	rt, _ = cloudTelemetryFor(ctx, cloudCfg(), "cloud-sql", "10.20.0.5", "app", true, deps)
+	rt, _ = cloudTelemetryFor(ctx, cloudCfg(), "cloud-sql", "10.20.0.5", "app", true,
+		config.CloudResourceConfig{}, deps)
 	if rt == nil || !strings.Contains(rt.Status().Reason, "cloud_telemetry.gcp.project") {
 		t.Fatalf("no project: %+v", rt.Status())
 	}

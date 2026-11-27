@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/facts"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
@@ -79,7 +80,7 @@ func ClassifyWorkload(snap *collector.Snapshot, all []facts.Fact, now time.Time)
 		}
 		w.Tables[info.Name] = info
 	}
-	known := tableIndex(snap)
+	known := workload.KnownTables(snap)
 	for _, q := range snap.Queries {
 		s := classifyStatement(q, known, w.Tables, families)
 		w.Statements[q.QueryID] = s
@@ -103,7 +104,7 @@ func splitFacts(all []facts.Fact) (confirmed, rejectedFixtures []facts.Fact) {
 // classifyTable is a table's class (sage, test or app) and its routes.
 func classifyTable(schema, rel string, confirmed, rejectedFixtures []facts.Fact,
 	now time.Time) TableInfo {
-	name := qualified(schema, rel)
+	name := sqlident.Qualified(schema, rel)
 	info := TableInfo{Name: name, Class: ClassApp}
 	if schema == "sage" {
 		info.Class, info.Reason = ClassSage, "pg_sage's own schema"
@@ -117,7 +118,7 @@ func classifyTable(schema, rel string, confirmed, rejectedFixtures []facts.Fact,
 			return info
 		}
 	}
-	if facts.LooksLikeTestSchema(schema) && len(facts.Matching(rejectedFixtures, name)) == 0 {
+	if facts.IsTestSchemaName(schema) && len(facts.Matching(rejectedFixtures, name)) == 0 {
 		info.Class = ClassTest
 		info.Reason = fmt.Sprintf("schema %s is named like a test schema", schema)
 	}
@@ -152,12 +153,18 @@ func bindings(name string, confirmed []facts.Fact, action string,
 	return facts.Bind(confirmed, facts.ResolveRefs(req), req)
 }
 
-// tableIndex maps a relation name to the schemas holding a table of it.
-func tableIndex(snap *collector.Snapshot) map[string][]string {
-	out := map[string][]string{}
-	for _, t := range snap.Tables {
-		out[t.RelName] = append(out[t.RelName], t.SchemaName)
+// referencedTables is workload.ReferencedTables in the agent's canonical
+// "schema.name" form, sorted.
+func referencedTables(query string, known map[string][]string) []string {
+	refs := workload.ReferencedTables(query, known)
+	if len(refs) == 0 {
+		return nil
 	}
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, sqlident.Qualified(r.Schema, r.Name))
+	}
+	slices.Sort(out)
 	return out
 }
 
@@ -165,7 +172,7 @@ func classifyStatement(q collector.QueryStats, known map[string][]string,
 	tables map[string]TableInfo, families map[string]string) StatementInfo {
 	s := StatementInfo{QueryID: q.QueryID, Class: ClassApp}
 	switch reason := workload.Classify(q.Query); reason {
-	case workload.Workload:
+	case workload.Workload, workload.Procedural:
 	case workload.Self:
 		s.Class, s.Reason = ClassSage, "pg_sage's own statement"
 		return s

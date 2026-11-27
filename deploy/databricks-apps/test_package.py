@@ -1,6 +1,8 @@
 import importlib.util
+import io
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -36,28 +38,47 @@ def elf(payload=b"", architecture=62, dynamic=False):
     return bytes(binary) + payload
 
 
+def as_linux_x86_64():
+    system = patch.object(launcher.platform, "system", return_value="Linux")
+    machine = patch.object(launcher.platform, "machine", return_value="x86_64")
+    return system, machine
+
+
+def package_and_unpack(temp, binary):
+    source = temp / "source"
+    source.write_bytes(binary)
+    output = temp / "app"
+    manifest = packager.package(source, output)
+    runtime = temp / "runtime"
+    runtime.mkdir()
+    system, machine = as_linux_x86_64()
+    with system, machine:
+        restored = launcher.unpack_binary(output, runtime)
+    return manifest, output, runtime, restored
+
+
 class PackageTests(unittest.TestCase):
     def test_large_binary_roundtrip_stays_under_upload_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             temp = Path(temp)
             binary = elf(os.urandom(9_000_000))
-            source = temp / "source"
-            source.write_bytes(binary)
-            output = temp / "app"
-            manifest = packager.package(source, output)
+            manifest, output, runtime, restored = package_and_unpack(temp, binary)
             self.assertGreater(len(manifest["chunks"]), 1)
-            self.assertTrue(all(file.stat().st_size < 10_000_000 for file in output.iterdir()))
-            runtime = temp / "runtime"
-            runtime.mkdir()
-            with patch.object(launcher.platform, "system", return_value="Linux"), patch.object(launcher.platform, "machine", return_value="x86_64"):
-                restored = launcher.unpack_binary(output, runtime)
+            sizes = [file.stat().st_size for file in output.iterdir()]
+            self.assertTrue(all(size < 10_000_000 for size in sizes), sizes)
             self.assertEqual(restored.read_bytes(), binary)
-            self.assertEqual(restored.stat().st_mode & 0o777, 0o700)
             manifest["sha256"] = "0" * 64
             (output / "binary.json").write_text(json.dumps(manifest))
-            with patch.object(launcher.platform, "system", return_value="Linux"), patch.object(launcher.platform, "machine", return_value="x86_64"):
+            system, machine = as_linux_x86_64()
+            with system, machine:
                 with self.assertRaisesRegex(ValueError, "checksum"):
                     launcher.unpack_binary(output, runtime)
+
+    @unittest.skipUnless(os.name == "posix", "file modes require POSIX")
+    def test_restored_binary_is_owner_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            _, _, _, restored = package_and_unpack(Path(temp), elf(b"payload"))
+            self.assertEqual(restored.stat().st_mode & 0o777, 0o700)
 
     def test_rejects_dynamic_and_wrong_platform_binary(self):
         for binary in (b"not an ELF file", elf(dynamic=True), elf(architecture=0)):
@@ -117,6 +138,26 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(config["api"]["listen_addr"], "0.0.0.0:8123")
         self.assertIs(config["llm"]["json_mode"], False)
 
+    def test_metrics_served_on_the_api_port_only(self):
+        # observability-08: Apps exposes only the API port, so /metrics is
+        # served there behind the platform identity, and no separate
+        # listener is opened, whatever the base config says.
+        for base in (None, {"prometheus": {"listen_addr": "0.0.0.0:9187", "serve_on_api": False,
+                                           "refresh_interval_seconds": 60}}):
+            with self.subTest(base=base):
+                config = launcher.runtime_config(self.env(), base)
+                self.assertIs(config["prometheus"]["serve_on_api"], True)
+                self.assertEqual(config["prometheus"]["listen_addr"], "")
+                if base:
+                    self.assertEqual(config["prometheus"]["refresh_interval_seconds"], 60)
+                    self.assertEqual(base["prometheus"]["listen_addr"], "0.0.0.0:9187")
+
+    def test_separate_metrics_listener_variables_are_refused(self):
+        for name in ("SAGE_PROMETHEUS_ADDR", "SAGE_PROMETHEUS_PORT"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "serve_on_api"):
+                    launcher.runtime_config(self.env() | {name: "9300"})
+
     def test_shared_postgres_pool_default_preserves_explicit_size_and_base(self):
         for postgres, expected in (({"port": 5432}, 5), ({"port": 5432, "max_connections": 2}, 2)):
             with self.subTest(postgres=postgres):
@@ -142,6 +183,48 @@ class LauncherTests(unittest.TestCase):
         launcher.runtime_config(env)
         self.assertEqual(env["SAGE_PG_USER"], "custom-role")
         self.assertIn("explicit", env["SAGE_LAKEBASE_ENDPOINT"])
+
+    def test_injected_require_sslmode_is_raised_to_verify_full(self):
+        env = self.env() | {"PGSSLMODE": "require"}
+        with patch.object(launcher.sys, "stderr", new_callable=io.StringIO) as stderr:
+            launcher.runtime_config(env)
+        self.assertEqual(env["SAGE_PG_SSLMODE"], "verify-full")
+        lines = stderr.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn("PGSSLMODE=require", lines[0])
+        self.assertIn("verify-full", lines[0])
+
+    def test_child_pgsslmode_matches_the_verified_mode(self):
+        # pgx reads PGSSLMODE when SAGE_DATABASE_URL names no sslmode, so the
+        # child must not inherit the injected require the launcher raised.
+        for change in ({"PGSSLMODE": "require"}, {},
+                       {"PGSSLMODE": "prefer", "SAGE_PG_SSLMODE": "verify-full"}):
+            with self.subTest(change=change):
+                env = self.env() | change | {"SAGE_DATABASE_URL": "postgres://app@db.example/app"}
+                with patch.object(launcher.sys, "stderr", new_callable=io.StringIO):
+                    launcher.runtime_config(env)
+                self.assertEqual(env["PGSSLMODE"], "verify-full")
+                self.assertEqual(env["SAGE_PG_SSLMODE"], "verify-full")
+
+    def test_verify_full_sslmode_passes_unchanged_and_silently(self):
+        for change in ({"PGSSLMODE": "verify-full"}, {"SAGE_PG_SSLMODE": "verify-full"}, {}):
+            with self.subTest(change=change):
+                env = self.env() | change
+                with patch.object(launcher.sys, "stderr", new_callable=io.StringIO) as stderr:
+                    launcher.runtime_config(env)
+                self.assertEqual(env["SAGE_PG_SSLMODE"], "verify-full")
+                self.assertEqual(stderr.getvalue(), "")
+
+    def test_sslmode_below_verify_full_fails_before_launch(self):
+        # Only the platform-injected require is raised; an explicit operator
+        # setting is never rewritten, so SAGE_PG_SSLMODE=require is refused.
+        for change in ({"PGSSLMODE": "prefer"}, {"PGSSLMODE": "verify-ca"},
+                       {"PGSSLMODE": "disable"}, {"PGSSLMODE": "allow"},
+                       {"SAGE_PG_SSLMODE": "require"}, {"SAGE_PG_SSLMODE": "verify-ca"},
+                       {"PGSSLMODE": "require", "SAGE_PG_SSLMODE": "prefer"}):
+            with self.subTest(change=change):
+                with self.assertRaisesRegex(ValueError, "verify-full"):
+                    launcher.runtime_config(self.env() | change)
 
     def test_launch_supervises_native_server_and_keeps_credentials_in_environment(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -278,6 +361,18 @@ class ConfigureTests(unittest.TestCase):
             self.assertEqual(config["lakebase_observability"], rendered)
             self.assertFalse(config["ask"]["enabled"])
 
+    def test_telemetry_schedule_keys_are_bounded(self):
+        accepted = {"settle_lag_seconds": 3600, "short_lookback_seconds": 604800}
+        rendered = configurer.telemetry_config(self.settings() | {"lakebase_observability": accepted})
+        self.assertEqual(rendered["settle_lag_seconds"], 3600)
+        self.assertEqual(rendered["short_lookback_seconds"], 604800)
+        for telemetry in ({"settle_lag_seconds": 3601}, {"settle_lag_seconds": -1},
+                          {"settle_lag_seconds": True}, {"short_lookback_seconds": 604801},
+                          {"short_lookback_seconds": 0}, {"short_lookback_seconds": "7200"}):
+            with self.subTest(telemetry=telemetry):
+                with self.assertRaises(ValueError):
+                    configurer.telemetry_config(self.settings() | {"lakebase_observability": telemetry})
+
     def test_telemetry_rejects_unbounded_settings_credentials_and_unreviewed_scope(self):
         for telemetry in ({"enabled": True}, {"enabled": "true"}, {"warehouse_id": "id?token=secret"},
                           {"allow_payload": "true"}, {"max_rows": 10001}, {"max_rows": True},
@@ -298,6 +393,43 @@ class ConfigureTests(unittest.TestCase):
             self.assertEqual(json.loads((package / "databricks.yml").read_text())["resources"]["apps"]["pg_sage"]["name"], "pg-sage-dev")
             self.assertEqual((package / "binary.json").read_text(), "{}")
             self.assertIs(json.loads((package / "config.json").read_text())["llm"]["json_mode"], True)
+
+
+class LakebaseIDTests(unittest.TestCase):
+    """configure.py must accept exactly the endpoint resources the Go sidecar accepts."""
+    GO_SOURCE = ROOT.parent.parent / "sidecar" / "internal" / "lakebaseid" / "lakebaseid.go"
+    TABLE = ROOT.parent.parent / "sidecar" / "internal" / "lakebaseid" / "testdata" / "resources.json"
+
+    def cases(self):
+        cases = json.loads(self.TABLE.read_text(encoding="utf-8"))
+        self.assertGreater(len(cases), 10)
+        return cases
+
+    def test_segment_matches_go_pattern_text(self):
+        found = re.search(r"const Pattern = `([^`]+)`", self.GO_SOURCE.read_text(encoding="utf-8"))
+        self.assertIsNotNone(found, "lakebaseid.go no longer declares const Pattern")
+        self.assertEqual(configurer.SEGMENT, found.group(1))
+
+    def test_endpoint_rule_matches_shared_verdicts(self):
+        for case in self.cases():
+            with self.subTest(case=case["name"]):
+                got = configurer.ENDPOINT.fullmatch(case["resource"]) is not None
+                self.assertEqual(got, case["valid"], case["resource"])
+
+    def test_render_matches_shared_verdicts(self):
+        base = ConfigureTests().settings()
+        for case in self.cases():
+            resource = case["resource"]
+            branch = "/".join(resource.split("/")[:4])
+            settings = base | {"endpoint": resource, "branch": branch,
+                               "database_resource": branch + "/databases/sage-dev"}
+            with self.subTest(case=case["name"]):
+                if case["valid"]:
+                    runtime, _ = configurer.render(settings)
+                    self.assertIn({"name": "SAGE_LAKEBASE_ENDPOINT", "value": resource}, runtime["env"])
+                else:
+                    with self.assertRaises(ValueError):
+                        configurer.render(settings)
 
 
 @unittest.skipUnless(os.name == "posix", "Apps supervision requires POSIX process groups")

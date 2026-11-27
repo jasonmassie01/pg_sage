@@ -74,10 +74,29 @@ func TestMarkObjectOwnedProposesFact(t *testing.T) {
 	row := readFact(t, f, res.FactID)
 	require.Equal(t, factRow{Type: "owned_by_app_migrations", Kind: "index",
 		Subject: f.q("accounts_email_idx"), Status: "proposed", Source: "operator",
-		ProposedBy: markActor, Proposals: 1,
-		Value: map[string]string{"repo": "github.com/acme/shop",
-			"path": "db/migrate/20260101_add_email_idx.rb"}}, row)
+		ProposedBy: markActor, Proposals: 1, Value: map[string]string{}}, row)
 	require.False(t, row.Decided, "MarkObject never decides its own fact")
+	// facts-09: repo and path are not fact value keys any more; they are
+	// kept as the mark's evidence, where the person deciding sees them.
+	stored, err := facts.NewStore(f.pool).Get(f.ctx, res.FactID)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(stored.Evidence))
+	require.Equal(t, "the migration file creates this index (repo github.com/acme/shop, "+
+		"path db/migrate/20260101_add_email_idx.rb)", stored.Evidence[0].Detail)
+}
+
+// Without repo or path the evidence is the agent's text alone.
+func TestMarkObjectEvidenceWithoutRepoOrPath(t *testing.T) {
+	f := newFixture(t)
+	markTable(f)
+	req := ownedRequest(f)
+	req.Repo, req.Path = "", "  "
+	res, err := New(f.pool, Options{}).MarkObject(f.ctx, req, markActor)
+	require.NoError(t, err)
+	stored, err := facts.NewStore(f.pool).Get(f.ctx, res.FactID)
+	require.NoError(t, err)
+	require.Equal(t, "the migration file creates this index", stored.Evidence[0].Detail)
+	require.Equal(t, 0, len(stored.Value))
 }
 
 func TestMarkObjectRepeatIsDeduplicated(t *testing.T) {

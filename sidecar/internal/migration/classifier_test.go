@@ -117,12 +117,6 @@ func TestClassifier_AlterTypeRewrite(t *testing.T) {
 func TestClassifier_AddColumnVolatileDefault(t *testing.T) {
 	c := NewRegexClassifier()
 
-	t.Run("positive: volatile on PG10", func(t *testing.T) {
-		sql := "ALTER TABLE t ADD COLUMN status text DEFAULT 'active'"
-		results := c.Classify(sql, 10)
-		requireRulePresent(t, results, "ddl_add_column_volatile_default")
-	})
-
 	t.Run("negative: safe default on PG14", func(t *testing.T) {
 		sql := "ALTER TABLE t ADD COLUMN status text DEFAULT 'active'"
 		results := c.Classify(sql, 14)
@@ -206,12 +200,6 @@ func TestClassifier_ReindexNotConcurrent(t *testing.T) {
 		results := c.Classify(sql, 14)
 		requireRuleAbsent(t, results, "ddl_reindex_not_concurrent")
 	})
-
-	t.Run("negative: PG11 (not available)", func(t *testing.T) {
-		sql := "REINDEX TABLE orders"
-		results := c.Classify(sql, 11)
-		requireRuleAbsent(t, results, "ddl_reindex_not_concurrent")
-	})
 }
 
 func TestClassifier_VacuumFull(t *testing.T) {
@@ -264,28 +252,6 @@ func TestClassifier_SetTablespace(t *testing.T) {
 		requireRulePresent(t, results, "ddl_set_tablespace")
 		assert.Equal(t, "orders",
 			findRule(results, "ddl_set_tablespace").TableName)
-	})
-}
-
-func TestClassifier_AddColumnNotNull(t *testing.T) {
-	c := NewRegexClassifier()
-
-	t.Run("positive: PG10 NOT NULL without DEFAULT", func(t *testing.T) {
-		sql := "ALTER TABLE t ADD COLUMN status text NOT NULL"
-		results := c.Classify(sql, 10)
-		requireRulePresent(t, results, "ddl_add_column_not_null")
-	})
-
-	t.Run("negative: PG14 (safe)", func(t *testing.T) {
-		sql := "ALTER TABLE t ADD COLUMN status text NOT NULL"
-		results := c.Classify(sql, 14)
-		requireRuleAbsent(t, results, "ddl_add_column_not_null")
-	})
-
-	t.Run("negative: has DEFAULT", func(t *testing.T) {
-		sql := "ALTER TABLE t ADD COLUMN status text NOT NULL DEFAULT 'x'"
-		results := c.Classify(sql, 10)
-		requireRuleAbsent(t, results, "ddl_add_column_not_null")
 	})
 }
 

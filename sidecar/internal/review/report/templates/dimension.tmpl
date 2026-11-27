@@ -1,0 +1,1 @@
+{{define "dimension"}}{{.Title}}: grade {{.Letter}}, {{.Score}}% of the applicable checks passed with {{.Coverage}}% of them run.{{if .Candidates}} {{len .Candidates}} candidate{{if gt (len .Candidates) 1}}s{{end}} ranked here; first: {{with index .Candidates 0}}{{.Kind}} on {{.Target}}{{end}}.{{else}} No candidate for this dimension.{{end}}{{end}}

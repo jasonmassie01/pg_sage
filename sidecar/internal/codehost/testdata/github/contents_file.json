@@ -1,0 +1,12 @@
+{
+  "type": "file",
+  "encoding": "base64",
+  "size": 44,
+  "name": "order.rb",
+  "path": "app/models/order.rb",
+  "content": "Y2xhc3MgT3JkZXIgPCBBcHBsaWNhdGlvblJl\nY29yZApzY29wZSA6b3Blbgo=\n",
+  "sha": "3d21ec53a331a6f037a91c368710b99387d012c1",
+  "url": "https://api.github.com/repos/acme/shop/contents/app/models/order.rb?ref=main",
+  "html_url": "https://github.com/acme/shop/blob/main/app/models/order.rb",
+  "_links": {"self": "https://api.github.com/repos/acme/shop/contents/app/models/order.rb"}
+}

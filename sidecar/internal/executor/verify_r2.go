@@ -85,7 +85,7 @@ func (e *Executor) tableTargets(ctx context.Context, table string) []int64 {
 	if table == "" || len(parts) == 0 {
 		return nil
 	}
-	return e.statementIDs(ctx, tableStatementsSQL, wordPattern(parts[len(parts)-1]),
+	return e.workloadIDs(ctx, tableStatementsSQL, wordPattern(parts[len(parts)-1]),
 		verifyTargetLimit)
 }
 
@@ -104,7 +104,7 @@ func (e *Executor) statisticsBaseline(
 	if len(p.TargetQueryIDs) == 0 {
 		return
 	}
-	now := time.Now()
+	now := e.databaseNow(ctx, "estimate baseline for "+table)
 	sample, err := verify.NewPostgresObservationSource(e.pool).EstimateErrors(ctx,
 		p.TargetQueryIDs, now.Add(-estimateLookback), now)
 	if err != nil {

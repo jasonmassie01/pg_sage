@@ -12,6 +12,7 @@ package modellift
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 // Splits of the replay corpus and the model mode the rule accepts.
@@ -79,8 +80,15 @@ func Wilson(k, n int) (lo, hi float64) {
 
 // Evidence is one family's held-out measurement as the rule reads it.
 type Evidence struct {
-	Split           string
-	Mode            string
+	Split string
+	Mode  string
+	// Model is the model the bench measured; RunningModel is the one the
+	// investigator runs now. Authority holds only when their normalized
+	// IDs are equal (NormalizeModel): a measurement never lends one
+	// model's authority to another. Model families and endpoint identity
+	// are not compared; the endpoint is part of the operator's trust.
+	Model           string
+	RunningModel    string
 	BudgetExhausted bool
 	Forbidden       int
 	// Overrides: runs where the model ranked another open hypothesis
@@ -138,6 +146,11 @@ func precondition(e Evidence) string {
 		return fmt.Sprintf("measured on the %q split, not the held-out set", e.Split)
 	case e.Mode != ModeLive:
 		return "not measured with a live model (the fake model measures safety only)"
+	}
+	if reason := modelMismatch(e.Model, e.RunningModel); reason != "" {
+		return reason
+	}
+	switch {
 	case e.BudgetExhausted:
 		return "the live run hit its budget cap, so the measurement is incomplete"
 	case !e.Overrides.Valid() || !e.BaselineSafePass.Valid() || !e.OverrideSafePass.Valid():
@@ -158,4 +171,31 @@ func precondition(e Evidence) string {
 			e.OverrideSafePass.N)
 	}
 	return ""
+}
+
+// modelMismatch is why a measurement of measured cannot speak for an
+// investigator running running, or "".
+func modelMismatch(measured, running string) string {
+	m, r := NormalizeModel(measured), NormalizeModel(running)
+	switch {
+	case m == "":
+		return "the measurement names no model, so it cannot grant authority to any model"
+	case r == "":
+		return "the investigator's model is unknown, so no measured model can be matched"
+	case m != r:
+		return fmt.Sprintf("measured with %q; the investigator runs %q, so the "+
+			"measurement does not count for it", m, r)
+	}
+	return ""
+}
+
+// NormalizeModel is the model identity the rule compares: trimmed,
+// lowercased, without any provider prefix up to the last "/"
+// ("OpenAI/GPT-6 " is "gpt-6").
+func NormalizeModel(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.LastIndex(m, "/"); i >= 0 {
+		m = m[i+1:]
+	}
+	return strings.TrimSpace(m)
 }

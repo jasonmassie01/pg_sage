@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/recommendation"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 )
 
 // RunCycle is called after each analyzer cycle. It acts on the durable
@@ -15,28 +16,42 @@ import (
 // cycle are never the source, so a recommendation proposed earlier stays
 // eligible when policy, trust or the window later permits it.
 func (e *Executor) RunCycle(ctx context.Context, isReplica bool) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "executor")
+	defer done()
 	e.resumeOnce.Do(func() {
 		if err := e.resumeOrphanedMonitors(ctx); err != nil {
 			e.logFn("executor", "resume rollback monitors: %v", err)
 		}
 	})
 	if e.indexVerification != nil {
-		if err := e.indexVerification.ResumeDue(ctx); err != nil {
-			e.logFn("executor", "resume index verification: %v", err)
-		}
+		e.resumeIndexVerification(ctx)
 	}
 	if !isReplica {
 		if err := e.ResumeIndexReplaces(ctx); err != nil {
 			e.logFn("executor", "resume index replacements: %v", err)
 		}
+		// Every cycle, not once: a claim younger than the grace at startup,
+		// or a terminal write lost while running, settles later.
+		e.settleStuckRollbacks(ctx)
 	}
 	e.reconcileRecommendations(ctx)
+	// Exposure remediations (fleetpol-02b): withdrawn in shadow mode in
+	// every execution mode, proposed or run only in enforce mode.
+	e.runExposureRemediations(ctx, isReplica)
 	// Queue housekeeping runs in every mode: a proposal whose reason is
 	// gone must not wait for an operator (dogfood round 2 item 5).
 	if n, err := e.supersedeStaleApprovals(ctx); err != nil {
 		e.logFn("executor", "supersede stale approvals: %v", err)
 	} else if n > 0 {
 		e.logFn("executor", "superseded %d queued proposal(s) whose reason is gone", n)
+	}
+	if err := e.settleKeptExpired(ctx); err != nil {
+		e.logFn("executor", "%v", err)
+	}
+	// Scheduled approvals are people's decisions: they run in every mode,
+	// and the gate re-checks each one (executor-disabled included).
+	if !isReplica {
+		e.RunScheduledApprovals(ctx)
 	}
 	// Manual mode and executor-disabled are hard background-action stops.
 	if e.effectiveExecMode() == "manual" || !e.ExecutorEnabled() {
@@ -68,15 +83,13 @@ func (e *Executor) processFinding(
 		return
 	}
 	findingID := e.lookupFindingID(ctx, f)
-	// Anti-oscillation: an object that keeps reverting externally stops
-	// being re-applied.
-	if findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
-		e.exceedsOscillationLimit(ctx, f, findingID) ||
-		e.parkedWithhold(ctx, f, findingID) || e.skipCoveredCreate(ctx, f, findingID) {
+	if e.withheldBeforeGate(ctx, f, findingID) {
 		return
 	}
-	// The revision's evidence is immutable; the gate needs the current one.
-	f = e.currentGateEvidence(ctx, f, findingID, cand)
+	f, ok := e.gateFinding(ctx, f, findingID, cand)
+	if !ok {
+		return
+	}
 	decision := e.evaluateFindingPolicy(ctx, f, isReplica)
 	e.recordShadow(ctx, findingRequest(f, isReplica), f, findingID, cand, decision)
 	switch decision.Decision {
@@ -90,7 +103,7 @@ func (e *Executor) processFinding(
 		// park fell through to Apply and was evaluated twice per cycle).
 		return
 	}
-	if CheckHysteresis(ctx, e.pool, findingID, e.cfg.Trust.RollbackCooldownDays) {
+	if e.recentlyRolledBack(ctx, findingID) {
 		e.releaseBudget(ctx, decision.DecisionID)
 		e.logFn("executor", "skipping %q — rolled back recently (cooldown)", f.Title)
 		return
@@ -101,6 +114,32 @@ func (e *Executor) processFinding(
 	if errors.Is(err, ErrDDLSlotUnavailable) {
 		e.logFn("executor", "DDL concurrency limit reached, skipping %s", f.RecommendedSQL)
 	}
+}
+
+// gateFinding is f as the gate, the shadow and the queue must all see it:
+// with its open finding's current evidence (the revision's is immutable),
+// and marked approval_required when its VACUUM targets a partitioned
+// parent (vacuum-01) or its step cannot be verified (lab-01c). ok is
+// false for a stale VACUUM finding whose table no longer exists.
+func (e *Executor) gateFinding(
+	ctx context.Context, f analyzer.Finding, findingID int64,
+	cand *recommendation.Candidate,
+) (analyzer.Finding, bool) {
+	f = e.currentGateEvidence(ctx, f, findingID, cand)
+	f, stale := e.guardVacuumTarget(ctx, f)
+	return e.guardUnverifiable(ctx, f), !stale
+}
+
+// withheldBeforeGate reports the read-only skips after the finding lookup:
+// an unknown finding, retries exhausted, anti-oscillation (an object that
+// keeps reverting externally stops being re-applied), a parked withhold,
+// or a CREATE INDEX an existing index already covers.
+func (e *Executor) withheldBeforeGate(
+	ctx context.Context, f analyzer.Finding, findingID int64,
+) bool {
+	return findingID <= 0 || e.exceedsMaxRetries(ctx, findingID) ||
+		e.exceedsOscillationLimit(ctx, f, findingID) ||
+		e.parkedWithhold(ctx, f, findingID) || e.skipCoveredCreate(ctx, f, findingID)
 }
 
 // findingIntent routes a background finding through Apply. A denied change
@@ -230,7 +269,7 @@ func (e *Executor) runAuthorizedFinding(
 		}
 		if err != nil {
 			e.logFn("executor", "withheld unverifiable CREATE INDEX %q: %v", f.Title, err)
-			markContentBoundWithhold(f, beforeState)
+			markContentBoundWithhold(f, beforeState, err)
 			return e.logRefusedAction(ctx, f, findingID, beforeState, decisionID, err)
 		}
 	}
@@ -262,7 +301,8 @@ func (e *Executor) runAuthorizedFinding(
 // prepareAndRunFinding runs the finding's SQL. For a config change it
 // first captures the prior state and replaces the proposed rollback with
 // the one that restores it (G-P0-1); without a faithful rollback the
-// change does not run, and the attempt fails like any other.
+// change does not run, and the attempt fails like any other. A DROP
+// INDEX's re-create rollback is re-rendered under the pinned search_path.
 func (e *Executor) prepareAndRunFinding(
 	ctx context.Context, f *analyzer.Finding, beforeState map[string]any,
 	decision ActionPolicyDecision,
@@ -272,12 +312,15 @@ func (e *Executor) prepareAndRunFinding(
 		e.logFn("executor", "refused config change %q: %v", f.Title, err)
 		return nil, err
 	}
+	if f.RollbackSQL, err = e.pinDropRollback(ctx, f.RecommendedSQL, f.RollbackSQL); err != nil {
+		return nil, err
+	}
 	if config != nil {
 		f.RollbackSQL = config.rollbackSQL
 		config.record(beforeState)
 	}
 	e.predictAction(ctx, f.RecommendedSQL, f.Detail, beforeState)
-	return config, e.runFindingSQL(ctx, *f, decision)
+	return config, e.runFindingSQLRecorded(ctx, *f, decision, beforeState)
 }
 
 // findingRefusal is a reason never to run the finding unattended: backend
@@ -286,6 +329,9 @@ func (e *Executor) prepareAndRunFinding(
 func (e *Executor) findingRefusal(f analyzer.Finding) error {
 	if IsIndexReplaceSQL(f.RecommendedSQL) {
 		return ErrReplaceApprovalRequired
+	}
+	if exposureActionType(f.RecommendedSQL) != "" {
+		return errExposureTypedOnly // only the exposure producer runs these
 	}
 	if _, _, isSignal := parseBackendSignal(f.RecommendedSQL); isSignal {
 		e.logFn("executor", "refused autonomous backend signal %q", f.Title)
@@ -305,19 +351,32 @@ func (e *Executor) findingRefusal(f analyzer.Finding) error {
 func (e *Executor) runFindingSQL(
 	ctx context.Context, f analyzer.Finding, decision ActionPolicyDecision,
 ) error {
-	if err := e.checkGUCValueSafety(ctx, f.RecommendedSQL); err != nil {
+	return e.runFindingSQLRecorded(ctx, f, decision, nil)
+}
+
+// runFindingSQLRecorded is runFindingSQL that records a failed
+// CONCURRENTLY statement's remnant cleanup in beforeState.
+func (e *Executor) runFindingSQLRecorded(
+	ctx context.Context, f analyzer.Finding, decision ActionPolicyDecision,
+	beforeState map[string]any,
+) error {
+	sql := f.RecommendedSQL
+	if err := e.checkGUCValueSafety(ctx, sql); err != nil {
 		return err
 	}
-	lockOpt := e.lockOption(f.RecommendedSQL, decision)
+	lockOpt := e.lockOption(sql, decision)
 	switch {
-	case categorizeAction(f.RecommendedSQL) == "create_statistics":
-		return ExecStatistics(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
-	case categorizeAction(f.RecommendedSQL) == "analyze":
-		return e.executeAnalyze(ctx, f, e.lockTimeoutMS(f.RecommendedSQL, decision))
-	case NeedsConcurrently(f.RecommendedSQL) || NeedsTopLevel(f.RecommendedSQL):
-		return ExecConcurrently(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
+	case roleBudgetActionType(sql) != "":
+		return e.execRoleBudget(ctx, sql, beforeState, e.ddlTimeoutFor(sql),
+			e.lockTimeoutMS(sql, decision))
+	case categorizeAction(sql) == "create_statistics":
+		return ExecStatistics(ctx, e.actionDB(), sql, e.ddlTimeoutFor(sql), lockOpt)
+	case categorizeAction(sql) == "analyze":
+		return e.executeAnalyze(ctx, f, e.lockTimeoutMS(sql, decision))
+	case statementRunsTopLevel(sql):
+		return e.execConcurrentDDL(ctx, sql, beforeState, lockOpt)
 	default:
-		return ExecInTransaction(ctx, e.pool, f.RecommendedSQL, e.ddlTimeout(), lockOpt)
+		return ExecInTransaction(ctx, e.actionDB(), sql, e.ddlTimeoutFor(sql), lockOpt)
 	}
 }
 
@@ -375,7 +434,7 @@ func (e *Executor) monitorFinding(ctx context.Context, f analyzer.Finding, actio
 		e.verifyImmediate(ctx, actionID)
 		return
 	}
-	monitorCfg := e.rollbackMonitorConfig(e.standingRollbackAuthorizer(f))
+	monitorCfg := e.findingMonitorConfig(f, actionID)
 	e.startRollbackMonitor(func() {
 		MonitorAndRollback(
 			context.WithoutCancel(ctx), e.pool, actionID, f.RollbackSQL,

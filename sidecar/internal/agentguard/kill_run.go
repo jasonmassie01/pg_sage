@@ -115,11 +115,11 @@ func (r *clusterRun) contain(ctx context.Context) {
 		n, err := cancelApprovals(ctx, t.Pool, r.k)
 		r.dbs[i].ApprovalsCancelled = n
 		r.dbs[i].Error = joinErr(r.dbs[i].Error, err)
-		c, err := cancelInflight(ctx, t.Pool, r.inflight[t.DatabaseID])
+		c, err := cancelInflight(ctx, t.signalPool(), r.inflight[t.DatabaseID])
 		r.dbs[i].StatementsCancelled = c
 		r.dbs[i].Error = joinErr(r.dbs[i].Error, err)
 	}
-	e, err := terminate(ctx, primary, r.k, r.scopeDatname())
+	e, err := terminate(ctx, r.targets[0].signalPool(), r.k, r.scopeDatname())
 	r.noteEnded(e)
 	r.dbs[0].Error = joinErr(r.dbs[0].Error, err)
 	r.containReplicas(ctx)
@@ -262,6 +262,7 @@ func (r *clusterRun) record(ctx context.Context, decisionID int64) (int64, error
 		return 0, fmt.Errorf("agentguard: %s ran but recording it failed: %w",
 			r.k.actionType, err)
 	}
+	executor.RecordPoolOutcome(r.targets[0].Pool, r.k.actionType, r.outcome())
 	return id, nil
 }
 

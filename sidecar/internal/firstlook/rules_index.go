@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/sqlident"
 )
 
 // Index is one user index as the catalog describes it (pg_index, pg_class,
@@ -29,6 +31,35 @@ type Index struct {
 	Expressions      string // pg_get_expr(indexprs), "" when none
 	SizeBytes        int64
 	Scans            int64
+	// KeyNames are the key columns' names, "" for an expression; read only
+	// for invalid unique indexes (readUniqueKeys), nil when not read.
+	KeyNames []string
+	// NullsNotDistinct: a unique index whose NULL keys count as equal
+	// (PostgreSQL 15+); read with KeyNames.
+	NullsNotDistinct bool
+	// Partitioned: an index on a partitioned table (relkind 'I'); it has
+	// no storage and no statistics of its own.
+	Partitioned bool
+	// IsPartition: attached to the partitioned index ParentOID, so it cannot
+	// be dropped on its own. A detached partition's index has neither.
+	IsPartition bool
+	ParentOID   uint32
+	// Unattached are the partitions of an invalid partitioned index's table
+	// with no index attached to it, at most maxAttachListed, and
+	// UnattachedTotal is how many there are; IndexDef is its
+	// pg_get_indexdef. Read only for those indexes (readUnattached), which
+	// sets UnattachedRead.
+	Unattached      []Partition
+	UnattachedTotal int
+	UnattachedRead  bool
+	IndexDef        string
+}
+
+// Partition is one partition of a partitioned table; Partitioned when it
+// is partitioned itself.
+type Partition struct {
+	Schema, Name string
+	Partitioned  bool
 }
 
 // ForeignKey is one foreign key constraint (pg_constraint contype 'f').
@@ -41,6 +72,8 @@ type ForeignKey struct {
 	// TableRows is pg_class.reltuples of the referencing table; negative
 	// when the table was never analyzed.
 	TableRows float64
+	// Partitioned: the referencing table is partitioned.
+	Partitioned bool
 }
 
 const neverScannedWarnAge = 7 * 24 * time.Hour
@@ -61,30 +94,6 @@ func (x Index) keys() []int16 {
 
 func (x Index) hasInclude() bool { return len(x.keys()) < len(x.Columns) }
 
-// InvalidIndexes reports indexes a failed concurrent build left invalid:
-// they cost writes and serve no reads.
-func InvalidIndexes(idx []Index) []Item {
-	var out []Item
-	for _, x := range idx {
-		if x.Valid {
-			continue
-		}
-		name := ident(x.Schema) + "." + ident(x.Name)
-		out = append(out, Item{Rule: RuleInvalidIndex, Severity: SeverityWarning,
-			Object: x.object(), Title: "Invalid index " + x.object(),
-			Detail: fmt.Sprintf("Index %s on %s is invalid (%s): a failed CREATE INDEX "+
-				"CONCURRENTLY or REINDEX left it behind. It is maintained on every write "+
-				"but never used for reads.", x.object(), qualified(x.Schema, x.Table),
-				sizeText(x.SizeBytes)),
-			Recommendation: "Rebuild it if it is needed, otherwise drop it.",
-			SuggestedSQL:   "REINDEX INDEX CONCURRENTLY " + name + ";",
-			Evidence: []Evidence{{Source: "pg_index",
-				Ref:    "pg_index.indisvalid = false (indexrelid " + x.object() + ")",
-				Detail: fmt.Sprintf("indisready=%t", x.Ready)}}})
-	}
-	return out
-}
-
 // shapeKey identifies what an index stores and in which order.
 func shapeKey(x Index) string {
 	return fmt.Sprintf("%d|%s|%v|%d|%v|%v|%s|%s", x.TableOID, x.AccessMethod, x.Columns,
@@ -96,6 +105,8 @@ func keepRank(a, b Index) int {
 	switch {
 	case a.ConstraintBacked != b.ConstraintBacked:
 		return boolRank(a.ConstraintBacked)
+	case a.IsPartition != b.IsPartition:
+		return boolRank(a.IsPartition)
 	case a.Unique != b.Unique:
 		return boolRank(a.Unique)
 	case a.OID < b.OID:
@@ -116,7 +127,8 @@ func boolRank(first bool) int {
 // DuplicateIndexes reports exact duplicates (same table, method, columns,
 // operator classes, collations, expressions and predicate) and plain btree
 // indexes whose columns are a leading prefix of another index. flagged
-// holds the OIDs reported, so other rules can skip them.
+// holds the OIDs reported, so other rules can skip them. An index attached
+// to a partitioned index is never reported: its parent is, once.
 func DuplicateIndexes(idx []Index) ([]Item, map[uint32]bool) {
 	flagged := map[uint32]bool{}
 	groups := map[string][]Index{}
@@ -131,6 +143,7 @@ func DuplicateIndexes(idx []Index) ([]Item, map[uint32]bool) {
 		}
 		groups[k] = append(groups[k], x)
 	}
+	tree := newPartitionTree(idx)
 	var out []Item
 	for _, k := range keys {
 		copies := groups[k]
@@ -139,26 +152,26 @@ func DuplicateIndexes(idx []Index) ([]Item, map[uint32]bool) {
 		}
 		slices.SortFunc(copies, keepRank)
 		for _, dup := range copies[1:] {
-			if dup.ConstraintBacked {
-				continue // dropping it means dropping a constraint
+			if dup.ConstraintBacked || dup.IsPartition {
+				continue // dropping it means dropping a constraint or its parent
 			}
 			flagged[dup.OID] = true
-			out = append(out, duplicateItem(dup, copies[0]))
+			out = append(out, duplicateItem(dup, copies[0], tree.size(dup)))
 		}
 	}
-	return append(out, redundantPrefixes(idx, flagged)...), flagged
+	return append(out, redundantPrefixes(idx, flagged, tree)...), flagged
 }
 
-func duplicateItem(dup, keep Index) Item {
+// duplicateItem reports dup, of size bytes, as a copy of keep.
+func duplicateItem(dup, keep Index, size int64) Item {
 	return Item{Rule: RuleDuplicateIndex, Severity: SeverityWarning, Object: dup.object(),
 		Title: "Duplicate index " + dup.object(),
 		Detail: fmt.Sprintf("%s (%s) is identical to %s on %s: same columns, operator "+
 			"classes, collations and predicate. Every write maintains both.", dup.object(),
-			sizeText(dup.SizeBytes), keep.object(), qualified(dup.Schema, dup.Table)),
+			sizeText(size), keep.object(), qualified(dup.Schema, dup.Table)),
 		Recommendation: "Drop the duplicate after checking no query hint or constraint " +
 			"names it.",
-		SuggestedSQL: "DROP INDEX CONCURRENTLY " + ident(dup.Schema) + "." + ident(dup.Name) +
-			";",
+		SuggestedSQL: dropSQL(dup), Caveat: dropCaveat(dup),
 		Evidence: []Evidence{{Source: "pg_index",
 			Ref: "pg_index.indkey, indclass, indcollation (indexrelid " + dup.object() + ")",
 			Detail: fmt.Sprintf("indkey=%v indclass=%v same as %s", dup.Columns,
@@ -167,10 +180,11 @@ func duplicateItem(dup, keep Index) Item {
 
 // redundantPrefixes reports plain btree indexes whose columns lead another
 // btree index on the same table.
-func redundantPrefixes(idx []Index, flagged map[uint32]bool) []Item {
+func redundantPrefixes(idx []Index, flagged map[uint32]bool, tree partitionTree) []Item {
 	var out []Item
 	for _, a := range idx {
-		if !plainBtree(a) || a.Unique || a.ConstraintBacked || flagged[a.OID] {
+		if !plainBtree(a) || a.Unique || a.ConstraintBacked || a.IsPartition ||
+			flagged[a.OID] {
 			continue
 		}
 		for _, b := range idx {
@@ -183,10 +197,9 @@ func redundantPrefixes(idx []Index, flagged map[uint32]bool) []Item {
 			out = append(out, Item{Rule: RuleRedundantIndex, Severity: SeverityInfo,
 				Object: a.object(), Title: "Redundant index " + a.object(),
 				Detail: fmt.Sprintf("The columns of %s (%s) lead %s, which serves the "+
-					"same lookups.", a.object(), sizeText(a.SizeBytes), b.object()),
+					"same lookups.", a.object(), sizeText(tree.size(a)), b.object()),
 				Recommendation: "Drop it unless a query relies on its smaller size.",
-				SuggestedSQL: "DROP INDEX CONCURRENTLY " + ident(a.Schema) + "." +
-					ident(a.Name) + ";",
+				SuggestedSQL:   dropSQL(a), Caveat: dropCaveat(a),
 				Evidence: []Evidence{{Source: "pg_index",
 					Ref: "pg_index.indkey (indexrelid " + a.object() + ")",
 					Detail: fmt.Sprintf("indkey=%v is a prefix of %s indkey=%v",
@@ -195,6 +208,22 @@ func redundantPrefixes(idx []Index, flagged map[uint32]bool) []Item {
 		}
 	}
 	return out
+}
+
+// dropSQL drops x; a partitioned index cannot be dropped concurrently.
+func dropSQL(x Index) string {
+	name := sqlident.Qualified(x.Schema, x.Name)
+	if !x.Partitioned {
+		return "DROP INDEX CONCURRENTLY " + name + ";"
+	}
+	return "DROP INDEX " + name + ";"
+}
+
+func dropCaveat(x Index) string {
+	if x.Partitioned {
+		return partitionDropCaveat
+	}
+	return ""
 }
 
 func plainBtree(x Index) bool {
@@ -220,19 +249,28 @@ func isPrefix(a, b Index) bool {
 
 // NeverScannedIndexes reports indexes with no scans in the statistics
 // window. Constraint indexes, invalid ones and those already reported
-// (flagged) are skipped. The caveat states the window: a recent reset, a
-// newer index or reads on replicas make zero scans meaningless.
+// (flagged) are skipped. A partitioned index is reported once, when its
+// partitions' indexes have no scans in total; those are never reported on
+// their own. The caveat states the window: a recent reset, a newer index
+// or reads on replicas make zero scans meaningless.
 func NeverScannedIndexes(idx []Index, flagged map[uint32]bool, w StatsWindow,
 	now time.Time) []Item {
+	sev := SeverityInfo
+	if w.Known && now.Sub(w.Since) >= neverScannedWarnAge {
+		sev = SeverityWarning
+	}
+	tree := newPartitionTree(idx)
 	var out []Item
 	for _, x := range idx {
 		if x.Scans != 0 || !x.usable() || x.Unique || x.Primary || x.ConstraintBacked ||
-			flagged[x.OID] {
+			x.IsPartition || flagged[x.OID] {
 			continue
 		}
-		sev := SeverityInfo
-		if w.Known && now.Sub(w.Since) >= neverScannedWarnAge {
-			sev = SeverityWarning
+		if x.Partitioned {
+			if it, ok := neverScannedParent(x, tree, w, sev, now); ok {
+				out = append(out, it)
+			}
+			continue
 		}
 		out = append(out, Item{Rule: RuleNeverScannedIndex, Severity: sev,
 			Object: x.object(), Title: "Index " + x.object() + " was never scanned",
@@ -280,7 +318,7 @@ func UnindexedForeignKeys(fks []ForeignKey, idx []Index, minRows float64) []Item
 		cols := strings.Join(fk.ColumnNames, ", ")
 		quoted := make([]string, len(fk.ColumnNames))
 		for i, c := range fk.ColumnNames {
-			quoted[i] = ident(c)
+			quoted[i] = sqlident.Ident(c)
 		}
 		out = append(out, Item{Rule: RuleUnindexedFK, Severity: SeverityWarning,
 			Object: table + "." + fk.Name,
@@ -289,14 +327,31 @@ func UnindexedForeignKeys(fks []ForeignKey, idx []Index, minRows float64) []Item
 				"on %s scans %s (%s rows) and holds locks longer.", table, cols, fk.RefTable,
 				table, rowsText(fk.TableRows)),
 			Recommendation: "Create an index on the referencing columns.",
-			SuggestedSQL: fmt.Sprintf("CREATE INDEX CONCURRENTLY ON %s.%s (%s);",
-				ident(fk.Schema), ident(fk.Table), strings.Join(quoted, ", ")),
+			SuggestedSQL:   fkIndexSQL(fk, strings.Join(quoted, ", ")),
+			Caveat:         fkIndexCaveat(fk),
 			Evidence: []Evidence{{Source: "pg_constraint",
 				Ref: "pg_constraint.conkey (conname " + fk.Name + ", contype f)",
 				Detail: fmt.Sprintf("conkey=%v; no pg_index on %s leads with them",
 					fk.Columns, table)}}})
 	}
 	return out
+}
+
+// fkIndexSQL builds the index for fk on its quoted columns; a
+// partitioned table cannot build one concurrently.
+func fkIndexSQL(fk ForeignKey, cols string) string {
+	table := sqlident.Qualified(fk.Schema, fk.Table)
+	if !fk.Partitioned {
+		return fmt.Sprintf("CREATE INDEX CONCURRENTLY ON %s (%s);", table, cols)
+	}
+	return fmt.Sprintf("CREATE INDEX ON %s (%s);", table, cols)
+}
+
+func fkIndexCaveat(fk ForeignKey) string {
+	if fk.Partitioned {
+		return partitionBuildCaveat
+	}
+	return ""
 }
 
 func fkCovered(fk ForeignKey, idx []Index) bool {

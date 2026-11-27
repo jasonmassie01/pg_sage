@@ -3,23 +3,37 @@ package optimizer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/catalogread"
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/workload"
 )
+
+// ErrPartitionsUnknown: the collector could not read the partition map
+// this cycle, so whether a table is a partitioned parent or a partition is
+// unknown; a context then would plan either as a standalone table, so none
+// is built until the next cycle reads it (collection-05).
+var ErrPartitionsUnknown = errors.New("partition map unavailable this cycle; " +
+	"partition-sensitive recommendations wait for the next collection")
 
 // TableContext builds the context of one table ("schema.table", quoted
 // where needed) from the snapshot: its workload statements, indexes,
 // write activity and partitions, plus bounded single-table catalog reads
-// (columns, statistics of the queried columns, collation) and the plans of
-// its own statements. ok is false when the snapshot does not hold the
-// table or the table belongs to a system or pg_sage schema.
+// (columns, statistics of the queried columns, collation). It runs no
+// EXPLAIN: the HypoPG what-if plans statements, bounded, when a candidate
+// is measured. ok is false when the snapshot does not hold the table or
+// the table belongs to a system or pg_sage schema.
 func (o *Optimizer) TableContext(
 	ctx context.Context, snap *collector.Snapshot, table string,
 ) (TableContext, bool, error) {
 	if snap == nil {
 		return TableContext{}, false, errors.New("table context: nil snapshot")
+	}
+	if !snap.Available("partitions") {
+		return TableContext{}, false, fmt.Errorf("table context of %s: %w (%s)", table,
+			ErrPartitionsUnknown, snap.Unavailable["partitions"])
 	}
 	ts, ok := findTable(snap, table)
 	if !ok || skipSchema(ts.SchemaName) {
@@ -27,7 +41,8 @@ func (o *Optimizer) TableContext(
 	}
 	key := ts.SchemaName + "." + ts.RelName
 	tableQueries := groupQueriesByTable(snap)
-	queries := filterByMinCalls(tableQueries[key], int64(o.cfg.MinQueryCalls))
+	rel := workload.Relation{Schema: ts.SchemaName, Name: ts.RelName}
+	queries := filterByMinCalls(tableQueries[rel], int64(o.cfg.MinQueryCalls))
 	isParent := buildPartitionParentSet(snap)[key]
 	if isParent {
 		queries = mergeChildQueries(queries, tableQueries,
@@ -35,7 +50,6 @@ func (o *Optimizer) TableContext(
 	}
 	tc := baseContext(snap, ts, queries, isParent)
 	o.readCatalog(ctx, &tc, queries)
-	tc.Plans, tc.PlanSource = o.capturePlans(ctx, snap, queries)
 	tc.Queries = GroupByFingerprint(tc.Queries)
 	tc.JoinPairs = DetectJoinPairs(tc.Queries)
 	return tc, true, nil
@@ -55,7 +69,6 @@ func baseContext(snap *collector.Snapshot, ts collector.TableStats, queries []Qu
 		Queries:        queries,
 		Relpersistence: ts.Relpersistence,
 		IsPartitioned:  isParent,
-		PlanSource:     "none",
 	}
 	if isParent {
 		tc.PartitionChildren, tc.NestedPartitions = partitionChildren(snap,
@@ -68,43 +81,42 @@ func baseContext(snap *collector.Snapshot, ts collector.TableStats, queries []Qu
 	return tc
 }
 
-// readCatalog adds the table's columns, column statistics and the
-// database collation; without a database the context keeps none.
+// readCatalog adds the server's major version, the table's columns, their
+// key defaults, column statistics and the database collation; without a
+// database the context keeps none (and ColumnsKnown stays false).
 func (o *Optimizer) readCatalog(ctx context.Context, tc *TableContext, queries []QueryInfo) {
 	if o.pool == nil {
 		return
 	}
-	reader := catalogread.New(o.pool, o.catalogTimeouts)
-	collation, err := fetchCollation(ctx, reader)
-	if err != nil {
-		o.logFn("optimizer", "read database collation: %v", err)
-	}
-	tc.Collation = collation
-	tc.Columns = fetchColumns(ctx, reader, tc.Schema, tc.Table)
-	tc.ColStats = fetchColStats(ctx, reader, tc.Schema, tc.Table, queries)
+	o.fillCatalog(ctx, catalogread.New(o.pool, o.catalogTimeouts), tc, queries)
 }
 
-// capturePlans captures plans for the table's own statements only.
-func (o *Optimizer) capturePlans(ctx context.Context, snap *collector.Snapshot,
-	queries []QueryInfo) ([]PlanSummary, string) {
-	if o.pool == nil || len(queries) == 0 {
-		return nil, "none"
+// fillCatalog runs readCatalog's reads on reader. A failed or empty column
+// read leaves ColumnsKnown false: information_schema.columns lists only
+// the columns the role may see, and a timeout is no evidence either.
+func (o *Optimizer) fillCatalog(ctx context.Context, reader catalogread.Querier,
+	tc *TableContext, queries []QueryInfo) {
+	collation, major, err := fetchCollationAndMajor(ctx, reader)
+	if err != nil {
+		o.logFn("optimizer", "%v; version-specific index rules (PostgreSQL 18 skip scan) "+
+			"are off for %s.%s this cycle", err, tc.Schema, tc.Table)
 	}
-	want := make(map[int64]bool, len(queries))
-	for _, q := range queries {
-		want[q.QueryID] = true
+	tc.Collation, tc.PGMajor = collation, major
+	cols, err := fetchColumns(ctx, reader, tc.Schema, tc.Table)
+	if err != nil {
+		o.logFn("WARN", "optimizer: %v; column existence is not checked this cycle", err)
 	}
-	var stats []collector.QueryStats
-	for _, q := range applicationQueries(snap.Queries) {
-		if want[q.QueryID] {
-			stats = append(stats, q)
-		}
+	tc.Columns, tc.ColumnsKnown = cols, err == nil && len(cols) > 0
+	defaults, err := fetchKeyDefaults(ctx, reader, tc.Schema, tc.Table)
+	if err != nil {
+		o.logFn("optimizer", "%v; explicit default opclasses and collations will not "+
+			"match omitted ones", err)
 	}
-	plans, source := o.planner.CapturePlans(ctx, stats)
-	if len(plans) == 0 {
-		return nil, "query_text_only"
+	tc.KeyDefaults = defaults
+	tc.ColStats = fetchColStats(ctx, reader, tc.Schema, tc.Table, queries)
+	if cols := leadingKeyColumns(*tc); len(cols) > 0 {
+		tc.LeadingKeyStats = fetchNamedColStats(ctx, reader, tc.Schema, tc.Table, cols)
 	}
-	return plans, source
 }
 
 // findTable is the snapshot's row for "schema.table"; an unqualified name

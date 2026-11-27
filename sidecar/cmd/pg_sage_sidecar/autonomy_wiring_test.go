@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/earned"
 	"github.com/pg-sage/sidecar/internal/executor"
+	"github.com/pg-sage/sidecar/internal/gameday"
 	"github.com/pg-sage/sidecar/internal/notify"
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/schema"
@@ -30,7 +31,22 @@ import (
 
 func autonomyPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	p, err := pgxpool.New(context.Background(), testdb.SkipUnlessLive(t))
+	return autonomyPoolOn(t, testdb.SkipUnlessLive(t))
+}
+
+// exclusiveAutonomyPool is autonomyPool on a fresh database of the
+// exclusive test server, held for t alone (testdb.Exclusive): for tests
+// that bound XID ages or need a freeze to advance relfrozenxid, which other
+// packages' XIDs and open transactions move on the shared server.
+func exclusiveAutonomyPool(t *testing.T, reason string) *pgxpool.Pool {
+	t.Helper()
+	return autonomyPoolOn(t, testdb.Exclusive(t, reason))
+}
+
+// autonomyPoolOn connects to dsn and bootstraps the sage schema there.
+func autonomyPoolOn(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	p, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +125,7 @@ func TestInstallAdoptsLegacyLevelsForTheDatabase(t *testing.T) {
 	})
 	ledgers := newAutonomyLedgers(true)
 	if err := ledgers.install(ctx, autonomousExecutor(pool), autonomyBinding{database: db,
-		control: pool, monitored: pool,
+		control: pool, monitored: pool, ha: checkedHAMonitor(t, pool),
 		settings: config.DefaultConfig().SRE.Autonomy}); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +176,8 @@ func TestInstallAutonomyCarriesOverAndGovernsCustodians(t *testing.T) {
 	ledgers := newAutonomyLedgers(true)
 	ex := autonomousExecutor(pool)
 	if err := ledgers.install(context.Background(), ex, autonomyBinding{database: "orders",
-		control: pool, monitored: pool, settings: config.DefaultConfig().SRE.Autonomy}); err != nil {
+		control: pool, monitored: pool, settings: config.DefaultConfig().SRE.Autonomy,
+		ha: checkedHAMonitor(t, pool)}); err != nil {
 		t.Fatal(err)
 	}
 	ex.EnableStandingPolicyDocument(doc, nil)
@@ -184,7 +201,8 @@ func TestInstallAutonomyCarriesOverAndGovernsCustodians(t *testing.T) {
 	settings := config.DefaultConfig().SRE.Autonomy
 	settings.Enforce = false
 	if err := off.install(context.Background(), legacy, autonomyBinding{database: "orders",
-		control: pool, monitored: pool, settings: settings}); err != nil {
+		control: pool, monitored: pool, settings: settings,
+		ha: checkedHAMonitor(t, pool)}); err != nil {
 		t.Fatal(err)
 	}
 	legacy.EnableStandingPolicyDocument(doc, nil)
@@ -273,7 +291,8 @@ func TestIngestBenchPathIngestsEachReportOnce(t *testing.T) {
 func TestGameDayProviderSelection(t *testing.T) {
 	settings := config.DefaultConfig().SRE.Autonomy.GameDays
 	cloneNone := config.CloneProviderConfig{Provider: "none"}
-	monitored := []string{"postgres://app@db.prod:5432/orders"}
+	monitored := localTargetGuard{dsns: []string{"postgres://app@db.prod:5432/orders"},
+		pools: func(context.Context) ([]gameday.Querier, error) { return nil, nil }}
 	if p, name, err := gameDayProvider(settings, cloneNone, monitored); err != nil ||
 		p != nil || name != "" {
 		t.Fatalf("disabled game days built a provider: %v %q %v", p, name, err)
@@ -287,7 +306,7 @@ func TestGameDayProviderSelection(t *testing.T) {
 		p == nil || name != "local" {
 		t.Fatalf("local fallback = %v %q %v", p, name, err)
 	}
-	settings.LocalDSN = monitored[0]
+	settings.LocalDSN = monitored.dsns[0]
 	if _, _, err := gameDayProvider(settings, cloneNone, monitored); err == nil {
 		t.Fatal("a monitored database was accepted as the game-day target")
 	}

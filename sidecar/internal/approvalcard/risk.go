@@ -19,6 +19,8 @@ var lockByType = map[string]string{
 	"drop_unused_index": "brief ACCESS EXCLUSIVE on the index (CONCURRENTLY waits for " +
 		"running transactions instead of blocking them)",
 	"revert_created_index": "brief ACCESS EXCLUSIVE on the index",
+	"restore_dropped_index": "SHARE UPDATE EXCLUSIVE on the table: reads and writes " +
+		"continue while the dropped index is rebuilt",
 	"replace_index": "SHARE UPDATE EXCLUSIVE on the table while the new index builds " +
 		"(reads and writes continue); then a brief ACCESS EXCLUSIVE on the old index " +
 		"only (DROP INDEX CONCURRENTLY waits for running transactions instead of " +
@@ -29,6 +31,8 @@ var lockByType = map[string]string{
 	"create_statistics": "SHARE UPDATE EXCLUSIVE on the table while the statistics are " +
 		"created and the table is analyzed: reads and writes continue",
 	"revert_created_statistics": "SHARE UPDATE EXCLUSIVE on the table, briefly",
+	"set_column_statistics": "SHARE UPDATE EXCLUSIVE on the table, briefly; the next " +
+		"ANALYZE builds the larger sample",
 	"alter_table": "ACCESS EXCLUSIVE on the table: blocks reads and writes; " +
 		"some changes rewrite the table",
 	"alter_database_guc": "no table locks; applies to new sessions of the database",

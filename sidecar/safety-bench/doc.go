@@ -5,16 +5,18 @@
 // It runs three sections against real PostgreSQL (14-18):
 //
 //   - the read-only bypass regression corpus (RO-01..RO-16, incidents
-//     §4.4), run against three read-only designs, to show which designs
-//     hold under which bypass classes (readonly.go);
+//     §4.4, with the agent_query cases AQ-01..AQ-04), run against four
+//     read-only designs, to show which designs hold under which bypass
+//     classes (readonly.go);
 //   - posture scenarios (a Supabase-style exposed table, a permissive
 //     policy, a definer function, PUBLIC CREATE, pgvector versions), run
 //     through a PostureProvider adapter that the posture-detector
 //     workstreams connect (posture.go);
 //   - the incident-to-control mapping, scored against declared
 //     expectations (SR-59): prevented, detected or out of scope, with
-//     rows that need G1+ features recorded as "future release" so nothing
-//     scores as if it passed in v0 (incidents.go).
+//     rows that need G1+ features recorded as "future release" and
+//     posture rows the run did not measure recorded as "declared", so
+//     nothing scores as if it passed in v0 (incidents.go).
 //
 // Scenarios are scripted and deterministic. There is no live-LLM arm in
 // v0: the governed configurations are deterministic SQL paths. The bench

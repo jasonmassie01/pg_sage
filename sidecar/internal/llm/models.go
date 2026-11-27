@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/egress"
 )
 
 // ModelInfo describes an LLM model returned by the provider.
@@ -61,13 +63,16 @@ func (c *modelCache) setFor(key string, models []ModelInfo) {
 	}
 }
 
+// defaultModelsClient lists models through the egress floor.
+var defaultModelsClient = egress.HTTPClient(0)
+
 // ListModels queries the LLM provider for available models.
 // Results are cached for 1 hour.
 func ListModels(
 	ctx context.Context, endpoint, apiKey string,
 ) ([]ModelInfo, error) {
 	return ListModelsWithClient(
-		ctx, endpoint, apiKey, http.DefaultClient,
+		ctx, endpoint, apiKey, defaultModelsClient,
 	)
 }
 
@@ -84,6 +89,8 @@ func ListModelsWithClient(
 	}
 	key := modelCacheKey(endpoint, apiKey)
 	if cached, ok := defaultCache.getFor(key); ok {
+		// Re-record: the limit registry may have reset since the fetch.
+		inputLimits.record(key, cached)
 		return cached, nil
 	}
 	models, err := fetchModelsWithClient(
@@ -93,6 +100,7 @@ func ListModelsWithClient(
 		return nil, err
 	}
 	defaultCache.setFor(key, models)
+	inputLimits.record(key, models)
 	return models, nil
 }
 

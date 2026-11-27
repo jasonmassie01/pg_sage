@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Prepares a dedicated pgvector/pgvector container for the two agent audit
+# Prepares a dedicated CI image container for the two agent audit
 # tests that need server settings the shared test servers cannot have:
 # pgaudit preloaded with the jsonlog collector (E2's real pgaudit
 # correlation) and a pg_stat_statements.max of 100 so entries can be
 # evicted on demand (G1-10's dealloc fallback; the shared servers keep
 # 50000 so other suites' probes survive). The server is the tests' own.
+# pgaudit is installed in CI's image (scripts/ci/images, ci-03b); this
+# only configures it.
 #
 # Usage: setup-agent-audit-postgres.sh <container> <pg-major>
 set -euo pipefail
@@ -19,7 +21,7 @@ psql_admin() {
 restart_and_wait() {
   docker restart "$container" >/dev/null
   for _ in $(seq 1 60); do
-    if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then
+    if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -28,9 +30,10 @@ restart_and_wait() {
   return 1
 }
 
-docker exec -e DEBIAN_FRONTEND=noninteractive "$container" sh -c \
-  "apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-   postgresql-${major}-pgaudit >/dev/null"
+docker exec "$container" test -f "/usr/share/postgresql/${major}/extension/pgaudit.control" || {
+  echo "$container has no pgaudit: start it from CI's image (scripts/ci/images)" >&2
+  exit 1
+}
 psql_admin \
   -c "ALTER SYSTEM SET shared_preload_libraries = pg_stat_statements, pgaudit" \
   -c "ALTER SYSTEM SET logging_collector = on" \

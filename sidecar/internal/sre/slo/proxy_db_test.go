@@ -59,9 +59,12 @@ func TestConnectionProxy_SlotsAvailable(t *testing.T) {
 	}
 }
 
-// A primary without standbys has no replication lag to measure.
+// A primary without standbys has no replication lag to measure. It runs
+// on the exclusive server: pg_stat_replication counts every walsender in
+// the cluster, and on the shared server another package's logical
+// subscription adds one.
 func TestReplicationLagProxy_NoReplicas(t *testing.T) {
-	pool, ctx := livePool(t)
+	pool, ctx := exclusivePool(t, "pg_stat_replication counts every walsender in the cluster")
 	p := NewReplicationLagProxy(pool, DefaultProxyConfig())
 	s := p.Slice(ctx, time.Now(), fakeHistory{})
 	if s.Reason != ReasonNoReplicas || s.Eligible != 0 || s.Bad != 0 {

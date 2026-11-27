@@ -68,7 +68,7 @@ func TestConfigToMap_AllKeysPresent(t *testing.T) {
 
 	m := configToMap(cfg)
 
-	// Every key in allowedConfigKeys should exist in the map.
+	// Every key in api-tagged keys should exist in the map.
 	// Some keys might not be mapped (execution_mode is set at a
 	// different level), but all section-specific keys should be present.
 	expectedKeys := []string{
@@ -139,8 +139,8 @@ func TestConfigToMap_AllKeysPresent(t *testing.T) {
 		}
 		if src, hasSrc := em["source"]; !hasSrc {
 			t.Errorf("key %q: missing 'source' in entry", key)
-		} else if src != "yaml" {
-			t.Errorf("key %q: source = %q, want %q", key, src, "yaml")
+		} else if src != SourceFileDefault {
+			t.Errorf("key %q: source = %q, want %q", key, src, SourceFileDefault)
 		}
 	}
 }
@@ -582,7 +582,7 @@ func TestNullIfEmpty_Extended(t *testing.T) {
 
 func TestValidateConfigKey_AllKeys(t *testing.T) {
 	// Valid keys should not error.
-	for key := range allowedConfigKeys {
+	for key := range configKeyTypes() {
 		if err := validateConfigKey(key); err != nil {
 			t.Errorf("validateConfigKey(%q) unexpected error: %v",
 				key, err)
@@ -651,7 +651,7 @@ func TestValidateConfigValue_Comprehensive(t *testing.T) {
 		{"llm.enabled", "True", false},
 		{"llm.enabled", "FALSE", false},
 		{"llm.enabled", "yes", true},
-		{"llm.enabled", "1", true},
+		{"llm.enabled", "1", false}, // config-02: config.ParseBool grammar
 
 		// trust_level
 		{"trust.level", "observation", false},

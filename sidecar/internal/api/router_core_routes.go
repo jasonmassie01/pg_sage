@@ -20,79 +20,74 @@ func registerAPIRoutes(
 	controller *config.ConfigController,
 	cs *store.ConfigStore,
 	disableConfigWrites bool,
+	waitLoad LakebaseWaitLoadFunc,
 ) {
 	registerFindingRoutes(mux, mgr)
-	registerObservabilityRoutes(mux, mgr)
-	registerProcessControlRoutes(mux, mgr, cfg, controller, cs, disableConfigWrites)
-	registerLLMModelRoutes(mux, cfg, controller)
+	registerSourceFixRoutes(mux, mgr, cfg) // source_fix_routes.go (mcp-06)
+	registerObservabilityRoutes(mux, mgr, waitLoad)
+	registerProcessControlRoutes(mux, mgr, controller, cs, disableConfigWrites)
+	registerLLMModelRoutes(mux, controller)
 	registerIncidentRoutes(mux, mgr)
 	registerAnalysisRoutes(mux, mgr, cfg, llmMgr)
 	registerEventRoutes(mux, mgr)
 }
 
-// registerFindingRoutes covers findings, cases and the shadow report.
+// registerFindingRoutes covers findings and cases.
 func registerFindingRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	operatorUp := RequireRole("admin", "operator")
+	routeAggregate(mux, "GET /api/v1/databases", gateViewer, mgr,
+		aggregateHandler(databasesHandler))
+	routeAggregate(mux, "GET /api/v1/findings", gateViewer, mgr,
+		aggregateHandler(findingsListHandler))
+	routeAggregate(mux, "GET /api/v1/findings/{id}", gateViewer, mgr,
+		aggregateHandler(findingDetailHandler))
+	route(mux, "GET /api/v1/findings/categories", gateViewer,
+		http.HandlerFunc(findingCategoriesHandler))
+	routeAggregate(mux, "GET /api/v1/cases", gateViewer, mgr, aggregateHandler(casesHandler))
 
-	mux.HandleFunc(
-		"GET /api/v1/databases", databasesHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/findings", findingsListHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/findings/{id}",
-		findingDetailHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/cases", casesHandler(mgr))
-	mux.Handle("GET /api/v1/shadow-report",
-		operatorUp(http.HandlerFunc(shadowReportHandler(mgr))))
+	suppressH := http.HandlerFunc(
+		suppressHandler(mgr))
+	routeDB(mux, "POST /api/v1/findings/{id}/suppress", gateOperator, queryDatabase, suppressH)
 
-	suppressH := operatorUp(http.HandlerFunc(
-		suppressHandler(mgr)))
-	mux.Handle(
-		"POST /api/v1/findings/{id}/suppress", suppressH)
-
-	unsuppressH := operatorUp(http.HandlerFunc(
-		unsuppressHandler(mgr)))
-	mux.Handle(
-		"POST /api/v1/findings/{id}/unsuppress",
+	unsuppressH := http.HandlerFunc(
+		unsuppressHandler(mgr))
+	routeDB(mux, "POST /api/v1/findings/{id}/unsuppress", gateOperator, queryDatabase,
 		unsuppressH)
 }
 
 // registerObservabilityRoutes covers read-only fleet state: actions,
-// recommendations, forecasts, snapshots, fleet health and admission.
-func registerObservabilityRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	mux.HandleFunc(
-		"GET /api/v1/actions", actionsListHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/actions/{id}",
-		actionDetailHandler(mgr))
-	mux.HandleFunc("GET /api/v1/action-outcomes", actionOutcomesHandler(mgr))
-	mux.HandleFunc("GET /api/v1/tuning/calibration", tuningCalibrationHandler(mgr))
+// recommendations, forecasts, snapshots, fleet health and admission;
+// waitLoad feeds the wait-load chart's Lakebase source (market-01b).
+func registerObservabilityRoutes(
+	mux *http.ServeMux, mgr *fleet.DatabaseManager, waitLoad LakebaseWaitLoadFunc,
+) {
+	routeAggregate(mux, "GET /api/v1/actions", gateViewer, mgr,
+		aggregateHandler(actionsListHandler))
+	routeAggregate(mux, "GET /api/v1/actions/{id}", gateViewer, mgr,
+		aggregateHandler(actionDetailHandler))
+	routeAggregate(mux, "GET /api/v1/action-outcomes", gateViewer, mgr,
+		aggregateHandler(actionOutcomesHandler))
+	routeAggregate(mux, "GET /api/v1/tuning/calibration", gateViewer, mgr,
+		aggregateHandler(tuningCalibrationHandler))
 	registerRecommendationRoutes(mux, mgr)
-	mux.HandleFunc(
-		"GET /api/v1/forecasts", forecastsHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/query-hints", queryHintsHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/alert-log", alertLogHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/snapshots/latest",
-		snapshotLatestHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/snapshots/history",
-		snapshotHistoryHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/forecasts", gateViewer, mgr,
+		aggregateHandler(forecastsHandler))
+	routeAggregate(mux, "GET /api/v1/query-hints", gateViewer, mgr,
+		aggregateHandler(queryHintsHandler))
+	routeAggregate(mux, "GET /api/v1/alert-log", gateViewer, mgr, aggregateHandler(alertLogHandler))
+	routeAggregate(mux, "GET /api/v1/snapshots/latest", gateViewer, mgr,
+		aggregateHandler(snapshotLatestHandler))
+	routeAggregate(mux, "GET /api/v1/snapshots/history", gateViewer, mgr,
+		aggregateHandler(snapshotHistoryHandler))
+	registerWorkloadRoutes(mux, mgr, waitLoad) // workload_routes.go (market-01, market-01b)
 	// v0.12 — Fleet-wide health time-series (ui-redesign-v2 §5 Overview).
-	mux.HandleFunc(
-		"GET /api/v1/fleet/health",
-		fleetHealthHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/fleet/readiness",
-		fleetReadinessHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/admission", admissionListHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/admission/{name}",
-		admissionStatusHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/fleet/health", gateViewer, mgr,
+		aggregateHandler(fleetHealthHandler))
+	routeAggregate(mux, "GET /api/v1/fleet/readiness", gateViewer, mgr,
+		aggregateHandler(fleetReadinessHandler))
+	routeAggregate(mux, "GET /api/v1/admission", gateViewer, mgr,
+		aggregateHandler(admissionListHandler))
+	routeAggregate(mux, "GET /api/v1/admission/{name}", gateViewer, mgr,
+		aggregateHandler(admissionStatusHandler))
 }
 
 // registerProcessControlRoutes covers the process-level config document,
@@ -100,106 +95,89 @@ func registerObservabilityRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager)
 func registerProcessControlRoutes(
 	mux *http.ServeMux,
 	mgr *fleet.DatabaseManager,
-	cfg *config.Config,
 	controller *config.ConfigController,
 	cs *store.ConfigStore,
 	disableConfigWrites bool,
 ) {
-	adminOnly := RequireRole("admin")
-	operatorUp := RequireRole("admin", "operator")
+	route(mux, "GET /api/v1/config", gateViewer,
+		http.HandlerFunc(configGetHandler(mgr, controller)))
 
-	mux.HandleFunc(
-		"GET /api/v1/config", configGetHandler(mgr, cfg, controller))
-
-	configPutHandler := configUpdateHandlerWithStore(
-		mgr, cfg, controller, cs,
-	)
+	configPutHandler := configUpdateHandlerWithStore(controller, cs)
 	if disableConfigWrites {
 		configPutHandler = configPersistenceUnavailableHandler()
 	}
-	configPutH := adminOnly(http.HandlerFunc(configPutHandler))
-	mux.Handle("PUT /api/v1/config", configPutH)
+	configPutH := http.HandlerFunc(configPutHandler)
+	route(mux, "PUT /api/v1/config", gateAdmin, configPutH)
 
-	mux.HandleFunc(
-		"GET /api/v1/metrics", metricsHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/metrics", gateViewer, mgr, aggregateHandler(metricsHandler))
 
-	stopH := operatorUp(http.HandlerFunc(
-		emergencyStopHandler(mgr)))
-	mux.Handle("POST /api/v1/emergency-stop", stopH)
+	stopH := http.HandlerFunc(
+		emergencyStopHandler(mgr))
+	routeDB(mux, "POST /api/v1/emergency-stop", gateOperator, queryDatabase, stopH)
 
-	resumeH := operatorUp(http.HandlerFunc(
-		resumeHandler(mgr)))
-	mux.Handle("POST /api/v1/resume", resumeH)
+	resumeH := http.HandlerFunc(
+		resumeHandler(mgr))
+	routeDB(mux, "POST /api/v1/resume", gateOperator, queryDatabase, resumeH)
 
 	// Restart the sidecar process so startup-only settings (trust tiers,
 	// maintenance window, execution mode, intervals) take effect. Requires
 	// a supervisor (launcher loop / orchestrator) that relaunches on the
 	// restart exit code; returns 501 if no restart hook is wired.
-	mux.Handle("POST /api/v1/restart",
-		adminOnly(http.HandlerFunc(restartHandler)))
+	route(mux, "POST /api/v1/restart", gateAdmin, http.HandlerFunc(restartHandler))
 }
 
 // registerLLMModelRoutes covers model listing and admin model discovery.
 func registerLLMModelRoutes(
-	mux *http.ServeMux, cfg *config.Config, controller *config.ConfigController,
+	mux *http.ServeMux, controller *config.ConfigController,
 ) {
-	adminOnly := RequireRole("admin")
-	mux.HandleFunc(
-		"GET /api/v1/llm/models",
-		listModelsHandler(&cfg.LLM, controller))
-	mux.Handle(
-		"POST /api/v1/llm/models",
-		adminOnly(http.HandlerFunc(discoverModelsHandler(&cfg.LLM, controller))))
+	route(mux, "GET /api/v1/llm/models", gateViewer,
+		http.HandlerFunc(listModelsHandler(controller)))
+	route(mux, "POST /api/v1/llm/models", gateAdmin,
+		http.HandlerFunc(discoverModelsHandler(controller)))
 }
 
 // registerIncidentRoutes covers the v0.9 incident endpoints.
 func registerIncidentRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	operatorUp := RequireRole("admin", "operator")
-	mux.HandleFunc(
-		"GET /api/v1/incidents",
-		incidentsListHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/incidents/active",
-		incidentsActiveHandler(mgr))
-	mux.HandleFunc(
-		"GET /api/v1/incidents/{id}",
-		incidentDetailHandler(mgr))
-	resolveH := operatorUp(http.HandlerFunc(
-		incidentResolveHandler(mgr)))
-	mux.Handle(
-		"POST /api/v1/incidents/{id}/resolve", resolveH)
+	routeAggregate(mux, "GET /api/v1/incidents", gateViewer, mgr,
+		aggregateHandler(incidentsListHandler))
+	routeAggregate(mux, "GET /api/v1/incidents/active", gateViewer, mgr,
+		aggregateHandler(incidentsActiveHandler))
+	routeAggregate(mux, "GET /api/v1/incidents/{id}", gateViewer, mgr,
+		aggregateHandler(incidentDetailHandler))
+	resolveH := http.HandlerFunc(
+		incidentResolveHandler(mgr))
+	routeDB(mux, "POST /api/v1/incidents/{id}/resolve", gateOperator, queryDatabase,
+		resolveH)
 }
 
-// registerAnalysisRoutes covers explain, growth forecasts and finding stats.
+// registerAnalysisRoutes covers explain, growth forecasts, finding stats
+// and the decision ledger (decisions, policy explain).
 func registerAnalysisRoutes(
 	mux *http.ServeMux,
 	mgr *fleet.DatabaseManager,
 	cfg *config.Config,
 	llmMgr *llm.Manager,
 ) {
-	operatorUp := RequireRole("admin", "operator")
-
 	// v0.9 — Explain endpoint
 	var explainLLM *llm.Client
 	if llmMgr != nil {
 		explainLLM = llmMgr.General
 	}
-	explainH := operatorUp(http.HandlerFunc(
-		explainHandler(mgr, cfg, explainLLM)))
-	mux.Handle("POST /api/v1/explain", explainH)
+	explainH := http.HandlerFunc(
+		explainHandler(mgr, cfg, explainLLM))
+	routeDB(mux, "POST /api/v1/explain", gateOperator, queryDatabase, explainH)
 
 	// v0.9 — Growth forecast endpoint
-	mux.HandleFunc(
-		"GET /api/v1/forecasts/growth",
-		growthForecastHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/forecasts/growth", gateViewer, mgr,
+		aggregateHandler(growthForecastHandler))
 
 	// v0.11 — Findings stats aggregate (replaces the old
 	// /api/v1/schema/findings + /stats split). Schema-lint rows
 	// live in sage.findings under category LIKE 'schema_lint:%';
 	// callers pass source=schema_lint to filter to that subsystem.
-	mux.HandleFunc(
-		"GET /api/v1/findings/stats",
-		findingsStatsHandler(mgr))
+	routeAggregate(mux, "GET /api/v1/findings/stats", gateViewer, mgr,
+		aggregateHandler(findingsStatsHandler))
+	registerDecisionRoutes(mux, mgr) // policy-07
 }
 
 // registerEventRoutes registers the SSE live-update stream. The broker
@@ -213,6 +191,6 @@ func registerEventRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
 			)
 		})
 	}
-	mux.HandleFunc(
-		"GET /api/v1/events", eventsHandler(defaultBroker))
+	routeRead(mux, "GET /api/v1/events", gateViewer, readStream,
+		http.HandlerFunc(eventsHandler(defaultBroker)))
 }

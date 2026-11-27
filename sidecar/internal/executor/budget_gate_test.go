@@ -275,7 +275,7 @@ func rewriteGate(exec *Executor, doc policy.Document) policy.Gate {
 		Usage: exec.standingUsage,
 		RecordDecisionDetailed: func(ctx context.Context, req policy.ActionRequest,
 			decision policy.Decision) (string, int64, error) {
-			recorded, err := decisions.RecordDecision(ctx, ledgerInput(nil, 1, req, decision))
+			recorded, err := decisions.RecordDecision(ctx, ledgerInputAt(nil, 1, req, decision))
 			return recorded.EvidenceID, recorded.ID, err
 		},
 	})

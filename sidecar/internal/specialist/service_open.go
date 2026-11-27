@@ -211,8 +211,10 @@ func (s *Service) checkBounds(ctx context.Context, id Identity) error {
 }
 
 // liveCount counts the still-live investigations tokenID opened, marking
-// finished ones terminal. An investigation that cannot be read counts as
-// live (the bound fails closed).
+// only those seen ended terminal. An investigation that cannot be read
+// (its database is missing from the fleet directory during a reload or
+// reconnect, or the read fails) counts as live and is left untouched: the
+// bound fails closed.
 func (s *Service) liveCount(ctx context.Context, tokenID string) (int, error) {
 	refs, err := s.store.LiveOpened(ctx, tokenID)
 	if err != nil {
@@ -220,7 +222,7 @@ func (s *Service) liveCount(ctx context.Context, tokenID string) (int, error) {
 	}
 	live := 0
 	for _, ref := range refs {
-		if s.stillLive(ctx, ref) {
+		if s.liveState(ctx, ref) != livenessEnded {
 			live++
 			continue
 		}
@@ -231,16 +233,43 @@ func (s *Service) liveCount(ctx context.Context, tokenID string) (int, error) {
 	return live, nil
 }
 
-func (s *Service) stillLive(ctx context.Context, ref LiveRef) bool {
+// liveness is what a bound check knows of an opened investigation.
+type liveness int
+
+const (
+	livenessLive    liveness = iota // read and still running
+	livenessEnded                   // read terminal, or gone (not found)
+	livenessUnknown                 // not readable now; counts as live
+)
+
+// liveState reads ref's investigation. Only a terminal state or a
+// not-found read ends it; an unreadable one older than the age cap ends
+// too, so a database removed from the fleet cannot hold its slots
+// forever. The cap never overrides a readable live state.
+func (s *Service) liveState(ctx context.Context, ref LiveRef) liveness {
+	st := s.readLiveness(ctx, ref)
+	if st == livenessUnknown && !ref.OpenedAt.IsZero() &&
+		s.now().Sub(ref.OpenedAt) > s.limits.MaxLiveAge {
+		return livenessEnded
+	}
+	return st
+}
+
+func (s *Service) readLiveness(ctx context.Context, ref LiveRef) liveness {
 	b, ok := s.dir.Backend(ref.Database)
 	if !ok {
-		return false
+		return livenessUnknown
 	}
 	d, err := b.Detail(ctx, sre.UUID(ref.InvestigationID))
-	if err != nil {
-		return !isNotFound(backendErr(err))
+	switch {
+	case err != nil && isNotFound(backendErr(err)):
+		return livenessEnded
+	case err != nil:
+		return livenessUnknown
+	case d.Investigation.State.Terminal():
+		return livenessEnded
 	}
-	return !d.Investigation.State.Terminal()
+	return livenessLive
 }
 
 // record audits an open or attach; adapter opens owe their system a result

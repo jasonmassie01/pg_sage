@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/testdb"
 	"github.com/pg-sage/sidecar/internal/testsupport/pgssepoch"
 	"github.com/pg-sage/sidecar/internal/testsupport/selfload"
 )
@@ -36,7 +37,7 @@ func TestWriteLatencyLeavesOutPgSageStatements(t *testing.T) {
 		(SELECT oid FROM pg_database WHERE datname = current_database()), 0)`); err != nil {
 		t.Skipf("pg_stat_statements_reset unavailable: %v", err)
 	}
-	sage := selfload.SagePool(t, testDSN())
+	sage := selfload.SagePool(t, testdb.SkipUnlessLive(t))
 	// Another package's pg_stat_statements_reset() on the shared server can
 	// erase the inserts' rows before they are read: repeat then.
 	pgssepoch.Attempt(t, ctx, pool, 3, func() []string {
@@ -69,7 +70,7 @@ func writeLatencyProblems(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		t.Fatalf("application statement in pg_stat_statements: %v", err)
 	}
 	var got float64
-	if err := pool.QueryRow(ctx, writeLatencySQL).Scan(&got); err != nil {
+	if err := pool.QueryRow(ctx, writeLatencySQL(publicStatements)).Scan(&got); err != nil {
 		t.Fatalf("write latency: %v", err)
 	}
 	if math.Abs(got-appMean) > 1e-9 || got >= 100 {
@@ -81,8 +82,8 @@ func writeLatencyProblems(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 
 func TestBeforeStateActiveBackendsAreApplicationSessions(t *testing.T) {
 	requireDB(t)
-	sage := selfload.SagePool(t, testDSN())
-	selfload.Start(t, testDSN())
+	sage := selfload.SagePool(t, testdb.SkipUnlessLive(t))
+	selfload.Start(t, testdb.SkipUnlessLive(t))
 	e := New(sage, config.DefaultConfig(), zeroTime(), func(string, string, ...any) {})
 	state := e.snapshotBeforeState(context.Background(), nil)
 	if got, ok := state["active_backends"].(int); !ok || got != 2 {
@@ -96,8 +97,8 @@ func TestBeforeStateActiveBackendsAreApplicationSessions(t *testing.T) {
 // and show as active too, but none is a session of the application.
 func TestBeforeStateActiveBackendsAreClientSessions(t *testing.T) {
 	requireDB(t)
-	sage := selfload.SagePool(t, testDSN())
-	w := selfload.New(t, testDSN())
+	sage := selfload.SagePool(t, testdb.SkipUnlessLive(t))
+	w := selfload.New(t, testdb.SkipUnlessLive(t))
 	leader := w.StartParallel(t)
 	e := New(sage, config.DefaultConfig(), zeroTime(), func(string, string, ...any) {})
 	state := e.snapshotBeforeState(context.Background(), nil)
@@ -118,8 +119,8 @@ func TestBeforeStateActiveBackendsAreClientSessions(t *testing.T) {
 // the runaway policy should terminate the holder for.
 func TestRunawayBlockerCountsLeaveOutPgSageWaiters(t *testing.T) {
 	requireDB(t)
-	sage := selfload.SagePool(t, testDSN())
-	_, app, _ := selfload.Start(t, testDSN())
+	sage := selfload.SagePool(t, testdb.SkipUnlessLive(t))
+	_, app, _ := selfload.Start(t, testdb.SkipUnlessLive(t))
 	d := NewRunawayDetector(sage, &config.RunawayConfig{Enabled: true},
 		func(string, string, ...any) {})
 	counts, err := d.loadBlockerCounts(context.Background())

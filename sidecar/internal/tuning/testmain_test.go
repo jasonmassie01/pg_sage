@@ -30,7 +30,7 @@ var (
 // configured (testdb's disabled DSN).
 func dbPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn := os.Getenv(testdb.EnvName)
+	dsn := testdb.SkipUnlessLive(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)

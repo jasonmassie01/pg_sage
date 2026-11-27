@@ -2,13 +2,17 @@ package collector
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
 )
 
-func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSnapshot, error) {
-	cs := &ConfigSnapshot{}
-
-	// pg_settings for advisor features
-	rows, err := pool.Query(ctx, `/* pg_sage */ 
+// configSettingsSQL reads the pg_settings rows the advisors reason about,
+// with each row's context: the managed-cloud rewrite routes on it, so every
+// GUC the advisor may change must be listed here. The I/O settings from
+// io_method on are read for advice only; a name the server lacks (io_method
+// before 18) returns no row (market-15).
+const configSettingsSQL = `/* pg_sage collector */
 		SELECT name, setting, COALESCE(unit,''), source,
 		       COALESCE(pending_restart, false), context
 		FROM pg_settings
@@ -24,80 +28,138 @@ func collectConfigSnapshot(ctx context.Context, pool catalogQuerier) (*ConfigSna
 		      'temp_buffers','max_connections','superuser_reserved_connections',
 		      'idle_in_transaction_session_timeout','statement_timeout',
 		      'tcp_keepalives_idle','tcp_keepalives_interval',
-		      'hash_mem_multiplier')`)
-	if err != nil {
-		return cs, err
-	}
-	for rows.Next() {
-		var s PGSetting
-		if err := rows.Scan(&s.Name, &s.Setting, &s.Unit, &s.Source,
-			&s.PendingRestart, &s.Context); err != nil {
-			continue
-		}
-		cs.PGSettings = append(cs.PGSettings, s)
-	}
-	rows.Close()
+		      'hash_mem_multiplier','io_method','io_workers','io_combine_limit',
+		      'maintenance_io_concurrency')`
 
-	// Table reloptions (autovacuum overrides)
-	rows2, err := pool.Query(ctx, `/* pg_sage */ 
+// configReloptionsSQL lists the tables with per-table storage options
+// (autovacuum overrides), temporary tables left out (collection-03).
+var configReloptionsSQL = `/* pg_sage collector */
 		SELECT n.nspname, c.relname, c.reloptions::text
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname NOT IN ('pg_catalog','information_schema','sage','google_ml')
 		  AND c.relkind = 'r'
-		  AND c.reloptions IS NOT NULL`)
-	if err == nil {
-		for rows2.Next() {
-			var t TableReloption
-			if err := rows2.Scan(&t.SchemaName, &t.RelName, &t.Reloptions); err != nil {
-				continue
-			}
-			cs.TableReloptions = append(cs.TableReloptions, t)
-		}
-		rows2.Close()
-	}
+		  AND ` + notTempRel("c") + `
+		  AND c.reloptions IS NOT NULL`
 
-	// Connection state distribution
-	rows3, err := pool.Query(ctx, connectionStatesSQL)
-	if err == nil {
-		for rows3.Next() {
-			var c ConnectionState
-			if err := rows3.Scan(&c.State, &c.Count, &c.AvgDurationSeconds); err != nil {
-				continue
-			}
-			cs.ConnectionStates = append(cs.ConnectionStates, c)
-		}
-		rows3.Close()
-	}
+// walPositionSQL reads the WAL position on a primary and on a standby,
+// where pg_current_wal_lsn() fails: the last WAL received, else replayed.
+// NULL (a standby that has neither yet) is an empty position.
+const walPositionSQL = `/* pg_sage collector */ SELECT (CASE WHEN pg_is_in_recovery()
+		THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn())
+		ELSE pg_current_wal_lsn() END)::text`
 
-	// WAL position
-	var walPos string
-	err = pool.QueryRow(ctx, `/* pg_sage */ SELECT pg_current_wal_lsn()::text`).Scan(&walPos)
-	if err == nil {
-		cs.WALPosition = walPos
-	}
-
-	// Available extensions
-	rows4, err := pool.Query(ctx, `/* pg_sage */ 
+const configExtensionsSQL = `/* pg_sage collector */
 		SELECT name FROM pg_available_extensions
-		WHERE name IN ('pg_repack','pg_buffercache','pgstattuple','hypopg')`)
-	if err == nil {
-		for rows4.Next() {
-			var name string
-			if err := rows4.Scan(&name); err != nil {
-				continue
-			}
-			cs.ExtensionsAvailable = append(cs.ExtensionsAvailable, name)
+		WHERE name IN ('pg_repack','pg_buffercache','pgstattuple','hypopg')`
+
+// configSubRead is one read of the configuration snapshot.
+type configSubRead struct {
+	name string
+	read func(context.Context, catalogQuerier, *ConfigSnapshot) error
+}
+
+var configSubReads = []configSubRead{
+	{"pg_settings", readConfigSettings},
+	{"set_privileges", readSetPrivileges},
+	{"reloptions", readConfigReloptions},
+	{"connection_states", readConnectionStates},
+	{"wal_position", readWALPosition},
+	{"extensions", readConfigExtensions},
+	{"database_owner", readDatabaseOwner},
+}
+
+// collectConfigSnapshot reads the advisor's configuration snapshot. Every
+// sub-read must succeed: a partial snapshot would present a failed read
+// as a fact (a reloptions timeout as "no per-table autovacuum overrides"),
+// so any failure, including a row that does not scan, fails the snapshot
+// and names the sub-read (collection-05).
+func collectConfigSnapshot(ctx context.Context, q catalogQuerier) (*ConfigSnapshot, error) {
+	cs := &ConfigSnapshot{}
+	for _, sr := range configSubReads {
+		if err := sr.read(ctx, q, cs); err != nil {
+			return nil, fmt.Errorf("%s: %w", sr.name, err)
 		}
-		rows4.Close()
 	}
-
-	// Connection churn (new connections in last 5 minutes)
-	var churn int
-	err = pool.QueryRow(ctx, connectionChurnSQL).Scan(&churn)
-	if err == nil {
-		cs.ConnectionChurn = churn
-	}
-
 	return cs, nil
+}
+
+// queryList runs sql and scans every row; a row that does not scan, or an
+// error while reading the rows, fails the read.
+func queryList[T any](ctx context.Context, q catalogQuerier, sql string,
+	scan func(pgx.Rows, *T) error) ([]T, error) {
+	rows, err := q.Query(ctx, sql)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		var v T
+		if err := scan(rows, &v); err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func readConfigSettings(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {
+	cs.PGSettings, err = queryList(ctx, q, configSettingsSQL,
+		func(r pgx.Rows, s *PGSetting) error {
+			return r.Scan(&s.Name, &s.Setting, &s.Unit, &s.Source, &s.PendingRestart, &s.Context)
+		})
+	return err
+}
+
+// readSetPrivileges marks the superuser-context settings the role may SET
+// (advisors-01). It fails closed: a failed read leaves none settable, and
+// fails the snapshot like any other sub-read (collection-05).
+func readSetPrivileges(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) error {
+	return markSetPrivileges(ctx, q, cs.PGSettings)
+}
+
+func readConfigReloptions(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {
+	cs.TableReloptions, err = queryList(ctx, q, configReloptionsSQL,
+		func(r pgx.Rows, t *TableReloption) error {
+			return r.Scan(&t.SchemaName, &t.RelName, &t.Reloptions)
+		})
+	return err
+}
+
+func readConnectionStates(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {
+	cs.ConnectionStates, err = queryList(ctx, q, connectionStatesSQL,
+		func(r pgx.Rows, c *ConnectionState) error {
+			return r.Scan(&c.State, &c.Count, &c.AvgDurationSeconds)
+		})
+	return err
+}
+
+func readWALPosition(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) error {
+	var pos *string
+	if err := q.QueryRow(ctx, walPositionSQL).Scan(&pos); err != nil {
+		return err
+	}
+	if pos != nil {
+		cs.WALPosition = *pos
+	}
+	return nil
+}
+
+func readConfigExtensions(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) (err error) {
+	cs.ExtensionsAvailable, err = queryList(ctx, q, configExtensionsSQL,
+		func(r pgx.Rows, name *string) error { return r.Scan(name) })
+	return err
+}
+
+// databaseOwnerSQL says whether the connected role has the privileges of
+// the database's owner (a superuser does), which ALTER DATABASE ... SET
+// needs (advisors-07).
+const databaseOwnerSQL = `/* pg_sage collector */
+		SELECT COALESCE((SELECT pg_has_role(current_user, d.datdba, 'USAGE')
+		  FROM pg_database d WHERE d.datname = current_database()), false)`
+
+// readDatabaseOwner reads whether pg_sage's role owns the database.
+func readDatabaseOwner(ctx context.Context, q catalogQuerier, cs *ConfigSnapshot) error {
+	return q.QueryRow(ctx, databaseOwnerSQL).Scan(&cs.OwnsDatabase)
 }

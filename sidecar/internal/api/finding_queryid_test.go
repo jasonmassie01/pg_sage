@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/pg-sage/sidecar/internal/cases"
+	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 )
 
@@ -65,7 +66,8 @@ func TestFindingQueryIDsRemainExactAcrossAPIsAndCaseArtifacts(t *testing.T) {
 				}
 				found = true
 				assertExactFindingQueryID(t, row.row, text)
-				projected := cases.ProjectFinding(sourceFindingFromMap(row.row))
+				projected := cases.ProjectFinding(sourceFindingFromMap(row.row),
+					executor.ClassifySQL)
 				if len(projected.ActionCandidates) != 1 || projected.ActionCandidates[0].ScriptOutput == nil {
 					t.Fatalf("missing investigation artifact: %+v", projected)
 				}

@@ -311,15 +311,40 @@ func TestFleetBudgetMetricsExposePerDatabaseSpend(t *testing.T) {
 func TestInstanceAlertManagerFollowsAlertingFlag(t *testing.T) {
 	preserveFleetRuntimeGlobals(t)
 	cfg = config.DefaultConfig()
+	// alerting-06b: only the legacy engine builds a per-database manager.
+	cfg.Alerting.Engine = config.AlertingEngineLegacy
 	cfg.Alerting.Enabled = false
-	if newInstanceAlertManager(&pgxpool.Pool{}) != nil {
+	if newInstanceAlertManager(&pgxpool.Pool{}, "") != nil {
 		t.Fatal("disabled alerting built a manager")
 	}
 	cfg.Alerting.Enabled = true
-	if newInstanceAlertManager(&pgxpool.Pool{}) == nil {
+	if newInstanceAlertManager(&pgxpool.Pool{}, "") == nil {
 		t.Fatal("enabled alerting was silently skipped for a fleet instance")
 	}
-	if newInstanceAlertManager(nil) != nil {
+	if newInstanceAlertManager(nil, "") != nil {
 		t.Fatal("instance without a pool must not build an alert manager")
+	}
+}
+
+// alerting-02: the per-database manager must stamp the database name, or
+// fleet alerts are anonymous and share PagerDuty incidents across databases.
+func TestInstanceAlertManagerStampsDatabaseName(t *testing.T) {
+	preserveFleetRuntimeGlobals(t)
+	cfg = config.DefaultConfig()
+	cfg.Alerting.Engine = config.AlertingEngineLegacy // alerting-06b
+	cfg.Alerting.Enabled = true
+	for _, name := range []string{"orders", "shard:01", ""} {
+		m := newInstanceAlertManager(&pgxpool.Pool{}, name)
+		if m == nil {
+			t.Fatalf("enabled alerting built no manager for %q", name)
+		}
+		if got := m.DatabaseName(); got != name {
+			t.Errorf("manager for spec %q stamps Database %q", name, got)
+		}
+	}
+	a := newInstanceAlertManager(&pgxpool.Pool{}, "orders")
+	b := newInstanceAlertManager(&pgxpool.Pool{}, "billing")
+	if a.DatabaseName() == b.DatabaseName() {
+		t.Fatalf("two fleet databases share Database %q", a.DatabaseName())
 	}
 }

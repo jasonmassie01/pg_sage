@@ -31,10 +31,7 @@ func sessionAs(user *auth.User) func(http.Handler) http.Handler {
 // leak into other packages that share SAGE_TEST_DATABASE_URL.
 func stopTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	dsn, err := testdb.DesignatedDSN()
-	if err != nil {
-		t.Skipf("%v; actor persistence needs PostgreSQL", err)
-	}
+	dsn := testdb.SkipUnlessLive(t)
 	ctx := context.Background()
 	admin, err := pgxpool.New(ctx, dsn)
 	if err != nil {

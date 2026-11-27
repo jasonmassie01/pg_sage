@@ -61,7 +61,11 @@ func withVerifier(t *testing.T, v benchingest.Verifier, err error) {
 	t.Helper()
 	old := newBenchVerifier
 	newBenchVerifier = func() (benchingest.Verifier, error) { return v, err }
-	t.Cleanup(func() { newBenchVerifier = old })
+	benchVerifiers.reset()
+	t.Cleanup(func() {
+		newBenchVerifier = old
+		benchVerifiers.reset()
+	})
 }
 
 // writeShippedReport writes a stamped one-family report into dir/shard,
@@ -134,8 +138,10 @@ func TestShippedSignedReportIsIngestedAtStartup(t *testing.T) {
 	}
 	image := t.TempDir()
 	// In the past: the package's tests share one deployment, and a later
-	// test's newer report must win (newest report per family).
-	at := time.Now().UTC().Add(-time.Minute).Truncate(time.Second)
+	// test's newer report must win (newest report per family). Kept to the
+	// microsecond (timestamptz precision): a whole-second truncation dated it
+	// before a report an earlier test generated in the same second.
+	at := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	build := earned.Build{Version: "1.8.5", Commit: releaseCommit}
 	writeShippedReport(t, image, "core", at, build, "lock_blocking", true)
 	writeShippedReport(t, image, "runway", at.Add(time.Second), build,
@@ -175,8 +181,10 @@ func TestShippedReportForAnotherVersionIsRefused(t *testing.T) {
 	withVerifier(t, releaseFakeVerifier{commit: other.Commit}, nil)
 	res, err := ingestBenchSources(context.Background(), svc, []benchingest.Source{
 		{Path: image, Shipped: true, Actor: "release_bench"}})
-	if !errors.Is(err, earned.ErrBuildMismatch) || res.Added != 0 {
-		t.Fatalf("ingest = %+v (%v), want ErrBuildMismatch", res, err)
+	// earned-10: refused (logged once per file version), not an error.
+	if err != nil || res.Added != 0 || len(res.Refused) != 1 || res.Refused[0].Path != path ||
+		!strings.Contains(res.Refused[0].Reason, "pg_sage 1.8.4") {
+		t.Fatalf("ingest = %+v (%v), want one refusal naming pg_sage 1.8.4", res, err)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -217,7 +225,8 @@ func TestShippedReportWithoutVerificationMaterialIsUnsigned(t *testing.T) {
 func TestLocalBenchProviderNeverTargetsAMonitoredDatabase(t *testing.T) {
 	monitored := "postgres://app:pw@db.prod:5432/orders"
 	control := "postgres://sage:pw@meta.internal:5432/sage_meta"
-	refused := []string{monitored, control}
+	refused := localTargetGuard{dsns: []string{monitored, control},
+		pools: func(context.Context) ([]gameday.Querier, error) { return nil, nil }}
 	none := config.CloneProviderConfig{Provider: "none"}
 	s := config.DefaultConfig().SRE.Autonomy
 	if p, name, err := localBenchProvider(s, none, refused); err != nil || p != nil ||
@@ -246,7 +255,11 @@ func TestLocalBenchProviderNeverTargetsAMonitoredDatabase(t *testing.T) {
 // marked "local run" and stamped with the running build.
 func TestLocalBenchRunCountsForTheFamilyItCovered(t *testing.T) {
 	asRelease(t)
-	dsn := testdb.SkipUnlessLive(t)
+	// benches-02: the fault programs are cluster-wide, so the target is a
+	// marked database on a second cluster, never one beside the control
+	// database.
+	dsn := testdb.CreateDatabaseOnSecondCluster(t, "local_bench")
+	markGameDayTarget(t, dsnPool(t, dsn), dsn)
 	pool := autonomyPool(t)
 	settings := config.DefaultConfig().SRE.Autonomy
 	svc, err := newAutonomyLedgers(true).ledgerFor(context.Background(), pool, "orders",
@@ -256,8 +269,7 @@ func TestLocalBenchRunCountsForTheFamilyItCovered(t *testing.T) {
 	}
 	settings.GameDays.LocalDSN = dsn
 	bench, err := newLocalBenchFor("orders", svc, settings,
-		config.CloneProviderConfig{Provider: "none"},
-		[]string{"postgres://app@db.prod:5432/orders"})
+		config.CloneProviderConfig{Provider: "none"}, localTargetGuardFor(nil, pool))
 	if err != nil || bench == nil {
 		t.Fatalf("local bench = %v (%v)", bench, err)
 	}

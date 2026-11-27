@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -86,9 +85,9 @@ func TestRuleSelfBudget_FindingNamesResourcesAndConsumers(t *testing.T) {
 	}
 }
 
-// The self-monitoring filter drops any finding that mentions pg_sage;
-// this one is about pg_sage on purpose and must survive, so no field
-// (statement texts included) may carry the name.
+// The finding is about pg_sage on purpose: the self-monitoring filter
+// exempts its category (footprint-06), so it survives while naming pg_sage
+// and its statement texts are shown as they are, not redacted.
 func TestRuleSelfBudget_SurvivesSelfMonitoringFilter(t *testing.T) {
 	top := append(sampleTop(), selfcost.StatementCost{
 		Text: "SET application_name = 'pg_sage'", TimeMs: 1, Calls: 1})
@@ -101,8 +100,11 @@ func TestRuleSelfBudget_SurvivesSelfMonitoringFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(strings.ToLower(string(b)+f.Title+f.Recommendation), "pg_sage") {
-		t.Fatalf("finding mentions pg_sage: %s", b)
+	if !strings.Contains(string(b), "SET application_name = 'pg_sage'") {
+		t.Fatalf("statement text is not shown as it is: %s", b)
+	}
+	if !strings.Contains(f.Title, "pg_sage") {
+		t.Fatalf("title %q does not name pg_sage", f.Title)
 	}
 }
 
@@ -116,34 +118,10 @@ func TestRuleSelfBudget_WithoutConsumers(t *testing.T) {
 	}
 }
 
-// fakeProcessCPU scripts the sidecar's CPU time.
-type fakeProcessCPU struct {
-	mu  sync.Mutex
-	cpu time.Duration
-	at  time.Time
-}
-
-func (f *fakeProcessCPU) read() (time.Duration, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.cpu, true
-}
-
-func (f *fakeProcessCPU) now() time.Time {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.at
-}
-
-func (f *fakeProcessCPU) burn(wall, cpu time.Duration) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.at, f.cpu = f.at.Add(wall), f.cpu+cpu
-}
-
-// Against PostgreSQL: two analyzer cycles; the second sees the CPU
-// window, measures storage, and raises one sage_self_budget finding with
-// both breaches. The metrics accessor reports the same usage.
+// Against PostgreSQL: the analyzer never measures or checks the process
+// CPU (footprint-07: the process watch owns it, once for every database).
+// A CPU budget of 100 ms is ignored; storage over budget raises one
+// finding with the storage breach only, and the usage keeps CPU unknown.
 func TestCheckSelfBudget_TwoCyclesAgainstPostgres(t *testing.T) {
 	pool := phase2Pool(t)
 	ctx := context.Background()
@@ -153,35 +131,28 @@ func TestCheckSelfBudget_TwoCyclesAgainstPostgres(t *testing.T) {
 	cfg.SelfBudget.CPUMsPerCycle = 100
 	cfg.SelfBudget.StorageMB = 0
 	cfg.SelfBudget.BlocksPerHour = 0
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
-	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
-	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	a.eval = newCycleEval()
 	if got := a.checkSelfCost(ctx); hasCategory(got, categorySelfBudget) {
-		t.Fatalf("first cycle raised %+v without a CPU window", got)
+		t.Fatalf("CPU-only budget raised %+v on a database", got)
 	}
-	if !a.eval.failed[categorySelfBudget] {
-		t.Fatal("first cycle must leave the budget category unknown")
+	if !a.eval.ok[categorySelfBudget] || a.eval.failed[categorySelfBudget] {
+		t.Fatal("a CPU-only budget leaves nothing unknown on the database: evaluate it")
 	}
-	fake.burn(30*time.Second, 2*time.Second) // 4000 ms per 60 s cycle
-	cfg.SelfBudget.StorageMB = 1             // any bootstrapped sage schema is above 1 MB
+	cfg.SelfBudget.StorageMB = 1 // any bootstrapped sage schema is above 1 MB
 	a.eval = newCycleEval()
 	got := a.checkSelfCost(ctx)
 	f, ok := findCategory(got, categorySelfBudget)
 	if !ok {
 		t.Fatalf("second cycle findings = %+v, want %s", got, categorySelfBudget)
 	}
-	if !a.eval.ok[categorySelfBudget] {
-		t.Fatal("second cycle did not evaluate the budget category")
-	}
 	breaches := f.Detail["breaches"].([]map[string]any)
-	if len(breaches) != 2 || breaches[0]["resource"] != "cpu" || breaches[0]["used"] != 4000.0 ||
-		breaches[1]["resource"] != "storage" {
-		t.Fatalf("breaches = %#v, want cpu 4000 then storage", breaches)
+	if len(breaches) != 1 || breaches[0]["resource"] != "storage" {
+		t.Fatalf("breaches = %#v, want storage only", breaches)
 	}
 	u := a.SelfBudgetUsage()
-	if !u.CPUKnown || u.CPUMsPerCycle != 4000 || !u.StorageKnown || u.StorageBytes <= 1<<20 {
-		t.Fatalf("SelfBudgetUsage() = %+v", u)
+	if u.CPUKnown || u.CPUMsPerCycle != 0 || !u.StorageKnown || u.StorageBytes <= 1<<20 {
+		t.Fatalf("SelfBudgetUsage() = %+v, want CPU unknown and storage measured", u)
 	}
 }
 
@@ -193,12 +164,9 @@ func TestCheckSelfBudget_DisabledStillMeasures(t *testing.T) {
 	cfg := phase2Config()
 	cfg.Analyzer.SelfCostBudgetMs = 0
 	cfg.SelfBudget = config.SelfBudgetConfig{}
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
-	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
-	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	a.eval = newCycleEval()
 	a.checkSelfCost(ctx)
-	fake.burn(time.Minute, time.Hour)
 	a.eval = newCycleEval()
 	if got := a.checkSelfCost(ctx); hasCategory(got, categorySelfBudget) {
 		t.Fatalf("disabled budget raised %+v", got)
@@ -206,7 +174,7 @@ func TestCheckSelfBudget_DisabledStillMeasures(t *testing.T) {
 	if !a.eval.ok[categorySelfBudget] {
 		t.Fatal("disabled budget must evaluate the category")
 	}
-	if u := a.SelfBudgetUsage(); !u.CPUKnown || u.StorageBytes <= 0 {
+	if u := a.SelfBudgetUsage(); u.CPUKnown || u.StorageBytes <= 0 {
 		t.Fatalf("usage not measured with the budget disabled: %+v", u)
 	}
 }
@@ -226,7 +194,7 @@ func TestSelfBudgetFor_DBTimeOnlyWhenExplicit(t *testing.T) {
 	cfg.SelfBudget.StorageMB = 2
 	b := selfBudgetFor(cfg)
 	if b.DBTimeMsPerHour != 90_000 || b.StorageBytes != 2<<20 ||
-		b.CPUMsPerCycle != float64(cfg.SelfBudget.CPUMsPerCycle) {
+		b.CPUMsPerCycle != 0 {
 		t.Fatalf("budget = %+v", b)
 	}
 }
@@ -258,36 +226,42 @@ func findCategory(ff []Finding, category string) (Finding, bool) {
 }
 
 // Post-test audit: the finding's top loops come from the process-wide
-// loop tracker, measured between two analyzer cycles.
+// loop tracker, measured between two analyzer cycles, and name only this
+// database's loops (footprint-07: another database's loops and LLM waits
+// are not this database's local work).
 func TestCheckSelfBudget_NamesTheBusiestLoop(t *testing.T) {
 	pool := phase2Pool(t)
 	ctx := context.Background()
+	var db string
+	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&db); err != nil {
+		t.Fatalf("read the database name: %v", err)
+	}
 	cfg := phase2Config()
 	cfg.Collector.IntervalSeconds = 60
 	cfg.Analyzer.SelfCostBudgetMs = 0
-	cfg.SelfBudget = config.SelfBudgetConfig{CPUMsPerCycle: 100}
-	a := New(pool, cfg, nil, nil, nil, nil, nil, noopLog)
-	fake := &fakeProcessCPU{at: time.Now(), cpu: time.Minute}
-	a.selfBudget.cpu = selfbudget.NewCPUMeter(fake.read, fake.now)
+	cfg.SelfBudget = config.SelfBudgetConfig{StorageMB: 1}
+	a := New(pool, cfg, startedCollector(cfg), nil, nil, nil, nil, noopLog)
 	a.eval = newCycleEval()
 	a.checkSelfCost(ctx)
-	selfbudget.Process().Add("collector_audit_probe", 7*time.Second)
-	fake.burn(time.Minute, time.Second)
+	selfbudget.Process().Add(selfbudget.LoopName("collector_audit_probe", db), 7*time.Second)
+	selfbudget.Process().Add(selfbudget.LoopName("other_db_probe", db+"_other"), time.Hour)
+	selfbudget.Process().Add(selfbudget.LoopName(selfbudget.LLMWaitLoop, db), time.Hour)
 	a.eval = newCycleEval()
 	f, ok := findCategory(a.checkSelfCost(ctx), categorySelfBudget)
 	if !ok {
-		t.Fatal("no sage_self_budget finding with CPU over budget")
+		t.Fatal("no sage_self_budget finding with storage over budget")
 	}
 	loops := f.Detail["top_loops"].([]map[string]any)
-	found := false
-	for _, l := range loops {
-		if l["loop"] == "collector_audit_probe" && l["busy_ms"].(float64) >= 7000 &&
-			l["runs"] == int64(1) {
-			found = true
-		}
+	if len(loops) == 0 || loops[0]["loop"] != "collector_audit_probe:"+db ||
+		loops[0]["busy_ms"].(float64) < 7000 || loops[0]["runs"] != int64(1) {
+		t.Fatalf("top loops %v: want the probe loop's 7000 ms first", loops)
 	}
-	if !found {
-		t.Fatalf("top loops %v lack the probe loop's 7000 ms", loops)
+	for _, l := range loops {
+		name := l["loop"].(string)
+		if strings.HasPrefix(name, "other_db_probe") ||
+			strings.HasPrefix(name, selfbudget.LLMWaitLoop) {
+			t.Fatalf("top loops %v include %q", loops, name)
+		}
 	}
 	if !strings.Contains(f.Recommendation, "collector_audit_probe") {
 		t.Fatalf("recommendation %q does not name the busiest loop", f.Recommendation)

@@ -1,21 +1,32 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
+	"time"
 )
 
 // stdioSession is one stdio connection: a serialized writer, whether the
 // client opened a handshake-era session (it then gets list_changed
-// notifications) and its open subscriptions/listen streams.
+// notifications), its open subscriptions/listen streams and its in-flight
+// tools/call requests (runtime_stdio_calls.go).
 type stdioSession struct {
 	server *Server
 	mu     sync.Mutex
 	out    io.Writer
 	legacy bool
 	subs   map[string]subscription
+	// inflight maps a tools/call id (raw JSON) to its call; guarded by mu.
+	inflight map[string]*inflightCall
+	timeout  time.Duration
+	slots    chan struct{}
+	calls    sync.WaitGroup
+	// failed carries the first stdout write error of a tool call.
+	failed chan error
 }
 
 // subscription is one subscriptions/listen request: its id (raw JSON) and
@@ -25,8 +36,10 @@ type subscription struct {
 	tools bool
 }
 
-func newStdioSession(server *Server, out io.Writer) *stdioSession {
-	return &stdioSession{server: server, out: out, subs: map[string]subscription{}}
+func newStdioSession(server *Server, out io.Writer, timeout time.Duration) *stdioSession {
+	return &stdioSession{server: server, out: out, subs: map[string]subscription{},
+		inflight: map[string]*inflightCall{}, timeout: timeout,
+		slots: make(chan struct{}, maxStdioInflight), failed: make(chan error, 1)}
 }
 
 func (s *stdioSession) write(message []byte) error {
@@ -42,7 +55,19 @@ type envelope struct {
 	Params json.RawMessage `json:"params"`
 }
 
-func (s *stdioSession) handle(ctx context.Context, line []byte) error {
+// handle answers one line. tools/call runs on its own goroutine under the
+// call timeout; everything else (initialize, ping, tools/list, listen)
+// is answered inline, so initialize finishes before the next line is read.
+func (s *stdioSession) handle(ctx context.Context, input stdioLine) error {
+	if input.oversized {
+		return s.write(encodeResponse(rpcResponse{JSONRPC: "2.0", ID: json.RawMessage("null"),
+			Error: failure(codeInvalidRequest,
+				fmt.Sprintf("message exceeds %d MiB", maxStdioLine>>20))}))
+	}
+	line := input.data
+	if len(bytes.TrimSpace(line)) == 0 {
+		return nil
+	}
 	var message envelope
 	_ = json.Unmarshal(line, &message)
 	switch message.Method {
@@ -54,6 +79,10 @@ func (s *stdioSession) handle(ctx context.Context, line []byte) error {
 	case "notifications/cancelled":
 		s.cancel(message.Params)
 		return nil
+	case "tools/call":
+		if len(message.ID) > 0 {
+			return s.startCall(ctx, message.ID, line)
+		}
 	}
 	response := s.server.Handle(ctx, line)
 	if response == nil {
@@ -124,9 +153,14 @@ func (s *stdioSession) cancel(params json.RawMessage) {
 	if json.Unmarshal(params, &request) != nil {
 		return
 	}
+	key := string(request.RequestID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.subs, string(request.RequestID))
+	delete(s.subs, key)
+	if call, ok := s.inflight[key]; ok {
+		call.cancelled = true
+		call.cancel()
+	}
 }
 
 // toolsChanged notifies the handshake-era session and every subscription

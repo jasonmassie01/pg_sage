@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/planhash"
 )
@@ -18,6 +19,10 @@ type planPair struct {
 	PreviousPlan []byte
 	PreviousCost float64
 	PreviousTime float64
+	// CurrentAt and PreviousAt are the two plans' capture times.
+	CurrentAt, PreviousAt time.Time
+	// Roots resolves both plans' partitions; nil hashes them unresolved.
+	Roots planhash.RootResolver
 }
 
 // planDiffResult captures the delta between two plans.
@@ -38,19 +43,20 @@ type nodeEntry struct {
 func rulePlanRegression(pairs []planPair) []Finding {
 	var findings []Finding
 	for _, p := range pairs {
-		result := diffPlans(
-			p.CurrentPlan, p.PreviousPlan,
-			p.CurrentCost, p.PreviousCost,
-		)
-		if result == nil {
-			continue
-		}
-		f := buildPlanRegressionFinding(p, result)
-		if f != nil {
+		if f := regressionOf(p); f != nil {
 			findings = append(findings, *f)
 		}
 	}
 	return findings
+}
+
+// regressionOf is the pair's plan_regression finding, or nil.
+func regressionOf(p planPair) *Finding {
+	result := diffPlans(p.CurrentPlan, p.PreviousPlan, p.CurrentCost, p.PreviousCost)
+	if result == nil {
+		return nil
+	}
+	return buildPlanRegressionFinding(p, result)
 }
 
 // buildPlanRegressionFinding constructs a Finding from a detected
@@ -96,20 +102,27 @@ func buildPlanRegressionFinding(
 }
 
 // addPlanHashes records both plan fingerprints (internal/planhash).
-// plan_changed is set only when both plans could be fingerprinted, so an
-// unreadable plan is never reported as "unchanged".
+// plan_changed is set only when both plans could be fingerprinted with
+// the same version (resolved v2 or unresolved v2u), so an unreadable or
+// incomparable plan is never reported as "changed" or "unchanged".
 func addPlanHashes(detail map[string]any, p planPair) {
-	cur, curErr := planhash.Compute(p.CurrentPlan)
-	prev, prevErr := planhash.Compute(p.PreviousPlan)
+	opts := planhash.Options{Roots: p.Roots}
+	cur, curErr := planhash.ComputeWith(p.CurrentPlan, opts)
+	prev, prevErr := planhash.ComputeWith(p.PreviousPlan, opts)
 	if curErr == nil {
 		detail["current_plan_hash"] = cur
 	}
 	if prevErr == nil {
 		detail["previous_plan_hash"] = prev
 	}
-	if curErr == nil && prevErr == nil {
+	if curErr == nil && prevErr == nil && hashVersion(cur) == hashVersion(prev) {
 		detail["plan_changed"] = cur != prev
 	}
+}
+
+func hashVersion(hash string) string {
+	version, _, _ := strings.Cut(hash, ":")
+	return version
 }
 
 // diffPlans compares two EXPLAIN plans and returns a result when a

@@ -68,11 +68,14 @@ type WebhookRequest struct {
 	Request  OpenRequest `json:"request"`
 }
 
-// WebhookIgnored answers an adapter event that opens nothing.
+// WebhookIgnored answers an adapter event that opens nothing. Code
+// (revision 1.2.0) is set when the operator must act: unknown_database
+// names the mapping setting the alert's source is missing from.
 type WebhookIgnored struct {
 	ContractVersion string `json:"contract_version"`
 	Ignored         bool   `json:"ignored"`
 	Reason          string `json:"reason"`
+	Code            string `json:"code,omitempty"`
 }
 
 // Symptom is what the caller saw: data, never an instruction.
@@ -316,6 +319,8 @@ type Result struct {
 	// output) and the caller's statement scope; absent when there is none.
 	Investigator *InvestigatorResult `json:"investigator,omitempty"`
 	QueryScope   *QueryScopeResult   `json:"query_scope,omitempty"`
+	// Revision 1.2.0: the result in the shape generalist agents check.
+	SummaryForAgent *AgentSummary `json:"summary_for_agent,omitempty"`
 }
 
 // RemediationResponse is the gate's verdict on a requested remediation.

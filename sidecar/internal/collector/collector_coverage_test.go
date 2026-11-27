@@ -3,6 +3,7 @@ package collector
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -70,8 +71,9 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 		},
 		ForeignKeys: []ForeignKey{
 			{
-				TableName: "orders", ReferencedTable: "users",
-				FKColumn: "user_id", ConstraintName: "orders_user_id_fkey",
+				Schema: "public", TableName: "orders", RefSchema: "public",
+				ReferencedTable: "users", Columns: []string{"user_id"},
+				ConstraintName: "orders_user_id_fkey", OID: 16_500,
 			},
 		},
 		System: SystemStats{
@@ -153,7 +155,7 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 			},
 			WALPosition:         "0/2000000",
 			ExtensionsAvailable: []string{"pg_repack", "hypopg"},
-			ConnectionChurn:     12,
+			OwnsDatabase:        true,
 		},
 		StatsReset: false,
 	}
@@ -236,9 +238,8 @@ func TestSnapshot_JSONRoundTrip_Full(t *testing.T) {
 	if len(restored.ConfigData.PGSettings) != 1 {
 		t.Errorf("PGSettings not preserved")
 	}
-	if restored.ConfigData.ConnectionChurn != 12 {
-		t.Errorf("ConnectionChurn: got %d, want 12",
-			restored.ConfigData.ConnectionChurn)
+	if !restored.ConfigData.OwnsDatabase {
+		t.Error("OwnsDatabase not preserved")
 	}
 }
 
@@ -482,10 +483,13 @@ func TestIndexStats_JSONRoundTrip(t *testing.T) {
 
 func TestForeignKey_JSONRoundTrip(t *testing.T) {
 	fk := ForeignKey{
+		Schema:          "public",
 		TableName:       "orders",
+		RefSchema:       "public",
 		ReferencedTable: "users",
-		FKColumn:        "user_id",
+		Columns:         []string{"user_id"},
 		ConstraintName:  "fk_orders_user",
+		OID:             16_501,
 	}
 	data, err := json.Marshal(fk)
 	if err != nil {
@@ -495,7 +499,7 @@ func TestForeignKey_JSONRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if restored != fk {
+	if !reflect.DeepEqual(restored, fk) {
 		t.Errorf("ForeignKey mismatch: got %+v, want %+v", restored, fk)
 	}
 }
@@ -824,7 +828,7 @@ func TestConfigSnapshot_JSONRoundTrip(t *testing.T) {
 		},
 		WALPosition:         "0/3000000",
 		ExtensionsAvailable: []string{"pg_repack", "hypopg", "pgstattuple"},
-		ConnectionChurn:     25,
+		OwnsDatabase:        true,
 	}
 
 	data, err := json.Marshal(cs)
@@ -850,9 +854,8 @@ func TestConfigSnapshot_JSONRoundTrip(t *testing.T) {
 		t.Errorf("ExtensionsAvailable len: got %d, want 3",
 			len(restored.ExtensionsAvailable))
 	}
-	if restored.ConnectionChurn != 25 {
-		t.Errorf("ConnectionChurn: got %d, want 25",
-			restored.ConnectionChurn)
+	if !restored.OwnsDatabase {
+		t.Error("OwnsDatabase not preserved")
 	}
 }
 
@@ -1163,9 +1166,8 @@ func TestNew_SetsFieldsCorrectly(t *testing.T) {
 	if c.cfg != cfg {
 		t.Error("cfg not set correctly")
 	}
-	if c.pgVersionNum != 160005 {
-		t.Errorf("pgVersionNum: got %d, want 160005",
-			c.pgVersionNum)
+	if v := c.Capabilities().PGVersionNum; v != 160005 {
+		t.Errorf("pgVersionNum: got %d, want 160005", v)
 	}
 	if c.breaker == nil {
 		t.Fatal("breaker should not be nil")

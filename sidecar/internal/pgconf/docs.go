@@ -18,8 +18,31 @@ type GUCDoc struct {
 	BaseUnit string
 	// Sentinels are special values PostgreSQL accepts outside the range
 	// (e.g. -1 = auto-tune / inherit).
-	Sentinels   []float64
-	VersionNote string
+	Sentinels []float64
+	// VersionNotes are verified, version-specific facts for the prompt.
+	VersionNotes []VersionNote
+}
+
+// VersionNote is a documented behaviour that holds from MinMajor through
+// MaxMajor (0: no upper bound) PostgreSQL major versions.
+type VersionNote struct {
+	MinMajor, MaxMajor int
+	Text               string
+}
+
+// NotesFor returns the notes that hold on the given PostgreSQL major
+// version; an unknown version (0 or less) gets none.
+func (d GUCDoc) NotesFor(major int) []string {
+	if major <= 0 {
+		return nil
+	}
+	var out []string
+	for _, n := range d.VersionNotes {
+		if major >= n.MinMajor && (n.MaxMajor == 0 || major <= n.MaxMajor) {
+			out = append(out, n.Text)
+		}
+	}
+	return out
 }
 
 // Docs is the curated knowledge base, the "manual prior", and the list of
@@ -81,6 +104,9 @@ var Docs = map[string]GUCDoc{
 		Guidance: "Larger reduces checkpoint frequency for write-heavy workloads at " +
 			"the cost of recovery time.",
 		Unit: "bytes", BaseUnit: "MB", SafeMin: 512 << 20, SafeMax: 64 << 30,
+		VersionNotes: []VersionNote{{MinMajor: 17, Text: "On PostgreSQL 17+ checkpoint " +
+			"counts are in pg_stat_checkpointer (num_timed, num_requested), not " +
+			"pg_stat_bgwriter."}},
 	},
 	"min_wal_size": {
 		Description: "WAL kept for reuse instead of removed after a checkpoint.",
@@ -99,6 +125,9 @@ var Docs = map[string]GUCDoc{
 			"storage to handle.",
 		Guidance: "Higher (100-200) for SSD/NVMe to enable more aggressive prefetch.",
 		Unit:     "count", SafeMin: 0, SafeMax: 1000,
+		VersionNotes: []VersionNote{{MinMajor: 18, Text: "PostgreSQL 18 raised the default " +
+			"to 16 (from 1), and maintenance_io_concurrency's default to 16 (from 10); " +
+			"16 is the stock value, not an earlier tuning."}},
 	},
 	// Limits below were ported from the deleted ValidateConfigRecommendation
 	// (G3-D08); the autovacuum ranges also gate the per-table reloptions.
@@ -107,12 +136,27 @@ var Docs = map[string]GUCDoc{
 		Guidance:    "Prefer a connection pooler over raising this; each backend costs memory.",
 		Unit:        "count", SafeMin: 10, SafeMax: 10000,
 	},
+	// Database scope and approval only (advisors-07): the executor refuses
+	// it under ALTER SYSTEM. 0 (disabled) is not a recommendation.
+	// statement_timeout and idle_session_timeout have no entry on purpose:
+	// they stay advisory at every scope.
+	"idle_in_transaction_session_timeout": {
+		Description: "Ends a session that stays idle inside an open transaction longer " +
+			"than this. pg_sage sets it only for this database, with ALTER DATABASE, " +
+			"and only with an operator's approval.",
+		Guidance: "5-30min releases the locks and snapshots forgotten transactions " +
+			"hold; never recommend 0 (disabled).",
+		Unit: "ms", BaseUnit: "ms", SafeMin: 60_000, SafeMax: 86_400_000,
+	},
 	"autovacuum_max_workers": {
 		Description: "Maximum concurrent autovacuum workers. Requires a restart " +
 			"before PG18.",
 		Guidance: "Raise (5-8) when many tables need vacuum at once; workers share " +
 			"autovacuum_vacuum_cost_limit.",
 		Unit: "count", SafeMin: 1, SafeMax: 20,
+		VersionNotes: []VersionNote{{MinMajor: 18, Text: "On PostgreSQL 18+ it changes " +
+			"with a reload, up to autovacuum_worker_slots (default 16, restart-only); " +
+			"going beyond that first needs a restart to raise autovacuum_worker_slots."}},
 	},
 	"autovacuum_naptime": {
 		Description: "Delay between autovacuum runs on any given database.",

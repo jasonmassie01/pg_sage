@@ -272,7 +272,7 @@ func TestModelLift_MeasuresTheInvestigatorArm(t *testing.T) {
 			func(r *Result) { r.Outcome.Model = &stats })),
 	}
 	var found bool
-	for _, rec := range BuildModelLift(rs, LLMFake, false) {
+	for _, rec := range BuildModelLift(rs, LLMFake, FakeModelName, false) {
 		if rec.Arm == ArmInvestigator && rec.Family == lockFam {
 			found = true
 			if rec.Overrides.N != 1 || rec.Overrides.K != 0 || rec.Split != replay.SplitHeldOut {

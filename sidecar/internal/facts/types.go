@@ -32,6 +32,14 @@ const (
 	TypeSlotConsumer  Type = "slot_consumer"
 	TypeAppendOnly    Type = "append_only"
 	TypeTableWindow   Type = "table_window"
+	// TypeOwnerBrief is the owner's note about the whole database (who owns
+	// it, peak windows, growth, retention; evid-03a). It never binds: it is
+	// prompt context only.
+	TypeOwnerBrief Type = "owner_brief"
+	// TypeDoNotTouch is the owner's "must not be touched" (evid-03b): every
+	// change to its subject is held, operator-approved or not, until a
+	// person expires the fact. Only rollbacks of pg_sage's own changes run.
+	TypeDoNotTouch Type = "do_not_touch"
 )
 
 // Kind is the catalog kind of a fact's subject.
@@ -39,12 +47,15 @@ type Kind string
 
 // Subject kinds. KindRelation is only an object reference whose kind is
 // unknown (a table or an index); no fact has it as its subject kind.
+// KindDatabase is the database whose fact store holds the fact; its only
+// subject is "*" and it names no object.
 const (
 	KindIndex    Kind = "index"
 	KindTable    Kind = "table"
 	KindSchema   Kind = "schema"
 	KindSlot     Kind = "slot"
 	KindRelation Kind = "relation"
+	KindDatabase Kind = "database"
 )
 
 // Status is where a fact stands. Only StatusConfirmed binds.
@@ -81,6 +92,7 @@ var (
 	ErrInvalidTransition = errors.New("facts: decision not allowed in the fact's status")
 	ErrChanged           = errors.New("facts: the fact changed since it was shown")
 	ErrModelOutput       = errors.New("facts: model output is not a fact list")
+	ErrUngrounded        = errors.New("facts: the cited evidence is not about the subject")
 )
 
 // Citation is one piece of evidence behind a proposal.
@@ -125,6 +137,11 @@ type Fact struct {
 	CreatedAt      time.Time         `json:"created_at"`
 	UpdatedAt      time.Time         `json:"updated_at"`
 	LastVerifiedAt *time.Time        `json:"last_verified_at,omitempty"`
+	// MissingSince is when re-verification first found the subject absent
+	// (nil while it exists). An absent confirmed fact keeps binding.
+	MissingSince *time.Time `json:"missing_since,omitempty"`
+	// ExpiredBy names who expired the fact: a person, or pg_sage's verifier.
+	ExpiredBy string `json:"expired_by,omitempty"`
 }
 
 // Decision is an operator's confirm or reject of a fact. ExpectHash, when
@@ -166,6 +183,13 @@ func (f Fact) Describe() string {
 	case TypeTableWindow:
 		return fmt.Sprintf("%s has a %s window: %s", subject, f.Value["kind"],
 			f.Value["window"])
+	case TypeOwnerBrief:
+		return describeBrief(f.Value)
+	case TypeDoNotTouch:
+		if f.Kind == KindSchema {
+			subject = "schema " + f.Subject
+		}
+		return subject + " must not be touched"
 	}
 	return subject + " " + string(f.Type)
 }
@@ -197,6 +221,13 @@ func (f Fact) Hash() string {
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:16])
+}
+
+// ConfirmationLost reports whether an expired fact had been confirmed: a
+// person's decision stopped binding. Only a decision sets decided_by, and
+// a reopened proposal clears it, so a proposal's expiry never qualifies.
+func (f Fact) ConfirmationLost() bool {
+	return f.Status == StatusExpired && f.DecidedBy != "" && f.DecidedAt != nil
 }
 
 // binds reports whether the fact is confirmed and unexpired at now.

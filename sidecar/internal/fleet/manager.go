@@ -27,8 +27,14 @@ type DatabaseManager struct {
 	instances   map[string]*DatabaseInstance
 	cfg         *config.Config
 	primaryName string // first registered instance name
-	mu          sync.RWMutex
-	lifecycle   chan struct{}
+	// observeOnly are the observe-only member names (fleetpol-01d), guarded
+	// by mu: their actions are refused (ActionTarget).
+	observeOnly map[string]bool
+	// census lists the sprawl census's standing proposals (fleetpol-03),
+	// guarded by mu; nil outside a meta-db fleet.
+	census    CensusProposer
+	mu        sync.RWMutex
+	lifecycle chan struct{}
 	// persistStop writes the durable emergency_stop flag as an actor. nil
 	// uses persistEmergencyStop; tests inject failures here.
 	persistStop func(context.Context, *DatabaseInstance, bool, string) error
@@ -38,6 +44,21 @@ type DatabaseManager struct {
 	// transitionMu orders persisted emergency-stop transitions so that
 	// concurrent stops and resumes end with memory matching sage.config.
 	transitionMu sync.Mutex
+	// fleetStop is the fleet-wide stop latch (fleet-09), guarded by mu;
+	// fleetStore keeps it in the meta database (nil outside meta mode).
+	fleetStop  fleetStopState
+	fleetStore FleetStopStore
+	// readScope and persistScope read and write a member's
+	// emergency_stop_scope row; cancelInFlight halts a stopped database's
+	// running actions. nil uses the defaults; tests inject here.
+	readScope      func(context.Context, *DatabaseInstance) (bool, error)
+	persistScope   func(context.Context, *DatabaseInstance, bool, string) error
+	cancelInFlight func(*DatabaseInstance) ([]int64, error)
+	// budget reports the fleet LLM budget per database (fleet-06); nil when
+	// no fleet budget is configured. Guarded by mu.
+	budget BudgetSource
+	// readOnly marks a ReadView (apiauth-08b): every mutation is refused.
+	readOnly bool
 }
 
 // NewManager creates a fleet manager from config.
@@ -59,23 +80,26 @@ func NewManager(cfg *config.Config) *DatabaseManager {
 // nil-pool primary breaks auth-route registration and every
 // "all"-scoped query (see PoolForDatabase).
 func (m *DatabaseManager) RegisterInstance(inst *DatabaseInstance) {
+	if m.readOnly {
+		return
+	}
 	var retired *DatabaseInstance
-	inherited := false
+	var pending []*DatabaseInstance
 	m.restorePersistedStop(inst)
 	_ = m.WithLifecycle(context.Background(), func(*LifecycleMutation) error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		retired = m.instances[inst.Name]
-		inherited = inheritEmergencyStop(retired, inst)
+		inherited := inheritEmergencyStop(retired, inst)
 		if m.primaryName == "" && inst.Pool != nil {
 			m.primaryName = inst.Name
 		}
+		stampRegistered(inst, time.Now())
 		m.instances[inst.Name] = inst
+		pending = m.applyFleetLatchLocked(inst, inherited)
 		return nil
 	})
-	if inherited {
-		m.persistInheritedStop(inst)
-	}
+	m.persistInheritedStops(pending)
 	if retired != nil && retired != inst {
 		go func() { _ = cleanupRejectedCandidate(retired) }()
 	}
@@ -100,53 +124,85 @@ func (m *DatabaseManager) Instances() map[string]*DatabaseInstance {
 	return cp
 }
 
+// InstanceConfigs returns a copy of each instance's per-database config,
+// read under the manager lock: UpdateMetadata swaps Config in place, so
+// callers must not read inst.Config through the Instances() pointers.
+func (m *DatabaseManager) InstanceConfigs() map[string]config.DatabaseConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]config.DatabaseConfig, len(m.instances))
+	for name, inst := range m.instances {
+		if inst == nil {
+			continue
+		}
+		cfg := inst.Config
+		cfg.Tags = cloneTags(inst.Config.Tags)
+		out[name] = cfg
+	}
+	return out
+}
+
+// cloneTags copies a tag list so callers never share its backing array.
+func cloneTags(tags []string) []string {
+	if tags == nil {
+		return nil
+	}
+	out := make([]string, len(tags))
+	copy(out, tags)
+	return out
+}
+
 // Config returns the manager's config.
 func (m *DatabaseManager) Config() *config.Config {
 	return m.cfg
 }
 
-// FleetStatus returns the fleet overview with health scores.
+// FleetStatus returns the fleet overview with health scores, worst first
+// and by name among equal scores.
 func (m *DatabaseManager) FleetStatus() FleetOverview {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	return m.fleetStatusLocked()
+}
 
+// fleetStatusLocked builds FleetStatus. Caller holds m.mu.
+func (m *DatabaseManager) fleetStatusLocked() FleetOverview {
 	overview := FleetOverview{
 		Mode:      m.cfg.Mode,
 		Databases: make([]DatabaseStatus, 0, len(m.instances)),
 	}
-
+	now := time.Now()
+	budgets := m.budgetSnapshotLocked()
 	for _, inst := range m.instances {
-		// Snapshot fields under the instance lock so that background
-		// writers (updateInstanceFindings, config_handlers) don't race
-		// with the health-score compute or the JSON marshaller.
-		snap := inst.SnapshotStatus()
-		snap = EnsureCapabilities(inst, snap)
-		snap.HealthScore = computeHealthScore(snap)
-		snap.DatabaseName = inst.Name
-		ds := DatabaseStatus{
-			ID:         inst.DatabaseID,
-			DatabaseID: inst.DatabaseID,
-			Name:       inst.Name,
-			Tags:       inst.Config.Tags,
-			Status:     snap,
-		}
-		applyStopStatus(&ds, inst)
-		overview.Databases = append(overview.Databases, ds)
+		overview.Databases = append(overview.Databases,
+			m.databaseStatusLocked(inst, now, budgets))
 		if inst.Stopped {
 			overview.Summary.EmergencyStoppedCount++
 		}
 	}
 
-	// Sort by health score ascending (worst first).
-	sort.Slice(overview.Databases, func(i, j int) bool {
-		return overview.Databases[i].Status.HealthScore <
-			overview.Databases[j].Status.HealthScore
+	applyFleetStopStatus(&overview.Summary, m.fleetStop)
+
+	dbs := overview.Databases
+	sort.SliceStable(dbs, func(i, j int) bool {
+		if dbs[i].Status.HealthScore != dbs[j].Status.HealthScore {
+			return dbs[i].Status.HealthScore < dbs[j].Status.HealthScore
+		}
+		return dbs[i].Name < dbs[j].Name
 	})
 
-	// Build summary.
+	summarizeFleet(&overview)
+	return overview
+}
+
+// summarizeFleet fills the overview's totals from its database rows. A
+// database is healthy when it is connected, has no error and scores at
+// least healthyScoreFloor; every other database is degraded.
+func summarizeFleet(overview *FleetOverview) {
 	for _, db := range overview.Databases {
 		overview.Summary.TotalDatabases++
-		if db.Status.Connected && db.Status.Error == "" {
+		if db.Status.Connected && db.Status.Error == "" &&
+			db.Status.HealthScore >= healthyScoreFloor {
 			overview.Summary.Healthy++
 		} else {
 			overview.Summary.Degraded++
@@ -154,27 +210,10 @@ func (m *DatabaseManager) FleetStatus() FleetOverview {
 		overview.Summary.TotalFindings += db.Status.FindingsOpen
 		overview.Summary.TotalCritical += db.Status.FindingsCritical
 		overview.Summary.TotalActions += db.Status.ActionsTotal
+		addCaseCounts(&overview.Summary, db.Status)
 	}
-	overview.Summary.EmergencyStopped = overview.Summary.EmergencyStoppedCount > 0
-
-	return overview
-}
-
-// computeHealthScore calculates 0-100 health for an instance.
-func computeHealthScore(s *InstanceStatus) int {
-	if !s.Connected {
-		return 0
-	}
-	if s.Error != "" {
-		return 0
-	}
-	score := 100
-	score -= s.FindingsCritical * 25
-	score -= s.FindingsWarning * 5
-	if score < 0 {
-		score = 0
-	}
-	return score
+	overview.Summary.EmergencyStopped = overview.Summary.EmergencyStoppedCount > 0 ||
+		overview.Summary.FleetStopped
 }
 
 // RecordHealthSnapshots appends the current health score + finding
@@ -192,12 +231,13 @@ func (m *DatabaseManager) RecordHealthSnapshots(ctx context.Context) {
 		s    *InstanceStatus
 	}
 	samples := make([]sample, 0, len(m.instances))
+	now := time.Now()
 	for _, inst := range m.instances {
 		if inst.Pool == nil {
 			continue
 		}
 		snap := inst.SnapshotStatus()
-		snap.HealthScore = computeHealthScore(snap)
+		m.scoreLocked(inst, snap, now)
 		samples = append(samples, sample{
 			name: inst.Name, pool: inst.Pool, s: snap,
 		})
@@ -222,8 +262,8 @@ func (m *DatabaseManager) RecordHealthSnapshot(
 	}
 	pool := inst.Pool
 	snapshot := inst.SnapshotStatus()
+	m.scoreLocked(inst, snapshot, time.Now())
 	m.mu.RUnlock()
-	snapshot.HealthScore = computeHealthScore(snapshot)
 	recordHealthSample(ctx, name, pool, snapshot)
 }
 
@@ -261,7 +301,8 @@ func (m *DatabaseManager) EmergencyStop(name string) int {
 }
 
 func (m *DatabaseManager) EmergencyStopStrict(name, actor string) (int, error) {
-	return m.setEmergencyStopped(name, true, actor)
+	result, err := m.setEmergencyStopped(name, true, actor)
+	return result.Changed, err
 }
 
 // Resume resumes a specific database or all if name is empty.
@@ -270,8 +311,11 @@ func (m *DatabaseManager) Resume(name string) int {
 	return resumed
 }
 
+// ResumeStrict resumes one database, or all when name is empty. A
+// per-database resume while a stop of all holds returns ErrFleetStopped.
 func (m *DatabaseManager) ResumeStrict(name, actor string) (int, error) {
-	return m.setEmergencyStopped(name, false, actor)
+	result, err := m.setEmergencyStopped(name, false, actor)
+	return result.Changed, err
 }
 
 // PoolForDatabase returns the connection pool for a named
@@ -375,7 +419,7 @@ func (m *DatabaseManager) UpdateInstanceMetadata(
 		}
 		inst.Name = newName
 		inst.DatabaseID = databaseID
-		inst.Config = cfg
+		inst.setConfig(cfg)
 		m.mu.Unlock()
 		inst.UpdateStatus(func(s *InstanceStatus) {
 			s.TrustLevel = trustLevel

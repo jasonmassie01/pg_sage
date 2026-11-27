@@ -33,6 +33,8 @@ func (r adapterRow) Scan(dest ...any) error {
 			*target = value.(int64)
 		case *float64:
 			*target = value.(float64)
+		case **float64:
+			*target = value.(*float64)
 		}
 	}
 	return nil
@@ -69,31 +71,75 @@ func requireAutonomyDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// exclusiveAutonomyDB is requireAutonomyDB on a fresh database of the
+// exclusive test server, held for t alone (testdb.Exclusive): for tests
+// that measure XID ages, which every other package's writes move (ci-13).
+func exclusiveAutonomyDB(t *testing.T, reason string) *pgxpool.Pool {
+	t.Helper()
+	return exclusiveAutonomyPool(t, testdb.Exclusive(t, reason))
+}
+
+// exclusiveAutonomyDSN is exclusiveAutonomyDB's database, bootstrapped,
+// as a DSN: for tests that open their own connections to it.
+func exclusiveAutonomyDSN(t *testing.T, reason string) string {
+	t.Helper()
+	dsn := testdb.Exclusive(t, reason)
+	exclusiveAutonomyPool(t, dsn)
+	return dsn
+}
+
+func exclusiveAutonomyPool(t *testing.T, dsn string) *pgxpool.Pool {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("connect the exclusive test database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := schema.Bootstrap(context.Background(), pool); err != nil {
+		t.Fatalf("bootstrap the exclusive test database: %v", err)
+	}
+	return pool
+}
+
+// vacuum-09: an empty, just-frozen table is green, and the scan proposes
+// nothing for it (counted, not looped over: before, this test passed with
+// any number of proposals, zero included). The sampler's second read
+// measures both consumption rates.
 func TestPostgresFreezeCustodianScansLiveCatalog(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	ctx := context.Background()
 	const table = "autonomy_freeze_probe"
-	if _, err := pool.Exec(ctx, "CREATE TABLE IF NOT EXISTS "+table+" (id bigint)"); err != nil {
-		t.Fatalf("create probe table: %v", err)
-	}
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })
-	custodian := NewPostgresFreezeCustodian(pool, "testdb", 99)
-	proposals, err := custodian.Scan(ctx)
-	if err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-	for _, proposal := range proposals {
-		if len(proposal.TargetObjects) != 1 ||
-			strings.Contains(strings.ToUpper(proposal.SQL+proposal.Plan), "VACUUM FULL") {
-			t.Fatalf("unsafe or unscoped freeze proposal: %#v", proposal)
+	for _, sql := range []string{"DROP TABLE IF EXISTS " + table,
+		"CREATE TABLE " + table + " (id bigint)", "VACUUM (FREEZE) " + table} {
+		if _, err := pool.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	if _, err := custodian.transactionRates(ctx); err != nil {
-		t.Fatalf("first transactionRates: %v", err)
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+table) })
+	custodian := NewPostgresFreezeCustodian(pool, "testdb", 25)
+	for scan := 1; scan <= 2; scan++ {
+		proposals, err := custodian.Scan(ctx)
+		if err != nil {
+			t.Fatalf("Scan %d: %v", scan, err)
+		}
+		if n := len(proposalsFor(proposals, "public."+table)); n != 0 {
+			t.Fatalf("scan %d: %d proposals for the empty green table, want 0: %#v",
+				scan, n, proposals)
+		}
+		for _, proposal := range proposals {
+			if len(proposal.TargetObjects) != 1 ||
+				strings.Contains(strings.ToUpper(proposal.SQL+proposal.Plan), "VACUUM FULL") {
+				t.Fatalf("scan %d: unsafe or unscoped freeze proposal: %#v", scan, proposal)
+			}
+		}
 	}
-	rates, err := custodian.transactionRates(ctx)
+	reading, err := custodian.Sampler().Read(ctx)
+	rates := reading.rates
 	if err != nil || !rates.known || rates.xid <= 0 || rates.mxid <= 0 {
 		t.Fatalf("transactionRates = %#v, %v", rates, err)
+	}
+	if len(reading.Horizons) == 0 {
+		t.Fatal("the sampler read no horizons from a live catalog")
 	}
 }
 
@@ -123,25 +169,42 @@ func TestFreezeAdapterRowsAndThresholdDefaults(t *testing.T) {
 
 var knownRates = freezeRateSample{xid: 1, mxid: 1, known: true}
 
-func TestFreezeAdapterBuildsBlockerTuneAndBloatResponses(t *testing.T) {
+func TestFreezeAdapterBuildsBlockerAndBloatResponses(t *testing.T) {
 	custodian := NewPostgresFreezeCustodian(nil, "orders", 25)
-	blocker := &freeze.XminBlocker{PID: 42, XminAge: 900, User: "app"}
+	// vacuum-02: a red table at 160M with a 30-XID session is frozen; the
+	// session cannot pin it (before, the session was canceled instead).
+	holders := []freeze.XminBlocker{{Kind: freeze.HolderSession, PID: 42, XminAge: 30,
+		User: "app", State: "active"}}
 	red, err := custodian.scanResponseRow(adapterRow{values: []any{
-		"public", "orders", int64(90), int64(100), int64(1), int64(100), 0.1,
-	}}, knownRates, blocker, false)
-	if err != nil || red.Feature != "freeze_blocker" || red.Evidence["pid"] != 42 {
-		t.Fatalf("blocker proposal=%#v err=%v", red, err)
+		"public", "orders", int64(160_000_000), int64(200_000_000), int64(1), int64(100), 0.1,
+	}}, knownRates, holders, false)
+	if err != nil || red.Feature != "freeze" ||
+		red.SQL != `VACUUM (FREEZE) "public"."orders"` || red.Evidence["xmin_holder"] != nil {
+		t.Fatalf("red proposal with a young holder=%#v err=%v", red, err)
 	}
 	amber, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(60), int64(100), int64(1), int64(100), 0.25,
 	}}, knownRates, nil, false)
-	if err != nil || amber.Feature != "autovacuum_tuning" || amber.SQL == "" {
-		t.Fatalf("autovacuum proposal=%#v err=%v", amber, err)
+	// vacuum-07: the custodian no longer tunes autovacuum; an amber table
+	// with a 0.25 dead-tuple ratio gets nothing (the analyzer owns tuning).
+	if err != nil || amber.SQL != "" || amber.Plan != "" || amber.ResponseKind != "" {
+		t.Fatalf("amber custodian proposal=%#v err=%v, want none", amber, err)
 	}
-	bloat, err := custodian.scanResponseRow(adapterRow{values: []any{
+	// vacuum-04: a 0.6 dead-tuple ratio is not bloat (the analyzer's
+	// VACUUM owns it); only the catalog estimate on a table at the size
+	// floor plans a rebuild, typed by its response kind.
+	dead, err := custodian.scanResponseRow(adapterRow{values: []any{
 		"public", "orders", int64(1), int64(100), int64(1), int64(100), 0.6,
 	}}, knownRates, nil, true)
-	if err != nil || bloat.Plan == "" || bloat.SQL != "" {
+	if err != nil || dead.Plan != "" || dead.SQL != "" || dead.ResponseKind != "" {
+		t.Fatalf("dead-tuple ratio became a bloat plan=%#v err=%v", dead, err)
+	}
+	pages := int64(1)<<30/8192 + 1
+	bloat, err := custodian.scanResponseRow(horizonValues("orders", 0.6, 7, pages,
+		pagesPtr(float64(pages)/4)), knownRates, nil, true)
+	if err != nil || bloat.Plan == "" || bloat.SQL != "" ||
+		bloat.ResponseKind != string(freeze.ResponsePlanRepack) ||
+		bloat.Feature != "bloat_remediation" || bloat.Evidence["plan"] != bloat.Plan {
 		t.Fatalf("bloat proposal=%#v err=%v", bloat, err)
 	}
 	if strings.Contains(strings.ToUpper(bloat.Plan), "VACUUM FULL") {
@@ -181,12 +244,12 @@ func TestWALAdapterDefaultsEvidenceAndEscaping(t *testing.T) {
 		custodian.options.RetainedBytesLimit != DefaultWALBackstopBytes {
 		t.Fatalf("WAL defaults = %#v", custodian.options)
 	}
-	bytes, known := custodian.diskCapacity(context.Background())
-	if bytes != 1000 || !known {
-		t.Fatalf("disk capacity = %d/%v", bytes, known)
+	capacity := custodian.diskCapacity(context.Background())
+	if capacity.bytes != 1000 || !capacity.known {
+		t.Fatalf("disk capacity = %d/%v", capacity.bytes, capacity.known)
 	}
 	custodian.options.Disk = fixedDisk{err: errors.New("unavailable")}
-	if _, known := custodian.diskCapacity(context.Background()); known {
+	if custodian.diskCapacity(context.Background()).known {
 		t.Fatal("failed disk provider was treated as known")
 	}
 	policy := custodian.policy()

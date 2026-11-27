@@ -29,14 +29,14 @@ func registerBreakGlassRoutes(
 	mux *http.ServeMux, pool *pgxpool.Pool, cfg *config.Config,
 	alerter breakGlassAlerter,
 ) {
-	mux.HandleFunc("POST "+breakGlassPath,
-		breakGlassHandler(pool, cfg.OAuth.BreakGlass, alerter))
+	route(mux, "POST "+breakGlassPath, gateSelfAuth,
+		http.HandlerFunc(breakGlassHandler(pool, cfg.OAuth.BreakGlass, alerter)))
 }
 
-// breakGlassLimiterKey rate-limits break-glass attempts per client address,
-// in the same limiter as password logins.
+// breakGlassLimiterKey rate-limits break-glass attempts per client address
+// (an IPv6 /64), in the same limiter as password logins.
 func breakGlassLimiterKey(ip string) string {
-	return "break-glass|" + ip
+	return "break-glass|" + ClientLimiterKey(ip)
 }
 
 func breakGlassHandler(

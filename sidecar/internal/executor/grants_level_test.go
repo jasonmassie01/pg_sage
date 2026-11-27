@@ -39,7 +39,7 @@ var publicLacking = rolegrants.SchemaCreate{Schemas: []string{"app", "public"},
 
 func bothMissing() []missingGrant {
 	return []missingGrant{schemaCreateGrant("sage_agent", publicLacking),
-		signalBackendGrant("sage_agent")}
+		signalBackendGrant("sage_agent", rolegrants.SignalBackend{})}
 }
 
 func TestReportGrantsObservationIsOneInfoLine(t *testing.T) {
@@ -147,7 +147,9 @@ func grantsRoleNamed(t *testing.T, dsn, role string) (*pgxpool.Pool, string) {
 	return pool, role
 }
 
-// tablesInApp is a fresh database whose only user table is app.t.
+// tablesInApp is a fresh database whose only user table is app.t. The
+// fixture's pg_hint_plan is dropped: its hint_plan.hints table and id
+// sequence would be user objects too.
 func tablesInApp(t *testing.T) string {
 	t.Helper()
 	dsn := testdb.CreateDatabase(t, "grants_level")
@@ -157,7 +159,8 @@ func tablesInApp(t *testing.T) string {
 		t.Fatalf("connect: %v", err)
 	}
 	defer admin.Close()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA app; CREATE TABLE app.t (a int)"); err != nil {
+	if _, err := admin.Exec(ctx, "DROP EXTENSION IF EXISTS pg_hint_plan; "+
+		"CREATE SCHEMA app; CREATE TABLE app.t (a int)"); err != nil {
 		t.Fatalf("create app.t: %v", err)
 	}
 	return dsn
@@ -197,7 +200,7 @@ func TestVerifyGrantsQueryErrorIsLogged(t *testing.T) {
 	cancel()
 	var lines []logLine
 	VerifyGrants(ctx, pool, "sage_agent", "advisory", captureLog(&lines))
-	if len(lines) != 2 {
+	if len(lines) != 3 { // schema CREATE, pg_signal_backend, sequence SELECT
 		t.Fatalf("lines = %+v, want one error per check", lines)
 	}
 	for _, l := range lines {

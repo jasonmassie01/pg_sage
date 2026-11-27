@@ -59,8 +59,14 @@ type Custodian struct {
 	router    RemediationRouter
 	recorder  DecisionRecorder
 	policy    Policy
-	mu        sync.Mutex
-	seen      map[string]bool
+	// scanMu serializes Scan, so two scans never record from one stale
+	// history.
+	scanMu sync.Mutex
+	mu     sync.Mutex
+	seen   map[string]bool
+	// backoff is each failing route's consecutive failures and pause, in
+	// memory only: a restart routes every invariant again.
+	backoff map[string]routeBackoff
 }
 
 func NewCustodian(
@@ -77,6 +83,9 @@ type scanCycle struct {
 	history   HistoryIndex
 }
 
+// Scan plans, routes and records every detected invariant. A failed route
+// parks its item and the scan continues; the route errors are returned
+// together after recording. A connection failure stops the scan early.
 func (c *Custodian) Scan(ctx context.Context) (CycleResult, error) {
 	if err := ctx.Err(); err != nil {
 		return CycleResult{}, err
@@ -84,6 +93,8 @@ func (c *Custodian) Scan(ctx context.Context) (CycleResult, error) {
 	if err := c.validate(); err != nil {
 		return CycleResult{}, err
 	}
+	c.scanMu.Lock()
+	defer c.scanMu.Unlock()
 	invariants, err := c.detector.Detect(ctx)
 	if err != nil {
 		return CycleResult{}, fmt.Errorf("detect schema invariants: %w", err)
@@ -93,31 +104,15 @@ func (c *Custodian) Scan(ctx context.Context) (CycleResult, error) {
 	if err != nil {
 		return result, err
 	}
-	outcomes := make([]Remediation, 0, len(invariants))
-	for _, invariant := range invariants {
-		if err := ctx.Err(); err != nil {
-			return result, err
-		}
-		if skipsIdle(invariant) {
-			outcomes = append(outcomes, idleOutcome(invariant))
-			result.Skipped++
-			continue
-		}
-		item, err := c.process(ctx, invariant, cycle, &result)
-		var failure *routeFailure
-		if errors.As(err, &failure) {
-			return result, c.recordRouteFailure(ctx, outcomes, cycle, failure, &result)
-		}
-		if err != nil {
-			return result, err
-		}
-		outcomes = append(outcomes, item)
-	}
-	if err := c.recordChanged(ctx, outcomes, cycle, &result); err != nil {
+	run, err := c.processAll(ctx, invariants, cycle, &result)
+	if err != nil {
 		return result, err
 	}
-	c.markSeen(outcomes)
-	return result, nil
+	if err := c.recordChanged(ctx, run.outcomes, cycle, &result); err != nil {
+		return result, errors.Join(append(run.errs, err)...)
+	}
+	c.markSeen(run)
+	return result, errors.Join(run.errs...)
 }
 
 func (c *Custodian) validate() error {
@@ -156,16 +151,6 @@ func (c *Custodian) load(ctx context.Context, invariants []Invariant) (scanCycle
 	return cycle, nil
 }
 
-// routeFailure is a route that failed (not parked): the scan stops.
-type routeFailure struct {
-	item Remediation
-	err  error
-}
-
-func (f *routeFailure) Error() string { return f.err.Error() }
-
-func (f *routeFailure) Unwrap() error { return f.err }
-
 func (c *Custodian) process(
 	ctx context.Context, invariant Invariant, cycle scanCycle, result *CycleResult,
 ) (Remediation, error) {
@@ -178,19 +163,10 @@ func (c *Custodian) process(
 		return Remediation{}, err
 	}
 	item := Remediation{Invariant: invariant, Contract: contract, Decision: decision}
-	if !shouldRoute(decision) {
+	if !ShouldRoute(decision) {
 		return item, nil
 	}
-	if err := c.router.Route(ctx, item); err != nil {
-		var parked *ParkedRoute
-		if !errors.As(err, &parked) {
-			return item, &routeFailure{item: item, err: err}
-		}
-		item.Decision = parkedDecision(item.Decision, parked.Reason)
-		return item, nil
-	}
-	result.Routed++
-	return item, nil
+	return c.route(ctx, item, result)
 }
 
 // recordChanged records each identity whose decision differs from the one
@@ -220,13 +196,20 @@ func (c *Custodian) seenBefore(identity string) bool {
 	return c.seen == nil || c.seen[identity]
 }
 
-func (c *Custodian) markSeen(outcomes []Remediation) {
-	seen := make(map[string]bool, len(outcomes))
-	for _, item := range outcomes {
+// markSeen keeps the identities of this scan. An invariant a connection
+// failure left unreached keeps its earlier entry, so it is not recorded
+// again as reappearing.
+func (c *Custodian) markSeen(run scanRun) {
+	seen := make(map[string]bool, len(run.outcomes)+len(run.unreached))
+	for _, item := range run.outcomes {
 		seen[InvariantIdentity(item.Invariant)] = true
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for _, invariant := range run.unreached {
+		identity := InvariantIdentity(invariant)
+		seen[identity] = seen[identity] || c.seen == nil || c.seen[identity]
+	}
 	c.seen = seen
 }
 
@@ -240,36 +223,10 @@ func parkedDecision(decision Decision, reason string) Decision {
 	return decision
 }
 
-// recordRouteFailure records the outcomes planned so far and the failed
-// route, then returns the route error. A route can refuse verification
-// after policy authorization was recorded: the unsuccessful outcome is
-// preserved without implying no partial work occurred.
-func (c *Custodian) recordRouteFailure(
-	ctx context.Context, outcomes []Remediation, cycle scanCycle,
-	failure *routeFailure, result *CycleResult,
-) error {
-	item := failure.item
-	item.Decision.Disposition = DispositionPark
-	item.Decision.AutoApply = false
-	item.Decision.MayDeleteData = false
-	item.Decision.Reason = "schema remediation routing failed; " +
-		"review runtime error before retrying"
-	err := fmt.Errorf("route schema remediation: %w", failure.err)
-	if recordErr := c.recordChanged(ctx, outcomes, cycle, result); recordErr != nil {
-		err = errors.Join(err, recordErr)
-	}
-	record := DecisionRecord{Remediation: item, Targets: []string{item.Invariant.Target()},
-		Identity: InvariantIdentity(item.Invariant), Hash: decisionHash([]Remediation{item})}
-	if recordErr := c.recorder.Record(ctx, record); recordErr != nil {
-		return errors.Join(err, fmt.Errorf("record failed schema remediation: %w", recordErr))
-	}
-	result.Recorded++
-	return err
-}
-
-func shouldRoute(decision Decision) bool {
+// ShouldRoute reports whether a decision is sent to the remediation router:
+// only an apply or a dry run is. A recommendation or a park is recorded and
+// never routed, so it is never counted as routed.
+func ShouldRoute(decision Decision) bool {
 	return decision.Disposition == DispositionApply ||
-		decision.Disposition == DispositionDryRun ||
-		(decision.Disposition == DispositionRecommend &&
-			decision.Route == RouteCloneRehearsal)
+		decision.Disposition == DispositionDryRun
 }

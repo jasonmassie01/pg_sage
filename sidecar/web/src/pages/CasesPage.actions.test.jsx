@@ -72,7 +72,7 @@ describe('Cases operator workflows', () => {
     expect(init.headers['Content-Type']).toBe('application/json')
   })
 
-  it('lists suppressed findings with an unsuppress control', async () => {
+  it('lists suppressed issues with an unsuppress control', async () => {
     const fetch = okFetch()
     render(<CasesPage database="all" user={{ role: 'operator' }} />)
     fireEvent.click(screen.getByTestId('cases-show-suppressed'))

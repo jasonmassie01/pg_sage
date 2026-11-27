@@ -109,7 +109,7 @@ func TestCreatedIndexRevertBypassesTheLedger(t *testing.T) {
 
 func TestDecisionEvidenceNamesTheTrustFamily(t *testing.T) {
 	req := findingRequest(gucFinding(), false)
-	in := ledgerInput(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
+	in := ledgerInputAt(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
 		Reason: policy.ReasonAutonomyL3, RiskTier: policy.RiskModerate})
 	if in.Evidence["trust_family"] != "tuning" || in.Evidence["autonomy_class"] != "config_guc" {
 		t.Fatalf("decision evidence = %#v", in.Evidence)
@@ -117,7 +117,7 @@ func TestDecisionEvidenceNamesTheTrustFamily(t *testing.T) {
 	if _, ok := in.Evidence["incident_family"]; ok {
 		t.Fatal("a self-initiated decision names an incident family")
 	}
-	plain := ledgerInput(nil, 1, policy.ActionRequest{Feature: "schema_change",
+	plain := ledgerInputAt(nil, 1, policy.ActionRequest{Feature: "schema_change",
 		Contract: &policy.ActionContract{ActionType: "alter_table"}},
 		policy.Decision{Verdict: policy.VerdictBlocked})
 	if _, ok := plain.Evidence["trust_family"]; ok {

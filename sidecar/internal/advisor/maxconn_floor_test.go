@@ -24,13 +24,14 @@ func TestParseMaxConnectionsTarget(t *testing.T) {
 }
 
 func TestFilterUnsafeMaxConnections(t *testing.T) {
-	sys := collector.SystemStats{TotalBackends: 28} // floor = 28+13 = 41
+	sys := collector.SystemStats{TotalBackends: 28} // floor = 28+3+10 = 41
 	in := []analyzer.Finding{
-		{Category: "connection_tuning", RecommendedSQL: "ALTER SYSTEM SET max_connections = 20;"},  // unsafe (< 41)
-		{Category: "connection_tuning", RecommendedSQL: "ALTER SYSTEM SET max_connections = 100;"},  // ok
+		{Category: "connection_tuning", RecommendedSQL: "ALTER SYSTEM SET max_connections = 20;"},                        // unsafe (< 41)
+		{Category: "connection_tuning", RecommendedSQL: "ALTER SYSTEM SET max_connections = 100;"},                       // ok
 		{Category: "connection_tuning", RecommendedSQL: "ALTER SYSTEM SET idle_in_transaction_session_timeout = '60s';"}, // unrelated
 	}
-	out := filterUnsafeMaxConnections(in, sys, nil)
+	out := filterUnsafeMaxConnections(in, connectionFloor(sys, nil, 17,
+		connWindow{peakTotal: 28, peakKnown: true}), nil)
 	if len(out) != 2 {
 		t.Fatalf("expected 2 findings after filtering the unsafe one, got %d", len(out))
 	}

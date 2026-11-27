@@ -21,6 +21,7 @@ func loadFileConfigBase() (*config.Config, error) {
 		base.PGVersionNum = cfg.PGVersionNum
 		base.HasWALColumns = cfg.HasWALColumns
 		base.HasPlanTimeColumns = cfg.HasPlanTimeColumns
+		base.StatementsSchema = cfg.StatementsSchema
 	}
 	return base, nil
 }

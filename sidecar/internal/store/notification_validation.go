@@ -12,6 +12,12 @@ var validChannelTypes = map[string]bool{
 	"email":     true,
 	"pagerduty": true,
 	"telegram":  true,
+	"webhook":   true,
+	// market-14
+	"teams":      true,
+	"opsgenie":   true,
+	"incidentio": true,
+	"jira":       true, // a case ticket integration, not an alert destination
 }
 
 var notificationSecretKeys = notify.SecretConfigKeys
@@ -19,8 +25,8 @@ var notificationSecretKeys = notify.SecretConfigKeys
 func validateChannelType(typ string) error {
 	if !validChannelTypes[typ] {
 		return fmt.Errorf(
-			"%w: type must be slack, email, "+
-				"pagerduty or telegram, got %q", ErrValidation, typ)
+			"%w: type must be slack, email, pagerduty, teams, opsgenie, "+
+				"incidentio, jira, telegram or webhook, got %q", ErrValidation, typ)
 	}
 	return nil
 }
@@ -60,6 +66,22 @@ func validateChannelConfig(
 				"%w: pagerduty channel requires routing_key",
 				ErrValidation)
 		}
+	case "webhook":
+		return validateWebhookConfig(config)
+	default:
+		return validateDestinationConfig(typ, config)
+	}
+	return nil
+}
+
+// validateWebhookConfig needs a webhook_url and headers that are a JSON
+// object of valid header names (alerting-06).
+func validateWebhookConfig(config map[string]string) error {
+	if config["webhook_url"] == "" {
+		return fmt.Errorf("%w: webhook channel requires webhook_url", ErrValidation)
+	}
+	if _, err := notify.ParseWebhookHeaders(config["headers"]); err != nil {
+		return fmt.Errorf("%w: webhook channel: %v", ErrValidation, err)
 	}
 	return nil
 }
@@ -97,10 +119,12 @@ func validateChannelTargets(
 ) error {
 	var err error
 	switch typ {
-	case "slack":
+	case "slack", "webhook":
 		err = policy.ValidateURL(config["webhook_url"])
 	case "email":
 		err = policy.ValidateHost(config["smtp_host"])
+	default:
+		err = validateDestinationTarget(policy, typ, config)
 	}
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrValidation, err)

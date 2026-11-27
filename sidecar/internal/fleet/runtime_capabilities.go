@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/tuner"
 )
 
 func collectRuntimeEvidence(ctx context.Context, pool *pgxpool.Pool, caps *ProviderCapabilities) {
@@ -19,7 +20,78 @@ func collectRuntimeEvidence(ctx context.Context, pool *pgxpool.Pool, caps *Provi
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	collectExtensionEvidence(ctx, pool, caps)
+	collectHintReadiness(ctx, pool, caps)
 	collectStatsPrivilege(ctx, pool, caps)
+	collectMaintainPrivilege(ctx, pool, caps)
+}
+
+// maintainerRoles are the roles whose members may ANALYZE and VACUUM every
+// table: the managed providers' admin roles and PostgreSQL 17's
+// pg_maintain. A role a server lacks simply matches nothing.
+var maintainerRoles = []string{
+	"rds_superuser", "cloudsqlsuperuser", "alloydbsuperuser", "azure_pg_admin", "pg_maintain",
+}
+
+// maintainPrivilegeSQL passes role OIDs to pg_has_role, so a listed role
+// that does not exist on this server version raises no error. USAGE (not
+// MEMBER) asks whether the role holds the privileges without SET ROLE, so a
+// NOINHERIT member is not reported as able to maintain every table.
+const maintainPrivilegeSQL = `SELECT r.rolsuper OR EXISTS (
+	SELECT 1 FROM pg_catalog.pg_roles g
+	 WHERE g.rolname = ANY($1) AND pg_has_role(current_user, g.oid, 'USAGE'))
+  FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`
+
+const maintainProbeFailed = "maintenance privilege probe failed; check role access"
+
+// collectMaintainPrivilege sets the analyze permission: ok for a superuser
+// or a member of a maintainer role, limited (checked per table at
+// execution) otherwise. A failed probe leaves it unknown.
+func collectMaintainPrivilege(
+	ctx context.Context, pool *pgxpool.Pool, caps *ProviderCapabilities,
+) {
+	var maintains bool
+	err := pool.QueryRow(ctx, maintainPrivilegeSQL, maintainerRoles).Scan(&maintains)
+	if err != nil {
+		caps.Limitations = append(caps.Limitations, maintainProbeFailed)
+		return
+	}
+	status := CapabilityStatus{Status: "limited", Reason: "role is not a superuser or " +
+		"maintainer; table ANALYZE permission checked at execution"}
+	if maintains {
+		status = CapabilityStatus{Status: "ok",
+			Reason: "role is a superuser or holds a maintainer role's privileges"}
+	}
+	caps.Permissions["analyze"] = status
+}
+
+// collectHintReadiness reads, catalog only, whether pg_hint_plan hints
+// reach application sessions, and names the missing prerequisite as a
+// limitation. A loaded module with enable_hint_table off ignores
+// hint_plan.hints entirely.
+func collectHintReadiness(ctx context.Context, pool *pgxpool.Pool, caps *ProviderCapabilities) {
+	switch caps.Extensions["pg_hint_plan"] {
+	case "not_installed", "unknown", "":
+		return
+	}
+	avail, err := tuner.ProbeHintReadiness(ctx, pool)
+	if err != nil {
+		caps.Limitations = append(caps.Limitations,
+			"pg_hint_plan readiness probe failed; check catalog access")
+	}
+	caps.HintPlan = avail
+	if l := hintPlanLimitation(avail); l != "" {
+		caps.Limitations = append(caps.Limitations, l)
+	}
+}
+
+// hintPlanLimitation is the limitation line for facts without application
+// effect ("" when hints take effect or nothing was probed).
+func hintPlanLimitation(a *tuner.HintPlanAvailability) string {
+	if a == nil || a.ApplicationEffect {
+		return ""
+	}
+	return "pg_hint_plan hints do not reach application sessions (" + a.Readiness() +
+		"); query hints stay advisory"
 }
 
 // A loaded module does not imply its product integration is usable. Lakebase

@@ -3,6 +3,7 @@ package verify
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,14 +71,43 @@ func TestStoreCreateFailurePreventsObservation(t *testing.T) {
 	}
 }
 
-func TestStoreUpdateFailureReturnsFailClosedVerdict(t *testing.T) {
-	source := newFakeObservationSource()
-	store := &failUpdateStore{memoryStateStore: newMemoryStateStore()}
-	verdict, err := newTestEngine(t, source, store).Watch(
-		context.Background(), successfulWatchRequest("update-error"),
-	)
-	if err == nil || !verdict.Revert || verdict.Status != "unverifiable" {
-		t.Fatalf("Watch = %#v, %v; want fail-closed update error", verdict, err)
+// The watch row exists (Create succeeded), so a failed Update is not a
+// reason to drop the index: the stored row is unchanged and the next resume
+// observes it again. Revert and Retain are both withheld.
+func TestStoreUpdateFailureOnExistingWatchKeepsIt(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*fakeObservationSource)
+	}{
+		{name: "improved", mutate: func(*fakeObservationSource) {}},
+		{name: "regressed", mutate: func(s *fakeObservationSource) {
+			s.after[42] = Measurement{Samples: 60, AverageLatency: 200 * time.Millisecond,
+				Buckets: 12}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := newFakeObservationSource()
+			test.mutate(source)
+			store := &failUpdateStore{memoryStateStore: newMemoryStateStore()}
+			verdict, err := newTestEngine(t, source, store).Watch(
+				context.Background(), successfulWatchRequest("update-error"),
+			)
+			if err == nil || !strings.Contains(err.Error(), "update failed") {
+				t.Fatalf("Watch error = %v, want the update error", err)
+			}
+			if errors.Is(err, ErrStateNotPersisted) {
+				t.Fatalf("Watch error = %v: the watch row exists", err)
+			}
+			if verdict.Revert || verdict.Retain || verdict.Status != "extended" ||
+				verdict.Reason != "state_update_failed" {
+				t.Fatalf("Watch verdict = %#v, want extended state_update_failed", verdict)
+			}
+			state, getErr := store.Get(context.Background(), "update-error")
+			if getErr != nil || state.Status != "pending" || state.Completed {
+				t.Fatalf("stored row = %#v, %v; want the created pending row", state, getErr)
+			}
+		})
 	}
 }
 

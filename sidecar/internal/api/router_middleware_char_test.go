@@ -12,7 +12,8 @@ import (
 
 // Characterization of the middleware chain NewRouterFullRuntime builds:
 // caller middlewares wrap only the API mux, inside requireJSON, maxBody,
-// timeout, security headers and CORS; /health and the SPA sit outside it.
+// timeout, the cross-origin check and security headers; /health and the
+// SPA sit outside it.
 
 type chainProbe struct {
 	sawMiddleware bool
@@ -31,10 +32,13 @@ func chainRouter(t *testing.T, seen *chainProbe, withPool bool) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+	// Routes carry their own gate, so the probes need a signed-in caller
+	// to reach a handler; fakeAdminMiddleware runs after mark.
 	if !withPool {
-		return NewRouterFullRuntime(mgr, cfg, nil, nil, nil, nil, nil, mark)
+		return newTestRouter(mgr, cfg, nil, nil, nil, nil, nil, mark, fakeAdminMiddleware)
 	}
-	return NewRouterFullRuntime(mgr, cfg, unreachablePool(t), nil, nil, nil, nil, mark)
+	return newTestRouter(mgr, cfg, unreachablePool(t), nil, nil, nil, nil, mark,
+		fakeAdminMiddleware)
 }
 
 func chainServe(
@@ -103,21 +107,16 @@ func TestRouterChain_JSONCheckRunsBeforeCallerMiddleware(t *testing.T) {
 	}
 }
 
-func TestRouterChain_CORSPreflightShortCircuits(t *testing.T) {
+func TestRouterChain_PreflightIsNotShortCircuited(t *testing.T) {
 	seen := &chainProbe{}
 	h := chainRouter(t, seen, false)
 	rec := chainServe(h, http.MethodOptions, "/api/v1/findings", "",
 		"http://localhost:5173")
-	if rec.Code != http.StatusOK || seen.sawMiddleware {
-		t.Fatalf("preflight = %d middleware=%v, want 200 without middleware", rec.Code,
-			seen.sawMiddleware)
+	if !seen.sawMiddleware {
+		t.Fatalf("preflight = %d answered ahead of the API chain", rec.Code)
 	}
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5173" {
-		t.Fatalf("allow-origin = %q", got)
-	}
-	rec = chainServe(h, http.MethodGet, "/api/v1/databases", "", "http://evil.example")
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
-		t.Fatalf("unlisted origin allowed: %q", got)
+		t.Fatalf("dev origin granted CORS: %q", got)
 	}
 }
 

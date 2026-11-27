@@ -34,6 +34,16 @@ type cycle struct {
 	cal       Calibration
 	day       dayBudget
 	open      []analyzer.Finding // the open findings kept this cycle
+	// dayClosed: the daily budget let no model call; answered and failed
+	// count the conversations that got an answer and those that failed.
+	dayClosed        bool
+	answered, failed int
+}
+
+// modelUnavailable reports a cycle whose model could not be consulted: the
+// day was closed, or every conversation it held failed (indexes-12).
+func (cy *cycle) modelUnavailable() bool {
+	return cy.dayClosed || (cy.answered == 0 && cy.failed > 0)
 }
 
 // askCases asks the model about the cases, within the cycle's case cap,
@@ -45,12 +55,14 @@ func (a *Agent) askCases(ctx context.Context, cy *cycle, cases []Case) []analyze
 	t := a.settings.Tuning
 	tokens, ok := a.openDay(ctx, cy)
 	if !ok {
+		cy.dayClosed = true
 		a.deferAll(cy, cases)
 		return nil
 	}
 	cy.budget = NewCycleBudget(t.MaxRequestsPerCycle, tokens)
 	cy.tools = a.cycleTools()
 	cy.v = a.newValidator(cy.cur, cy.w, cy.confirmed, a.operatorRejected(ctx))
+	cy.v.tools = cy.tools
 	cy.v.prepare(ctx, cy.prev, cy.open)
 	cy.cal = a.calibration(ctx)
 	judged, deferred, asked, stopped := a.askInTurn(ctx, cy, cases)
@@ -122,7 +134,7 @@ func (a *Agent) calibration(ctx context.Context) Calibration {
 func (a *Agent) runCase(ctx context.Context, cy *cycle, c Case) ([]Judged, bool) {
 	pk := a.packetFor(ctx, c, cy.cur, cy.w, cy.confirmed, cy.v.flight.ddl)
 	tb := a.newToolbox(c, cy.cur, cy.prev, cy.w, cy.tools)
-	conv := Conversation{System: systemPrompt, User: pk.Text + a.prefetch(ctx, tb, c),
+	conv := Conversation{System: a.systemPrompt(), User: pk.Text + a.prefetch(ctx, tb, c),
 		Tools: a.toolSpecs(), Exec: tb.exec, MaxTurns: a.settings.Tuning.MaxTurnsPerCase,
 		MaxTokens: a.settings.MaxOutputTokens, Budget: cy.budget}
 	tr, err := a.deps.Loop.Run(ctx, a.deps.Model, conv)
@@ -131,8 +143,10 @@ func (a *Agent) runCase(ctx context.Context, cy *cycle, c Case) ([]Judged, bool)
 		tr, err = a.deps.Loop.Run(ctx, a.deps.Fallback, conv)
 	}
 	if err != nil {
+		cy.failed++
 		return nil, a.caseFailed(c, err)
 	}
+	cy.answered++
 	answer, err := ParseAnswer(tr.Final)
 	if err != nil {
 		a.logFn("WARN", "tuning: case %s: unusable answer: %v", c.ID, err)

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FactsPage } from './FactsPage'
 
@@ -44,11 +44,11 @@ async function renderForm(database = 'orders', role = 'operator') {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Declare a fact form', () => {
-  it('offers the five fact types and limits the subject kind by type', async () => {
+  it('offers the six fact types and limits the subject kind by type', async () => {
     stubFetch()
     await renderForm()
     expect(options('declare-type')).toEqual(['owned_by_app_migrations', 'test_fixture',
-      'slot_consumer', 'append_only', 'table_window'])
+      'slot_consumer', 'append_only', 'table_window', 'do_not_touch'])
     expect(options('declare-kind')).toEqual(['index', 'table', 'schema'])
     choose('declare-type', 'test_fixture')
     expect(options('declare-kind')).toEqual(['schema'])
@@ -199,5 +199,74 @@ describe('Declare a fact form', () => {
     choose('declare-subject', 'public.orders')
     expect(screen.getByTestId('declare-submit')).toBeDisabled()
     expect(posts(mock)).toHaveLength(0)
+  })
+})
+
+// facts-09: before declaring, the form shows which objects the subject
+// matches today (GET /facts/coverage), so a broad pattern is seen first.
+describe('Declare a fact coverage preview', () => {
+  function stubCoverage(reply) {
+    const mock = vi.fn(async (url, init = {}) => {
+      if (String(url).startsWith('/api/v1/facts/coverage')) return reply
+      if ((init.method || 'GET') === 'GET') return response(200, { facts: [], errors: [] })
+      return response(201, { fact: created })
+    })
+    vi.stubGlobal('fetch', mock)
+    return mock
+  }
+  const coverageCalls = mock => mock.mock.calls.map(([u]) => String(u))
+    .filter(u => u.startsWith('/api/v1/facts/coverage'))
+
+  it('previews the matches of the subject before declaring', async () => {
+    const mock = stubCoverage(response(200, {
+      objects: ['test_a', 'test_b', 'test_c'], truncated: false }))
+    await renderForm()
+    choose('declare-type', 'test_fixture')
+    choose('declare-subject', ' test_* ')
+    expect(coverageCalls(mock)).toHaveLength(0)
+    fireEvent.click(screen.getByTestId('declare-coverage-check'))
+    const out = await screen.findByTestId('declare-coverage')
+    expect(coverageCalls(mock)).toEqual(
+      ['/api/v1/facts/coverage?database=orders&kind=schema&subject=test_*'])
+    expect(out).toHaveTextContent('Matches 3 objects')
+    expect(out).toHaveTextContent('test_a')
+    expect(out).toHaveTextContent('test_c')
+    expect(posts(mock)).toHaveLength(0)
+  })
+
+  it('shows 50+ for a cut list and clears the preview when the subject changes',
+    async () => {
+      stubCoverage(response(200, {
+        objects: Array.from({ length: 50 }, (_, i) => `public.idx_${i}`), truncated: true }))
+      await renderForm()
+      choose('declare-subject', 'public.idx_*')
+      fireEvent.click(screen.getByTestId('declare-coverage-check'))
+      expect(await screen.findByTestId('declare-coverage')).toHaveTextContent(
+        'Matches 50+ objects')
+      choose('declare-subject', 'public.idx_a*')
+      expect(screen.queryByTestId('declare-coverage')).toBeNull()
+    })
+
+  it('cannot preview without a subject or with every database selected', async () => {
+    const mock = stubCoverage(response(200, { objects: [], truncated: false }))
+    await renderForm()
+    expect(screen.getByTestId('declare-coverage-check')).toBeDisabled()
+    cleanup()
+    await renderForm('all')
+    choose('declare-subject', 'public.orders')
+    expect(screen.getByTestId('declare-coverage-check')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('declare-coverage-check'))
+    expect(coverageCalls(mock)).toHaveLength(0)
+  })
+
+  it("shows the coverage API's refusal", async () => {
+    stubCoverage(response(400, { error: 'schema "a.b" must be one identifier',
+      code: 'invalid_fact' }))
+    await renderForm()
+    choose('declare-type', 'test_fixture')
+    choose('declare-subject', 'a.b')
+    fireEvent.click(screen.getByTestId('declare-coverage-check'))
+    expect(await screen.findByTestId('declare-coverage-error')).toHaveTextContent(
+      'must be one identifier')
   })
 })

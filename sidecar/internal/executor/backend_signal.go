@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/pg-sage/sidecar/internal/backendguard"
 )
 
 var (
@@ -71,7 +73,7 @@ func (e *Executor) signalMatchingBackend(
 		query = terminateMatchingBackendSQL
 	}
 	var signaled bool
-	err := e.pool.QueryRow(
+	err := e.actionDB().QueryRow(
 		ctx,
 		query,
 		evidence.PID,
@@ -90,20 +92,13 @@ func (e *Executor) signalMatchingBackend(
 	return nil
 }
 
-// protectedBackendPredicate excludes sessions pg_sage must never signal:
-// other databases, non-client backends (walsenders, autovacuum, background
-// workers), backup/dump tools and pg_sage itself. backend_start pins the
-// exact session so a reused PID never matches.
+// protectedBackendPredicate pins the exact session (backend_start, so a
+// reused PID never matches) and excludes every session pg_sage must never
+// signal (backendguard.ProtectedPredicate).
 const protectedBackendPredicate = `
-   AND a.backend_start = $6
-   AND a.datname = current_database()
-   AND a.backend_type = 'client backend'
-   AND a.application_name NOT ILIKE '%pg_sage%'
-   AND a.application_name NOT ILIKE '%pg_dump%'
-   AND a.application_name NOT ILIKE '%pg_basebackup%'
-   AND a.application_name NOT ILIKE '%pg_restore%'`
+   AND a.backend_start = $6` + backendguard.ProtectedPredicate
 
-const cancelMatchingBackendSQL = `/* pg_sage */
+const cancelMatchingBackendSQL = `/* pg_sage executor */
 SELECT pg_cancel_backend(a.pid)
   FROM pg_stat_activity AS a
  WHERE a.pid = $1
@@ -113,15 +108,12 @@ SELECT pg_cancel_backend(a.pid)
    AND LEFT(a.query, 200) = $5
    AND a.state = 'active'` + protectedBackendPredicate
 
-const terminateMatchingBackendSQL = `/* pg_sage */
+const terminateMatchingBackendSQL = `/* pg_sage executor */
 SELECT pg_terminate_backend(a.pid)
-  FROM pg_stat_activity AS a
-  JOIN pg_roles AS r ON r.rolname = a.usename
+  FROM pg_stat_activity AS a` + backendguard.TerminateJoin + `
  WHERE a.pid = $1
    AND a.query_start = $2
    AND COALESCE(a.query_id, 0) = $3
    AND a.application_name = $4
    AND LEFT(a.query, 200) = $5
-   AND a.state = 'active'
-   AND NOT r.rolsuper
-   AND a.application_name NOT ILIKE '%autovacuum%'` + protectedBackendPredicate
+   AND a.state = 'active'` + backendguard.TerminatePredicate + protectedBackendPredicate

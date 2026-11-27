@@ -141,7 +141,7 @@ func databaseFieldChanged(
 		return old.TrustLevel != updated.TrustLevel ||
 			old.TrustLevelExplicit != updated.TrustLevelExplicit
 	case "tags":
-		return !sameTags(old.Tags, updated.Tags)
+		return !SameTags(old.Tags, updated.Tags)
 	}
 	return !reflect.DeepEqual(
 		oldValue.FieldByIndex(index).Interface(),
@@ -149,8 +149,9 @@ func databaseFieldChanged(
 	)
 }
 
-// sameTags treats nil and empty tag lists as equal.
-func sameTags(left, right []string) bool {
+// SameTags reports whether two tag lists are the same, in order; nil and
+// empty lists are equal.
+func SameTags(left, right []string) bool {
 	if len(left) == 0 && len(right) == 0 {
 		return true
 	}

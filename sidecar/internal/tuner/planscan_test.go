@@ -237,6 +237,8 @@ func TestScanPlan_CorrelatedSubqueryDeepNesting(t *testing.T) {
 				"Sort Method": "external merge",
 				"Sort Space Used": 32768,
 				"Sort Space Type": "Disk",
+				"Actual Rows": 15000,
+				"Actual Loops": 5,
 				"Plans": [
 					{
 						"Node Type": "Hash Join",

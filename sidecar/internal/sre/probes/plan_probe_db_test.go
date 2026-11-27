@@ -49,7 +49,7 @@ func shiftFor(t *testing.T, shifts []PlanShift, qid int64) PlanShift {
 	return PlanShift{}
 }
 
-func TestPlanRegressions_FlipJoinedWithWindowedLatency(t *testing.T) {
+func TestPlanRegressions_FlipJoinedWithWindowLatency(t *testing.T) {
 	pool, ctx := livePool(t)
 	bootstrapQueryStore(t, ctx, pool)
 	const flipQ, steadyQ, resetQ, nullQ = 881001, 881002, 881003, 881004

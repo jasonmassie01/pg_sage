@@ -13,11 +13,13 @@ import (
 // created: the readiness endpoint answers 503 until it has.
 var ErrSchemaNotReady = errors.New("sage schema not ready")
 
-// readinessSQL returns the expected tables missing from the sage schema. The
-// pg_class lookup is by (relname, relnamespace), an index scan at any
+// readinessSQL returns the expected tables missing from the sage schema
+// (kind 'table'), and idx_config_key_db (kind 'index') unless it exists and
+// is valid and unique: without it every sage.config upsert fails (config-04).
+// The pg_class lookup is by (relname, relnamespace), an index scan at any
 // catalog size.
-const readinessSQL = `/* pg_sage readiness v1 */
-SELECT t.name
+const readinessSQL = `/* pg_sage readiness v3 */
+SELECT 'table', t.name
   FROM unnest($1::text[]) AS t(name)
  WHERE NOT EXISTS (
        SELECT 1
@@ -26,7 +28,13 @@ SELECT t.name
         WHERE n.nspname = 'sage'
           AND c.relname = t.name
           AND c.relkind IN ('r', 'p'))
- ORDER BY t.name`
+UNION ALL
+SELECT 'index', 'idx_config_key_db'
+ WHERE NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_index i
+        WHERE i.indexrelid = pg_catalog.to_regclass('sage.idx_config_key_db')
+          AND i.indisvalid AND i.indisunique)
+ ORDER BY 1 DESC, 2`
 
 // readinessTables lists the tables Bootstrap guarantees, in its order.
 func readinessTables() []string {
@@ -37,8 +45,9 @@ func readinessTables() []string {
 	return names
 }
 
-// CheckReady returns nil when every table Bootstrap creates exists, an error
-// wrapping ErrSchemaNotReady naming the missing ones, or the query error.
+// CheckReady returns nil when every table Bootstrap creates exists and the
+// sage.config key index is valid and unique, an error wrapping
+// ErrSchemaNotReady naming what is missing, or the query error.
 func CheckReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if pool == nil {
 		return errors.New("schema readiness requires a PostgreSQL connection pool")
@@ -48,20 +57,27 @@ func CheckReady(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("checking sage schema readiness: %w", err)
 	}
 	defer rows.Close()
-	var missing []string
+	missing := map[string][]string{}
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var kind, name string
+		if err := rows.Scan(&kind, &name); err != nil {
 			return fmt.Errorf("reading sage schema readiness: %w", err)
 		}
-		missing = append(missing, name)
+		missing[kind] = append(missing[kind], name)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("checking sage schema readiness: %w", err)
 	}
-	if len(missing) > 0 {
-		return fmt.Errorf("%w: missing tables %s", ErrSchemaNotReady,
-			strings.Join(missing, ", "))
+	var parts []string
+	if len(missing["table"]) > 0 {
+		parts = append(parts, "missing tables "+strings.Join(missing["table"], ", "))
+	}
+	if len(missing["index"]) > 0 {
+		parts = append(parts, "missing, invalid or non-unique index sage."+
+			strings.Join(missing["index"], ", sage."))
+	}
+	if len(parts) > 0 {
+		return fmt.Errorf("%w: %s", ErrSchemaNotReady, strings.Join(parts, "; "))
 	}
 	return nil
 }

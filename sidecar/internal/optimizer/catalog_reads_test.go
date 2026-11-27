@@ -133,18 +133,21 @@ func maxScanRows(t *testing.T, raw string) float64 {
 // Post-test audit: with expression indexes admitted, every function in
 // the keys and the predicate is checked against pg_proc; a function with
 // no IMMUTABLE overload is rejected, immutable ones and keywords pass.
+// security-01b: an overload set that mixes IMMUTABLE and STABLE
+// (date_trunc) and a name with no pg_catalog or allowlisted extension
+// function (no_such_function_xyz) are refused, no longer admitted.
 func TestCheckExpressionVolatility_DB(t *testing.T) {
 	pool := connectTestDB(t)
 	defer pool.Close()
 	v := NewValidator(pool, fnTestOptimizerConfig(), noopLog)
 	for ddl, want := range map[string]bool{
 		"CREATE INDEX CONCURRENTLY i ON t ((lower(email)))":                              true,
-		"CREATE INDEX CONCURRENTLY i ON t (date_trunc('day', created_at))":               true,
+		"CREATE INDEX CONCURRENTLY i ON t (date_trunc('day', created_at))":               false,
 		"CREATE INDEX CONCURRENTLY i ON t (status) WHERE status IN ('a', 'b')":           true,
 		"CREATE INDEX CONCURRENTLY i ON t ((created_at > now()))":                        false,
 		"CREATE INDEX CONCURRENTLY i ON t (status) WHERE created_at > clock_timestamp()": false,
 		"CREATE INDEX CONCURRENTLY i ON t ((lower(email)), (random() > 0.5))":            false,
-		"CREATE INDEX CONCURRENTLY i ON t ((no_such_function_xyz(a)))":                   true,
+		"CREATE INDEX CONCURRENTLY i ON t ((no_such_function_xyz(a)))":                   false,
 	} {
 		ok, reason := v.checkExpressionVolatility(context.Background(), Recommendation{DDL: ddl})
 		if ok != want {

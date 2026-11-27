@@ -47,7 +47,8 @@ func (s *modelSession) followProbe(ctx context.Context, d causal.Diagnosis,
 
 // runProbe runs and commits the proposed probe within the probe ceiling
 // and the active time, moving evaluating -> needs_evidence (with the
-// evidence) -> collecting -> evaluating.
+// evidence) -> collecting -> evaluating. A probe refused its slot runs
+// once more when the lease allows (runQueued).
 func (s *modelSession) runProbe(ctx context.Context, p ProposedProbe) (*ModelProbe,
 	string, *ModelRejection, error) {
 	cur, err := s.c.store.Get(ctx, s.lease.Scope, s.inv.ID)
@@ -64,7 +65,7 @@ func (s *modelSession) runProbe(ctx context.Context, p ProposedProbe) (*ModelPro
 	if s.lease, err = s.c.store.Heartbeat(ctx, s.lease); err != nil {
 		return nil, "", nil, err
 	}
-	res := s.c.runner.Run(ctx, p.ID, p.Args)
+	res := s.c.runQueued(ctx, s.lease, p.ID, p.Args)
 	key := fmt.Sprintf("model-probe-f%d", s.lease.Fence)
 	_, err = s.c.store.CommitStep(ctx, s.lease, StepResult{IdempotencyKey: key,
 		Results: []probes.Result{res}, NextState: StateNeedsEvidence})

@@ -31,7 +31,7 @@ func TestStartRevalidationLoop_RespectsVerifyAfterApply(t *testing.T) {
 
 // G3-B16: agent hints keep the Set() allowlist and the work_mem clamp.
 func TestCheckHint_SetAllowlistAndClamp(t *testing.T) {
-	tu := New(nil, TunerConfig{WorkMemMaxMB: 512}, &HintPlanAvailability{Available: true,
+	tu := New(nil, TunerConfig{WorkMemMaxMB: 512}, &HintPlanAvailability{ApplicationEffect: true,
 		HintTableReady: true}, noopLog2)
 	ctx := context.Background()
 	accepted := map[string]string{

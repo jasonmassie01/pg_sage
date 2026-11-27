@@ -1,18 +1,12 @@
 # Lakebase compatibility and operations
 
-This guide describes the native Lakebase integration delivered through
-**pg_sage `2.5.0-dev.10`**. Database and App acceptance evidence was collected
-October 29–30, 2026; public platform documentation was cross-checked November 1,
-2026. These are scoped development results, **not full Lakebase compatibility
-certification** or a production reliability guarantee. A passing local
-PostgreSQL suite is separate from a passing native Lakebase test.
-
-The [dev.11–12 follow-up](../reviews/2026-11-02-v2.5-dev12-acceptance.md) adds an
-optional App email-domain audience gate and classic meme images. It does not
-extend the version-specific database compatibility evidence in this guide.
-It also corrects telemetry inbox contention, App request-limit isolation and
-event-stream lifetime behavior; those availability checks are reported
-separately from feature compatibility.
+This guide covers operating pg_sage 2.6.0 against Lakebase: connections, Unity
+Gateway, history telemetry, SRE and managed-service limits. Dated acceptance
+results, with the build each one tested, are in the
+[evidence appendix](lakebase-evidence.md#lakebase-guide). They are scoped
+development results, **not full Lakebase compatibility certification** or a
+production reliability guarantee. A passing local PostgreSQL suite is separate
+from a passing native Lakebase test.
 
 Start with the [native Databricks implementation guide](databricks-native.md)
 for the architecture and linked setup, or the [Databricks Apps guide](databricks-apps.md)
@@ -24,38 +18,32 @@ later revision closes a gap.
 The Lakebase integration uses the standard PostgreSQL wire protocol and the
 official Databricks Go SDK for unified authentication. It supports local CLI
 profiles and Databricks Apps service principal credentials. Short-lived
-database tokens are obtained at physical connection time, cached until two
-minutes before expiry, and never written into pg_sage configuration or its
-metadata database.
+database tokens are obtained at physical connection time and never written
+into pg_sage configuration or its metadata database.
 
-The current [dev.10 acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md)
-verifies Databricks-only App sign-in, native Gateway OAuth M2M, connected Fleet,
-database-preserving Cases/Actions/Ask workflows and desktop/mobile rendering.
-Cases retain exact technical evidence while distinguishing unknown urgency,
-missing measurements and unproven impact. Unnamed indexes no longer receive a
-guessed inverse or catalog target; proposals without captured recovery remain
-unknown. Inapplicable Lakebase `ALTER SYSTEM` procedures are withheld, including
-older saved SQL when current applicability guidance rejects it. Saved and current
-procedures retain separate risk/recovery claims; matching a source does not
-validate an older proposal.
+Each pool keeps one cached database token (in fleet mode, one per database
+pool). Lakebase checks a token's expiry only at login, so open connections
+are unaffected by expiry and only new physical connections need a valid token:
 
-The [dev.8 acceptance](../reviews/2026-10-30-v2.5-dev8-acceptance.md)
-also preserves invalid-index findings during restart warmup and exact query
-identities in finding responses and Cases artifacts. The
-[dev.6 acceptance](../reviews/2026-10-30-v2.5-dev6-acceptance.md)
-fixed singleton Ask Sage selection and Fleet inventory and added hint-free spill
-advice. Nine controlled finding families have real Lakebase proof. The
-[scenario matrix](../reviews/2026-10-30-nerdlab-findings.md) distinguishes positive
-finding/recovery tests from readable sources, provider restrictions and incident
-conditions that were not induced.
+- A cached token with more than 15 minutes left is used without contacting
+  Databricks.
+- With 15 minutes or less left, the next new connection mints a fresh token.
+  One mint runs at a time and is bounded to 20 seconds; other connections keep
+  using the cached token meanwhile instead of queueing behind the mint.
+- If the mint fails (for example while the workspace control plane throttles
+  or is unavailable), connections keep using the cached token while it has
+  more than 30 seconds left. pg_sage logs one warning per minute
+  (`lakebase credential refresh failed; using the cached credential`) with the
+  endpoint, the consecutive failure count and the time the cached token stays
+  valid. With 30 seconds or less left, new connections fail with
+  `refresh Lakebase database credential: ...` until a mint succeeds.
 
-The [dev.5 acceptance](../reviews/2026-10-30-v2.5-dev5-acceptance.md) passed
-one complete 142-package Go invocation, the native PG18 suite and final App
-SNAPSHOT `01f1d48e0748107d95b5bdd1ffad0e22`. All five historical SRE adapters
-returned positive observations and accepted citations, including exact controlled
-plan and DDL events. The same binary separately passed a real-time synthetic
-application SLI lifecycle. The App remains in observation mode with metadata-only
-consent; App-principal workload-table maintenance execution is unproven.
+At startup the endpoint lookup is part of each connection attempt: the meta
+database, the monitored database and every fleet database retry a throttled,
+unavailable or unreachable endpoint lookup up to five times with backoff
+(1, 2, 4 and 8 seconds), each lookup bounded to 30 seconds. A permission
+denied (403) or not found (404) answer, an invalid endpoint mapping and an
+unverified TLS mode stop startup at once with an error naming the endpoint.
 
 `temp_spill` findings use new temporary-block counters from comparable query
 snapshots and do not require pg_hint_plan or auto_explain. Their advice calls
@@ -88,10 +76,10 @@ collector probes do not extend that entire PG18 result to those versions.
 | Operator statistics-maintenance bridge | Native owned-table proposal → approval → execution → structural check → rollback verified | Not executed under the App principal | App workload-table ownership unproven; rollback cannot restore prior ANALYZE statistics |
 | `pg_hint_plan` / HypoPG | Hook activation unavailable / extension unavailable on tested PG18 image and role | Not made available by Apps or telemetry | Plain EXPLAIN and a reviewed disposable real-index experiment are separate, limited alternatives |
 
-See the [dev.5 native and App source matrix](../reviews/2026-10-30-native-sre-source-matrix.md),
-[native action tests](../reviews/2026-10-29-lakebase-native-tests.md),
-[provider follow-up](../reviews/2026-10-30-provider-compatibility-gaps.md) and
-[dev.10 acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) for the
+See the [dev.5 native and App source matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-native-sre-source-matrix.md),
+[native action tests](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-native-tests.md),
+[provider follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md) and
+[dev.10 acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev10-acceptance.md) for the
 specific successes, failed attempts and remaining boundaries behind this table.
 
 ## Local connection
@@ -114,8 +102,21 @@ For a fleet with multiple endpoints, use `SAGE_LAKEBASE_ENDPOINTS` **instead**:
 export SAGE_LAKEBASE_ENDPOINTS='{"<host-a>":"projects/<a>/branches/<branch>/endpoints/<endpoint>","<host-b>":"projects/<b>/branches/<branch>/endpoints/<endpoint>"}'
 ```
 
+`sslmode=verify-full` is required, not just recommended, for every OAuth
+connection: the main host and every fallback host. pg_sage refuses
+`require` and `verify-ca` before it contacts Databricks, because neither binds
+the server certificate to the endpoint hostname, and an interceptor could
+capture the minted database credential. The refusal reads:
+`lakebase OAuth requires sslmode=verify-full (got an unverified TLS mode); set
+sslmode=verify-full in SAGE_DATABASE_URL, SAGE_PG_SSLMODE or the fleet's
+databases[].sslmode`. In fleet mode each mapped database takes its TLS mode from
+its own `sslmode` key, which defaults to `prefer`, so set `sslmode: verify-full`
+on every database listed in `SAGE_LAKEBASE_ENDPOINTS`. Lakebase hostnames
+verify against the system certificate roots, so no `sslrootcert` is needed.
+
 Every mapped hostname is checked against endpoint metadata before its pool
-receives a credential. Unmapped hosts retain ordinary PostgreSQL authentication.
+receives a credential. Unmapped hosts retain ordinary PostgreSQL authentication
+and their configured `sslmode`.
 Plaintext fallback connections are refused for OAuth pools. Lakebase's built-in
 PgBouncer pooler does not support OAuth; use the direct endpoint hostname. Native
 OAuth configuration rejects the pooled hosts returned by endpoint metadata.
@@ -237,7 +238,7 @@ The tested integration uses `system.lakebase.plan_history` and `postgres_logs`
 through the warehouse, rather than configuring the ordinary session path or
 tailing files. A capability badge saying ordinary `auto_explain` is unavailable
 must be read separately from provider-history availability. The
-[original telemetry assessment](../reviews/2026-10-29-lakebase-advanced-telemetry.md)
+[original telemetry assessment](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-advanced-telemetry.md)
 records those read-only settings checks and the initially empty delivery results;
 the later positive provider tests are recorded separately below.
 
@@ -273,14 +274,209 @@ lakebase_observability:
   warehouse_id: '<existing-warehouse-id>'
   allow_payload: false
   poll_interval_seconds: 60
-  queries_per_poll: 12
+  queries_per_poll: 16
   retention_hours: 168
+  settle_lag_seconds: 120
+  short_lookback_seconds: 7200
   bindings:
     - host: '<direct-lakebase-host>'
       database: '<monitored-database>'
       endpoint: projects/<project>/branches/<branch>/endpoints/<endpoint>
       allow_compute: false
 ```
+
+`endpoint` is optional. When a binding omits it, pg_sage takes the endpoint that
+`SAGE_LAKEBASE_ENDPOINT` or `SAGE_LAKEBASE_ENDPOINTS` maps to the binding's host,
+the same mapping OAuth uses, so the host-to-endpoint mapping is stated once. If
+neither variable maps the host, startup fails with `binding for <host> has no
+endpoint and SAGE_LAKEBASE_ENDPOINT(S) maps none`. An `endpoint` you set is kept.
+Every project, branch and endpoint ID is 1-63 lowercase letters, digits or
+hyphens and must not start with a hyphen; OAuth, telemetry and the Apps
+`configure.py` apply this same rule.
+
+#### Read cadence and query budget
+
+Each poll spends at most `queries_per_poll` SQL warehouse reads. When it is 0
+or unset, the budget is two reads per stream plus four: 16 for the six default
+streams. A poll spends the budget in this order:
+
+1. **Forward.** Every stream reads new history first, ending
+   `settle_lag_seconds` (default 120) before now, so rows the provider commits
+   late are visible when their window is read. Each stream keeps one read
+   reserved while earlier streams catch up, so no stream misses a poll.
+2. **Short reconcile.** Each stream gets one read of a sweep over the
+   `short_lookback_seconds` (default 7,200, two hours) behind its forward
+   edge. This catches rows that arrive later than the settle lag.
+3. **Deep reconcile.** Whatever budget is left goes to a sweep of the full
+   seven-day source horizon. A stream starts a new deep sweep at most once
+   every 24 hours.
+
+The forward read width adapts to each stream. A read that exceeds
+`max_rows` or `max_bytes` is split in half, and the narrower width is kept in
+the cursor, so it survives a restart. After three reads projected under a
+quarter of `max_rows`, the width doubles, up to `window_seconds`. A stream that
+stays that sparse at the full window also reconciles four windows per read.
+A reconcile read that is split keeps its narrower width for later polls, so a
+dense stretch of old history is read in pieces rather than retried whole.
+History that leaves the source horizon before it is read still counts as a gap.
+
+`GET /api/v1/lakebase-observability/status` reports each stream's
+`forward_lag_seconds` (how far the forward cursor trails the last poll) and
+`reconcile_progress` (the share of the current deep sweep read, 0 to 1). A
+forward lag that keeps growing means the stream needs more than its share of
+the budget: raise `queries_per_poll` or `max_rows`.
+
+Each stream also counts its SQL warehouse reads since `counters_since` (the
+reader's start): `statements` (every statement submitted, including the
+retries of a window halved on the row or byte budget, and failed reads),
+`rows` and `bytes` (from the batches returned) and `read_millis` (wall time
+spent in reads). Every statement spends the poll's query budget, so statements
+per hour across all streams stay at or below
+`queries_per_poll × 3600 / poll_interval_seconds`. The
+administrator deployment status repeats this projection under
+`databricks.telemetry`, next to credential expiry and Gateway outcomes (see
+[Databricks Apps](databricks-apps.md)).
+
+#### Cost and freshness
+
+**Freshness.** A row the provider has committed to its system table is read by
+the first forward read whose window covers it. Forward reads stop
+`settle_lag_seconds` (default 120) short of now and run every
+`poll_interval_seconds` (default 60), so a promptly committed row arrives about
+two to three minutes after its event time. The provider's own delay before a
+row appears in the system table comes on top of that; Databricks publishes no
+delivery or latency guarantee for these tables.
+
+**Settle behavior.** The settle lag trades latency for completeness: rows the
+provider commits up to `settle_lag_seconds` late are read by the forward pass.
+Rows later than that are picked up by the short reconcile sweep, which re-reads
+the last `short_lookback_seconds` (default two hours) behind the forward edge,
+or failing that by the deep sweep, which re-reads the seven-day source horizon
+about once a day. Only a row committed so late that its event time has left
+that horizon before a sweep reaches it is never read. Raising
+`settle_lag_seconds` makes forward reads more complete but every finding later.
+
+**Read width.** `window_seconds` (default 900) is the widest single forward
+read and the base width of every reconcile read, not only the first one. Reads
+narrow when a window hits `max_rows` or `max_bytes` and widen back up to this
+cap; a stream that stays sparse at the full width reconciles up to four windows
+per read. The first forward read of a new stream starts this far back.
+
+#### Cost model
+
+pg_sage keeps two Databricks resources busy, and each is billed while it runs:
+the SQL warehouse the history reader queries, and the Lakebase compute pg_sage
+monitors. Neither default changes on its own; this section says what the
+defaults cost and which settings bring each resource back to zero.
+
+**SQL warehouse.** Every read is a SQL statement on the bound warehouse. A
+poll spends at most `queries_per_poll` statements (default 16 for six
+streams), so the default schedule can issue up to 23,040 statements a day; most
+polls spend fewer once reconcile sweeps finish. The warehouse stops only when
+`poll_interval_seconds` exceeds its auto-stop idle time: with the default
+60-second poll and any auto-stop setting of a minute or more, it never stops.
+
+Estimate the warehouse's monthly use as:
+
+```text
+DBU per month = hours the warehouse runs per month × the size's DBU per hour
+```
+
+Worked example: a warehouse that never stops runs about 720 hours a month, so a
+size rated 4 DBU per hour uses 2,880 DBU a month. The 4 DBU/hour rating is an
+example only; check the size's rating and the DBU price against the current
+Databricks rate card for your cloud, region and warehouse type before
+budgeting. A poll interval longer than the auto-stop time lets the warehouse
+stop between polls, but it then cold-starts for each poll.
+
+To cut warehouse cost, raise `poll_interval_seconds` above the auto-stop time,
+lower `queries_per_poll`, select fewer `streams`, or share a warehouse that
+already runs for other work. Each of these delays findings: see
+[Read cadence and query budget](#read-cadence-and-query-budget) and the
+freshness notes above.
+
+**The monitored Lakebase compute.** The history reader opens no connection to
+the Lakebase endpoint, but the sidecar's own pools do:
+
+| pg_sage cadence | Default | Pools |
+| --- | --- | --- |
+| Collector query | every `collector.interval_seconds` (60) | monitored and fleet databases |
+| Pool health check | every 30 seconds (monitored), 1 minute (fleet, meta-db) | every pool that keeps a connection |
+| `MinConns = 1` | one connection always open | monitored, fleet and meta-db pools |
+
+An endpoint with scale-to-zero suspends its compute after its suspend timeout
+of inactivity. Each cadence above that is shorter than the suspend timeout can
+keep the compute active, so with the defaults an endpoint pg_sage monitors
+stays up, and is billed, around the clock. pg_sage does not claim which of
+these Lakebase counts as activity; it names every one that could.
+
+At startup pg_sage reads the endpoint's suspend timeout and state from the
+same endpoint lookup it already makes for OAuth (no extra API call). When
+scale-to-zero is on and any cadence is shorter, it logs one warning per
+endpoint naming them, for example:
+
+```text
+[WARN] [connect] Lakebase endpoint projects/p/branches/b/endpoints/primary suspends after
+5m0s of inactivity, but pg_sage runs collector every 1m0s, health check every 30s,
+min_conns=1 keeps a connection open; the compute may never scale to zero ...
+```
+
+The administrator deployment status reports the same per endpoint under
+`databricks.endpoints[]`: `suspend_timeout_seconds`, `compute_state`,
+`compute_observed_at`, `keeps_compute_active` and `scale_to_zero_blockers`
+(see [Databricks Apps](databricks-apps.md)). A suspend timeout that is missing,
+0 (scale-to-zero off) or negative gives no warning. pg_sage keeps collecting
+while the endpoint is IDLE: monitoring is the point of running it, so it never
+skips collection to let the compute sleep. Budget the compute as always on, or
+monitor a branch or endpoint whose cost you accept running continuously.
+Activity around a scale-to-zero or resume, such as DDL, can be missing from
+provider capture (see [Platform capture and access](#platform-capture-and-access)).
+
+#### Delivery, retries and backlog
+
+Only `plan_history` events have a sink: they are copied into the monitored
+database's plan cache. Events of the other streams stay in the durable inbox
+as history and are acknowledged in the same transaction that stores them,
+under the same policy fence, so they never queue for delivery. Each poll
+delivers at most `max_rows` plan events, oldest first.
+
+One event that cannot be delivered no longer blocks the events behind it:
+
+- A plan that can never be stored (for example, one whose plan tree has no
+  valid EXPLAIN shape) is acknowledged and counted as `rejected_row`.
+- Any other sink failure is retried. The next attempt waits 30 seconds,
+  doubling to at most 15 minutes, while later events keep being delivered.
+  After 5 failed attempts the event is acknowledged and counted as
+  `delivery_failed`; its inbox history remains until it expires.
+- A timeout, cancellation, failed connection, or SQLSTATE class 08 or 57
+  means the sink or control database is unavailable, not that the event is
+  bad. Delivery stops for that poll without spending an attempt, and resumes
+  on the next poll.
+- Three consecutive failed events also stop the poll, after each spends one
+  attempt. A sink-wide fault that is not one of the outage classes above (a
+  full disk, a read-only sink, a revoked grant) then costs a few events per
+  poll instead of exhausting the whole backlog as `delivery_failed`.
+
+Attempts are kept in `sage.lakebaseobs_attempts` (schema version 6, created
+by the telemetry schema setup). The table stores the attempt count, the next
+attempt time and a fixed failure class such as `sqlstate_40P01` or `timeout`,
+never error text.
+
+`GET /api/v1/lakebase-observability/status` reports, per database, a
+`delivery` list with one entry per consumer as of the last poll:
+
+| Field | Meaning |
+|---|---|
+| `consumer` | Consumer name, for example `normalized_history_v1` |
+| `pending_rows` | Deliverable, unacknowledged events, including those waiting for a retry |
+| `pending_rows_capped` | `true` when `pending_rows` reached 10,001; the backlog is at least that large |
+| `oldest_pending_at` | Occurrence time of the oldest pending event; absent when nothing is pending |
+| `oldest_pending_age_seconds` | Age of that event at the last poll |
+
+`delivery_outcomes_since_start` counts `normalized`, `payload_unavailable`,
+`rejected_row`, `self_excluded` and `delivery_failed` per stream. A backlog
+that keeps growing while plans are delivered means plan events arrive faster
+than `max_rows` per poll: raise `max_rows`.
 
 This configuration is restart-bound and never grants permissions or enables a
 provider setting. Compute-wide streams require explicit `allow_compute: true`.
@@ -332,7 +528,7 @@ available memory.
 The October 30 controlled native follow-up delivered exact-fixture plans,
 logs and DDL, with nonempty metadata in all ten requested streams. The earlier
 zero-row results remain valid for their original selectors and observation
-times. See the [provider follow-up](../reviews/2026-10-30-provider-compatibility-gaps.md)
+times. See the [provider follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md)
 for attribution, normalization and timing limits. This proves controlled native
 delivery, not a completeness/latency SLA or App-principal payload access.
 The final dev.5 App-principal investigator executed and cited all five history
@@ -349,11 +545,36 @@ readback and eight unchanged action/approval ledgers passed.
 Payload consent remained `allow_payload: false`. These are positive structured
 history paths; raw App plan/log cache access, complete delivery and live root
 cause remain separate claims. Both healthy cases concluded advisory inconclusive.
-The [dev.5 acceptance](../reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence)
+The [dev.5 acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev5-acceptance.md#final-app-history-and-slo-evidence)
 records exact events, hashes, delays and the preserved failed transport attempt.
-Earlier [telemetry](../reviews/2026-10-29-lakebase-advanced-telemetry.md) and
-[SRE acceptance](../reviews/2026-10-29-lakebase-sre-acceptance.md) reports retain
+Earlier [telemetry](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-advanced-telemetry.md) and
+[SRE acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-sre-acceptance.md) reports retain
 their original zero-row and version-specific evidence.
+
+### Workload explorer wait load
+
+The Queries page's wait-load chart (`GET /api/v1/wait-load`) names one
+preferred source, in this order: Performance Insights (Amazon RDS and Aurora
+only), then Lakebase wait counters, then pg_sage's own `pg_stat_activity`
+samples. The activity samples are always returned as well. A Lakebase database
+prefers its counters once the retained `wait_event_counters` stream has at
+least one interval in the requested window; until then the answer is exactly
+the activity-sample answer. The stream is endpoint-wide, so it needs
+`allow_compute: true` on the binding and the stream in the reader's streams.
+
+Each counter interval becomes average active sessions by wait class: the
+interval's `wait_event_time` divided by its wall-clock length (`previous_ts` to
+the row time); computes whose intervals share their edges are summed into one
+point. The `provider` object carries the per-interval `series`, the heaviest
+`events`, the current `load_by_wait` (each compute's newest interval that
+overlaps the newest interval of all, summed, so a replica reporting a few
+seconds later does not hide the primary), `skipped` (intervals with a bad time range, a
+negative or non-numeric value, or no wait class) and `truncated` (the read is
+capped at the newest 1,000 events). The unit of `wait_event_time` is not yet
+confirmed against a live workspace: pg_sage assumes milliseconds and reports
+`wait_event_time_unit: "ms"` with `unit_confirmed: false`, and the page says
+so. A failed read is logged with the database and stream and the route still
+answers from the activity samples.
 
 ### SRE with and without Advanced Telemetry
 
@@ -364,7 +585,7 @@ conditions, but it lacks the provider's retained plan/log/session/DDL history.
 With it, historical evidence augments investigation; it does not prove a current
 root cause, change live incident state, or authorize maintenance by itself.
 
-The [per-source native matrix](../reviews/2026-10-30-native-sre-source-matrix.md)
+The [per-source native matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-native-sre-source-matrix.md)
 inventories 32 catalog probes and the original auxiliary sources. A separate
 explicitly authorized gate completed 16 selected cluster/filesystem queries
 without new grants: eleven returned usable rows and five valid empty results.
@@ -377,7 +598,7 @@ real signals and a read-only investigation. Native Gateway investigation and
 App history citations also passed, with healthy historical cases concluding
 advisory/inconclusive. Exhaustion, failover, sustained resource pressure,
 wraparound and many other incident variants were deliberately not induced.
-The [scenario inventory](../reviews/2026-10-30-nerdlab-findings.md#complete-analyzer-inventory-what-the-nine-fixtures-do-not-prove)
+The [scenario inventory](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-nerdlab-findings.md#complete-analyzer-inventory-what-the-nine-fixtures-do-not-prove)
 distinguishes readable inputs, tested detectors, uninduced incidents and actual
 provider restrictions. Automatic migration fan-out and context-equivalent
 provider-plan regression comparison remain incomplete.
@@ -407,7 +628,7 @@ application burn can open a read-only `slo_burn` case even when
 source provides bound push-SLO evidence; an explicit read allowlist must permit
 it. This enables an investigation, not action execution or notification.
 Synthetic acceptance counters establish synthetic behavior only. The
-[October 30 dev.5 App SLO acceptance](../reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass)
+[October 30 dev.5 App SLO acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-app-slo-acceptance.md#dev5-post-upgrade-pass)
 passed fifteen current-time samples over seven minutes, both configured burn
 windows, a cited real-Gateway investigation and actual stale-to-unknown behavior
 123.06 seconds after pushes stopped. Exact cleanup preserved the case and left
@@ -436,7 +657,7 @@ its retained fixtures support UI inspection, not a remediation-execution claim.
 | Temporary spill | Real sort spilled under session-local 64 kB `work_mem`, with actual plan and temp counters | Same query under a 64 MB control did not spill; a newer observed non-spilling execution resolved the finding |
 
 The eight-condition run passed in 99.92 seconds; the separate default slow-query
-run passed in 65.86 seconds. The [scenario report](../reviews/2026-10-30-nerdlab-findings.md)
+run passed in 65.86 seconds. The [scenario report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-nerdlab-findings.md)
 records exact evidence, bounded workload/cleanup rules and untested analyzer
 branches. In particular, the ordinary unused-index rule's seven-day clean
 observation window was not accelerated, million-row autovacuum tuning and
@@ -473,6 +694,87 @@ epochs, visible counter decreases and small continuing spills stay unknown/open.
 Unseen selective reset/eviction followed by regrowth between samples can escape
 those guards; complete per-entry lineage is not established.
 
+## Branch rehearsal
+
+pg_sage can rehearse a migration on an instant Lakebase branch of production
+instead of a Database Lab clone. Set:
+
+```yaml
+clone:
+  provider: lakebase_branch
+  lakebase:
+    project: <project>          # required
+    # source_branch: <branch>   # default: the monitored endpoint's branch
+    # ttl_minutes: 60           # 1-1440, server-side expiry of each branch
+    # endpoint_max_cu: 1        # autoscaling maximum of the branch endpoint
+```
+
+Each rehearsal creates branch `sage-rh-<8 hex>` of the source branch, a
+read-write endpoint on it and a database credential for the monitored role, and
+connects with `sslmode=verify-full`. The rehearsal runs the expand steps only, as
+with any clone, then deletes the endpoint and the branch. A branch is a copy of
+production data, so:
+
+- Every branch is created with an expiry `ttl_minutes` ahead. If pg_sage stops,
+  or cannot delete the branch, Lakebase deletes it then. The default, 60 minutes,
+  is the rehearsal bound. A shorter `ttl_minutes` shortens the rehearsal bound to
+  match, so a rehearsal never outlives its branch.
+- If a later step fails (endpoint, credential), pg_sage deletes what it made
+  before it reports the failure. A create that timed out, or whose cleanup
+  failed, leaves its receipt `create_uncertain` and is logged for an operator.
+- Every branch is receipted in `sage.clone_instances` (adapter
+  `lakebase_branch`, scope `projects/<project>`), and the fleet leader's reaper
+  deletes the branch of an expired receipt. pg_sage deletes only
+  `sage-rh-<8 hex>` branches of the configured project.
+- A branch with production's branch uid, or an endpoint on production's host, is
+  refused (`target_is_production`) before any credential is minted. Production's
+  identity is read from live metadata, as for telemetry scope, using
+  `SAGE_LAKEBASE_ENDPOINT` (or `SAGE_LAKEBASE_ENDPOINTS`).
+
+Without Databricks unified auth, or when the monitored database is not a
+Lakebase endpoint, the rehearsal is recommendation-only (`clone_unavailable`).
+The principal needs **CAN_MANAGE** on the project to create and delete branches
+and endpoints, and the monitored role must exist on the source branch (a branch
+copies its roles). The minted credential expires after about an hour, which
+covers the one-hour rehearsal bound. Game days and local bench runs use the same
+adapter when `clone.provider` is `lakebase_branch`; their clones are tracked by
+the game-day store and the branch expiry, not by rehearsal receipts. A game
+day can run for hours, and Lakebase deletes its branch at the expiry, so set
+`ttl_minutes` above the longest game day you run on this adapter.
+
+This adapter is for Lakebase only. Other providers and self-managed PostgreSQL
+use `dle`. In fleet mode one clone provider serves the deployment: each
+database's rehearsal branches from its own endpoint's branch, and a database
+whose endpoint is in another project is recommendation-only.
+
+Index rehearsals use the same branches (lab-04a): with `lakebase_branch` set,
+the tuning agent and the index floor build a proposed index on a branch and
+compare the target statements' shared blocks per call before and after, at most
+`clone.rehearsals_per_hour` (default 2) per database, each executed statement
+bounded by `clone.rehearsal_statement_timeout_seconds` (default 5). The branch
+gets the same `target_is_production` check, receipt and expiry as a migration
+rehearsal. See [index rehearsal](configuration.md) under the `clone` keys.
+
+To check that a live run left nothing behind, list the project's branches
+(`databricks postgres list-branches projects/<project>`); no `sage-rh-*` branch
+should remain after a rehearsal ends.
+
+## Branch discovery
+
+A meta-db fleet can list the endpoints of every branch of a Lakebase
+project with a `lakebase` source under `fleet.discovery.sources` (see
+[the fleet walkthrough](walkthrough-fleet.md#discover-databases-automatically)).
+The listing uses the workspace's Postgres API (`ListBranches`, then
+`ListEndpoints` per branch), stops at 200 endpoints a cycle, and records
+each endpoint with a host as a candidate keyed by its uid, database
+`databricks_postgres`. pg_sage's own rehearsal branches (`sage-rh-*`, see
+[Branch rehearsal](#branch-rehearsal)) are skipped and never listed as
+candidates; a skipped branch still counts toward the per-cycle walk limit.
+Lakebase candidates are not enrolled automatically:
+a store-managed member has no OAuth credential path yet, so add the ones
+you want by hand. An endpoint the project no longer reports is marked
+`gone`; a failed listing keeps the previous candidates.
+
 ## Managed-service limits
 
 | Feature | Verified behavior / limitation |
@@ -483,7 +785,7 @@ those guards; complete per-entry lineage is not established.
 | `pg_hint_plan` | Publicly listed for PG18 and installed, but the planner hook is inactive; `LOAD` returned `0A000` and session/database preload settings returned `42501`. Hint enforcement remains unsupported in this configuration |
 | `pgstattuple` | Owned-table inspection passed on the isolated PG18 branch |
 | `pgaudit` | October 29 endpoint catalog advertised it, but installation returned `42501`; audit-log integration is unverified. The public extension table rechecked November 1 does not list it; catalog advertisement is not install/activation proof |
-| `vector` | PG18 vector lab passed HNSW and exact-baseline comparison for three synthetic queries (recall 1.0); broader workload performance is unverified |
+| `vector` | PG18 vector lab passed HNSW and exact-baseline comparison for three synthetic queries (recall 1.0); broader workload performance is unverified. The lab needs pgvector 0.8.0 or later and reports the version it found otherwise; halfvec, `relaxed_order` and `max_scan_tuples` were verified on self-hosted pgvector 0.8.2, not yet on Lakebase |
 | Server configuration | Instance settings and `ALTER SYSTEM` are unavailable; permitted user-context session/database/role settings remain separate |
 | Server logs / OS metrics | No direct log-file or host access. Lakebase exposes Beta plans, Postgres logs and compute metrics through `system.lakebase`; scoped history and controlled native delivery are verified within the follow-up report's limits. Asynchronous history cannot supply live admission |
 | Statistics continuity | Suspend/restart can reset `pg_stat_statements`; never interpret a reset as workload improvement |
@@ -495,7 +797,7 @@ include real execution plans in `plan_history` and structured `postgres_logs`.
 Workspace preview enablement, Unity Catalog access and statement-text unmasking
 are separate prerequisites. The explicit telemetry configuration above enables
 scoped reads. A successful empty query does not prove capture, completeness,
-unmasking or zero errors. See the [Advanced Telemetry and SRE gap assessment](../reviews/2026-10-29-lakebase-advanced-telemetry.md).
+unmasking or zero errors. See the [Advanced Telemetry and SRE gap assessment](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-advanced-telemetry.md).
 
 Lakebase's default SRE policy is database-only. A `policy_scope_denied` result
 for a cluster/filesystem source describes that trusted policy boundary; it does
@@ -505,10 +807,10 @@ using the existing role and no added grants. Eleven returned usable rows and
 five returned valid empty results. Production policy remains database-only.
 Query support, configured authorization and positive incident detection are
 three separate claims: empty replication/lock/WAL reads do not establish those
-incident or platform semantics. The [provider matrix](../reviews/2026-10-30-provider-compatibility-gaps.md#explicit-provider-probe-compatibility-matrix)
+incident or platform semantics. The [provider matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md#explicit-provider-probe-compatibility-matrix)
 records the exact sources and execution evidence.
 
-The same [provider follow-up](../reviews/2026-10-30-provider-compatibility-gaps.md#planner-extension-incompatibilities-observed)
+The same [provider follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md#planner-extension-incompatibilities-observed)
 cross-checks internal extension issues with the public extension list and live
 activation/install results. Installed `pg_hint_plan` is reported as
 `installed_not_loaded`; plain EXPLAIN remains usable but does not enforce hints.
@@ -522,13 +824,13 @@ transparent HypoPG replacement, proof of latency improvement or permission to
 create candidate indexes on production workload tables. Advanced Telemetry
 does not activate either planner extension.
 
-Version `2.5.0-dev.1` explicitly enables eight Lakebase contracts after testing
-their production operator paths on an isolated PG18 test branch:
-`analyze_table`, `vacuum_table`, `create_index_concurrently`,
-`revert_created_index`, `reindex_concurrently`, `create_statistics`,
-`revert_created_statistics`, and `alter_database_guc`. Standing policy, trust,
-maintenance windows, object permissions, and replica checks still apply. The
-deployed development App starts in observation mode.
+pg_sage explicitly enables eight Lakebase contracts. Their production
+operator paths were tested on an isolated PG18 test branch with the
+`2.5.0-dev.1` development build: `analyze_table`, `vacuum_table`,
+`create_index_concurrently`, `revert_created_index`, `reindex_concurrently`,
+`create_statistics`, `revert_created_statistics`, and `alter_database_guc`.
+Standing policy, trust, maintenance windows, object permissions, and replica
+checks still apply. The deployed development App starts in observation mode.
 
 Database-setting actions target only the connected database and user-context
 settings. They capture the exact database-wide prior override, derive their
@@ -553,15 +855,17 @@ does not establish a performance benefit. Unmeasured changes remain unverifiable
 The deployed App's Observation mode prevents database actions even where a
 contract is enabled. Completing a baseline, accepting a proposal or obtaining
 an approval does not prove SQL ran, recovery is complete or performance improved.
-The [dev.10 workflow acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md)
+The [dev.10 workflow acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev10-acceptance.md)
 covers that distinction, recovery guards and source-preserving proposal
 deduplication.
 
 ## Operator-requested statistics maintenance
 
 The typed SRE maintenance bridge adds one explicit `create_statistics` request
-to a concluded investigation with retained, hash-verified `stat_tables` v3
-evidence. An operator/admin supplies the schema, table, columns, supported
+to a concluded or inconclusive investigation with retained, hash-verified
+`stat_tables` v3 evidence (an operator can refresh it with
+`sre_refresh_table_evidence`; see the Sage SRE section of the configuration
+reference). An operator/admin supplies the schema, table, columns, supported
 statistics kinds, evidence ID/SHA-256 and rationale. The evidence must identify
 the same physical database/table OIDs; table counters establish observation
 scope, not column correlation or a predicted benefit. The bridge excludes the
@@ -591,11 +895,11 @@ replacement is preserved. **Rollback cannot restore the table's prior ANALYZE
 statistics.** This native lifecycle passed on an owned PG18 fixture using the
 native user role; App-principal maintenance execution remains unproven.
 Database/schema ownership or an attached Apps resource does not establish
-ownership of workload tables. See the [maintenance evidence and refusal coverage](../reviews/2026-10-30-sre-maintenance.md).
+ownership of workload tables. See the [maintenance evidence and refusal coverage](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-sre-maintenance.md).
 
 Other mutation families retain their prior provider gates. User-index DROP,
 instance settings, OS/log access, broker role authentication, and failover are
-not established by these results. See the [native test report](../reviews/2026-10-29-lakebase-native-tests.md)
+not established by these results. See the [native test report](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-native-tests.md)
 for actual grants, extension versions, action evidence, and unsupported fixtures.
 This remains a development release with explicit managed-platform boundaries.
 
@@ -603,13 +907,13 @@ This remains a development release with explicit managed-platform boundaries.
 
 | Implementation | Source / recorded validation |
 | --- | --- |
-| Verified endpoint mapping and physical-connection credential refresh | [Native OAuth pool hook](../sidecar/internal/databricksauth/lakebase.go); [native compatibility findings](../reviews/2026-10-29-lakebase-compatibility.md) |
-| Resource-bound warehouse reader, normalization, durable delivery and retention | [Configuration](../sidecar/internal/config/lakebase_observability.go), [reader and store](../sidecar/internal/lakebaseobs/); [provider follow-up](../reviews/2026-10-30-provider-compatibility-gaps.md) |
-| Provider plan provenance, cache and historical evidence | [Provider-plan consumer](../sidecar/internal/autoexplain/provider_plan.go), [historical evidence adapter](../sidecar/internal/lakebaseobs/evidence.go); [source matrix](../reviews/2026-10-30-native-sre-source-matrix.md) |
-| Hint-free interval spill finding and recovery guards | [Spill rule](../sidecar/internal/analyzer/rules_temp_spill.go); [nine-scenario inventory](../reviews/2026-10-30-nerdlab-findings.md) |
-| Enabled Lakebase action families and connected-database GUC execution | [Provider adapter](../sidecar/internal/fleet/provider_adapter.go), [database setting executor](../sidecar/internal/executor/database_setting.go); [native action tests](../reviews/2026-10-29-lakebase-native-tests.md) |
-| SRE statistics proposal, approval and exact-object recovery | [Maintenance bridge](../sidecar/internal/sre/action/maintenance.go); [maintenance acceptance](../reviews/2026-10-30-sre-maintenance.md) |
-| Current applicability and recovery presentation | [Case applicability](../sidecar/internal/cases/provider_applicability.go), [recovery normalization](../sidecar/internal/cases/recovery.go); [dev.10 acceptance](../reviews/2026-10-30-v2.5-dev10-acceptance.md) |
+| Verified endpoint mapping and physical-connection credential refresh | [Native OAuth pool hook](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/databricksauth/lakebase.go); [native compatibility findings](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-compatibility.md) |
+| Resource-bound warehouse reader, normalization, durable delivery and retention | [Configuration](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/config/lakebase_observability.go), [reader and store](https://github.com/jasonmassie01/pg_sage/tree/master/sidecar/internal/lakebaseobs); [provider follow-up](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-provider-compatibility-gaps.md) |
+| Provider plan provenance, cache and historical evidence | [Provider-plan consumer](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/autoexplain/provider_plan.go), [historical evidence adapter](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/lakebaseobs/evidence.go); [source matrix](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-native-sre-source-matrix.md) |
+| Hint-free interval spill finding and recovery guards | [Spill rule](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/analyzer/rules_temp_spill.go); [nine-scenario inventory](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-nerdlab-findings.md) |
+| Enabled Lakebase action families and connected-database GUC execution | [Provider adapter](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/fleet/provider_adapter.go), [database setting executor](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/executor/database_setting.go); [native action tests](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-native-tests.md) |
+| SRE statistics proposal, approval and exact-object recovery | [Maintenance bridge](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/sre/action/maintenance.go); [maintenance acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-sre-maintenance.md) |
+| Current applicability and recovery presentation | [Case applicability](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/cases/provider_applicability.go), [recovery normalization](https://github.com/jasonmassie01/pg_sage/blob/master/sidecar/internal/cases/recovery.go); [dev.10 acceptance](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-30-v2.5-dev10-acceptance.md) |
 
 Public references for platform behavior: [PostgreSQL compatibility](https://docs.databricks.com/aws/en/oltp/projects/compatibility),
 [extensions](https://docs.databricks.com/aws/en/oltp/projects/extensions),
@@ -637,26 +941,9 @@ PG_SAGE_LIVE_LLM=1 SAGE_LLM_AUTH=databricks \
 ```
 
 Set the gateway endpoint and model before running the LLM checks. They send
-synthetic prompts/evidence only. All five full advisor workflows passed with
-real native Unity Gateway calls and billed-token assertions on both isolated
-local PG17 and native Lakebase PG18. The native advisor fixture used a fresh
-prefixed database and an in-memory short-lived credential for its raw test
-connections; the production OAuth refresh hook is tested separately. Post-run
-database inventory confirmed cleanup. No real application query text was sent
-to the model.
+synthetic prompts/evidence only. Results of these runs are in the
+[evidence appendix](lakebase-evidence.md#lakebase-guide).
 
-The real credential-expiry retry passed in 3,634.55 seconds: the held connection
-remained healthy through 30 seconds beyond expiry, then a fresh backend used a
-second minted credential with a later expiry. This verifies constant-query
-connection liveness and production credential refresh for the native user role;
-it does not test table grants or UC-only claims across expiry. The first attempt
-lost network continuity before expiry and remains recorded separately. Native
-idle/resume also passed: the API reported ACTIVE → IDLE → ACTIVE, followed by
-production OAuth reconnect and a read-only check of the existing marker,
-77 snapshots and 63 findings. The two race-enabled tests passed in 8.077 seconds.
-The App's separate service-principal hour-boundary check is tracked in its
-acceptance report; failover and multi-day reliability remain unverified.
-
-See the [source-linked live findings](../reviews/2026-10-29-lakebase-compatibility.md)
+See the [source-linked live findings](https://github.com/jasonmassie01/pg_sage/blob/master/reviews/2026-10-29-lakebase-compatibility.md)
 for exact versions, databases, failures and evidence, and the
 [Databricks Apps pilot](databricks-apps.md) for packaging and deployed checks.

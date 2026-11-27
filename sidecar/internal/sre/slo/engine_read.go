@@ -79,7 +79,8 @@ func (e *Engine) Status(ctx context.Context, name string) (Status, error) {
 func unevaluatedStatus(o Objective, definition string) Status {
 	return Status{Name: o.Name, Database: o.Database, Kind: o.Kind, Source: o.Source,
 		Target: o.Target, Window: FormatWindow(o.Window), State: StateUnknown,
-		Unknown: []string{ReasonNotEvaluated}, Rules: []RuleResult{}, DefinitionHash: definition}
+		Unknown: []string{ReasonNotEvaluated}, Rules: []RuleResult{}, DefinitionHash: definition,
+		CoverageUnverified: o.coverageUnverified(), OwnerDatabase: o.OwnerDatabase}
 }
 
 func (e *Engine) definitionHash(scope sre.Scope, o Objective) string {

@@ -18,6 +18,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/store"
 )
 
@@ -98,6 +99,12 @@ type dbBudget struct {
 func (d dbBudget) CanSpend(tokens int) bool { return d.b.CanSpend(d.db, tokens) }
 func (d dbBudget) Spend(tokens int)         { d.b.Spend(d.db, tokens) }
 
+// Hold and Settle make the database's share reset-aware (llm.HoldBudgeter).
+func (d dbBudget) Hold(tokens int) (uint64, bool) { return d.b.Hold(d.db, tokens) }
+func (d dbBudget) Settle(held, actual int, epoch uint64) {
+	d.b.Settle(d.db, held, actual, epoch)
+}
+
 func main() {
 	runSubcommandAndExit()
 	// Catch SIGINT/SIGTERM before anything starts: a signal during startup
@@ -106,6 +113,7 @@ func main() {
 	// sigCh is package-level so the /restart endpoint can trigger shutdown.
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	loadStartupConfigOrExit()
+	setHistoryProcessMode() // history_store_wiring.go
 
 	// Meta-DB mode: connect to dedicated metadata database first.
 	metaState, closeMetaPool := connectMetaDatabaseOrExit()
@@ -116,6 +124,9 @@ func main() {
 	defer closeMonitoredPool()
 
 	initProcessContext()
+	if metaState != nil {
+		startMetaDeferredIndexBuilder(shutdownCtx, pool) // config-04c
+	}
 	initModeRuntime(metaState)
 
 	// Construct the API rate limiter before initFleetAndAPI captures its
@@ -128,6 +139,8 @@ func main() {
 	// Config hot-reload.
 	stopConfigWatcher := startConfigWatcher()
 	defer stopConfigWatcher()
+	// Global settings another replica saves converge here (config-05).
+	startConfigResync(shutdownCtx)
 
 	// Prometheus server.
 	promServer := startPrometheusServer(cfg.Prometheus.ListenAddr)
@@ -137,29 +150,88 @@ func main() {
 	shutdownProcess(sig, promServer)
 }
 
-// runSubcommandAndExit handles the vector-lab, bench and history subcommands and --version,
-// which exit without starting the sidecar.
+// runSubcommandAndExit handles the vector-lab, bench, history, ledger,
+// publish, evidence, verifier-backtest, lint-migration, plan, approve,
+// apply, explain, config, pressure, doctor and healthcheck subcommands and
+// --version, which exit without starting the sidecar.
 func runSubcommandAndExit() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(runHealthcheck(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "vector-lab" {
 		os.Exit(runVectorLab())
 	}
 	if len(os.Args) > 1 && os.Args[1] == "bench" {
 		os.Exit(runBenchCommand(os.Args[2:], os.Stdout, os.Stderr))
 	}
-	if len(os.Args) > 1 && os.Args[1] == "history" {
-		getenv, err := secretGetenv("SAGE_HISTORY_MONITORED_DSN", "SAGE_META_DB")
+	if len(os.Args) > 1 && telemetryDSNSubcommand(os.Args[1]) {
+		os.Exit(runTelemetryDSNSubcommand(os.Args[1], os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == lintMigrationSubcommand {
+		getenv, err := secretGetenv(lintDSNEnv)
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "history: %v\n", err)
-			os.Exit(2)
+			_, _ = fmt.Fprintf(os.Stderr, "lint-migration: %v\n", err)
+			os.Exit(lintExitToolError)
 		}
-		os.Exit(runHistoryCommand(context.Background(), os.Args[2:], getenv, os.Stdout,
+		os.Exit(runLintMigration(context.Background(), os.Args[2:], getenv, os.Stdout,
 			os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == evidenceSubcommand {
+		os.Exit(runEvidenceCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == verifierBacktestSubcommand {
+		os.Exit(runVerifierBacktestCommand(context.Background(), os.Args[2:], os.Stdout,
+			os.Stderr))
+	}
+	if len(os.Args) > 1 && cliCommands[os.Args[1]] {
+		os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == pressureSubcommand {
+		os.Exit(runPressureSubcommand(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == doctorSubcommand {
+		os.Exit(runDoctorCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
-		fmt.Printf("pg_sage %s (commit: %s, built: %s, sql-ast: %s)\n",
-			version, commit, date, sqlASTStatus())
+		fmt.Println(versionLine())
 		os.Exit(0)
 	}
+}
+
+// runPressureSubcommand runs pressure, which talks to a running sidecar's
+// API with the token in SAGE_API_TOKEN (or SAGE_API_TOKEN_FILE). plan and
+// the other decision-loop commands go through run (cli_cmd.go).
+func runPressureSubcommand(args []string) int {
+	getenv, err := secretGetenv("SAGE_API_TOKEN")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "%s: %v\n", pressureSubcommand, err)
+		return planExitUsage
+	}
+	return runPressureCommand(context.Background(), args, getenv, nil, os.Stdout, os.Stderr)
+}
+
+// telemetryDSNSubcommand reports the subcommands that read the monitored
+// and meta DSNs: history, ledger and publish.
+func telemetryDSNSubcommand(name string) bool {
+	return name == "history" || name == ledgerSubcommand || name == publishSubcommand
+}
+
+// runTelemetryDSNSubcommand runs history, ledger or publish, which read the
+// monitored and meta DSNs from SAGE_HISTORY_MONITORED_DSN and SAGE_META_DB.
+func runTelemetryDSNSubcommand(name string, args []string) int {
+	getenv, err := secretGetenv("SAGE_HISTORY_MONITORED_DSN", "SAGE_META_DB")
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)
+		return 2
+	}
+	if name == ledgerSubcommand {
+		return runLedgerCommand(context.Background(), args, getenv, os.Stdout, os.Stderr)
+	}
+	if name == publishSubcommand {
+		return runPublishCommand(context.Background(), args, defaultPublishDeps(getenv),
+			os.Stdout, os.Stderr)
+	}
+	return runHistoryCommand(context.Background(), args, getenv, os.Stdout, os.Stderr)
 }
 
 // loadStartupConfigOrExit loads the config, keeps the file baseline and
@@ -177,12 +249,19 @@ func loadStartupConfigOrExit() {
 		logError("startup", "config: %v", err)
 		os.Exit(1)
 	}
+	// Before any database opens: a generated key must be in place first.
+	resolveEncryptionKeyOrExit()
 	configBase = config.Clone(cfg)
 
 	logInfo("startup", "pg_sage sidecar v%s — mode=%s", version, cfg.Mode)
+	schema.SetBuildVersion(version) // recorded in sage.schema_migrations (config-04b)
 	logInfo("startup", "Prometheus=%s API=%s",
-		cfg.Prometheus.ListenAddr, cfg.API.ListenAddr)
-	if !executor.ASTValidationAvailable() {
+		metricsWhere(cfg.Prometheus), cfg.API.ListenAddr)
+	if sqlASTAssumed {
+		logWarn("startup", "e2e TEST BUILD (%s): parse-tree SQL validation is "+
+			"assumed, not present; never run this binary against a database "+
+			"you care about", sqlASTAssumeTag)
+	} else if !executor.ASTValidationAvailable() {
 		logWarn("startup", "built without cgo: parse-tree SQL validation is "+
 			"unavailable, so unattended changes wait for operator approval")
 	}
@@ -229,14 +308,9 @@ func connectStandaloneDatabaseOrExit() func() {
 	if cfg.HasMetaDB() || cfg.IsFleet() {
 		return func() {}
 	}
-	dsn := cfg.Postgres.DSN()
-	if dsn == "" {
-		dsn = envOrDefault("SAGE_DATABASE_URL",
-			"postgres://postgres@localhost:5432/"+
-				"postgres?sslmode=disable")
-	}
 	var err error
-	pool, err = connectMonitoredDB(dsn, cfg.Postgres.MaxConnections)
+	pool, err = connectMonitoredDB(
+		cfg.Postgres.DSN(), cfg.Postgres.MaxConnections)
 	if err != nil {
 		logError("startup", "%v", err)
 		os.Exit(1)
@@ -266,8 +340,8 @@ func initProcessContext() {
 		logWarn("startup", "could not parse trust.ramp_start %q, using now()",
 			cfg.Trust.RampStart)
 	}
-	warnFastElevation(cfg, logWarn)
-	logTrustMeaning(cfg, logInfo, logWarn)
+	// The TRUST and FAST ELEVATION lines come from initializeConfigController,
+	// after persisted overrides, so they describe the effective values.
 	if cfg.HasMetaDB() || cfg.IsFleet() {
 		if err := initializeConfigController(pool); err != nil {
 			logError("startup", "config controller: %v", err)
@@ -279,6 +353,7 @@ func initProcessContext() {
 // initModeRuntime runs the mode-specific initialization, then makes sure a
 // config controller exists.
 func initModeRuntime(metaState *metaDBState) {
+	warnDiscoveryOutsideMetaDB() // market-06: discovery enrols into sage.databases
 	if cfg.HasMetaDB() && metaState != nil {
 		initMetaDBFleet(metaState)
 	} else if cfg.IsStandalone() {

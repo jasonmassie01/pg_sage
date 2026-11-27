@@ -46,45 +46,71 @@ func ruleConnectionLeaks(leakedConns []LeakedConn) []Finding {
 	return findings
 }
 
-// ruleCacheHitRatio flags low buffer cache hit ratios.
+// cacheRatioMinBlocks is the fewest block accesses an interval needs
+// before its hit ratio is evidence (collection-06): a quiet minute of a
+// few hundred reads says nothing about the cache.
+const cacheRatioMinBlocks = 10_000
+
+// IntervalCacheRatio is the interval's cache hit ratio and block count
+// when the interval is evidence: measured, with at least
+// cacheRatioMinBlocks accessed.
+func IntervalCacheRatio(s *collector.Snapshot) (float64, int64, bool) {
+	iv := s.System.Interval
+	if iv == nil || iv.CacheHitRatio == nil || iv.BlksAccessed == nil ||
+		*iv.BlksAccessed < cacheRatioMinBlocks {
+		return 0, 0, false
+	}
+	return *iv.CacheHitRatio, *iv.BlksAccessed, true
+}
+
+// ruleCacheHitRatio flags a low buffer cache hit ratio over the last
+// collector interval. The lifetime ratio (since the last
+// pg_stat_database reset, often months) barely moves when a working set
+// outgrows shared_buffers, so it is reported, never judged.
 func ruleCacheHitRatio(
 	current *collector.Snapshot,
 	_ *collector.Snapshot,
 	cfg *config.Config,
 	_ *RuleExtras,
 ) []Finding {
-	ratio := NormalizeCacheHitRatio(current.System.CacheHitRatio)
-	// <= 0 is "no data": the legacy collector COALESCEd a missing ratio
-	// to 0 and the current one reports -1.
-	if ratio <= 0 {
+	ratio, blocks, ok := IntervalCacheRatio(current)
+	if !ok || ratio >= cfg.Analyzer.CacheHitRatioWarning {
 		return nil
 	}
-	if ratio >= cfg.Analyzer.CacheHitRatioWarning {
-		return nil
-	}
-
 	severity := "warning"
 	if ratio < 0.80 {
 		severity = "critical"
 	}
-
+	iv := current.System.Interval
+	var lifetime any
+	if l := NormalizeCacheHitRatio(current.System.CacheHitRatio); l >= 0 {
+		lifetime = l
+	}
 	return []Finding{{
 		Category:         "cache_hit_ratio",
 		Severity:         severity,
 		ObjectType:       "database",
 		ObjectIdentifier: "buffer_cache",
 		Title: fmt.Sprintf(
-			"Cache hit ratio %.2f%% (threshold %.2f%%)",
-			ratio*100,
+			"Cache hit ratio %.2f%% over the last %s (threshold %.2f%%)",
+			ratio*100, intervalLabel(iv.Seconds),
 			cfg.Analyzer.CacheHitRatioWarning*100,
 		),
 		Detail: map[string]any{
-			"cache_hit_ratio": ratio,
-			"threshold":       cfg.Analyzer.CacheHitRatioWarning,
+			"cache_hit_ratio":          ratio,
+			"lifetime_cache_hit_ratio": lifetime,
+			"blocks_accessed":          blocks,
+			"interval_seconds":         iv.Seconds,
+			"threshold":                cfg.Analyzer.CacheHitRatioWarning,
 		},
 		Recommendation: "Increase shared_buffers or investigate heavy sequential scans.",
 		ActionRisk:     "safe",
 	}}
+}
+
+// intervalLabel renders an interval length in whole seconds ("60s").
+func intervalLabel(seconds float64) string {
+	return fmt.Sprintf("%.0fs", seconds)
 }
 
 // ruleCheckpointPressure detects excessive checkpoint frequency.

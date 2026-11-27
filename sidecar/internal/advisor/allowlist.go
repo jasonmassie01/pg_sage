@@ -17,7 +17,10 @@ import (
 // GUCs stay executable only with operator approval, since pg_sage can
 // neither restart the server nor verify the change. A multi-key reloption
 // SET is split into one finding per key, so each change is atomic and
-// has a faithful one-statement rollback. Other SQL passes through.
+// has a faithful one-statement rollback. In a config category any other
+// SQL becomes advisory, since a config sub-advisor's value is the setting
+// change itself; elsewhere other SQL passes through, to each category's
+// own advisory handling.
 func applyConfigAllowlist(findings []analyzer.Finding) []analyzer.Finding {
 	if len(findings) == 0 {
 		return findings // "no findings" stays nil for callers that check it
@@ -30,6 +33,11 @@ func applyConfigAllowlist(findings []analyzer.Finding) []analyzer.Finding {
 		}
 		if stmt, ok := pgconf.ParseAlterTableReloptions(f.RecommendedSQL); ok {
 			out = append(out, gateReloptionFinding(f, stmt)...)
+			continue
+		}
+		if configCategories[f.Category] && strings.TrimSpace(f.RecommendedSQL) != "" {
+			out = append(out, advisoryOnly(f, "the "+f.Category+" advisor returned SQL "+
+				"that is not a setting change, which pg_sage does not run for it"))
 			continue
 		}
 		out = append(out, f)
@@ -46,6 +54,9 @@ func gateGUCFinding(f analyzer.Finding, stmt pgconf.SystemStmt) analyzer.Finding
 		return withApprovalRequired(f, fmt.Sprintf("%s takes effect only after a "+
 			"PostgreSQL restart, which pg_sage cannot perform or verify; an operator "+
 			"must approve it and plan the restart", stmt.Name))
+	}
+	if pgconf.DatabaseScopeApprovalOnly(stmt.Name) {
+		return withApprovalRequired(f, databaseScopeReason(stmt.Name))
 	}
 	return f
 }

@@ -118,7 +118,8 @@ func TestLakebaseSRESourceMatrix(t *testing.T) {
 	}
 	// A missing synthetic query identity is an explicit refusal, not an
 	// observed/executed workload plan. The real tool loop is tested separately.
-	explain := sre.NewStatementExplainer(p).ExplainStatement(probes.WithReadPolicy(ctx, policy), -9223372036854775807)
+	explain := sre.NewStatementExplainer(probes.NewRunner(p, probes.Catalog(), nil, policy),
+		nil).ExplainStatement(probes.WithReadPolicy(ctx, policy), -9223372036854775807)
 	results = append(results, sourceResult{ID: sre.ExplainProbeID, Scope: "database", Eligible: true,
 		Status: explain.Status, Reason: explain.Reason, Version: explain.Version, Rows: len(explain.Rows), ElapsedMS: explain.ElapsedMS})
 	report := struct {
@@ -149,8 +150,11 @@ func TestLakebaseSRERealGatewayInvestigator(t *testing.T) {
 	}
 	cfg := sre.DefaultCoordinatorConfig("native-sre:" + string(sre.NewUUID()))
 	cfg.AutomaticStart = false
-	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: probes.NewRunner(p, probes.Catalog(), nil, policy),
-		ReadPolicy: policy, Config: cfg, Model: modelClient, Investigator: &sre.InvestigatorConfig{Explainer: sre.NewStatementExplainer(p)}})
+	runner := probes.NewRunner(p, probes.Catalog(), nil, policy)
+	explainer := sre.NewStatementExplainer(runner, nil)
+	coord, err := sre.NewCoordinator(sre.CoordinatorDeps{Store: store, Runner: runner,
+		ReadPolicy: policy, Config: cfg, Model: modelClient,
+		Investigator: &sre.InvestigatorConfig{Explainer: explainer}})
 	if err != nil {
 		t.Fatal(err)
 	}

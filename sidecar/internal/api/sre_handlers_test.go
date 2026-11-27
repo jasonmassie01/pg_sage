@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -78,7 +79,7 @@ func sreRouter(t *testing.T, mgr *fleet.DatabaseManager, user *auth.User) http.H
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(mgr, config.DefaultConfig(), nil, nil, nil, nil, nil, inject)
+	return newTestRouter(mgr, config.DefaultConfig(), nil, nil, nil, nil, nil, inject)
 }
 
 func sreCall(t *testing.T, h http.Handler, method, path string) (int, string, string) {
@@ -234,5 +235,56 @@ func TestSREAPI_FleetListForTheCasesPanel(t *testing.T) {
 	if code != 200 || !strings.Contains(body, string(orders.ID)) ||
 		strings.Contains(body, string(billing.ID)) {
 		t.Fatalf("case filter = %d %s", code, body)
+	}
+}
+
+// sre-09: repeated case_id values ask for each case's newest investigation.
+// A bad request is a 400 invalid_request before any database is read.
+func TestSREAPI_ListFilterRejectsBadCaseIDs(t *testing.T) {
+	h := sreRouter(t, fleet.NewManager(config.DefaultConfig()), testViewerUser())
+	many := url.Values{"database": {"all"}}
+	for i := 0; i <= sre.MaxListCaseIDs; i++ {
+		many.Add("case_id", fmt.Sprintf("case:%d", i))
+	}
+	paged := url.Values{"database": {"all"}, "case_id": {"a", "b"}, "cursor": {"x"}}
+	long := url.Values{"database": {"all"},
+		"case_id": {strings.Repeat("x", 257), "b"}}
+	for name, q := range map[string]url.Values{"101 ids": many, "257 chars": long,
+		"ids with cursor": paged} {
+		code, body, _ := sreCall(t, h, "GET", "/api/v1/investigations?"+q.Encode())
+		var got map[string]string
+		if code != http.StatusBadRequest || json.Unmarshal([]byte(body), &got) != nil ||
+			got["code"] != "invalid_request" || got["error"] == "" {
+			t.Errorf("%s: %d %s, want 400 invalid_request", name, code, body)
+		}
+	}
+}
+
+func TestListFilter_ParsesRepeatedCaseIDs(t *testing.T) {
+	parse := func(q url.Values) sre.ListFilter {
+		t.Helper()
+		f, err := listFilter(httptest.NewRequest("GET", "/x?"+q.Encode(), nil))
+		if err != nil {
+			t.Fatalf("listFilter(%s): %v", q.Encode(), err)
+		}
+		return f
+	}
+	one := parse(url.Values{"case_id": {"a"}, "cursor": {"c"}, "limit": {"5"}})
+	if one.CaseID != "a" || one.CaseIDs != nil || one.Cursor != "c" || one.Limit != 5 {
+		t.Fatalf("one case_id = %+v, want single-case paging", one)
+	}
+	two := parse(url.Values{"case_id": {"a", "b"}})
+	if two.CaseID != "" || len(two.CaseIDs) != 2 || two.CaseIDs[1] != "b" {
+		t.Fatalf("two case_ids = %+v, want CaseIDs [a b]", two)
+	}
+	ids := url.Values{}
+	for i := 0; i < sre.MaxListCaseIDs; i++ {
+		ids.Add("case_id", fmt.Sprintf("c%d", i))
+	}
+	if all := parse(ids); len(all.CaseIDs) != sre.MaxListCaseIDs {
+		t.Fatalf("100 case_ids = %d, want all 100", len(all.CaseIDs))
+	}
+	if none := parse(url.Values{}); none.CaseID != "" || none.CaseIDs != nil {
+		t.Fatalf("no case_id = %+v, want no case filter", none)
 	}
 }

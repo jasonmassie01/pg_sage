@@ -138,9 +138,11 @@ e2e: ok (109.8 s). `go build ./...`, `go vet ./...`, golangci-lint: 0 issues.
   index INVALID (decision table covers it: the drop is re-issued); the background watch
   loop's timer (checks are tested by calling `checkIndexReplace` directly).
 - HypoPG measures the wider index with the old one present, not hidden; a
-  `hypopg_hide_index` what-if for replacements is future work.
+  `hypopg_hide_index` what-if for replacements is future work. Closed by indexes-07
+  (2026-11-10): the old index is hidden on HypoPG 1.4+ and guarded statements that
+  regress more than 10% reject the replacement.
 
 ## What is left
 - Web: the Actions list shows the raw type `replace_index` (no label); approval cards are
   data-driven and show both statements.
-- HypoPG what-if with the old index hidden.
+- ~~HypoPG what-if with the old index hidden.~~ Done in indexes-07.

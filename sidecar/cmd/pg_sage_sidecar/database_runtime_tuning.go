@@ -5,32 +5,26 @@ import (
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/planfresh"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/tuning"
-	"time"
 )
 
 // newTuningAgent builds the database's tuning agent (roadmap 2.2) when
 // tuning is enabled and its (possibly dedicated) LLM client is usable; the
 // result is a true nil otherwise. hints is the query tuner the agent's
 // hints go through (nil: no hints).
-func (rt *databaseRuntime) newTuningAgent(autoExplain bool, hints *tuner.Tuner) *tuning.Agent {
+func (rt *databaseRuntime) newTuningAgent(hints *tuner.Tuner) *tuning.Agent {
 	if !rt.tuningActive() {
 		return nil
 	}
 	primary, fallback := tuningModels(rt.llmManager)
 	timeouts := catalogread.FromSafety(cfg.Safety)
-	options := []func(*optimizer.Optimizer){optimizer.WithCatalogReadTimeouts(timeouts)}
-	if rt.provider == "lakebase" && rt.cfg.LakebaseObservability.Enabled && rt.cfg.LakebaseObservability.AllowPayload {
-		options = append(options, optimizer.WithLakebasePlanScope(rt.currentLakebaseScope, time.Duration(rt.cfg.LakebaseObservability.RetentionHours)*time.Hour))
-	}
-	if autoExplain {
-		options = append(options, optimizer.WithAutoExplain())
-	}
 	deps := tuning.Deps{Model: primary,
-		Indexes: optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer, rt.pgVersion(),
-			logStructuredWrapper, options...),
-		Store: tuning.NewPostgresStore(rt.spec.Pool, rt.pgVersion(), timeouts)}
+		Indexes: optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer,
+			logStructuredWrapper, optimizer.WithCatalogReadTimeouts(timeouts)),
+		Store: tuning.NewPostgresStore(rt.spec.Pool, rt.pgVersion(), timeouts,
+			tuning.PlanMaxAge(planfresh.MaxAge(cfg.Tuner.PlanMaxAgeMinutes)))}
 	if fallback != nil {
 		deps.Fallback = fallback
 	}
@@ -43,9 +37,13 @@ func (rt *databaseRuntime) newTuningAgent(autoExplain bool, hints *tuner.Tuner) 
 	if cfg.FleetLearning.Enabled {
 		deps.Priors = fleetPriorSource{}
 	}
+	if reh := rt.cloneRehearser(); reh != nil {
+		deps.Rehearse = reh
+	}
 	rt.note("tuning")
 	settings := tuningSettings(cfg, rt.provider, rt.spec.Config.Database, 0)
 	settings.HostMemory = rt.hostMemory
+	settings.InstanceOwner = rt.instanceOwnerFunc()
 	return tuning.New(settings, deps, logStructuredWrapper)
 }
 
@@ -57,6 +55,26 @@ func (rt *databaseRuntime) tuningActive() bool {
 	}
 	primary, _ := tuningModels(rt.llmManager)
 	return primary != nil && primary.IsEnabled()
+}
+
+// indexFloorOn reports whether the deterministic index floor runs
+// (indexes-12): it follows tuning.enabled and llm.optimizer.enabled (the
+// switch for index creates), not the LLM, so missing-index advice works
+// with no model, an open breaker or a spent daily budget.
+func indexFloorOn(c *config.Config) bool {
+	return c != nil && c.Tuning.Enabled && c.LLM.Optimizer.Enabled
+}
+
+// newIndexFloor builds the database's index floor on its own optimizer
+// (validator, rejection memory, HypoPG what-if); nil when it is off.
+func (rt *databaseRuntime) newIndexFloor() *optimizer.Floor {
+	if !indexFloorOn(cfg) {
+		return nil
+	}
+	opt := optimizer.New(rt.spec.Pool, &cfg.LLM.Optimizer, logStructuredWrapper,
+		optimizer.WithCatalogReadTimeouts(catalogread.FromSafety(cfg.Safety)))
+	rt.note("index_floor")
+	return optimizer.NewFloor(opt, logStructuredWrapper).WithRehearser(rt.floorRehearser())
 }
 
 // tuningModels returns the agent's model (the optimizer-purpose client)
@@ -96,10 +114,18 @@ func tuningSettings(c *config.Config, cloudEnv, dbName string, hostMem int64) tu
 		CloudEnv:        cloudEnv,
 		DatabaseName:    dbName,
 		HostMemoryBytes: hostMem,
+		WorkMemMaxMB:    c.Tuner.WorkMemMaxMB,
 		MaxOutputTokens: c.LLM.OptimizerLLM.MaxOutputTokens,
 		Thresholds:      tuning.DefaultThresholds(),
 		MaxNewPerTable:  c.LLM.Optimizer.MaxNewPerTable,
 		DailyTokenLimit: tuningDailyTokens(c),
+		// tuning-06: open query_tuning findings resolve against the tuner's
+		// own admission.
+		HintAbsentCycles: c.Tuner.HintAbsentCycles,
+		HintAdmission: tuning.HintAdmission{MinCalls: c.Tuner.MinQueryCalls,
+			PlanTimeRatio: c.Tuner.PlanTimeRatio},
+		// llm.context_budget_tokens trims the case packet (llm-05).
+		ContextBudgetBytes: llm.ContextBudgetBytes(c.LLM),
 	}
 }
 

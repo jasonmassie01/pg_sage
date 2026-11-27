@@ -26,7 +26,7 @@ func preflightRecordSeries(
 	}
 	for _, s := range samples {
 		s.QueryID = id
-		if err := Record(ctx, p, []Sample{s}); err != nil {
+		if err := recordNow(ctx, p, []Sample{s}); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(2 * time.Millisecond)
@@ -45,41 +45,40 @@ func TestPreflightContractEpochWindows(t *testing.T) {
 	cases := []struct {
 		name    string
 		samples []Sample
-		want    EvidenceStatus
+		broken  bool
 		wantMs  float64
 	}{
 		{"same known epoch is measured", []Sample{
 			{Calls: 10, TotalExecMs: 100, StatsEpoch: a},
-			{Calls: 40, TotalExecMs: 700, StatsEpoch: a}}, EvidenceMeasured, 20},
+			{Calls: 40, TotalExecMs: 700, StatsEpoch: a}}, false, 20},
 		{"epoch change after regrowth is refused", []Sample{
 			{Calls: 10, TotalExecMs: 100, StatsEpoch: a},
-			{Calls: 40, TotalExecMs: 700, StatsEpoch: b}}, EvidenceCountersReset, 0},
+			{Calls: 40, TotalExecMs: 700, StatsEpoch: b}}, true, 0},
 		{"unknown then known epoch is refused", []Sample{
 			{Calls: 10, TotalExecMs: 100},
-			{Calls: 40, TotalExecMs: 700, StatsEpoch: a}}, EvidenceCountersReset, 0},
+			{Calls: 40, TotalExecMs: 700, StatsEpoch: a}}, true, 0},
 		{"known then unknown epoch is refused", []Sample{
 			{Calls: 10, TotalExecMs: 100, StatsEpoch: a},
-			{Calls: 40, TotalExecMs: 700}}, EvidenceCountersReset, 0},
+			{Calls: 40, TotalExecMs: 700}}, true, 0},
 		{"interior epoch flip back is refused", []Sample{
 			{Calls: 10, TotalExecMs: 100, StatsEpoch: a},
 			{Calls: 20, TotalExecMs: 300, StatsEpoch: b},
-			{Calls: 40, TotalExecMs: 700, StatsEpoch: a}}, EvidenceCountersReset, 0},
+			{Calls: 40, TotalExecMs: 700, StatsEpoch: a}}, true, 0},
 		{"legacy unknown epochs keep monotonic check", []Sample{
 			{Calls: 10, TotalExecMs: 100},
-			{Calls: 40, TotalExecMs: 700}}, EvidenceMeasured, 20},
+			{Calls: 40, TotalExecMs: 700}}, false, 20},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			from, to := preflightRecordSeries(t, ctx, p, 8902345, tc.samples)
-			ev, err := WindowedLatencyEvidence(ctx, p, 8902345, from, to)
-			if err != nil {
-				t.Fatal(err)
+			w := windowOf(t, ctx, p, 8902345, from, to)
+			ms, ok := w.measured()
+			if w.broken != tc.broken || ok == tc.broken || math.Abs(ms-tc.wantMs) > 1e-9 {
+				t.Fatalf("window = %+v (%.1f ms), want broken=%v %.1fms", w, ms, tc.broken,
+					tc.wantMs)
 			}
-			if ev.Status != tc.want || math.Abs(ev.LatencyMs-tc.wantMs) > 1e-9 {
-				t.Fatalf("evidence = %+v, want %s %.1fms", ev, tc.want, tc.wantMs)
-			}
-			if ev.Samples != len(tc.samples) {
-				t.Fatalf("samples = %d, want %d", ev.Samples, len(tc.samples))
+			if w.calls != 30 {
+				t.Fatalf("calls = %d, want 30 across the window", w.calls)
 			}
 		})
 	}
@@ -113,28 +112,27 @@ func TestPreflightContractRecordStoresEpoch(t *testing.T) {
 	}
 }
 
-func TestPreflightContractLegacyWindowUsesEpochs(t *testing.T) {
+func TestPreflightContractLaterEpochJoinsWindow(t *testing.T) {
 	p, ctx := requireDB(t)
 	defer p.Close()
-	from, _ := preflightRecordSeries(t, ctx, p, 8902347, []Sample{
+	from, to := preflightRecordSeries(t, ctx, p, 8902347, []Sample{
 		{Calls: 10, TotalExecMs: 100, StatsEpoch: preflightEpochA},
 		{Calls: 40, TotalExecMs: 700, StatsEpoch: preflightEpochA}})
-	ms, ok, err := WindowedLatencyMs(ctx, p, 8902347, from)
-	if err != nil || !ok || math.Abs(ms-20) > 1e-9 {
-		t.Fatalf("same epoch = (%v, %v, %v), want (20, true, nil)", ms, ok, err)
+	if ms, ok := windowOf(t, ctx, p, 8902347, from, to).measured(); !ok ||
+		math.Abs(ms-20) > 1e-9 {
+		t.Fatalf("same epoch = (%v, %v), want (20, true)", ms, ok)
 	}
-	// The legacy window has no upper bound, so a later sample from a new
-	// epoch joins it and the whole window is refused.
-	if err := Record(ctx, p, []Sample{{QueryID: 8902347, Calls: 90,
+	// A later sample from a new epoch inside the window refuses all of it.
+	if err := recordNow(ctx, p, []Sample{{QueryID: 8902347, Calls: 90,
 		TotalExecMs: 1000, StatsEpoch: preflightEpochB}}); err != nil {
 		t.Fatal(err)
 	}
-	ms, ok, err = WindowedLatencyMs(ctx, p, 8902347, from)
-	if err != nil || ok || ms != 0 {
-		t.Fatalf("cross epoch = (%v, %v, %v), want (0, false, nil)", ms, ok, err)
+	later := to.Add(time.Minute)
+	if w := windowOf(t, ctx, p, 8902347, from, later); !w.broken {
+		t.Fatalf("cross epoch window = %+v, want broken", w)
 	}
-	ms, ok, err = WindowedLatencyMs(ctx, p, 8902347, from.Add(time.Hour))
-	if err != nil || ok || ms != 0 {
-		t.Fatalf("no samples = (%v, %v, %v), want (0, false, nil)", ms, ok, err)
+	if w := windowOf(t, ctx, p, 8902347, later.Add(time.Hour),
+		later.Add(2*time.Hour)); w != (window{}) {
+		t.Fatalf("window after every sample = %+v, want empty", w)
 	}
 }

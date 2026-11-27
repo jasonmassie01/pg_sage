@@ -3,6 +3,8 @@ package cases
 import (
 	"testing"
 	"time"
+
+	"github.com/pg-sage/sidecar/internal/signalid"
 )
 
 var evidenceAnchor = time.Date(2026, 9, 20, 8, 0, 0, 0, time.UTC)
@@ -47,8 +49,8 @@ func TestIncidentCandidateExpiryAnchoredToLastDetection(t *testing.T) {
 func TestIncidentCandidateExpiryStableAcrossReads(t *testing.T) {
 	incident := SourceIncident{
 		ID: "inc-av", DatabaseName: "prod", Severity: SeverityWarning,
-		RootCause:       "Autovacuum is falling behind on public.orders",
-		SignalIDs:       []string{"autovacuum_falling_behind"},
+		RootCause:       "Autovacuum falling behind -- dead tuple accumulation",
+		SignalIDs:       []string{signalid.VacuumBlocked},
 		AffectedObjects: []string{"public.orders"},
 		LastDetectedAt:  evidenceAnchor,
 	}
@@ -69,14 +71,14 @@ func TestIncidentCandidateExpiryStableAcrossReads(t *testing.T) {
 // Only DetectedAt known (legacy rows): it anchors the expiry.
 func TestIncidentCandidateExpiryFallsBackToDetectedAt(t *testing.T) {
 	incident := SourceIncident{
-		ID: "inc-seq", DatabaseName: "prod", Severity: SeverityCritical,
-		SignalIDs:       []string{"sequence_exhaustion"},
-		AffectedObjects: []string{"public.orders_id_seq"},
+		ID: "inc-av", DatabaseName: "prod", Severity: SeverityCritical,
+		SignalIDs:       []string{signalid.VacuumBlocked},
+		AffectedObjects: []string{"public.orders"},
 		DetectedAt:      evidenceAnchor,
 	}
 	offsets := expiryOffsets(t, ProjectIncident(incident), evidenceAnchor)
-	if offsets[0] != 24*time.Hour {
-		t.Fatalf("expiry offset = %v, want DetectedAt+24h", offsets[0])
+	if len(offsets) != 2 || offsets[0] != 15*time.Minute || offsets[1] != 24*time.Hour {
+		t.Fatalf("expiry offsets = %v, want DetectedAt+15m and DetectedAt+24h", offsets)
 	}
 }
 

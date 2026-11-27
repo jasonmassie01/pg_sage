@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/policy"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Dogfood lifeos, 2026-10-03 (v1.8.4): finding 18569 (CREATE INDEX on
@@ -32,7 +33,14 @@ import (
 func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	_, ctx := requireDB(t) // skips without a database; serializes packages
-	admin, err := pgxpool.New(ctx, testDSN())
+	return anotherSageDB(t, ctx), ctx
+}
+
+// anotherSageDB is a further throwaway sage database for a test that
+// already called requireDB (which holds the cross-package lock).
+func anotherSageDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
+	t.Helper()
+	admin, err := pgxpool.New(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("admin pool: %v", err)
 	}
@@ -41,7 +49,7 @@ func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 		admin.Close()
 		t.Fatalf("create database: %v", err)
 	}
-	cfg, err := pgxpool.ParseConfig(testDSN())
+	cfg, err := pgxpool.ParseConfig(testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
@@ -63,7 +71,7 @@ func isolatedSageDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	if err := schema.MigrateConfigSchema(ctx, pool); err != nil {
 		t.Fatalf("config migration: %v", err)
 	}
-	return pool, ctx
+	return pool
 }
 
 // lifeosPolicy is lifeos's standing policy (sage.policy id 1) as stored:

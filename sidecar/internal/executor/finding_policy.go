@@ -37,33 +37,92 @@ func (e *Executor) evaluateStandingPolicy(
 // evaluateRollbackPolicy authorizes the rollback of a finding's executed
 // change. It is marked a rollback: undoing pg_sage's own change is never
 // withheld by the trust ledger (roadmap 1.2) nor parked by the kind budgets
-// (policy.BudgetBypassFor); the rest of the gate binds.
+// (policy.BudgetBypassFor); the rest of the gate binds. actionID (0:
+// unknown) is the reverted action, named in the decision (policy-05).
 func (e *Executor) evaluateRollbackPolicy(
-	ctx context.Context, f analyzer.Finding,
+	ctx context.Context, f analyzer.Finding, actionID int64,
 ) ActionPolicyDecision {
 	gate := e.StandingPolicyGate()
 	if gate == nil {
 		contract, _ := contractForFinding(f)
 		return noStandingPolicyDecision(contract)
 	}
-	request := findingRequest(f, false)
+	// A rollback re-runs pg_sage's recorded inverse, which names another
+	// object than the forward finding (a dropped index's table): it is not
+	// target-bound.
+	request := rollbackFindingRequest(f)
+	if request.Contract == nil && isExposureInverseSQL(f.RecommendedSQL) {
+		// An exposure rollback (re-GRANT, RLS disable) has a contract only
+		// as a rollback: the forward contract it reverts (fleetpol-02b).
+		if c, ok := ContractForActionType(exposureActionType(f.RecommendedSQL)); ok {
+			request.Contract = policyContract(c)
+		}
+	}
 	request.Rollback = true
+	request.Evidence = map[string]any{"source": rollbackSource(false)}
+	if actionID > 0 {
+		request.Evidence["rolled_back_action_id"] = actionID
+	}
 	return standingPolicyDecision(gate.Authorize(ctx, request))
 }
 
-// findingRequest is the standing-gate request for a background finding.
+// findingRequest is the standing-gate request for a background finding,
+// its statement bound to the object the finding names (executor-08).
 func findingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
+	request := unboundFindingRequest(finding, isReplica)
+	bindFindingRequest(&request, finding)
+	return request
+}
+
+func unboundFindingRequest(finding analyzer.Finding, isReplica bool) policy.ActionRequest {
+	return contractFindingRequest(finding, findingPolicyContract(finding), isReplica)
+}
+
+// rollbackFindingRequest is the gate request of an automatic rollback: a
+// rollback restores the prior state, so the verification ladder's entry
+// rule, which gates forward changes, does not apply to it.
+func rollbackFindingRequest(finding analyzer.Finding) policy.ActionRequest {
+	return contractRequestBase(finding, findingPolicyContract(finding), false)
+}
+
+func findingPolicyContract(finding analyzer.Finding) *policy.ActionContract {
+	if found, ok := contractForFinding(finding); ok {
+		return policyContract(found)
+	}
+	return nil
+}
+
+// contractFindingRequest is the gate request for finding under contract
+// (nil when no contract runs it), before its statement is bound: the
+// request the executor authorizes and the Cases view explains.
+func contractFindingRequest(
+	finding analyzer.Finding, contract *policy.ActionContract, isReplica bool,
+) policy.ActionRequest {
+	request := contractRequestBase(finding, contract, isReplica)
+	if contract != nil {
+		requireApprovalWithoutRehearsal(finding, contract)
+	}
+	return request
+}
+
+// contractRequestBase is contractFindingRequest without the ladder's
+// entry rule (lab-03a).
+func contractRequestBase(
+	finding analyzer.Finding, contract *policy.ActionContract, isReplica bool,
+) policy.ActionRequest {
 	request := policy.ActionRequest{
 		SQL: finding.RecommendedSQL, Feature: featureForFinding(finding),
-		TargetObjs: targetObjectsForFinding(finding),
-		IsReplica:  isReplica,
+		TargetObjs:            targetObjectsForFinding(finding),
+		TargetsNameNoRelation: targetsNameNoRelation(finding),
+		IsReplica:             isReplica,
+		Contract:              contract,
 	}
-	if contract, ok := contractForFinding(finding); ok {
-		request.Contract = policyContract(contract)
-		requireApprovalWithoutWhatIf(finding, request.Contract)
+	if contract != nil {
+		requireApprovalWithoutWhatIf(finding, contract)
 	}
 	if gateSQL, targets, ok := replaceGateView(finding.RecommendedSQL); ok {
 		request.SQL, request.TargetObjs = gateSQL, targets
+		request.TargetsNameNoRelation = false
 	}
 	requireApproval(&request, finding)
 	return request
@@ -84,6 +143,18 @@ func policyContract(contract ActionContract) *policy.ActionContract {
 	return result
 }
 
+// nonRelationObjectTypes are finding object types whose identifier names
+// no relation ("instance", a database name, a query id): a schema-wide
+// fact must not catch them (facts-01).
+var nonRelationObjectTypes = map[string]bool{"configuration": true, "setting": true,
+	"database": true, "instance": true, "query": true}
+
+// targetsNameNoRelation reports a finding whose target the facts binder
+// matches only as a slot (policy.ActionRequest.TargetsNameNoRelation).
+func targetsNameNoRelation(finding analyzer.Finding) bool {
+	return nonRelationObjectTypes[strings.ToLower(strings.TrimSpace(finding.ObjectType))]
+}
+
 func targetObjectsForFinding(finding analyzer.Finding) []string {
 	target := strings.TrimSpace(finding.ObjectIdentifier)
 	if target == "" {
@@ -93,7 +164,7 @@ func targetObjectsForFinding(finding analyzer.Finding) []string {
 }
 
 func featureForFinding(finding analyzer.Finding) string {
-	return changeClassForActionType(actionTypeForProposalSQL(finding.RecommendedSQL))
+	return changeClassForActionType(ActionTypeForSQL(finding.RecommendedSQL))
 }
 
 func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
@@ -105,6 +176,7 @@ func standingPolicyDecision(decision policy.Decision) ActionPolicyDecision {
 			decision.RiskTier == policy.RiskHigh,
 		EvidenceID: decision.EvidenceID, DecisionID: decision.DecisionID,
 		LockCeilingMS: decision.LockCeilingMS, SerializeMode: decision.SerializeMode,
+		WindowOnly: decision.WindowOnly,
 	}
 	switch decision.Verdict {
 	case policy.VerdictExecute:
@@ -154,6 +226,9 @@ func contractForFinding(f analyzer.Finding) (ActionContract, bool) {
 	if err := ValidateExecutorSQL(f.RecommendedSQL); err != nil {
 		return ActionContract{}, false
 	}
-	actionType := actionTypeForProposalSQL(f.RecommendedSQL)
+	if isExposureInverseSQL(f.RecommendedSQL) {
+		return ActionContract{}, false // a rollback form: rollbackContractFor only
+	}
+	actionType := ActionTypeForSQL(f.RecommendedSQL)
 	return ContractForActionType(actionType)
 }

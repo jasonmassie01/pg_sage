@@ -47,7 +47,7 @@ func (e *Executor) explainOperatorAction(ctx context.Context, sql string) Action
 func operatorRequest(sql string, findingID int, approvedBy *int) (
 	policy.ActionRequest, ActionContract,
 ) {
-	actionType := actionTypeForProposalSQL(sql)
+	actionType := ActionTypeForSQL(sql)
 	contract, ok := ContractForActionType(actionType)
 	if !ok {
 		contract = ActionContract{ActionType: actionType, BaseRiskTier: "high"}
@@ -85,6 +85,13 @@ func humanPolicyReason(decision ActionPolicyDecision) string {
 		return reason
 	}
 	return reason + " (" + decision.Detail + ")"
+}
+
+// HumanDecisionReason renders a recorded decision's reason and detail as
+// the operator surfaces show a verdict ("rate limit exceeded (next frees
+// at 18:00)"), for readers of the ledger (policy-07).
+func HumanDecisionReason(reason, detail string) string {
+	return humanPolicyReason(ActionPolicyDecision{BlockedReason: reason, Detail: detail})
 }
 
 // humanReason renders a gate reason code for operators

@@ -73,6 +73,8 @@ func NewToolLoop() Loop { return toolLoop{} }
 // Run asks the model until it answers without tool calls. Every turn
 // takes a request from the budget; the last turn forbids tools, and
 // MaxTurns below 1 means one answer-only turn.
+//
+//llm:transport internal/tuning.Agent.systemPrompt
 func (toolLoop) Run(ctx context.Context, m Model, c Conversation) (Transcript, error) {
 	if m == nil || c.Exec == nil {
 		return Transcript{}, errors.New("tuning: tool loop needs a model and a tool executor")
@@ -90,7 +92,8 @@ func (toolLoop) Run(ctx context.Context, m Model, c Conversation) (Transcript, e
 			return tr, fmt.Errorf("%w: request cap reached", ErrBudget)
 		}
 		last := tr.Turns == turns-1
-		res, err := m.ChatWithTools(ctx, msgs, c.Tools, turnOptions(c, last))
+		pctx := llm.WithDefaultPurpose(ctx, "query_tuning") // llm-04: usage ledger label
+		res, err := m.ChatWithTools(pctx, msgs, c.Tools, turnOptions(c, last))
 		tr.Turns++
 		if err != nil {
 			return stopOn(tr, err)

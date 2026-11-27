@@ -3,11 +3,14 @@ package notify
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+	"unicode/utf8"
 )
 
 const pdEventsURL = "https://events.pagerduty.com/v2/enqueue"
@@ -84,6 +87,7 @@ func buildPagerDutyPayload(
 	if prefix := ch.Config["dedup_key_prefix"]; prefix != "" {
 		dedupKey = prefix + ":" + dedupKey
 	}
+	dedupKey = BoundPagerDutyDedupKey(dedupKey)
 	action := "trigger"
 	if evt.Resolve {
 		action = "resolve"
@@ -105,6 +109,31 @@ func buildPagerDutyPayload(
 	}
 
 	return json.Marshal(pd)
+}
+
+// pdMaxDedupKey is the Events API v2 limit on dedup_key length; PagerDuty
+// rejects a longer key, so the page would never be delivered.
+const pdMaxDedupKey = 255
+
+// BoundPagerDutyDedupKey keeps key within pdMaxDedupKey (boundDedupKey).
+func BoundPagerDutyDedupKey(key string) string {
+	return boundDedupKey(key, pdMaxDedupKey)
+}
+
+// boundDedupKey keeps key within limit bytes. A longer key keeps its
+// readable head, cut on a rune boundary, plus a hash of the whole key, so
+// the trigger and the resolve of one identity still share it.
+func boundDedupKey(key string, limit int) string {
+	if len(key) <= limit {
+		return key
+	}
+	sum := sha256.Sum256([]byte(key))
+	tail := ":" + hex.EncodeToString(sum[:8])
+	cut := limit - len(tail)
+	for cut > 0 && !utf8.RuneStart(key[cut]) {
+		cut--
+	}
+	return key[:cut] + tail
 }
 
 func mapPDSeverity(sev string) string {
@@ -139,8 +168,7 @@ func postPagerDuty(
 
 	// PagerDuty Events API v2 returns 202 Accepted on success.
 	if resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("pagerduty returned status %d",
-			resp.StatusCode)
+		return &HTTPStatusError{Service: "pagerduty", Code: resp.StatusCode}
 	}
 	return nil
 }

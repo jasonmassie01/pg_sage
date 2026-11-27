@@ -89,6 +89,24 @@ type Document struct {
 	RefusalSet              []string
 	UnknownClassification   string
 	SerializeMode           string
+	// WindowStartMarginMinutes withholds a moderate or high action whose
+	// window closes within this many minutes (0-720, default 0: none).
+	WindowStartMarginMinutes int64
+	// Plans caps what plans concentrate and when their steps start
+	// (plan-02b); zero fields are the defaults (DefaultPlanCaps).
+	Plans PlanCaps
+	// Drill is the restore drill block (drill-01a); zero is the defaults.
+	Drill DrillPolicy
+	// Pressure is the check_pressure block (guard-01a); zero is the defaults.
+	Pressure PressurePolicy
+	// ExposureMode is shadow ("" or "shadow", the default) or enforce
+	// (fleetpol-02b): whether exposure findings become proposals.
+	ExposureMode string
+	// Version and SHA256 name the stored policy row the document was read
+	// from: its version and the SHA-256 of its stored jsonb text
+	// (DocumentFromPolicy). Both are zero for a document read from nowhere.
+	Version int64
+	SHA256  string
 }
 
 type documentWire struct {
@@ -103,6 +121,11 @@ type documentWire struct {
 	RefusalSet              []string        `json:"refusal_set"`
 	UnknownClassification   string          `json:"unknown_classification"`
 	SerializeMode           string          `json:"serialize_mode"`
+	WindowStartMargin       int64           `json:"window_start_margin_minutes,omitempty"`
+	Plans                   *plansWire      `json:"plans,omitempty"`
+	Drill                   *drillWire      `json:"drill,omitempty"`
+	Exposure                *exposureWire   `json:"exposure,omitempty"`
+	Pressure                json.RawMessage `json:"pressure,omitempty"`
 }
 
 type budgetWire struct {
@@ -150,6 +173,23 @@ func MarshalDocument(doc Document) ([]byte, error) {
 		"refusal_set":            doc.RefusalSet,
 		"unknown_classification": doc.UnknownClassification,
 		"serialize_mode":         doc.SerializeMode,
+	}
+	if doc.WindowStartMarginMinutes != 0 {
+		// Written only when set: documents without it keep their bytes.
+		wire["window_start_margin_minutes"] = doc.WindowStartMarginMinutes
+	}
+	if !doc.Plans.isDefault() {
+		// Written only when it differs from the defaults, the same way.
+		wire["plans"] = plansJSON(doc.Plans)
+	}
+	if !doc.Drill.isDefault() {
+		wire["drill"] = drillJSON(doc.Drill)
+	}
+	if !doc.Pressure.isDefault() {
+		wire["pressure"] = pressureJSON(doc.Pressure)
+	}
+	if doc.ExposureMode != "" {
+		wire["exposure"] = exposureWire{Mode: doc.ExposureMode} // only when set
 	}
 	return json.Marshal(wire)
 }
@@ -215,24 +255,44 @@ func documentFromWire(wire documentWire, budgets Budgets) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
+	plans, err := plansFromWire(wire.Plans)
+	if err != nil {
+		return Document{}, err
+	}
+	drill, err := drillFromWire(wire.Drill)
+	if err != nil {
+		return Document{}, err
+	}
+	pressure, err := pressureFromWire(wire.Pressure)
+	if err != nil {
+		return Document{}, err
+	}
 	overrides := make(map[DeadlineKind]bool, len(wire.DeadlineOverrides))
 	for kind, enabled := range wire.DeadlineOverrides {
 		overrides[DeadlineKind(kind)] = enabled
 	}
 	return Document{
-		AllowedChangeClasses:    wire.AllowedChangeClasses,
-		ApprovalRequiredClasses: wire.ApprovalRequiredClasses,
-		MaintenanceWindows:      wire.MaintenanceWindows,
-		LockDurationCeilingMS:   wire.LockDurationCeilingMS,
-		BlastRadius:             radius,
-		Budgets:                 budgets,
-		RateLimits:              rates,
-		DeadlineOverrides:       overrides,
-		RefusalSet:              wire.RefusalSet,
-		UnknownClassification:   wire.UnknownClassification,
-		SerializeMode:           wire.SerializeMode,
+		AllowedChangeClasses:     wire.AllowedChangeClasses,
+		ApprovalRequiredClasses:  wire.ApprovalRequiredClasses,
+		MaintenanceWindows:       wire.MaintenanceWindows,
+		LockDurationCeilingMS:    wire.LockDurationCeilingMS,
+		BlastRadius:              radius,
+		Budgets:                  budgets,
+		RateLimits:               rates,
+		DeadlineOverrides:        overrides,
+		RefusalSet:               wire.RefusalSet,
+		UnknownClassification:    wire.UnknownClassification,
+		SerializeMode:            wire.SerializeMode,
+		WindowStartMarginMinutes: wire.WindowStartMargin,
+		Plans:                    plans,
+		Drill:                    drill,
+		Pressure:                 pressure,
+		ExposureMode:             exposureFromWire(wire.Exposure),
 	}, nil
 }
+
+// maxWindowStartMargin is the largest window_start_margin_minutes: 12 hours.
+const maxWindowStartMargin = 720
 
 func ValidateDocument(doc Document) error {
 	if doc.UnknownClassification != "fail_closed" {
@@ -243,6 +303,22 @@ func ValidateDocument(doc Document) error {
 	}
 	if doc.LockDurationCeilingMS < 0 {
 		return fmt.Errorf("lock_duration_ceiling_ms cannot be negative")
+	}
+	if doc.WindowStartMarginMinutes < 0 || doc.WindowStartMarginMinutes > maxWindowStartMargin {
+		return fmt.Errorf("window_start_margin_minutes %d must be 0-%d",
+			doc.WindowStartMarginMinutes, maxWindowStartMargin)
+	}
+	if err := ValidatePlanCaps(doc.Plans); err != nil {
+		return err
+	}
+	if err := ValidateDrillPolicy(doc.Drill); err != nil {
+		return err
+	}
+	if err := ValidatePressurePolicy(doc.Pressure); err != nil {
+		return err
+	}
+	if err := validateExposureMode(doc.ExposureMode); err != nil {
+		return err
 	}
 	if err := validateRefusalSet(doc.RefusalSet); err != nil {
 		return err
@@ -367,7 +443,7 @@ func allChangeClasses() []ChangeClass {
 		ChangeAutovacuumTuning, ChangeConfigGUC, ChangeRetention,
 		ChangeFKIndex, ChangeOnlineMigration, ChangeBackendSignal, ChangeQueryHint,
 		ChangeSchemaChange, ChangeAgentAccess, ChangeAgentDataWrite, ChangeAgentSchemaChange,
-		ChangeAgentMaintenance, ChangeAgentSandbox, ChangeAgentEstate,
+		ChangeAgentMaintenance, ChangeAgentSandbox, ChangeAgentEstate, ChangeExposure,
 	}
 }
 

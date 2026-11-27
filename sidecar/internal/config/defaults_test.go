@@ -140,30 +140,6 @@ func TestDefaultConfig_TunerV085Defaults(t *testing.T) {
 			DefaultTunerRevalidationIntervalHours)
 	}
 
-	if tu.RevalidationKeepRatio !=
-		DefaultTunerRevalidationKeepRatio {
-		t.Errorf("RevalidationKeepRatio = %f, want %f",
-			tu.RevalidationKeepRatio,
-			DefaultTunerRevalidationKeepRatio)
-	}
-	if tu.RevalidationKeepRatio <= 0 {
-		t.Error("RevalidationKeepRatio must be > 0")
-	}
-
-	if tu.RevalidationRollbackRatio !=
-		DefaultTunerRevalidationRollbackRatio {
-		t.Errorf("RevalidationRollbackRatio = %f, want %f",
-			tu.RevalidationRollbackRatio,
-			DefaultTunerRevalidationRollbackRatio)
-	}
-
-	if tu.RevalidationExplainTimeoutMs !=
-		DefaultTunerRevalidationExplainTimeoutMs {
-		t.Errorf("RevalidationExplainTimeoutMs = %d, want %d",
-			tu.RevalidationExplainTimeoutMs,
-			DefaultTunerRevalidationExplainTimeoutMs)
-	}
-
 	if tu.StaleStatsEstimateSkew !=
 		DefaultTunerStaleStatsEstimateSkew {
 		t.Errorf("StaleStatsEstimateSkew = %f, want %f",

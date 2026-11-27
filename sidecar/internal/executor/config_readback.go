@@ -27,7 +27,7 @@ type settingRow struct {
 // sourcefile is visible only to superusers and pg_read_all_settings.
 func readSettingRow(ctx context.Context, pool *pgxpool.Pool, name string) (settingRow, error) {
 	var r settingRow
-	err := pool.QueryRow(ctx, `/* pg_sage */ SELECT setting, COALESCE(unit, ''),
+	err := pool.QueryRow(ctx, `/* pg_sage executor */ SELECT setting, COALESCE(unit, ''),
 		vartype, context, source, COALESCE(sourcefile, ''), pending_restart
 		FROM pg_settings WHERE name = $1`, strings.ToLower(name)).Scan(
 		&r.Setting, &r.Unit, &r.VarType, &r.Context, &r.Source, &r.SourceFile,

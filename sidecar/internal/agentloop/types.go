@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/llm"
@@ -63,13 +64,15 @@ type Output struct {
 }
 
 // Evidence is a citable result: ID is its durable id, Digest the hash of
-// the stored result, Label a short "what and status" line, Text the
-// grounding text claims are checked against.
+// the stored result, Label a short "what and status" line, Text what the
+// model is shown. Values, when set, are the result's typed values as
+// exact tokens, and claims are grounded against them instead of Text.
 type Evidence struct {
 	ID     string
 	Digest string
 	Label  string
 	Text   string
+	Values []string
 }
 
 // Errors.
@@ -99,15 +102,18 @@ func Abort(err error) error {
 // only conclude); MaxCalls counts tool calls asked for; MaxCost sums the
 // cost of tools that ran; MaxTokens counts reported (else estimated)
 // tokens; StepTokens is each call's completion cap and StepTimeout its
-// time cap within Wall.
+// time cap within Wall. ReasoningPerCall is the reasoning allowance a
+// thinking model's call reserves beyond StepTokens (0 for other models);
+// every token check counts it, as the caller's reservation does.
 type Budget struct {
-	MaxSteps    int
-	MaxCalls    int
-	MaxCost     int
-	Wall        time.Duration
-	MaxTokens   int
-	StepTokens  int
-	StepTimeout time.Duration
+	MaxSteps         int
+	MaxCalls         int
+	MaxCost          int
+	Wall             time.Duration
+	MaxTokens        int
+	StepTokens       int
+	StepTimeout      time.Duration
+	ReasoningPerCall int
 }
 
 // Final is the tool the model concludes with. Its arguments must be a
@@ -135,10 +141,13 @@ type Config struct {
 }
 
 // Claim is one statement of the final answer: aliases in, durable ids
-// out.
+// out. A surviving claim also keeps the aliases it cited (each once, in
+// order), because two reads may share a durable id (the same list read
+// with another limit) and only the alias names the read it rests on.
 type Claim struct {
 	Text        string   `json:"text"`
 	EvidenceIDs []string `json:"evidence_ids"`
+	Aliases     []string `json:"aliases,omitempty"`
 }
 
 // DroppedClaim is a claim the citation filter removed, and why.
@@ -171,6 +180,9 @@ const (
 	StopCooldown    = "cooldown"
 	StopProvider    = "provider_error"
 	StopMalformed   = "malformed_replies"
+	// StopCancelled is set by a caller that keeps a run its own caller
+	// cancelled (Run returns the cancellation, not a stop).
+	StopCancelled = "cancelled"
 )
 
 // Rejection reasons, counted in Transcript.Rejected.
@@ -236,9 +248,47 @@ type Transcript struct {
 }
 
 // Result is a finished run. Final is nil unless the model concluded.
+// Evidence is every alias the run issued (seed and tool results) with
+// the evidence it names: a claim's Aliases resolve here to exactly what
+// the model was shown under each alias.
 type Result struct {
 	Final      json.RawMessage
 	Claims     []Claim
 	Dropped    []DroppedClaim
+	Evidence   map[string]Evidence
 	Transcript Transcript
+}
+
+// aliasesKey carries a run's aliases into a tool call's context.
+type aliasesKey struct{}
+
+// clone is a copy of e that shares no memory with it: Values is a slice,
+// so a plain copy would let a writer of one change the other (env-race-b).
+func (e Evidence) clone() Evidence {
+	e.Values = slices.Clone(e.Values)
+	return e
+}
+
+// withAliases gives a tool call a deep copy of the aliases issued so far:
+// a tool, or a goroutine it leaves behind, can neither change nor race the
+// run's own map or the values the run grounds claims against.
+func withAliases(ctx context.Context, aliases map[string]Evidence) context.Context {
+	cp := make(map[string]Evidence, len(aliases))
+	for alias, ev := range aliases {
+		cp[alias] = ev.clone()
+	}
+	return context.WithValue(ctx, aliasesKey{}, cp)
+}
+
+// ResolveEvidence returns the evidence behind an alias (E1, E2, ...)
+// that the run calling this tool issued before the call. It reports
+// false outside a run and for anything that is not such an alias. Each
+// call returns its own copy, so concurrent resolvers never share values.
+func ResolveEvidence(ctx context.Context, ref string) (Evidence, bool) {
+	if ctx == nil {
+		return Evidence{}, false
+	}
+	aliases, _ := ctx.Value(aliasesKey{}).(map[string]Evidence)
+	ev, ok := aliases[ref]
+	return ev.clone(), ok
 }

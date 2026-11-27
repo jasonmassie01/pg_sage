@@ -1,12 +1,15 @@
 import { useState } from 'react'
 import {
-  FACT_TYPES, KINDS_BY_TYPE, SUBJECT_PLACEHOLDERS, WINDOW_KINDS,
+  FACT_TYPES, FACT_TYPE_LABELS, KINDS_BY_TYPE, SUBJECT_PLACEHOLDERS, WINDOW_KINDS,
   declareBody, declareFact, declareReady,
 } from '../../lib/facts'
+import { FactCoverage } from './FactCoverage'
 
 // DeclareFactForm lets an operator or admin state a fact about one
 // database. A declared fact is confirmed by the declaration, so it binds
-// at once; it can only narrow or redirect what pg_sage does.
+// at once; it can only narrow or redirect what pg_sage does. "Do not
+// touch" (do_not_touch) holds every change to a table, index or schema
+// until a person expires the fact.
 
 const field = {
   background: 'var(--bg-primary)', border: '1px solid var(--border)',
@@ -28,11 +31,11 @@ function Labeled({ text, children }) {
   )
 }
 
-function Select({ testId, value, options, onChange }) {
+function Select({ testId, value, options, onChange, labels = {} }) {
   return (
     <select data-testid={testId} value={value} onChange={e => onChange(e.target.value)}
       className="p-1 rounded text-sm" style={field}>
-      {options.map(o => <option key={o} value={o}>{o}</option>)}
+      {options.map(o => <option key={o} value={o}>{labels[o] || o}</option>)}
     </select>
   )
 }
@@ -109,6 +112,9 @@ export function DeclareFactForm({ database, onDeclared }) {
         </p>
       )}
       <DeclareFields form={form} set={set} setType={setType} />
+      <FactCoverage database={oneDatabase ? database : ''} kind={form.kind}
+        subject={form.subject} testId="declare-coverage"
+        key={`${form.kind}:${form.subject.trim()}`} />
       <DeclareFooter busy={busy} ready={oneDatabase && declareReady(form)}
         error={error} declared={declared} />
     </form>
@@ -120,7 +126,7 @@ function DeclareFields({ form, set, setType }) {
     <div className="flex flex-wrap gap-2 items-end">
       <Labeled text="Type">
         <Select testId="declare-type" value={form.type} options={FACT_TYPES}
-          onChange={setType} />
+          labels={FACT_TYPE_LABELS} onChange={setType} />
       </Labeled>
       <Labeled text="Subject kind">
         <Select testId="declare-kind" value={form.kind} options={KINDS_BY_TYPE[form.type]}
@@ -148,7 +154,7 @@ function DeclareFooter({ busy, ready, error, declared }) {
     <div className="space-y-1">
       <button type="submit" data-testid="declare-submit" disabled={busy || !ready}
         className="px-3 py-1 rounded text-sm"
-        style={{ background: 'var(--accent)', color: '#fff',
+        style={{ background: 'var(--accent-solid)', color: '#fff',
           opacity: busy || !ready ? 0.5 : 1 }}>
         {busy ? 'Declaring...' : 'Declare fact'}
       </button>

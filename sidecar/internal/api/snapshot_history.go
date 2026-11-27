@@ -26,6 +26,7 @@ const snapshotHistoryMaxBytes = 4 << 20
 var perObjectCategories = map[string]bool{
 	"tables": true, "indexes": true, "queries": true, "sequences": true,
 	"foreign_keys": true, "locks": true, "partitions": true, "config_data": true,
+	"partitioned_indexes": true, "index_bloat": true,
 }
 
 // historyMetricProblem says why metric cannot be served as history, or "".

@@ -28,6 +28,8 @@ var logVerdicts = map[string]string{
 	"failed":           "failed",
 	"unverifiable":     "unverifiable",
 	"rollback_skipped": "regressed",
+	// The emergency stop withheld a soft-drop restore (executor-01).
+	"rollback_withheld": "regressed",
 }
 
 // closedStatuses are queue statuses that end an item without a run.

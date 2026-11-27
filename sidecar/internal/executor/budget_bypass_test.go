@@ -22,7 +22,7 @@ import (
 func TestLedgerRecordsBudgetBypassReason(t *testing.T) {
 	req := freezeGateRequest("public.t", true)
 	detail := "budget bypass: xid runway critical"
-	input := ledgerInput(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
+	input := ledgerInputAt(nil, 1, req, policy.Decision{Verdict: policy.VerdictExecute,
 		Reason: policy.ReasonAuthorized, BudgetKind: policy.BudgetBypass, Detail: detail})
 	if input.Reason != detail || input.Evidence["budget_kind"] != "bypass" ||
 		input.Evidence["gate_reason"] != "authorized" ||
@@ -30,7 +30,7 @@ func TestLedgerRecordsBudgetBypassReason(t *testing.T) {
 		t.Fatalf("ledger input reason=%q evidence=%v, want the bypass recorded", input.Reason,
 			input.Evidence)
 	}
-	queued := ledgerInput(nil, 1, req, policy.Decision{Verdict: policy.VerdictQueueApproval,
+	queued := ledgerInputAt(nil, 1, req, policy.Decision{Verdict: policy.VerdictQueueApproval,
 		Reason: policy.ReasonApprovalRequired, BudgetKind: policy.BudgetBypass, Detail: detail})
 	if queued.Reason != string(policy.ReasonApprovalRequired) {
 		t.Fatalf("withheld bypass reason = %q, want the gate's reason", queued.Reason)
@@ -171,7 +171,7 @@ func slowUsageGate(exec *Executor, doc policy.Document) policy.Gate {
 		Serialize: exec.serializeBudget,
 		RecordDecisionDetailed: func(ctx context.Context, req policy.ActionRequest,
 			decision policy.Decision) (string, int64, error) {
-			return exec.recordStandingDecision(ctx, 1, req, decision)
+			return exec.recordStandingDecisionAt(ctx, 1, req, decision)
 		},
 	})
 }
@@ -251,7 +251,7 @@ func TestBudgetSectionSharesOneTransaction(t *testing.T) {
 	// A failed assertion must end the transaction, or closing the pool
 	// waits for its connection forever. A second rollback is a no-op.
 	t.Cleanup(func() { _ = done(false) })
-	_, id, err := exec.recordStandingDecision(lockedCtx, 1, req, policy.Decision{
+	_, id, err := exec.recordStandingDecisionAt(lockedCtx, 1, req, policy.Decision{
 		Verdict: policy.VerdictExecute, Reason: policy.ReasonAuthorized,
 		RiskTier: policy.RiskModerate, BudgetKind: policy.BudgetPerformance})
 	if err != nil {

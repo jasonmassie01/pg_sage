@@ -37,6 +37,15 @@ type LocalBenchConfig struct {
 	Now      func() time.Time
 	// Log reports a background run that failed (it is also kept as Last).
 	Log func(format string, args ...any)
+	// Warn reports a run that scored nothing (nil: the standard logger).
+	Warn func(format string, args ...any)
+	// Leases are the shared targets held in this process (nil: the
+	// process-wide table game days share too).
+	Leases *Leases
+	// Store records runs as kind 'local' (benches-03), so a run its
+	// process never finished is abandoned and its clone destroyed. Nil
+	// keeps runs in memory only.
+	Store *Store
 }
 
 // LocalBenchRun is one local bench run. The clone's DSN carries
@@ -52,6 +61,11 @@ type LocalBenchRun struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	EvalRunID  string     `json:"eval_run_id,omitempty"`
+	// Summary is what the run's report scored, as for a game day.
+	Summary *Summary `json:"summary,omitempty"`
+	// Exercised mirrors GameDay's (the two convert); a local bench run
+	// binds no customer table, so it stays nil.
+	Exercised *Exercised `json:"exercised,omitempty"`
 }
 
 // LocalBench runs one database's local bench runs, one at a time.
@@ -84,6 +98,10 @@ func NewLocalBench(cfg LocalBenchConfig, provider clone.Provider, faults FaultRu
 	if cfg.Log == nil {
 		cfg.Log = log.Printf
 	}
+	if cfg.Warn == nil {
+		cfg.Warn = defaultWarn
+	}
+	cfg.Leases = leasesOr(cfg.Leases)
 	return &LocalBench{cfg: cfg, provider: provider, faults: faults, ledger: ledger}, nil
 }
 
@@ -108,23 +126,25 @@ func (b *LocalBench) Last() (LocalBenchRun, bool) {
 // Run runs the fault programs of families (empty: every family) now and
 // waits for it.
 func (b *LocalBench) Run(ctx context.Context, families []string) (LocalBenchRun, error) {
-	run, err := b.begin(families)
+	run, release, err := b.begin(ctx, families)
 	if err != nil {
 		return LocalBenchRun{}, err
 	}
 	defer b.running.Store(false)
+	defer release()
 	return b.execute(ctx, run)
 }
 
 // Start runs in the background (a run takes minutes) and returns the
 // started run; the run outlives ctx's cancellation.
 func (b *LocalBench) Start(ctx context.Context, families []string) (LocalBenchRun, error) {
-	run, err := b.begin(families)
+	run, release, err := b.begin(ctx, families)
 	if err != nil {
 		return LocalBenchRun{}, err
 	}
 	go func() {
 		defer b.running.Store(false)
+		defer release()
 		if done, err := b.execute(context.WithoutCancel(ctx), run); err != nil {
 			b.cfg.Log("local bench %s on %s %s: %v", done.ID, done.Database, done.Status, err)
 		}
@@ -132,52 +152,86 @@ func (b *LocalBench) Start(ctx context.Context, families []string) (LocalBenchRu
 	return run, nil
 }
 
-// begin validates families, takes the single run slot and records the
-// run as in progress.
-func (b *LocalBench) begin(families []string) (LocalBenchRun, error) {
+// begin validates families, takes the single run slot and the target's
+// lease, and records the run as in progress; a refused run is not kept.
+func (b *LocalBench) begin(ctx context.Context, families []string) (LocalBenchRun, func(),
+	error) {
 	for _, f := range families {
 		// The bench exercises incident families; a self-initiated trust
 		// family (tuning, hygiene) has no fault program.
 		if !earned.IsIncidentFamily(earned.Family(f)) {
-			return LocalBenchRun{}, fmt.Errorf("%w: %q", ErrUnknownFamily, f)
+			return LocalBenchRun{}, nil, fmt.Errorf("%w: %q", ErrUnknownFamily, f)
 		}
 	}
 	if !b.running.CompareAndSwap(false, true) {
-		return LocalBenchRun{}, ErrRunning
+		return LocalBenchRun{}, nil, ErrRunning
 	}
-	run := LocalBenchRun{ID: newID(), Database: b.cfg.Database, Provider: b.cfg.Provider,
+	id := newID()
+	release, err := b.cfg.Leases.Acquire(ctx, b.provider, Holder{Kind: kindLocalBench, ID: id,
+		Database: b.cfg.Database})
+	if err != nil {
+		b.running.Store(false)
+		return LocalBenchRun{}, nil, err
+	}
+	run := LocalBenchRun{ID: id, Database: b.cfg.Database, Provider: b.cfg.Provider,
 		Families: append([]string{}, families...), Status: StatusRunning,
 		StartedAt: b.cfg.Now().UTC()}
+	if err := b.persistStart(ctx, run); err != nil {
+		release()
+		b.running.Store(false)
+		return LocalBenchRun{}, nil, err
+	}
 	b.record(run)
-	return run, nil
+	return run, release, nil
+}
+
+// persistStart sweeps this database's stale local runs (a failed sweep is
+// logged; it does not block the run) and records run as running. A run
+// that cannot be recorded is refused: its clone could leak unrecorded.
+func (b *LocalBench) persistStart(ctx context.Context, run LocalBenchRun) error {
+	if b.cfg.Store == nil {
+		return nil
+	}
+	if _, err := b.sweep(ctx); err != nil {
+		b.cfg.Log("local bench on %s: sweep stale runs: %v", b.cfg.Database, err)
+	}
+	return b.cfg.Store.start(ctx, GameDay(run), rowLocal)
 }
 
 func (b *LocalBench) execute(ctx context.Context, run LocalBenchRun) (LocalBenchRun,
 	error) {
+	ctx, cancel := context.WithTimeout(ctx, runBudget)
+	defer cancel()
 	c, err := b.provider.Create(ctx, clone.CloneSpec{IncludeData: true})
 	if err != nil {
-		return b.finish(run, StatusFailed, fmt.Errorf("create clone: %w", err))
+		return b.finish(ctx, run, StatusFailed, fmt.Errorf("create clone: %w", err))
 	}
 	run.CloneID = c.ID
-	runErr := b.exercise(ctx, &run, c.DSN)
-	status := StatusCompleted
-	if runErr != nil {
-		status = StatusFailed
+	var runErr error
+	if b.cfg.Store != nil {
+		runErr = b.cfg.Store.attachClone(ctx, run.ID, c.ID)
 	}
-	if err := b.provider.Destroy(context.WithoutCancel(ctx), c); err != nil {
-		status = StatusDestroyFailed
-		runErr = errors.Join(runErr, fmt.Errorf("destroy clone %s: %w", c.ID, err))
+	if runErr == nil {
+		runErr = b.exercise(ctx, &run, c.DSN)
 	}
-	return b.finish(run, status, runErr)
+	status, runErr := destroyClone(ctx, b.provider, c, runErr)
+	if status = scoredStatus(status, run.Summary); status == StatusCompletedUnscored {
+		warnUnscored(b.cfg.Warn, "local bench", run.ID, run.Database, run.Summary)
+	}
+	return b.finish(ctx, run, status, runErr)
 }
 
 // exercise runs the fault programs on the clone and ingests the report
 // as a local run of this pg_sage.
 func (b *LocalBench) exercise(ctx context.Context, run *LocalBenchRun, dsn string) error {
-	raw, err := b.faults.Run(ctx, dsn, run.Families)
+	// No bindings: a local bench run measures the bench's fixtures, not
+	// the customer's tables (benches-12 binds game days only).
+	raw, err := b.faults.Run(ctx, dsn, run.Families, nil)
 	if err != nil {
 		return fmt.Errorf("fault programs: %w", err)
 	}
+	summary := summarize(raw)
+	run.Summary = &summary
 	stored, err := b.ledger.IngestBench(ctx, raw, earned.BenchIngest{
 		Origin: earned.OriginLocalRun, Actor: earned.ActorPgSage})
 	if err != nil {
@@ -187,14 +241,19 @@ func (b *LocalBench) exercise(ctx context.Context, run *LocalBenchRun, dsn strin
 	return nil
 }
 
-func (b *LocalBench) finish(run LocalBenchRun, status string, runErr error) (LocalBenchRun,
-	error) {
+func (b *LocalBench) finish(ctx context.Context, run LocalBenchRun, status string,
+	runErr error) (LocalBenchRun, error) {
 	at := b.cfg.Now().UTC()
 	run.Status, run.FinishedAt = status, &at
 	if runErr != nil {
 		run.Error = truncate(runErr.Error(), 2000)
 	}
 	b.record(run)
+	if b.cfg.Store != nil {
+		if err := b.cfg.Store.finish(context.WithoutCancel(ctx), GameDay(run)); err != nil {
+			return run, errors.Join(runErr, err)
+		}
+	}
 	return run, runErr
 }
 

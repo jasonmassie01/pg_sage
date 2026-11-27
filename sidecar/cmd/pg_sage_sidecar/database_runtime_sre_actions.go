@@ -25,7 +25,9 @@ type sreActionDeps struct {
 	service    *sre.Service
 	monitored  *pgxpool.Pool
 	executor   *executor.Executor
-	dispatcher *notify.Dispatcher
+	// cards is the database's approval-card notifier (executorDispatcher);
+	// nil when notifications are off.
+	cards      executor.EventDispatcher
 	databaseID *int
 	name       string
 	settings   config.SREActionsConfig
@@ -41,11 +43,14 @@ func newSREActions(d sreActionDeps) (*sreaction.ActionService, error) {
 			"monitored database and its executor", d.name)
 	}
 	var notifier sreaction.ApprovalNotifier
-	if d.dispatcher != nil {
-		notifier = dispatcherNotifier{d: d.dispatcher}
+	if d.cards != nil {
+		notifier = dispatcherNotifier{d: d.cards}
 	}
+	targets := probes.NewRunner(d.monitored, probes.ActionRegistry(), sreProbeLimiter,
+		d.readPolicy)
+	targets.SetDatabaseName(d.name)
 	a, err := sreaction.NewActionService(sreaction.ActionDeps{Service: d.service,
-		Targets:  probes.NewRunner(d.monitored, probes.ActionRegistry(), sreProbeLimiter, d.readPolicy),
+		Targets:  targets,
 		Queue:    sreaction.NewPGApprovalQueue(d.monitored, d.databaseID),
 		Executor: d.executor, Notifier: notifier, Config: sreActionConfig(d.settings),
 		LogFn: d.logFn})
@@ -73,7 +78,10 @@ func newSREActions(d sreActionDeps) (*sreaction.ActionService, error) {
 		}
 		a.SetMaintenanceService(m)
 	}
-	d.executor.SetApprovedActionRunner(a)
+	if err := d.executor.AddApprovedActionRunner(sreaction.RunnerName,
+		sreaction.RunnerKeyPrefixes(), a); err != nil {
+		return nil, err
+	}
 	return a, nil
 }
 
@@ -107,8 +115,9 @@ func (rt *databaseRuntime) startSREActions() {
 		settings.Proposals = false
 	}
 	a, err := newSREActions(sreActionDeps{service: rt.sreService, monitored: rt.spec.Pool, readPolicy: policy,
-		executor: rt.executor, dispatcher: rt.dispatcher, databaseID: dbID,
-		name: rt.spec.Name, settings: settings, logFn: logStructuredWrapper})
+		executor: rt.executor, databaseID: dbID,
+		cards: executorDispatcher(rt.dispatcher, rt.spec.Pool, rt.spec.Name, rt.executor),
+		name:  rt.spec.Name, settings: settings, logFn: logStructuredWrapper})
 	if err != nil {
 		logWarn(rt.spec.Scope, "db %q: sre actions not started: %v", rt.spec.Name, err)
 		return
@@ -118,13 +127,23 @@ func (rt *databaseRuntime) startSREActions() {
 	rt.note("sre_actions")
 }
 
-// dispatcherNotifier sends approval requests through the notification
-// rules (approval_needed): Slack and Telegram channels render buttons.
-type dispatcherNotifier struct{ d *notify.Dispatcher }
+// dispatcherNotifier sends a Sage SRE approval request as the queue
+// approval event of its item through the database's approval-card
+// notifier (policy-08): chat channels get the card, bound to its channel,
+// its content and backend incarnation, and a TTL of at most 15 minutes.
+type dispatcherNotifier struct{ d executor.EventDispatcher }
 
 func (n dispatcherNotifier) ApprovalRequested(ctx context.Context,
 	r sreaction.ApprovalRequest) error {
-	return n.d.Dispatch(ctx, notify.ActionApprovalEvent(notify.ActionApproval{
-		Database: r.Database, Title: r.Title, Summary: r.Summary, Risk: r.Risk,
-		ProposalID: string(r.ProposalID), QueueID: r.QueueID}))
+	if n.d == nil {
+		return fmt.Errorf("db %q: sre approval for queue item %d: no notifier", r.Database,
+			r.QueueID)
+	}
+	if r.QueueID <= 0 {
+		return fmt.Errorf("db %q: sre approval of proposal %s has no queue item", r.Database,
+			r.ProposalID)
+	}
+	evt := notify.QueuedApprovalEvent(r.Title, r.SQL, r.Database, r.Risk, r.QueueID)
+	evt.Body += "\n" + r.Summary
+	return n.d.Dispatch(ctx, evt)
 }

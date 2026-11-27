@@ -65,6 +65,18 @@ func (w *VerificationWaits) PendingFor(
 	return matchTables(ctx, db, sql, relations, candidates, now, windows)
 }
 
+// AnyInFlight reports whether any change is in flight or in verification
+// on the database, whatever its objects: a plan's setting step starts only
+// when nothing is (plan-02a), since a setting moves every query.
+func (w *VerificationWaits) AnyInFlight(ctx context.Context) (bool, error) {
+	if w == nil || w.pool == nil {
+		return false, errors.New("in-flight verifications: database pool unavailable")
+	}
+	candidates, err := readInFlight(ctx, waitQuerier(ctx, w.pool), w.windows().HoldHorizon,
+		"", nil)
+	return len(candidates) > 0, err
+}
+
 // waitQuerier reads in the gate's budget transaction when there is one,
 // so concurrent proposals see each other's authorizations under the lock.
 func waitQuerier(ctx context.Context, pool *pgxpool.Pool) policy.TargetQuerier {
@@ -93,7 +105,7 @@ type inFlight struct {
 //     younger than the hold horizon whose action has not been recorded and
 //     that were not released (idx_decision_created). An operator's change
 //     runs at once and holds its object through its action row.
-const inFlightSQL = `/* pg_sage */
+const inFlightSQL = `/* pg_sage executor */
 SELECT al.id, 0::bigint, al.sql_executed, COALESCE(al.rollback_sql, ''),
        '{}'::text[], al.executed_at
   FROM sage.action_log al

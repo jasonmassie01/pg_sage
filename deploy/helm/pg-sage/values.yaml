@@ -1,0 +1,92 @@
+# Default values for the pg-sage chart. See README.md.
+
+image:
+  repository: ghcr.io/jasonmassie01/pg_sage
+  # Empty: the chart's appVersion. Never "latest".
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  # Empty: the release's full name.
+  name: ""
+  annotations: {}
+
+# config is pg_sage's config.yaml (docs/configuration.md), rendered into a
+# ConfigMap mounted as a directory so edits hot-reload. The database URL
+# and the LLM key come from secrets below, never from here.
+config:
+  mode: standalone
+  api:
+    listen_addr: "0.0.0.0:8080"
+  prometheus:
+    listen_addr: "0.0.0.0:8187"
+
+# secrets names an existing Secret; the chart never creates one. Its keys
+# are mounted as files (SAGE_*_FILE), so they stay out of the environment.
+secrets:
+  # Empty: <release full name>-secrets.
+  existingSecret: ""
+  databaseURLKey: database-url
+  # Set (for example to llm-api-key) to pass SAGE_LLM_API_KEY_FILE.
+  llmAPIKeyKey: ""
+  # Set (for example to encryption-key) to pass SAGE_ENCRYPTION_KEY_FILE.
+  # Without it pg_sage generates data_dir/encryption.key: keep that on a
+  # persistent volume (persistence below), or a restart loses the sealed
+  # secrets.
+  encryptionKeyKey: ""
+
+# persistence backs data_dir (/var/lib/pg_sage). Without an existing claim
+# it is an emptyDir, which a pod restart empties.
+persistence:
+  existingClaim: ""
+
+# tls names a kubernetes.io/tls Secret; with it the API serves HTTPS and the
+# probes use HTTPS.
+tls:
+  existingSecret: ""
+
+# cnpg connects the CloudNativePG adapter. cluster sets postgres.cnpg in the
+# config (standalone mode); fleet databases set databases[].cnpg in config
+# and list their Clusters in rbac.clusters. The Role grants only get on the
+# named Clusters: pg_sage reads spec.postgresql.parameters and never
+# patches a Cluster.
+cnpg:
+  cluster: ""
+  # Empty: the release namespace.
+  namespace: ""
+  rbac:
+    create: true
+    clusters: []
+
+service:
+  type: ClusterIP
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}
+
+networkPolicy:
+  enabled: false
+  # Peers allowed to reach the API and metrics ports; empty allows any.
+  from: []

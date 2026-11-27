@@ -3,9 +3,6 @@ package facts
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,31 +10,11 @@ import (
 	"github.com/pg-sage/sidecar/internal/schemaguard"
 )
 
-// testSchemaRegex names test schemas (PostgreSQL regex): a test-ish
-// prefix or suffix, or a "_test_" infix.
-const testSchemaRegex = `^(test|tests|testing|tmp|temp|pytest|ci)[_-]|` +
-	`[_-](test|tests|tmp|temp)$|[_-]test[_-]`
-
-// testSchemaPattern is testSchemaRegex compiled for Go, matched case
-// insensitively like the catalog query's ~*.
-var testSchemaPattern = regexp.MustCompile(`(?i)` + testSchemaRegex)
-
-// LooksLikeTestSchema reports whether a schema is named like a test
-// schema (the fixture detector's rule), so callers can treat it as test
-// traffic before any fact is confirmed.
-func LooksLikeTestSchema(schema string) bool {
-	return testSchemaPattern.MatchString(schema)
-}
-
-const testSchemasSQL = `/* pg_sage */
+const testSchemasSQL = `/* pg_sage facts */
 SELECT n.nspname::text,
-       COALESCE(sum(COALESCE(s.seq_scan, 0) + COALESCE(s.idx_scan, 0) +
-                    COALESCE(s.n_tup_ins, 0) + COALESCE(s.n_tup_upd, 0) +
-                    COALESCE(s.n_tup_del, 0)), 0)::bigint,
+       ` + schemaActivityExpr + `,
        count(c.oid)::int
-FROM pg_catalog.pg_namespace n
-LEFT JOIN pg_catalog.pg_class c ON c.relnamespace = n.oid AND c.relkind IN ('r', 'p')
-LEFT JOIN pg_catalog.pg_stat_all_tables s ON s.relid = c.oid
+` + schemaActivityFrom + `
 WHERE n.nspname !~ '^pg_' AND n.nspname NOT IN ('information_schema', 'sage')
   AND n.nspname ~* $1
 GROUP BY n.nspname
@@ -77,21 +54,17 @@ func (d *fixtureDetector) Detect(ctx context.Context) ([]Proposal, error) {
 	if err != nil {
 		return nil, err
 	}
-	groups := map[string][]testSchema{}
-	var keys []string
-	for _, s := range schemas {
-		key := familyKey(s.name)
-		if _, ok := groups[key]; !ok {
-			keys = append(keys, key)
-		}
-		groups[key] = append(groups[key], s)
-	}
-	sort.Strings(keys)
-	var out []Proposal
-	for _, key := range keys {
-		out = append(out, d.proposals(key, groups[key], schemas)...)
-	}
-	return out, nil
+	return d.proposalsFor(schemas), nil
+}
+
+// proposalsFor applies the shared family rule to the observed schemas: a
+// schema is quiet once no traffic has been seen for the quiet period.
+func (d *fixtureDetector) proposalsFor(schemas []testSchema) []Proposal {
+	return fixtureProposals(schemas, fixtureRule[testSchema]{
+		name:    func(s testSchema) string { return s.name },
+		quiet:   func(s testSchema) bool { return s.quiet >= d.quiet && s.quiet > 0 },
+		propose: d.proposal,
+	})
 }
 
 // observe reads the test schemas and how long each has been quiet.
@@ -119,49 +92,6 @@ func (d *fixtureDetector) observe(ctx context.Context) ([]testSchema, error) {
 	}
 	d.tracker.Retain(seen)
 	return out, nil
-}
-
-// familyKey is a schema's name up to its generated suffix (a run after
-// the last separator that holds a digit and is at least 4 long), or ""
-// when it has none.
-func familyKey(name string) string {
-	i := strings.LastIndexAny(name, "_-")
-	if i <= 0 || i == len(name)-1 {
-		return ""
-	}
-	suffix := name[i+1:]
-	if len(suffix) < 4 || !strings.ContainsAny(suffix, "0123456789") {
-		return ""
-	}
-	return name[:i+1]
-}
-
-// proposals are one family pattern for two or more schemas under a key,
-// once every schema under it is quiet (a family with a live member waits:
-// no flood of single proposals); else each quiet schema by name.
-func (d *fixtureDetector) proposals(key string, members, all []testSchema) []Proposal {
-	if key != "" && len(members) >= 2 {
-		if !d.allQuiet(key, all) {
-			return nil
-		}
-		return []Proposal{d.proposal(quoteIdent(key+"*"), members)}
-	}
-	var out []Proposal
-	for _, m := range members {
-		if m.quiet >= d.quiet && m.quiet > 0 {
-			out = append(out, d.proposal(quoteIdent(m.name), []testSchema{m}))
-		}
-	}
-	return out
-}
-
-func (d *fixtureDetector) allQuiet(key string, all []testSchema) bool {
-	for _, s := range all {
-		if strings.HasPrefix(s.name, key) && (s.quiet < d.quiet || s.quiet == 0) {
-			return false
-		}
-	}
-	return true
 }
 
 func (d *fixtureDetector) proposal(subject string, members []testSchema) Proposal {

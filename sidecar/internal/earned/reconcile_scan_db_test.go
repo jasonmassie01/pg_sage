@@ -117,12 +117,14 @@ func TestReconcile_HandoffReadsBoundedByHandoffs(t *testing.T) {
 	}
 }
 
-// readActionIDs runs a reconcile read (lookback 30 days, settled after
-// UnverifiedAfter) and returns the action_log ids it found (the column
-// named id). Other tests' committed autonomous actions may be among them.
+// readActionIDs runs a reconcile forward read (lookback 30 days, settled
+// after UnverifiedAfter, no cursor yet) and returns the action_log ids it
+// found (the column named id). Other tests' committed autonomous actions
+// may be among them.
 func readActionIDs(t *testing.T, ctx context.Context, tx pgx.Tx, sql string) map[int64]bool {
 	t.Helper()
-	rows, err := tx.Query(ctx, sql, (30 * 24 * 3600.0), UnverifiedAfter.Seconds())
+	rows, err := tx.Query(ctx, sql, (30 * 24 * 3600.0), UnverifiedAfter.Seconds(),
+		incidentCursorLag.Seconds(), nil, incidentBatch)
 	if err != nil {
 		t.Fatalf("reconcile read: %v", err)
 	}
@@ -152,4 +154,60 @@ func readActionIDs(t *testing.T, ctx context.Context, tx pgx.Tx, sql string) map
 		t.Fatal(err)
 	}
 	return out
+}
+
+// earned-02: the reads kept the oldest 1000 rows of 30 days, so past 1000
+// incident actions the newest were never read until older ones aged out:
+// a harmful outcome among them was never recorded and an L3 execution
+// never notified. From its cursor the reconciler reaches the newest
+// within two passes.
+func TestReconcileCursorReadsPastTheFirstThousandExecutions(t *testing.T) {
+	f := newSelfFixture(t)
+	f.seedL3()
+	var first int64
+	if err := f.pool.QueryRow(f.ctx, `WITH d AS (
+		INSERT INTO sage.decision (feature, intent, target_objects, verdict, risk_tier,
+		  reason, evidence, evidence_id)
+		SELECT 'freeze', 'freeze', '["public.orders"]', 'execute', 'safe', 'autonomy_l3',
+		       '{"incident_family": "wraparound_runway", "autonomy_class": "freeze"}',
+		       'cursor-1000-' || g || '-' || md5(random()::text)
+		FROM generate_series(1, 1000) g RETURNING id)
+		, l AS (INSERT INTO sage.action_log (action_type, sql_executed, outcome,
+		  decision_id, executed_at)
+		SELECT 'vacuum_table', 'VACUUM (FREEZE) public.orders', 'success', id,
+		       now() - interval '29 days' + row_number() OVER (ORDER BY id)
+		         * interval '30 minutes'
+		FROM d ORDER BY id RETURNING id)
+		SELECT min(id) FROM l`).Scan(&first); err != nil {
+		t.Fatalf("seed 1000 settled L3 executions: %v", err)
+	}
+	newest := f.l3Decision("wraparound_runway", "freeze", "rolled_back")
+	notifier := &recordingNotifier{}
+	r := NewReconciler(f.svc, f.pool, f.db, notifier)
+	for pass := 1; pass <= 2; pass++ {
+		if _, err := r.RunOnce(f.ctx); err != nil {
+			t.Fatalf("pass %d: %v", pass, err)
+		}
+	}
+	got, seeded := f.outcomes(f.db), 0
+	for id := range got {
+		if id >= first && id <= newest {
+			seeded++
+		}
+	}
+	if got[newest] != "harmful@L3" || seeded != 1001 {
+		t.Fatalf("after two passes the newest action %d is %q (%d outcomes), want "+
+			"harmful@L3 of 1001", newest, got[newest], seeded)
+	}
+	if level := f.granted(FamilyWraparound, ClassFreeze); level != L1 {
+		t.Fatalf("freeze after the newest action's rollback = %v, want L1", level)
+	}
+	seen := map[int64]int{}
+	for _, a := range notifier.seen {
+		seen[a.ActionLogID]++
+	}
+	if seen[newest] != 1 || len(seen) != 1001 || len(notifier.seen) != 1001 {
+		t.Fatalf("notifications: newest %d times, %d actions, %d calls; want each of "+
+			"1001 once", seen[newest], len(seen), len(notifier.seen))
+	}
 }

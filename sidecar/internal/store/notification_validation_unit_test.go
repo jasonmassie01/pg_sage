@@ -18,7 +18,7 @@ func TestValidateChannelType_Valid(t *testing.T) {
 
 func TestValidateChannelType_Invalid(t *testing.T) {
 	invalid := []string{
-		"", "webhook", "sms", "SLACK", "Email",
+		"", "Webhook", "sms", "SLACK", "Email",
 		"slack ", " email", "PAGERDUTY",
 	}
 	for _, typ := range invalid {

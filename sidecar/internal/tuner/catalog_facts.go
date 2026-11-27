@@ -32,7 +32,7 @@ type IndexFact struct {
 // catalogFactsSQL reads the estimated rows and usable btree indexes (valid,
 // ready, non-partial, leading key a plain column) of the user tables of
 // the given names, in every schema.
-const catalogFactsSQL = `/* pg_sage */
+const catalogFactsSQL = `/* pg_sage tuner */
 SELECT n.nspname || '.' || c.relname, GREATEST(c.reltuples, 0)::bigint,
        COALESCE((SELECT json_agg(json_build_object('name', i.relname,
                      'leading_column', a.attname) ORDER BY i.relname)

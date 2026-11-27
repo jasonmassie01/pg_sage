@@ -1,0 +1,149 @@
+{
+    "settings": [
+        {
+            "name": "autovacuum",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_analyze_scale_factor",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_analyze_threshold",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_freeze_max_age",
+            "context": "postmaster"
+        },
+        {
+            "name": "autovacuum_max_workers",
+            "context": "postmaster"
+        },
+        {
+            "name": "autovacuum_multixact_freeze_max_age",
+            "context": "postmaster"
+        },
+        {
+            "name": "autovacuum_naptime",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_vacuum_cost_delay",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_vacuum_cost_limit",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_vacuum_insert_scale_factor",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_vacuum_insert_threshold",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_vacuum_scale_factor",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_vacuum_threshold",
+            "context": "sighup"
+        },
+        {
+            "name": "autovacuum_work_mem",
+            "context": "sighup"
+        },
+        {
+            "name": "checkpoint_completion_target",
+            "context": "sighup"
+        },
+        {
+            "name": "checkpoint_timeout",
+            "context": "sighup"
+        },
+        {
+            "name": "default_statistics_target",
+            "context": "user"
+        },
+        {
+            "name": "effective_cache_size",
+            "context": "user"
+        },
+        {
+            "name": "effective_io_concurrency",
+            "context": "user"
+        },
+        {
+            "name": "full_page_writes",
+            "context": "sighup"
+        },
+        {
+            "name": "hash_mem_multiplier",
+            "context": "user"
+        },
+        {
+            "name": "huge_pages",
+            "context": "postmaster"
+        },
+        {
+            "name": "idle_in_transaction_session_timeout",
+            "context": "user"
+        },
+        {
+            "name": "maintenance_work_mem",
+            "context": "user"
+        },
+        {
+            "name": "max_connections",
+            "context": "postmaster"
+        },
+        {
+            "name": "max_slot_wal_keep_size",
+            "context": "sighup"
+        },
+        {
+            "name": "max_wal_size",
+            "context": "sighup"
+        },
+        {
+            "name": "min_wal_size",
+            "context": "sighup"
+        },
+        {
+            "name": "random_page_cost",
+            "context": "user"
+        },
+        {
+            "name": "shared_buffers",
+            "context": "postmaster"
+        },
+        {
+            "name": "statement_timeout",
+            "context": "user"
+        },
+        {
+            "name": "temp_buffers",
+            "context": "user"
+        },
+        {
+            "name": "wal_buffers",
+            "context": "postmaster"
+        },
+        {
+            "name": "wal_compression",
+            "context": "superuser"
+        },
+        {
+            "name": "wal_level",
+            "context": "postmaster"
+        },
+        {
+            "name": "work_mem",
+            "context": "user"
+        }
+    ],
+    "server_version": "17.10 (Debian 17.10-1.pgdg12+1)"
+}

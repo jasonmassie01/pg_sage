@@ -57,7 +57,7 @@ func GateConfigFindingsHost(findings []analyzer.Finding, host HostMemory,
 	kept = applyWorkMemGuard(kept, host)
 	kept = applyMemoryPressureGuard(kept, host, settings)
 	kept = applyConfigAllowlist(kept)
-	return TransformForCloud(kept, cloudEnv, dbName, settings)
+	return scopeToDatabase(TransformForCloud(kept, cloudEnv, dbName, settings), dbName)
 }
 
 // memorySetting parses an executable ALTER SYSTEM SET of a memory GUC.
@@ -84,6 +84,17 @@ func notExecutable(f analyzer.Finding, reason string) analyzer.Finding {
 	return f
 }
 
+// MaxWorkMemBytes is the largest work_mem host RAM allows: maxWorkMemPct
+// of totalBytes, rounded down; 0 when host memory is unknown. The config
+// advisor's work_mem guard and the tuner's per-query hint cap share it.
+func MaxWorkMemBytes(totalBytes int64) int64 {
+	if totalBytes <= 0 {
+		return 0
+	}
+	// floor(totalBytes * pct / 100) without overflowing int64.
+	return totalBytes/100*maxWorkMemPct + totalBytes%100*maxWorkMemPct/100
+}
+
 // applyWorkMemGuard refuses work_mem above maxWorkMemPct of host RAM.
 func applyWorkMemGuard(findings []analyzer.Finding, host HostMemory) []analyzer.Finding {
 	if host.TotalBytes <= 0 {
@@ -91,7 +102,7 @@ func applyWorkMemGuard(findings []analyzer.Finding, host HostMemory) []analyzer.
 	}
 	for i, f := range findings {
 		name, v, ok := memorySetting(f)
-		if !ok || name != "work_mem" || v*100 <= float64(host.TotalBytes)*maxWorkMemPct {
+		if !ok || name != "work_mem" || v <= float64(MaxWorkMemBytes(host.TotalBytes)) {
 			continue
 		}
 		findings[i] = notExecutable(f, fmt.Sprintf("work_mem above %d%% of host memory "+

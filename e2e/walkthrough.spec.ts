@@ -77,8 +77,8 @@ test('CHECK-09/47/48/49/50/51 Value and advanced metrics render without JS error
     await open(page, 'advanced', 'health-hero');
     await expect(page.getByTestId('stat-databases')).toContainText(String(fixtureTargets.length));
     await expect(page.getByTestId('db-list')).toContainText(target);
-    await page.getByTestId('overview-tab-recent-recos').click();
-    await expect(page.getByTestId('recent-findings')).toBeVisible();
+    await page.getByTestId('overview-tab-top-cases').click();
+    await expect(page.getByTestId('top-cases')).toBeVisible();
     expect(errors).toEqual([]);
   });
 
@@ -280,18 +280,18 @@ test('CHECK-40/54/55/56/57/92/117 actions tabs and pagination match API',
   await expect(page.getByTestId('actions-page-description')).toContainText('Actions');
 });
 
-test('CHECK-43/79 alerts expose date filters and alert records', async ({ request, page }) => {
+// alerting-06c: the Alert log is folded into the notification log; the old
+// API stays readable and the old page redirects to the Notifications Log tab.
+test('CHECK-43/79 the alert log lands on the notification log', async ({ request, page }) => {
   const alerts = await get(request, `/alert-log?database=${target}`);
   expect(alerts.database).toBe(target);
   rows(alerts.alerts);
+  rows((await get(request, `/notifications/log?database=${target}`)).log);
   await login(page);
-  await page.goto('/#/alerts');
-  if (rows(alerts.alerts).length === 0) {
-    await expect(page.getByText('No alerts sent yet.', { exact: false })).toBeVisible();
-  } else {
-    await expect(page.getByTestId('alert-log-date-from')).toBeVisible();
-    await expect(page.getByTestId('alert-log-date-to')).toBeVisible();
-  }
+  await page.goto(`/#/alerts?database=${target}`);
+  await page.waitForURL(/#\/notifications\?tab=log&database=/);
+  expect(page.url()).toContain(`database=${encodeURIComponent(target)}`);
+  await expect(page.getByTestId('notifications-tab-log')).toBeVisible();
 });
 
 test('CHECK-44/45/73/74 metrics expose actual fleet and per-database identity',

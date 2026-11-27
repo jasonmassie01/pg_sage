@@ -72,7 +72,8 @@ func TestRotateBroker_SkipsFrozenKilledAndRetired(t *testing.T) {
 	}
 	ctx := context.Background()
 	store := agentguard.NewStore(pool)
-	_, err := store.SetStatus(ctx, frozen.ID, agentguard.StatusFrozen, "incident")
+	_, err := store.SetStatus(ctx, frozen.ID, agentguard.StatusFrozen,
+		agentguard.Audit{Reason: "incident"})
 	require.NoError(t, err)
 	retireAgo(t, pool, retired, sponsor, time.Hour)
 	roles := &fakeRoles{}

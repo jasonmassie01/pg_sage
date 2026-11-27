@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	planpkg "github.com/pg-sage/sidecar/internal/migration/plan"
 	rehearsalpkg "github.com/pg-sage/sidecar/internal/migration/rehearsal"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/verify"
 )
 
 type Verdict string
@@ -21,8 +23,9 @@ const (
 
 // ReasonContractPending marks an expanded migration whose contract
 // steps (SET NOT NULL, attach UNIQUE USING INDEX, ...) have NOT run.
-// Nothing in the runtime continues them yet; the steps are returned in
-// Result.PendingContractSQL so the caller can finish them (G7-B23).
+// pg_sage never runs them: the steps are returned in
+// Result.PendingContractSQL and as Result.ContractScript, a forward-fix
+// script that asserts the proof first (G7-B23, migration-06).
 const ReasonContractPending = "contract_pending"
 
 // reasonCleanupFailed is appended when the rehearsal clone leaked.
@@ -42,15 +45,29 @@ type Result struct {
 	EvidenceID             string
 	ContractNotBeforeCycle int
 	PendingContractSQL     []string
+	// ContractScript is the rendered forward-fix script for
+	// PendingContractSQL; it is never executed.
+	ContractScript string
+	// AffectedQueries is what the rehearsal measured of the statements
+	// that reference the table, and Ladder its tier-2 record with the
+	// clone receipt (lab-04b); both are empty when nothing was rehearsed.
+	AffectedQueries []rehearsalpkg.QueryMeasurement
+	Ladder          *verify.LadderRecord
 }
 
 type Record struct {
-	Request                Request
-	Verdict                Verdict
-	Reason                 string
-	EvidenceID             string
-	ContractNotBeforeCycle int
-	Measurement            *rehearsalpkg.Measurement
+	Request     Request
+	Verdict     Verdict
+	Reason      string
+	EvidenceID  string
+	Measurement *rehearsalpkg.Measurement
+	// ContractDelay is how long after now the contract may run; zero
+	// records no contract_not_before (nothing expanded).
+	ContractDelay time.Duration
+	// Ladder is the rehearsal's tier-2 record; CloneReceipt its clone
+	// receipt id (0 for none).
+	Ladder       *verify.LadderRecord
+	CloneReceipt int64
 }
 
 type Planner interface {
@@ -105,7 +122,16 @@ func (o *Orchestrator) Apply(ctx context.Context, request Request) (Result, erro
 		rehearsal.CleanupError != "" {
 		return o.recordRehearsalResult(ctx, request, plan, rehearsal)
 	}
-	return o.applyExpand(ctx, request, plan, &rehearsal.Measurement)
+	return o.applyExpand(ctx, request, plan, rehearsal)
+}
+
+// withRehearsal carries the rehearsal's measured statements and ladder
+// record onto the result.
+func withRehearsal(result Result, rehearsal rehearsalpkg.Result) Result {
+	ladder := rehearsalpkg.Ladder(rehearsal)
+	result.AffectedQueries = rehearsal.Measurement.AffectedQueries
+	result.Ladder = &ladder
+	return result
 }
 
 func (o *Orchestrator) validate() error {
@@ -117,29 +143,34 @@ func (o *Orchestrator) validate() error {
 }
 
 func (o *Orchestrator) applyExpand(
-	ctx context.Context, request Request, plan planpkg.Plan,
-	measurement *rehearsalpkg.Measurement,
+	ctx context.Context, request Request, plan planpkg.Plan, rehearsal rehearsalpkg.Result,
 ) (Result, error) {
-	result := Result{Verdict: VerdictExpanded,
-		ContractNotBeforeCycle: plan.ContractNotBeforeCycle}
+	result := withRehearsal(Result{Verdict: VerdictExpanded,
+		ContractNotBeforeCycle: plan.ContractNotBeforeCycle}, rehearsal)
 	for _, step := range plan.ExpandSteps {
 		decision := o.gate.Authorize(ctx, migrationAction(request, step))
 		result.EvidenceID = decision.EvidenceID
 		if decision.Verdict != policy.VerdictExecute {
 			result.Verdict, result.Reason = VerdictParked, string(decision.Reason)
-			return o.recordResult(ctx, request, result, measurement)
+			return o.recordResult(ctx, request, result, &rehearsal, 0)
 		}
 		if err := o.applier.Apply(ctx, step); err != nil {
 			return o.fail(ctx, request, err)
 		}
 	}
+	if len(plan.ContractSteps) == 0 {
+		return o.recordResult(ctx, request, result, &rehearsal, 0)
+	}
 	for _, step := range plan.ContractSteps {
 		result.PendingContractSQL = append(result.PendingContractSQL, step.SQL)
 	}
-	if len(result.PendingContractSQL) > 0 {
-		result.Reason = ReasonContractPending
+	result.Reason = ReasonContractPending
+	script, err := plan.ContractScript()
+	if err != nil {
+		result.Reason = joinReason(result.Reason, "contract_script_unavailable: "+err.Error())
 	}
-	return o.recordResult(ctx, request, result, measurement)
+	result.ContractScript = script
+	return o.recordResult(ctx, request, result, &rehearsal, plan.ContractNotBefore)
 }
 
 func migrationAction(request Request, step planpkg.Step) policy.ActionRequest {
@@ -162,13 +193,16 @@ func (o *Orchestrator) recordRehearsalResult(
 		verdict = VerdictParked
 	}
 	reason := string(rehearsal.Reason)
+	if rehearsal.Detail != "" {
+		reason += ": " + rehearsal.Detail
+	}
 	if rehearsal.CleanupError != "" {
 		// A leaked clone is recorded durably and blocks promotion.
 		reason = joinReason(reason, reasonCleanupFailed+": "+rehearsal.CleanupError)
 	}
-	result := Result{Verdict: verdict, Reason: reason,
-		ContractNotBeforeCycle: plan.ContractNotBeforeCycle}
-	return o.recordResult(ctx, request, result, &rehearsal.Measurement)
+	result := withRehearsal(Result{Verdict: verdict, Reason: reason,
+		ContractNotBeforeCycle: plan.ContractNotBeforeCycle}, rehearsal)
+	return o.recordResult(ctx, request, result, &rehearsal, 0)
 }
 
 func joinReason(a, b string) string {
@@ -182,20 +216,25 @@ func (o *Orchestrator) fail(
 	ctx context.Context, request Request, cause error,
 ) (Result, error) {
 	result := Result{Verdict: VerdictFailed, Reason: cause.Error()}
-	_, recordErr := o.recordResult(ctx, request, result, nil)
+	_, recordErr := o.recordResult(ctx, request, result, nil, 0)
 	return result, errors.Join(cause, recordErr)
 }
 
+// recordResult writes the run with the rehearsal behind it (nil when
+// none ran); contractDelay is zero unless the expand steps ran and
+// contract steps wait.
 func (o *Orchestrator) recordResult(
 	ctx context.Context, request Request, result Result,
-	measurement *rehearsalpkg.Measurement,
+	rehearsal *rehearsalpkg.Result, contractDelay time.Duration,
 ) (Result, error) {
-	err := o.recorder.Record(ctx, Record{
+	record := Record{
 		Request: request, Verdict: result.Verdict, Reason: result.Reason,
-		EvidenceID:             result.EvidenceID,
-		ContractNotBeforeCycle: result.ContractNotBeforeCycle,
-		Measurement:            measurement,
-	})
+		EvidenceID: result.EvidenceID, ContractDelay: contractDelay, Ladder: result.Ladder,
+	}
+	if rehearsal != nil {
+		record.Measurement, record.CloneReceipt = &rehearsal.Measurement, rehearsal.ReceiptID
+	}
+	err := o.recorder.Record(ctx, record)
 	if err != nil {
 		return result, fmt.Errorf("record migration runtime: %w", err)
 	}

@@ -1,9 +1,12 @@
 import { SQLBlock } from '../../components/SQLBlock'
+import { useAPI } from '../../hooks/useAPI'
 
 // FindingFactSections renders what binding facts (roadmap 2.3) add to a
 // finding: the source-fix packet when a confirmed fact redirected the
 // change to the application's own migrations, and the cleanup batch of a
-// test-fixture cleanup finding. pg_sage runs neither.
+// test-fixture cleanup finding. pg_sage runs neither. SourceFixReport
+// (mcp-06) is what a coding agent reported about a finding's source fix
+// (pull request, deploy) and pg_sage's verdict on the deploy.
 
 const label = { color: 'var(--text-secondary)' }
 const strong = { color: 'var(--text-primary)' }
@@ -77,5 +80,116 @@ function CleanupBatch({ sql, schemas }) {
         <div data-testid="cleanup-sql"><SQLBlock sql={sql} /></div>
       )}
     </section>
+  )
+}
+
+// A report changes when an agent reports or the verifier decides (every
+// 5 minutes); a slow poll is enough.
+const REPORT_POLL_MS = 5 * 60 * 1000
+
+const STAGES = {
+  pr_opened: 'Pull request opened',
+  deployed: 'Deployed, decision pending',
+  verified: 'Verified',
+}
+
+// SourceFixReport reads the finding's report once enabled (the card's
+// details are open), so a closed card asks nothing. No report (404)
+// renders nothing.
+export function SourceFixReport({ findingID, database, enabled = false }) {
+  if (!enabled || !findingID) return null
+  const id = encodeURIComponent(String(findingID))
+  const query = database && database !== 'all'
+    ? `?database=${encodeURIComponent(database)}` : ''
+  return <FetchedSourceFixReport url={`/api/v1/findings/${id}/source-fix${query}`} />
+}
+
+function FetchedSourceFixReport({ url }) {
+  const { data, error, errorStatus } = useAPI(url, REPORT_POLL_MS)
+  if (error && errorStatus !== 404) {
+    return (
+      <p data-testid="source-fix-report-error" className="text-xs" style={label}>
+        The source-fix report could not be read: {error}
+      </p>
+    )
+  }
+  return error ? null : <SourceFixReportView report={data} />
+}
+
+function formatUTC(value) {
+  const date = value ? new Date(value) : null
+  if (!date || Number.isNaN(date.getTime())) return null
+  return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+}
+
+function formatPct(value) {
+  return Number.isFinite(value) ? `${value > 0 ? '+' : ''}${value}%` : null
+}
+
+export function SourceFixReportView({ report }) {
+  if (!isObject(report) || typeof report.stage !== 'string') return null
+  const deployed = formatUTC(report.deployed_at)
+  return (
+    <section data-testid="source-fix-report" className="rounded p-3 space-y-1 text-sm"
+      style={box}>
+      <div className="font-medium" style={strong}>Source-fix report</div>
+      <div style={strong}>{STAGES[report.stage] || report.stage}</div>
+      {report.pr_url && <PullRequest url={report.pr_url} />}
+      {report.commit && (
+        <div data-testid="source-fix-commit" className="text-xs font-mono" style={label}>
+          Commit {report.commit.slice(0, 12)}
+        </div>
+      )}
+      {deployed && <DeployLine report={report} deployed={deployed} />}
+      <Verdict report={report} />
+    </section>
+  )
+}
+
+function PullRequest({ url }) {
+  const safe = typeof url === 'string' && url.startsWith('https://')
+  return (
+    <div className="text-xs break-all" style={label}>
+      Pull request: {safe
+        ? <a href={url} target="_blank" rel="noopener noreferrer"
+          style={{ color: 'var(--accent)' }}>{url}</a>
+        : <span>{String(url)}</span>}
+    </div>
+  )
+}
+
+function DeployLine({ report, deployed }) {
+  const reported = formatUTC(report.deploy_reported_at)
+  return (
+    <div data-testid="source-fix-deployed" className="text-xs" style={label}>
+      Deployed {deployed}
+      {reported ? ` · reported ${reported}` : ''}
+      {!reported && (
+        <span data-testid="source-fix-reported-unknown"> · report time unknown</span>
+      )}
+      {report.backdated && (
+        <span data-testid="source-fix-backdated" className="ml-2 rounded px-1.5 py-0.5"
+          style={{ border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+          backdated: reported after its verify window had closed
+        </span>
+      )}
+    </div>
+  )
+}
+
+function Verdict({ report }) {
+  const pending = !report.verdict || report.verdict === 'pending'
+  const predicted = formatPct(report.prediction?.expected_change_pct)
+  const observed = formatPct(report.observed_change_pct)
+  const due = formatUTC(report.verify_after)
+  return (
+    <div data-testid="source-fix-verdict" className="text-xs" style={label}>
+      <span style={strong}>Result: {pending ? 'pending' : report.verdict}</span>
+      {pending && due && ` · due after ${due}`}
+      {!pending && predicted && ` · predicted ${predicted}`}
+      {!pending && observed && ` · observed ${observed}`}
+      {!pending && report.tolerance && ` · prediction ${report.tolerance}`}
+      {report.reason && <p className="mt-1">{report.reason}</p>}
+    </div>
   )
 }

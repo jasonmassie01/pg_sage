@@ -62,6 +62,10 @@ type MaintenanceDeps struct {
 	DatabaseID     *int
 	ApprovalTTL    time.Duration
 	MaxEvidenceAge time.Duration
+	// Now is the clock the stranded-run sweeper ages proposals by; nil reads
+	// the control database's clock, the one that stamps updated_at, so a
+	// sidecar host whose clock runs ahead cannot settle a live run early.
+	Now func() time.Time
 }
 type MaintenanceService struct {
 	MaintenanceDeps
@@ -145,17 +149,21 @@ func (m *MaintenanceService) ForInvestigation(ctx context.Context, id sre.UUID) 
 	}
 	return out, rows.Err()
 }
-func (m *MaintenanceService) evidence(ctx context.Context, invID sre.UUID, req StatisticsRequest, target *executor.StatisticsTarget) error {
-	scope, err := m.scope(ctx)
-	if err != nil {
-		return err
-	}
+
+// reviewable requires a finished investigation (concluded or
+// inconclusive: the request carries the operator's own hypothesis) with
+// retained evidence, an intact event chain and an unchanged read policy
+// that covers the maintenance pool.
+func (m *MaintenanceService) reviewable(ctx context.Context, scope sre.Scope,
+	invID sre.UUID) error {
 	inv, err := m.st.Get(ctx, scope, invID)
 	if err != nil {
 		return err
 	}
-	if inv.State != sre.StateConcluded || !inv.EvidencePurgedAt.IsZero() {
-		return fmt.Errorf("%w: maintenance needs a concluded investigation with retained evidence", ErrProposalState)
+	finished := inv.State == sre.StateConcluded || inv.State == sre.StateInconclusive
+	if !finished || !inv.EvidencePurgedAt.IsZero() {
+		return fmt.Errorf("%w: maintenance needs a finished (concluded or inconclusive) "+
+			"investigation with retained evidence", ErrProposalState)
 	}
 	if err = m.st.VerifyEvents(ctx, scope, invID); err != nil {
 		return err
@@ -171,31 +179,43 @@ func (m *MaintenanceService) evidence(ctx context.Context, invID sre.UUID, req S
 	if pinned != nil && (pinned.Database != m.Pool.Config().ConnConfig.Database || pinned.Binding != probes.PoolBinding(m.Pool) || !pinned.Allows(probes.StatTables) || pinned.QueryID != 0) {
 		return fmt.Errorf("%w: maintenance pool is outside investigation read policy", sre.ErrInvalidRequest)
 	}
+	return nil
+}
 
+// evidenceFresh bounds evidence age: at most limit old, and at most one
+// second in the future (clock skew between the sidecar and the database).
+func evidenceFresh(age, limit time.Duration) bool {
+	return age >= -time.Second && age <= limit
+}
+
+func (m *MaintenanceService) evidence(ctx context.Context, invID sre.UUID,
+	req StatisticsRequest, target *executor.StatisticsTarget) error {
+	scope, err := m.scope(ctx)
+	if err != nil {
+		return err
+	}
+	if err = m.reviewable(ctx, scope, invID); err != nil {
+		return err
+	}
 	e, err := m.st.EvidenceByID(ctx, scope, invID, req.EvidenceID)
 	if err != nil {
 		return err
 	}
-	age := time.Since(e.ObservedAt)
-	if !e.VerifyHash() || hex.EncodeToString(e.SHA256) != req.EvidenceSHA256 || e.ProbeID != string(probes.StatTables) || e.CapabilityState != "available" || age < -time.Second || age > m.MaxEvidenceAge {
+	if !e.VerifyHash() || hex.EncodeToString(e.SHA256) != req.EvidenceSHA256 ||
+		e.ProbeID != string(probes.StatTables) || e.CapabilityState != "available" ||
+		!evidenceFresh(time.Since(e.ObservedAt), m.MaxEvidenceAge) {
 		return fmt.Errorf("%w: requires fresh hash-verified stat_tables evidence", sre.ErrInvalidRequest)
 	}
-	var res probes.Result
-	if err = json.Unmarshal(e.Payload, &res); err != nil {
+	rows, err := statTablesRows(e.Payload)
+	if err != nil {
 		return err
-	}
-	if res.ProbeID != probes.StatTables || res.Status != probes.StatusOK {
-		return sre.ErrInvalidRequest
 	}
 	if target == nil {
 		return nil
 	}
-	for _, row := range res.Rows {
-		databaseOID, databaseOK := row["database_oid"].(float64)
-		tableOID, tableOK := row["table_oid"].(float64)
-		if row["relation"] == target.Relation && databaseOK && tableOK && databaseOID == float64(target.DatabaseOID) && tableOID == float64(target.TableOID) {
-			return nil
-		}
+	if hasTableIdentity(rows, target.Relation, float64(target.DatabaseOID),
+		float64(target.TableOID)) {
+		return nil
 	}
 	return fmt.Errorf("%w: evidence does not contain the requested physical database and table identity", sre.ErrInvalidRequest)
 }

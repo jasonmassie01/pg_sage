@@ -23,7 +23,7 @@ func TestWave2GlobalConfigHandlersRoundTripRevision(t *testing.T) {
 	base := config.DefaultConfig()
 	controller := config.NewConfigController(base, nil, apiTrustOwner{})
 
-	put := configGlobalPutHandler(cs, base, nil, controller)
+	put := configGlobalPutHandler(cs, controller)
 	putResponse := doRequestWithUser(
 		put, http.MethodPut, "/api/v1/config/global",
 		`{"trust.level":"advisory","expected_generation":1}`,
@@ -42,7 +42,7 @@ func TestWave2GlobalConfigHandlersRoundTripRevision(t *testing.T) {
 	}
 
 	getResponse := httptest.NewRecorder()
-	configGlobalGetHandler(cs, base, controller).ServeHTTP(
+	configGlobalGetHandler(cs, controller).ServeHTTP(
 		getResponse, httptest.NewRequest(http.MethodGet, "/api/v1/config/global", nil),
 	)
 	if getResponse.Code != http.StatusOK {
@@ -59,9 +59,7 @@ func TestWave2GlobalConfigHandlersRoundTripRevision(t *testing.T) {
 		t.Fatalf("global trust response = %+v, want advisory override", trustBody)
 	}
 
-	deleteHandler := configGlobalDeleteHandler(
-		cs, base, staticConfigBase(base), nil, controller,
-	)
+	deleteHandler := configGlobalDeleteHandler(cs, staticConfigBase(base), controller)
 	deleteMux := http.NewServeMux()
 	deleteMux.HandleFunc("DELETE /api/v1/config/global/{key}", deleteHandler)
 	deleteResponse := httptest.NewRecorder()

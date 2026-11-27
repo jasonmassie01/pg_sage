@@ -46,6 +46,8 @@ func (b Budget) validate() error {
 			ErrInvalidConfig)
 	case b.MaxTokens < 1 || b.StepTokens < 1:
 		return fmt.Errorf("%w: token budgets must be positive", ErrInvalidConfig)
+	case b.ReasoningPerCall < 0:
+		return fmt.Errorf("%w: reasoning per call must not be negative", ErrInvalidConfig)
 	}
 	return nil
 }

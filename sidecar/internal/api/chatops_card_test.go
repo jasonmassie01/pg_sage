@@ -75,7 +75,7 @@ func newChatCardFixture(t *testing.T) *chatCardFixture {
 	chatopsRun = func(fn func()) { fn() }
 	chatopsReply = cf.replies.record
 	t.Cleanup(func() { chatopsRun, chatopsReply = restoreRun, restoreReply })
-	cf.h = NewRouterFullRuntime(fx.mgr, config.DefaultConfig(), fx.pool,
+	cf.h = newTestRouter(fx.mgr, config.DefaultConfig(), fx.pool,
 		&ActionDeps{Fleet: fx.mgr}, nil, nil, &RuntimeDeps{})
 	return cf
 }

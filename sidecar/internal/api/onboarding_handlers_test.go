@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,16 +16,38 @@ import (
 	"github.com/pg-sage/sidecar/internal/onboarding"
 )
 
+// fakeDB is one database as the fake stores it: the full first look, of
+// which Database returns the summary and FirstLook the report.
+type fakeDB struct {
+	Name       string
+	Connected  bool
+	TrustLevel string
+	State      *onboarding.State
+	FirstLook  *firstlook.Report
+}
+
 type fakeOnboardingReader struct {
-	names    []string
-	dbs      map[string]onboardingDatabase
-	dbErr    error
+	names []string
+	dbs   map[string]fakeDB
+	dbErr error
+	// errs fails one database's reads; block makes them wait for the
+	// context; delay slows every read.
+	errs     map[string]error
+	block    map[string]bool
+	delay    time.Duration
+	track    readTracker
 	mcpOn    bool
 	token    *bool
 	notify   *bool
 	guide    onboarding.GuideInput
 	target   grantTarget
 	guideErr error
+	// ux-04b: the model status Model returns, and what RecordSetup stored.
+	mu         sync.Mutex
+	model      *onboarding.ModelStatus
+	modelAsked string
+	recorded   []string
+	recordErr  error
 }
 
 func (f *fakeOnboardingReader) Names(database string) ([]string, bool) {
@@ -38,12 +62,43 @@ func (f *fakeOnboardingReader) Names(database string) ([]string, bool) {
 	return nil, false
 }
 
-func (f *fakeOnboardingReader) Database(_ context.Context, name string) (
+func (f *fakeOnboardingReader) Database(ctx context.Context, name string) (
 	onboardingDatabase, error) {
-	if f.dbErr != nil {
-		return onboardingDatabase{}, f.dbErr
+	d := f.dbs[name]
+	db := onboardingDatabase{Name: d.Name, Connected: d.Connected,
+		TrustLevel: d.TrustLevel, State: d.State}
+	if err := f.read(ctx, name); err != nil {
+		return db, err
 	}
-	return f.dbs[name], nil
+	if d.FirstLook != nil {
+		s := firstlook.SummaryOf(*d.FirstLook)
+		db.FirstLook = &s
+	}
+	return db, nil
+}
+
+func (f *fakeOnboardingReader) FirstLook(ctx context.Context, name string) (
+	*firstlook.Report, error) {
+	if err := f.read(ctx, name); err != nil {
+		return nil, err
+	}
+	return f.dbs[name].FirstLook, nil
+}
+
+func (f *fakeOnboardingReader) read(ctx context.Context, name string) error {
+	done := f.track.enter(ctx)
+	defer done()
+	switch {
+	case f.dbErr != nil:
+		return f.dbErr
+	case f.errs[name] != nil:
+		return f.errs[name]
+	case f.block[name]:
+		<-ctx.Done()
+		return fmt.Errorf("read %q: %w", name, ctx.Err())
+	}
+	time.Sleep(f.delay)
+	return nil
 }
 
 func (f *fakeOnboardingReader) MCP(context.Context) (bool, *bool)   { return f.mcpOn, f.token }
@@ -59,7 +114,7 @@ func newFakeOnboarding() *fakeOnboardingReader {
 	yes := true
 	return &fakeOnboardingReader{
 		names: []string{"app"},
-		dbs: map[string]onboardingDatabase{"app": {Name: "app", Connected: true,
+		dbs: map[string]fakeDB{"app": {Name: "app", Connected: true,
 			TrustLevel: "observation",
 			State: &onboarding.State{Database: "app", InstallKind: onboarding.InstallNew,
 				TTFFSeconds: &ttff},
@@ -110,7 +165,7 @@ func TestOnboardingHandlerReportsChecklist(t *testing.T) {
 		t.Fatalf("first look = %v", fl)
 	}
 	steps := db["steps"].([]any)
-	if len(steps) != 6 {
+	if len(steps) != 7 {
 		t.Fatalf("steps = %v", steps)
 	}
 	first := steps[0].(map[string]any)
@@ -147,13 +202,6 @@ func TestOnboardingHandlerErrors(t *testing.T) {
 	if rec, _ := obGet(t, h, "/api/v1/onboarding?database=ghost"); rec.Code !=
 		http.StatusNotFound {
 		t.Fatalf("unknown database status = %d", rec.Code)
-	}
-	f := newFakeOnboarding()
-	f.dbErr = errors.New("pq: password authentication failed for user sage")
-	rec, _ := obGet(t, onboardingHandler(f), "/api/v1/onboarding")
-	if rec.Code != http.StatusInternalServerError ||
-		strings.Contains(rec.Body.String(), "password") {
-		t.Fatalf("reader error = %d %s, want a generic 500", rec.Code, rec.Body.String())
 	}
 	if rec, _ := obGet(t, onboardingHandler(nil), "/api/v1/onboarding"); rec.Code !=
 		http.StatusServiceUnavailable {

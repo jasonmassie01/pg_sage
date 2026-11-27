@@ -18,7 +18,9 @@ var allowedFrom = map[bool][]Status{
 }
 
 // Decide records an operator's confirm or reject. With ExpectHash the
-// decision applies only to the fact as it was shown.
+// decision applies only to the fact as it was shown. A slot consumer's
+// registry row follows the decision in the same transaction. A decision
+// starts any absence of the fact's subject afresh (missing_since).
 func (s *Store) Decide(ctx context.Context, id int64, d Decision) (Fact, error) {
 	actor, err := validActor(d.Actor)
 	if err != nil {
@@ -29,7 +31,7 @@ func (s *Store) Decide(ctx context.Context, id int64, d Decision) (Fact, error) 
 		return Fact{}, fmt.Errorf("decide fact %d: %w", id, err)
 	}
 	defer rollbackQuietly(ctx, tx)
-	cur, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ SELECT `+factColumns+`
+	cur, err := scanFact(tx.QueryRow(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
 		FROM sage.facts WHERE id = $1 AND `+ownTypes+` FOR UPDATE`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, ErrNotFound
@@ -47,14 +49,14 @@ func (s *Store) Decide(ctx context.Context, id int64, d Decision) (Fact, error) 
 	if d.Confirm {
 		next = StatusConfirmed
 	}
-	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts SET status = $2,
-		decided_by = $3, decided_at = now(), decision_note = $4, updated_at = now()
-		WHERE id = $1 RETURNING `+factColumns, id, next, actor,
+	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage facts */ UPDATE sage.facts SET status = $2,
+		decided_by = $3, decided_at = now(), decision_note = $4, updated_at = now(),
+		missing_since = NULL WHERE id = $1 RETURNING `+factColumns, id, next, actor,
 		clip(cleanText(d.Note), 1000)))
 	if err != nil {
 		return Fact{}, fmt.Errorf("record decision on fact %d: %w", id, err)
 	}
-	if err := registerSlot(ctx, tx, f); err != nil {
+	if err := syncSlotRegistry(ctx, tx, f); err != nil {
 		return Fact{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -73,43 +75,98 @@ func statusIn(st Status, set []Status) bool {
 	return false
 }
 
-// Expire ends a proposed or confirmed fact that is no longer true.
-func (s *Store) Expire(ctx context.Context, id int64, reason string) (Fact, error) {
-	f, err := scanFact(s.pool.QueryRow(ctx, `/* pg_sage */ UPDATE sage.facts
-		SET status = 'expired', expired_reason = $2, updated_at = now()
+// Expire ends, by actor's choice, a proposed or confirmed fact that is no
+// longer true; actor is recorded in expired_by and the fact history. An
+// expired slot consumer is unregistered in the same transaction. The fact
+// never comes back by itself (missing_since is cleared).
+func (s *Store) Expire(ctx context.Context, id int64, actor, reason string) (Fact, error) {
+	actor, err := validActor(actor)
+	if err != nil {
+		return Fact{}, err
+	}
+	return s.expire(ctx, id, actor, reason, true, false)
+}
+
+// expire ends fact id, recording actor as who expired it. With unregister
+// false the slot registry is left as it is: an automatic expiry is
+// nobody's decision, and unregistering would widen what the WAL custodian
+// may do. byAbsence expires only a fact still
+// marked absent and keeps missing_since, so the same confirmation can come
+// back with its subject; every other expiry clears it.
+func (s *Store) expire(ctx context.Context, id int64, actor, reason string,
+	unregister, byAbsence bool) (Fact, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Fact{}, fmt.Errorf("expire fact %d: %w", id, err)
+	}
+	defer rollbackQuietly(ctx, tx)
+	f, err := scanFact(tx.QueryRow(ctx, `/* pg_sage facts */ UPDATE sage.facts
+		SET status = 'expired', expired_reason = $2, expired_by = $4, updated_at = now(),
+		    missing_since = CASE WHEN $3::boolean THEN missing_since END
 		WHERE id = $1 AND `+ownTypes+` AND status IN ('proposed', 'confirmed')
+		  AND (NOT $3::boolean OR missing_since IS NOT NULL)
 		RETURNING `+factColumns,
-		id, clip(cleanText(reason), 500)))
+		id, clip(cleanText(reason), 500), byAbsence, actor))
 	if errors.Is(err, pgx.ErrNoRows) {
-		cur, getErr := s.Get(ctx, id)
-		if getErr != nil {
-			return Fact{}, getErr
-		}
-		return Fact{}, fmt.Errorf("%w: fact %d is %s", ErrInvalidTransition, id, cur.Status)
+		return Fact{}, expireRefusal(ctx, tx, id)
 	}
 	if err != nil {
+		return Fact{}, fmt.Errorf("expire fact %d: %w", id, err)
+	}
+	if unregister {
+		if err := syncSlotRegistry(ctx, tx, f); err != nil {
+			return Fact{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return Fact{}, fmt.Errorf("expire fact %d: %w", id, err)
 	}
 	s.invalidate()
 	return f, nil
 }
 
-// registerSlot mirrors a confirmed slot consumer naming one slot into
+// expireRefusal says why fact id could not expire. It reads through tx, so
+// it needs no second connection while the transaction holds one.
+func expireRefusal(ctx context.Context, tx pgx.Tx, id int64) error {
+	cur, err := scanFact(tx.QueryRow(ctx, `/* pg_sage facts */ SELECT `+factColumns+`
+		FROM sage.facts WHERE id = $1 AND `+ownTypes, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read fact %d: %w", id, err)
+	}
+	return fmt.Errorf("%w: fact %d is %s", ErrInvalidTransition, id, cur.Status)
+}
+
+// syncSlotRegistry mirrors a slot consumer fact naming one slot into
 // sage.slot_consumer_registry, where the WAL custodian already looks: a
-// registered consumer is escalated, never bounded or dropped. A pattern
-// names no single slot; the gate still binds it.
-func registerSlot(ctx context.Context, tx pgx.Tx, f Fact) error {
-	if f.Type != TypeSlotConsumer || f.Status != StatusConfirmed ||
-		strings.Contains(f.Subject, "*") {
+// registered consumer is escalated, never bounded or dropped. Confirming
+// registers the slot; rejecting or expiring it unregisters the slot,
+// keeping its owner and last confirmation, so a revoked fact stops
+// shielding it. A pattern names no single slot; the gate still binds it.
+func syncSlotRegistry(ctx context.Context, tx pgx.Tx, f Fact) error {
+	if f.Type != TypeSlotConsumer || strings.Contains(f.Subject, "*") {
 		return nil
 	}
-	_, err := tx.Exec(ctx, `/* pg_sage */ INSERT INTO sage.slot_consumer_registry
-		(slot_name, owner_tag, registered) VALUES ($1, $2, true)
-		ON CONFLICT (slot_name) DO UPDATE SET owner_tag = EXCLUDED.owner_tag,
-		registered = true, last_confirmed_at = now(), updated_at = now()`,
-		f.Subject, f.Value["consumer"])
-	if err != nil {
-		return fmt.Errorf("register slot consumer of fact %d: %w", f.ID, err)
+	switch f.Status {
+	case StatusConfirmed:
+		_, err := tx.Exec(ctx, `/* pg_sage facts */ INSERT INTO sage.slot_consumer_registry
+			(slot_name, owner_tag, registered) VALUES ($1, $2, true)
+			ON CONFLICT (slot_name) DO UPDATE SET owner_tag = EXCLUDED.owner_tag,
+			registered = true, last_confirmed_at = now(), updated_at = now()`,
+			f.Subject, f.Value["consumer"])
+		if err != nil {
+			return fmt.Errorf("register slot consumer %q of fact %d: %w", f.Subject, f.ID, err)
+		}
+	case StatusRejected, StatusExpired:
+		_, err := tx.Exec(ctx, `/* pg_sage facts */ UPDATE sage.slot_consumer_registry
+			SET registered = false, updated_at = now()
+			WHERE slot_name = $1 AND registered`, f.Subject)
+		if err != nil {
+			return fmt.Errorf("unregister slot consumer %q of fact %d (%s): %w", f.Subject,
+				f.ID, f.Status, err)
+		}
 	}
 	return nil
 }
@@ -135,7 +192,7 @@ func (s *Store) ImportDeclared(ctx context.Context) (int, error) {
 		if err != nil {
 			return imported, err
 		}
-		tag, err := s.pool.Exec(ctx, `/* pg_sage */ INSERT INTO sage.facts (fact_type,
+		tag, err := s.pool.Exec(ctx, `/* pg_sage facts */ INSERT INTO sage.facts (fact_type,
 			subject_kind, subject, value, source, proposed_by, evidence, status,
 			decided_by, decided_at, decision_note) VALUES ($1, $2, $3, $4, 'operator', $5,
 			$6, 'confirmed', $5, now(), 'imported from an earlier declaration')
@@ -158,7 +215,7 @@ type declared struct {
 }
 
 func (s *Store) declaredContracts(ctx context.Context) ([]declared, error) {
-	rows, err := s.pool.Query(ctx, `/* pg_sage */
+	rows, err := s.pool.Query(ctx, `/* pg_sage facts */
 		SELECT 'slot', slot_name, '', owner_tag FROM sage.slot_consumer_registry
 		WHERE registered
 		UNION ALL

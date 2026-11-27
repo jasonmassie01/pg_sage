@@ -3,6 +3,8 @@ package analyzer
 import (
 	"context"
 	"testing"
+
+	"github.com/pg-sage/sidecar/internal/testsupport/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -21,7 +23,7 @@ func TestDispatchRewriteFindings_SkipsNonQueryTuning(t *testing.T) {
 			Severity: "warning",
 			Title:    "unused index",
 			Detail: map[string]any{
-				"suggested_rewrite":  "SELECT 1",
+				"suggested_rewrite": "SELECT 1",
 				"rewrite_rationale": "test",
 			},
 		},
@@ -99,11 +101,11 @@ func TestDispatchRewriteFindings_DispatchesRewrite(t *testing.T) {
 	}
 }
 
+// A nil rewrite dispatcher drops the findings instead of panicking.
 func TestDispatchRewriteFindings_NilDispatcher(t *testing.T) {
 	a := New(nil, coverageTestConfig(), nil, nil, nil, nil, nil, noopLog)
-	// Should not panic with nil dispatcher.
-	a.dispatchRewriteFindings(context.Background(), []Finding{
-		{
+	require.NotPanics(t, func() {
+		a.dispatchRewriteFindings(context.Background(), []Finding{{
 			Category: "query_tuning",
 			Severity: "warning",
 			Title:    "rewrite test",
@@ -112,7 +114,7 @@ func TestDispatchRewriteFindings_NilDispatcher(t *testing.T) {
 				"suggested_rewrite": "SELECT 2",
 				"rewrite_rationale": "just because",
 			},
-		},
+		}})
 	})
 }
 

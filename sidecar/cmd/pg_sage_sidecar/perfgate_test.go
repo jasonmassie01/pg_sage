@@ -24,6 +24,13 @@ import (
 // a slow statement, too much DB time or too many rows written per cycle, a
 // catalog query over the incident budget, a slow API list endpoint, or
 // too much sidecar CPU per cycle.
+// Gate H checks the product's own meter (the analyzer's self-cost, which
+// feeds sage_self_cost, the self-budget and /metrics) against what the
+// gate measured: its mean DB time per cycle within 10% (5 ms floor) and
+// its cycle length within 10% of the collector period observed from the
+// snapshots; a meter that measured nothing fails. The live derivation
+// pass runs every Window/3 here (hourly in production), and the steady
+// phase must hold its evidence reads (requireLiveDerivation).
 // Budgets live in internal/testsupport/perfgate/budgets.go.
 //
 // Run: go test -tags=perfgate -run '^TestPerfGate$' ./cmd/pg_sage_sidecar
@@ -41,7 +48,9 @@ func TestPerfGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("timing: %v", err)
 	}
-	dsn := testdb.CreateDatabase(t, "perfgate")
+	// Exclusive: Settle forces a CHECKPOINT, and the gate measures DB time
+	// that other packages' load on a shared server would inflate (ci-13).
+	dsn := testdb.Exclusive(t, "perf gate: a CHECKPOINT and timed measurements")
 	ctx := context.Background()
 	harness := perfHarnessPool(t, dsn)
 	calibration := calibrateRunner(t, ctx, harness)

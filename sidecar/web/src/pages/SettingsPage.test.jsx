@@ -1,26 +1,28 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { isMaskedSecret, SettingsPage } from './SettingsPage'
 import { useAPI } from '../hooks/useAPI'
+import { ToastProvider } from '../components/Toast'
+import { answerConfirm } from '../test/confirmDialog'
 
 const refetch = vi.fn()
 let configReadOnly = false
 let configMode = 'fleet'
 let configError = null
 let configLoading = false
+let configMasked = []
 
 vi.mock('../hooks/useAPI', () => ({
   useAPI: vi.fn(url => {
-    if (url?.includes('/shadow-report')) {
+    if (url?.includes('/shadow-decisions')) {
       return {
         data: {
-          summary: {
-            total_cases: 1,
-            would_auto_resolve: 0,
-            needs_approval: 1,
-            avoided_toil_minutes: 30,
-          },
-          proof: [],
+          databases: [{
+            database: 'prod',
+            summary: [{ family: 'tuning', class: 'index_create', total: 1, pending: 1,
+              correct: 0, incorrect: 0, counted: 0, potential_minutes: 0 }],
+            decisions: [],
+          }],
         },
         loading: false,
         error: null,
@@ -40,6 +42,9 @@ vi.mock('../hooks/useAPI', () => ({
         mode: configMode,
         databases: 3,
         desired_generation: 7,
+        // A supervised deployment: the restart tests click Restart now.
+        restart_supported: true,
+        masked_by_override: configMasked,
         read_only: configReadOnly,
         write_guidance: configReadOnly ? 'edit the YAML file' : undefined,
       },
@@ -70,6 +75,7 @@ describe('SettingsPage', () => {
     configMode = 'fleet'
     configError = null
     configLoading = false
+    configMasked = []
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ status: 'updated' }),
@@ -88,10 +94,12 @@ describe('SettingsPage', () => {
     expect(screen.queryByTestId('shadow-mode-report')).not.toBeInTheDocument()
   })
 
-  it('keeps the shadow report on the general settings tab', () => {
+  // ux-06b moved the shadow ledger to the Autonomy page (AutonomyHub.test).
+  it('no longer shows the shadow report on the general settings tab', () => {
     render(<SettingsPage database="all" />)
 
-    expect(screen.getByTestId('shadow-mode-report')).toBeInTheDocument()
+    expect(screen.getByTestId('settings-tab-general')).toBeInTheDocument()
+    expect(screen.queryByTestId('shadow-mode-report')).not.toBeInTheDocument()
   })
 
   it('renders YAML fleet configuration as readable but not editable', () => {
@@ -173,6 +181,22 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByTestId('settings-tab-retention'))
     expect(screen.getByTestId('setting-retention.snapshots_days')).toBeDisabled()
     expect(screen.queryByTestId('settings-save')).not.toBeInTheDocument()
+  })
+
+  // config-02b: an out-of-range value is refused before the PUT, with the
+  // same message the API would return.
+  it('refuses an out-of-range value before sending the PUT', () => {
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-retention'))
+    fireEvent.change(screen.getByTestId('setting-retention.snapshots_days'), {
+      target: { value: '0' },
+    })
+    fireEvent.click(screen.getByTestId('settings-save'))
+
+    expect(screen.getByTestId('settings-feedback')).toHaveTextContent(
+      'retention.snapshots_days must be 1-1073741824, got 0')
+    expect(screen.queryByTestId('config-diff-confirm')).not.toBeInTheDocument()
+    expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
   it('sends the desired generation with global config writes', async () => {
@@ -277,9 +301,10 @@ describe('SettingsPage restart', () => {
       ok: true, status: 202, json: async () => ({ status: 'restarting' }),
     })
     globalThis.fetch = fetchMock
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<SettingsPage database="all" />)
     fireEvent.click(screen.getByTestId('settings-restart-btn'))
+    expect(fetchMock.mock.calls.some(c => c[0] === '/api/v1/restart')).toBe(false)
+    expect(await answerConfirm()).toBe('Restart the pg_sage sidecar now?')
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/restart', expect.anything()))
     const init = fetchMock.mock.calls.find(c => c[0] === '/api/v1/restart')[1]
@@ -291,6 +316,27 @@ describe('SettingsPage restart', () => {
 // G9-B11: trust.tier3_high_risk has no runtime reader.
 // G9-B13: emergency controls state their scope.
 describe('SettingsPage trust and emergency controls', () => {
+  beforeEach(() => {
+    configMasked = []
+  })
+
+  it('badges a trust level whose file value an override masks (config-03)', () => {
+    configMasked = [{
+      key: 'trust.level', file_value: 'observation', override_value: 'autonomous',
+      effective_value: 'observation', updated_by: 7, updated_at: '2026-11-10T08:30:00Z',
+    }]
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-trust-safety'))
+    expect(screen.getAllByText('masked')).toHaveLength(1)
+    expect(screen.getAllByText('file/default').length).toBeGreaterThan(0)
+  })
+
+  it('shows no masked badge when nothing is masked', () => {
+    render(<SettingsPage database="all" />)
+    fireEvent.click(screen.getByTestId('settings-tab-trust-safety'))
+    expect(screen.queryByText('masked')).toBeNull()
+  })
+
   it('does not offer the unused Tier 3 High Risk toggle', () => {
     localStorage.setItem('pg_sage_settings_mode', 'advanced')
     render(<SettingsPage database="all" />)
@@ -304,5 +350,49 @@ describe('SettingsPage trust and emergency controls', () => {
     render(<SettingsPage database="prod" databaseId={12} />)
     expect(screen.getByTestId('emergency-scope'))
       .toHaveTextContent('prod')
+  })
+
+  // dashboard-05 review: error toasts now stay until dismissed, but this
+  // hint fires on every keystroke into a field the database scope cannot
+  // override, so it must still clear itself instead of piling up.
+  it('clears the per-database guard hint after 4 s', () => {
+    localStorage.setItem('pg_sage_settings_mode', 'advanced')
+    vi.useFakeTimers()
+    try {
+      render(
+        <ToastProvider>
+          <SettingsPage database="orders" databaseId={12} />
+        </ToastProvider>,
+      )
+      fireEvent.click(screen.getByTestId('settings-tab-retention'))
+      const field = screen.getByTestId('setting-retention.snapshots_days')
+      fireEvent.change(field, { target: { value: '21' } })
+      fireEvent.change(field, { target: { value: '22' } })
+      const shown = screen.getAllByTestId('toast')
+      expect(shown).toHaveLength(2)
+      expect(shown[0]).toHaveTextContent('support only trust and execution mode')
+      act(() => { vi.advanceTimersByTime(3999) })
+      expect(screen.getAllByTestId('toast')).toHaveLength(2)
+      act(() => { vi.advanceTimersByTime(1) })
+      expect(screen.queryAllByTestId('toast')).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// config-07: only the LLM connection, YAML fleet databases and trust.level
+// change without a restart; the banner must not promise any other rebuild.
+describe('SettingsPage lifecycle banner', () => {
+  it('names the live owners and no collector or alerting rebuild', () => {
+    localStorage.setItem('pg_sage_settings_mode', 'advanced')
+    render(<SettingsPage database="all" />)
+    const banner = screen.getByTestId('settings-lifecycle-banner')
+    expect(banner.textContent).toMatch(/LLM connection/)
+    expect(banner.textContent).toMatch(/fleet databases/)
+    expect(banner.textContent).toMatch(/trust\.level/)
+    expect(banner.textContent).toMatch(/pending restart/i)
+    expect(banner.textContent).not.toMatch(/collector|alerting|analyzer|briefing/i)
+    expect(banner.textContent).not.toMatch(/Reconfigured owners/)
   })
 })

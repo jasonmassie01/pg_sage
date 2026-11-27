@@ -1,6 +1,7 @@
 package advisor
 
 import (
+	"fmt"
 	"math/rand"
 	"strings"
 	"testing"
@@ -16,9 +17,9 @@ import (
 // memory increase. Unknown memory keeps today's behavior.
 
 var memSettings = []collector.PGSetting{
-	{Name: "work_mem", Setting: "4096", Unit: "kB"},
-	{Name: "shared_buffers", Setting: "131072", Unit: "8kB"},
-	{Name: "maintenance_work_mem", Setting: "65536", Unit: "kB"},
+	{Name: "work_mem", Setting: "4096", Unit: "kB", Context: "user"},
+	{Name: "shared_buffers", Setting: "131072", Unit: "8kB", Context: "postmaster"},
+	{Name: "maintenance_work_mem", Setting: "65536", Unit: "kB", Context: "user"},
 }
 
 func gateOne(t *testing.T, sql, cloud string, host HostMemory) analyzer.Finding {
@@ -33,7 +34,8 @@ func gateOne(t *testing.T, sql, cloud string, host HostMemory) analyzer.Finding 
 
 func TestSharedBuffersOnManagedBecomesManagedProposal(t *testing.T) {
 	host := HostMemory{TotalBytes: 16 << 30, AvailableBytes: 8 << 30}
-	for _, cloud := range []string{"rds", "aurora", "cloud-sql"} {
+	// advisors-03 added AlloyDB (database flags) and Azure (server parameters).
+	for _, cloud := range []string{"rds", "aurora", "cloud-sql", "alloydb", "azure"} {
 		f := gateOne(t, "ALTER SYSTEM SET shared_buffers = '4GB'", cloud, host)
 		if f.RecommendedSQL != "" || f.RollbackSQL != "" {
 			t.Fatalf("%s: managed shared_buffers must not be SQL: %q", cloud, f.RecommendedSQL)
@@ -66,10 +68,11 @@ func TestSharedBuffersAboveFractionRefusedEvenWithTelemetry(t *testing.T) {
 	}
 }
 
-// Other managed providers keep their own forms: no managed intent.
+// Other managed providers keep their own forms: no managed intent. Until
+// advisors-03 this list held alloydb and azure, which now get proposals.
 func TestManagedIntentOnlyForSupportedProviders(t *testing.T) {
 	host := HostMemory{TotalBytes: 16 << 30}
-	for _, cloud := range []string{"", "self-managed", "alloydb", "azure"} {
+	for _, cloud := range []string{"", "self-managed", "azure-cosmos", "neon", "lakebase"} {
 		f := gateOne(t, "ALTER SYSTEM SET shared_buffers = '4GB'", cloud, host)
 		if _, ok := managedparam.IntentFromDetail(f.Detail); ok {
 			t.Fatalf("%q must not carry a managed intent: %v", cloud, f.Detail)
@@ -183,5 +186,25 @@ func TestAdvisorHostMemorySource(t *testing.T) {
 	a.WithHostMemorySource(func() HostMemory { return HostMemory{} })
 	if got := a.hostMemory(); got.TotalBytes != 8<<30 {
 		t.Fatalf("unknown telemetry falls back to the operator figure: %+v", got)
+	}
+}
+
+// tuning-03: the tuner caps per-query work_mem hints with the same rule.
+func TestMaxWorkMemBytes(t *testing.T) {
+	for total, want := range map[int64]int64{0: 0, -1: 0, 4 << 30: 214748364,
+		16 << 30: 858993459, 100: 5} {
+		if got := MaxWorkMemBytes(total); got != want {
+			t.Errorf("MaxWorkMemBytes(%d) = %d, want %d", total, got, want)
+		}
+	}
+	host := HostMemory{TotalBytes: 4 << 30}
+	at := MaxWorkMemBytes(host.TotalBytes) / 1024
+	if f := gateOne(t, fmt.Sprintf("ALTER SYSTEM SET work_mem = '%dkB'", at), "", host); f.
+		RecommendedSQL == "" {
+		t.Fatalf("work_mem at the cap stays executable: %+v", f)
+	}
+	if f := gateOne(t, fmt.Sprintf("ALTER SYSTEM SET work_mem = '%dkB'", at+1), "", host); f.
+		RecommendedSQL != "" {
+		t.Fatalf("work_mem above the cap is refused: %+v", f)
 	}
 }

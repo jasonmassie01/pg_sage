@@ -2,6 +2,7 @@ package tuner
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -69,7 +70,7 @@ func hintStatuses(t *testing.T, pool *pgxpool.Pool) []string {
 }
 
 func readyTuner(pool *pgxpool.Pool) *Tuner {
-	return New(pool, TunerConfig{}, &HintPlanAvailability{Available: true,
+	return New(pool, TunerConfig{}, &HintPlanAvailability{ApplicationEffect: true,
 		HintTableReady: true}, noopLogFn)
 }
 
@@ -78,7 +79,7 @@ func TestBuildFinding_ProposalIsNotActive(t *testing.T) {
 	tu := readyTuner(pool)
 	c := candidate{QueryID: hintStatusQueryID, Query: "SELECT 1"}
 	f := tu.buildFinding(ctx, c, []PlanSymptom{{Kind: SymptomDiskSort}},
-		`Set(work_mem "64MB")`, "title", "why", "", "")
+		`Set(work_mem "64MB")`, "title", "why")
 	if f.RecommendedSQL == "" || f.RollbackSQL == "" {
 		t.Fatalf("hint finding lost its SQL: %+v", f)
 	}
@@ -87,7 +88,7 @@ func TestBuildFinding_ProposalIsNotActive(t *testing.T) {
 	}
 	// A second proposal updates the proposed row; it never adds one.
 	tu.buildFinding(ctx, c, []PlanSymptom{{Kind: SymptomDiskSort}},
-		`Set(work_mem "128MB")`, "title", "why", "", "")
+		`Set(work_mem "128MB")`, "title", "why")
 	var text string
 	if err := pool.QueryRow(ctx, `SELECT hint_text FROM sage.query_hints
 		WHERE queryid = $1`, hintStatusQueryID).Scan(&text); err != nil {
@@ -103,7 +104,7 @@ func TestBuildFinding_EmptyHintIsNeverInserted(t *testing.T) {
 	tu := readyTuner(pool)
 	c := candidate{QueryID: hintStatusQueryID, Query: "SELECT 1"}
 	f := tu.buildFinding(ctx, c, []PlanSymptom{{Kind: SymptomSortLimit}},
-		"", "title", "add an index on the sort columns", "", "")
+		"", "title", "add an index on the sort columns")
 	if f.RecommendedSQL != "" || f.RollbackSQL != "" {
 		t.Fatalf("empty hint produced SQL: %q / %q", f.RecommendedSQL, f.RollbackSQL)
 	}
@@ -119,7 +120,7 @@ func TestReconcileHintStatuses_AppliedThenRolledBack(t *testing.T) {
 	pool, ctx := requireHintStatusDB(t)
 	tu := readyTuner(pool)
 	hint := `Set(work_mem "64MB")`
-	tu.upsertQueryHint(ctx, hintStatusQueryID, hint, "disk_sort", "", "")
+	tu.upsertQueryHint(ctx, hintStatusQueryID, hint, "disk_sort")
 	tu.reconcileHintStatuses(ctx)
 	if got := hintStatuses(t, pool); len(got) != 1 || got[0] != "proposed" {
 		t.Fatalf("uninstalled proposal = %v, want [proposed]", got)
@@ -131,7 +132,7 @@ func TestReconcileHintStatuses_AppliedThenRolledBack(t *testing.T) {
 	if got := hintStatuses(t, pool); len(got) != 1 || got[0] != "active" {
 		t.Fatalf("installed hint = %v, want [active]", got)
 	}
-	if _, err := pool.Exec(ctx, BuildDeleteSQL(hintStatusQueryID)); err != nil {
+	if _, err := pool.Exec(ctx, BuildDeleteSQL(hintStatusQueryID, hint)); err != nil {
 		t.Fatalf("remove hint: %v", err)
 	}
 	tu.reconcileHintStatuses(ctx)
@@ -152,7 +153,7 @@ func TestReconcileHintStatuses_AppliedThenRolledBack(t *testing.T) {
 func TestReconcileHintStatuses_DifferentInstalledHintStaysProposed(t *testing.T) {
 	pool, ctx := requireHintStatusDB(t)
 	tu := readyTuner(pool)
-	tu.upsertQueryHint(ctx, hintStatusQueryID, `Set(work_mem "64MB")`, "disk_sort", "", "")
+	tu.upsertQueryHint(ctx, hintStatusQueryID, `Set(work_mem "64MB")`, "disk_sort")
 	if _, err := pool.Exec(ctx, BuildInsertSQL(hintStatusQueryID,
 		"SeqScan(t)")); err != nil {
 		t.Fatal(err)
@@ -167,7 +168,7 @@ func TestReconcileHintStatuses_DifferentInstalledHintStaysProposed(t *testing.T)
 func TestReconcileHintStatuses_NoHintTableIsNoop(t *testing.T) {
 	pool, ctx := requireHintStatusDB(t)
 	tu := New(pool, TunerConfig{}, &HintPlanAvailability{}, noopLogFn)
-	tu.upsertQueryHint(ctx, hintStatusQueryID, `Set(work_mem "64MB")`, "disk_sort", "", "")
+	tu.upsertQueryHint(ctx, hintStatusQueryID, `Set(work_mem "64MB")`, "disk_sort")
 	if _, err := pool.Exec(ctx, BuildInsertSQL(hintStatusQueryID,
 		`Set(work_mem "64MB")`)); err != nil {
 		t.Fatal(err)
@@ -179,14 +180,14 @@ func TestReconcileHintStatuses_NoHintTableIsNoop(t *testing.T) {
 	New(nil, TunerConfig{}, nil, noopLogFn).reconcileHintStatuses(ctx) // must not panic
 }
 
-// Proposed hints still count for the restart cooldown bootstrap.
-func TestLoadActiveHints_IncludesProposed(t *testing.T) {
+// Proposed hints still refuse a new hint after a restart: the durable
+// state is read on every check (tuning-02 replaced the map bootstrap).
+func TestHintStates_IncludesProposedAfterRestart(t *testing.T) {
 	pool, ctx := requireHintStatusDB(t)
 	tu := readyTuner(pool)
-	tu.upsertQueryHint(ctx, hintStatusQueryID, `Set(work_mem "64MB")`, "disk_sort", "", "")
+	tu.upsertQueryHint(ctx, hintStatusQueryID, `Set(work_mem "64MB")`, "disk_sort")
 	fresh := readyTuner(pool)
-	fresh.loadActiveHints(ctx)
-	if _, ok := fresh.recentlyTuned[hintStatusQueryID]; !ok {
-		t.Fatal("proposed hint not in cooldown after restart")
+	if err := fresh.coolingErr(ctx, hintStatusQueryID); !errors.Is(err, ErrHintExists) {
+		t.Fatalf("proposed hint after restart = %v, want ErrHintExists", err)
 	}
 }

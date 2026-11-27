@@ -210,19 +210,6 @@ func TestLogoutHandler_NoCookie(t *testing.T) {
 	}
 }
 
-func TestLogoutHandler_WithCookie(t *testing.T) {
-	// With a cookie but nil pool, DeleteSession will panic
-	// or error. However, logoutHandler ignores the error from
-	// DeleteSession (uses _ = ), so it should still return OK.
-	// Actually, nil pool will cause a nil pointer dereference
-	// inside auth.DeleteSession. Since we can't mock the pool,
-	// we test only the no-cookie path.
-	//
-	// This is a known limitation: full logout test with cookie
-	// requires integration test with a real pgxpool.
-	// See: TestLogoutHandler_NoCookie for the no-cookie path.
-}
-
 // --- createUserHandler ---
 
 func TestCreateUserHandler_MalformedJSON(t *testing.T) {

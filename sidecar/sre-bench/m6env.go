@@ -98,19 +98,42 @@ func (e *Env) alterSystem(ctx context.Context, name, value string) error {
 	if n > 0 {
 		return &Unsupported{Reason: name + " is already set by ALTER SYSTEM"}
 	}
+	// Recorded first: a process that stops before resetSystem leaves the
+	// name for the next run's sweep (sweep.go).
+	if _, err := e.Pool.Exec(ctx, `INSERT INTO sage.bench_fixture_state (setting)
+		VALUES ($1) ON CONFLICT DO NOTHING`, name); err != nil {
+		return fmt.Errorf("record bench setting %s: %w", name, err)
+	}
 	// ALTER SYSTEM takes no parameters; name and value are code constants,
 	// quoted as an identifier and a literal.
 	stmt := fmt.Sprintf("ALTER SYSTEM SET %s = '%s'", pgx.Identifier{name}.Sanitize(),
 		strings.ReplaceAll(value, "'", "''"))
 	if _, err := e.Pool.Exec(ctx, stmt); err != nil {
-		return &Unsupported{Reason: "ALTER SYSTEM not permitted: " + err.Error()}
+		reason := "ALTER SYSTEM not permitted: " + err.Error()
+		if ferr := e.forgetSetting(ctx, name); ferr != nil {
+			reason += "; " + ferr.Error()
+		}
+		return &Unsupported{Reason: reason}
 	}
 	return e.reloadAndWait(ctx, name, value)
 }
 
-// resetSystem removes the ALTER SYSTEM setting and waits for the default.
+// forgetSetting removes a setting from sage.bench_fixture_state.
+func (e *Env) forgetSetting(ctx context.Context, name string) error {
+	if _, err := e.Pool.Exec(ctx, `DELETE FROM sage.bench_fixture_state
+		WHERE setting = $1`, name); err != nil {
+		return fmt.Errorf("forget bench setting %s: %w", name, err)
+	}
+	return nil
+}
+
+// resetSystem removes the ALTER SYSTEM setting, forgets it and waits for
+// the default.
 func (e *Env) resetSystem(ctx context.Context, name string) error {
 	if _, err := e.Pool.Exec(ctx, "ALTER SYSTEM RESET "+pgx.Identifier{name}.Sanitize()); err != nil {
+		return err
+	}
+	if err := e.forgetSetting(ctx, name); err != nil {
 		return err
 	}
 	if _, err := e.Pool.Exec(ctx, "SELECT pg_reload_conf()"); err != nil {

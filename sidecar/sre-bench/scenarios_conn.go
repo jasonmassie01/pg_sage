@@ -70,12 +70,11 @@ func idlePool(n int, withAction bool) program {
 	return program{
 		inject: func(ctx context.Context, e *Env) error {
 			if withAction {
-				if err := e.Pool.QueryRow(ctx, `INSERT INTO sage.action_log
-					(action_type, sql_executed, outcome)
-					VALUES ('analyze', 'ANALYZE bench', 'success') RETURNING id`).
-					Scan(&action); err != nil {
+				id, err := e.insertDecoyAction(ctx)
+				if err != nil {
 					return err
 				}
+				action = id
 			}
 			return e.idle(ctx, app, n)
 		},

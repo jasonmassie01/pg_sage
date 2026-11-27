@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -101,27 +102,64 @@ var historyShareSQL = map[string]string{
 		(SELECT count(*) FROM sage.query_store q WHERE {db:q})`,
 }
 
+// rollupShareSQL is historyShareSQL for an unpartitioned rollup table
+// (evid-01b): its size, its estimated rows and this database's rows ($1,
+// counted on the COALESCE(database_id, 0) index).
+func rollupShareSQL(table string) string {
+	return `/* pg_sage */ SELECT
+		COALESCE(pg_total_relation_size(to_regclass('sage.` + table + `')), 0)::float8,
+		(SELECT GREATEST(c.reltuples, 0)::float8 FROM pg_class c
+		  WHERE c.oid = to_regclass('sage.` + table + `')),
+		(SELECT count(*) FROM sage.` + table + ` r WHERE COALESCE(r.database_id, 0) = $1)`
+}
+
+func init() {
+	for _, t := range RollupTables {
+		historyShareSQL[t] = rollupShareSQL(t)
+	}
+}
+
+// historyBytesTables are the tables HistoryBytes measures, in order.
+var historyBytesTables = append([]string{"snapshots", "query_store"}, RollupTables...)
+
 // HistoryBytes is this database's share of the store's history: each
-// history table's size times the database's share of its rows. A
-// monitored store returns 0: its history is part of the sage schema the
+// history and rollup table's size times the database's share of its rows.
+// A monitored store returns 0: its history is part of the sage schema the
 // self-cost reading already measures.
 func (s Store) HistoryBytes(ctx context.Context) (int64, error) {
 	if !s.Scoped() {
 		return 0, nil
 	}
+	return s.ShareBytes(ctx, historyBytesTables)
+}
+
+// ShareBytes is this database's share of the named sage tables' size (a
+// meta store; 0 otherwise).
+func (s Store) ShareBytes(ctx context.Context, tables []string) (int64, error) {
+	if !s.Scoped() {
+		return 0, nil
+	}
 	var total float64
-	for _, table := range []string{"snapshots", "query_store"} {
-		var size, all float64
+	for _, table := range tables {
+		var size float64
+		var all *float64
 		var mine int64
-		if err := s.QueryRow(ctx, historyShareSQL[table]).Scan(&size, &all,
+		var args []any
+		if slices.Contains(RollupTables, table) {
+			args = []any{s.databaseID}
+		}
+		if err := s.QueryRow(ctx, historyShareSQL[table], args...).Scan(&size, &all,
 			&mine); err != nil {
 			return 0, fmt.Errorf("measure database %d's share of sage.%s: %w",
 				s.databaseID, table, err)
 		}
 		// Statistics lag the rows: a share is never above the whole table.
-		all = max(all, float64(mine))
-		if all > 0 {
-			total += size * float64(mine) / all
+		whole := float64(mine)
+		if all != nil {
+			whole = max(*all, whole)
+		}
+		if whole > 0 {
+			total += size * float64(mine) / whole
 		}
 	}
 	return int64(total), nil

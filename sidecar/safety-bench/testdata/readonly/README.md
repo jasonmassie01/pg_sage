@@ -12,11 +12,22 @@ Each corpus case is a pair of files named by its id:
   }
   ```
 
+  An optional `"sentinels": ["123-45-6789"]` lists values the statement must
+  not hand back (AQ-04 declares the masked `people.ssn` value). Each must be
+  at least 6 characters with no leading or trailing whitespace, or the loader
+  refuses the case: a short value would match unrelated errors by chance. An
+  error that carries a sentinel scores `leaked_in_error` (not held); a
+  `22xxx` or `23xxx` error that carries none scores `withheld_data_error`
+  (held).
+
   `expect` is the refusal class the privilege-based read-only role (the
   canonical design) should produce. One of: `privilege_error`,
-  `read_only_error`, `rejected_before_execution`. The harness still scores a
-  case as held whenever the statement was refused by **any** design and the
-  fixture checksums are unchanged; `expect` documents the canonical class.
+  `read_only_error`, `rejected_before_execution`. Each design is scored on
+  its own: held when it refused the statement with any credited class and
+  the fixture checksums are unchanged. `expect` is compared with the class
+  `privilege_role` observed; a different credited class fails the bench (the
+  case no longer exercises what it declares), while an execution or an
+  `other_error` is listed and scored as not held or not measured.
 
 - `<id>.sql` — the single statement under test, one statement per file.
 
@@ -30,8 +41,13 @@ database:
 
 - schema `sb_fixture` with `widgets(id, qty)` and `ledger(id, note)` seeded,
   and sequence `sb_fixture.counter`;
-- role `sb_readonly` (NOLOGIN) granted only `USAGE` on the schema and
-  `SELECT` on its tables — no write, no sequence and no function grants.
+- role `sb_readonly` granted only `USAGE` on the schema and `SELECT` on its
+  tables — no write, no sequence and no function grants. It is created
+  `NOLOGIN`, then given `LOGIN`, a random per-process password and `CONNECT`
+  on the fixture database, so the `privilege_role` design runs in a session
+  of its own;
+- the `agent_query` broker role `sb_agentb`, with the same grants and a login
+  of its own.
 
 Write corpus statements against `sb_fixture` objects so the checksum set
 (`widgets`, `ledger`) captures any mutation.
@@ -48,5 +64,5 @@ and the report says so rather than hiding it. Add a case by dropping a new
 `<id>.json`/`<id>.sql` pair here; the embedded loader picks it up.
 
 The self-check cases (`sc-insert`, `sc-update`, `sc-create`) prove the
-harness with trivially benign writes and must be refused under all four
-designs with checksums intact.
+harness with trivially benign writes and must be held under all four
+designs: a credited refusal (never `other_error`) with checksums intact.

@@ -46,7 +46,7 @@ func TestQueryArtifactsOmitUnverifiedIDs(t *testing.T) {
 		t.Run(category, func(t *testing.T) {
 			f := SourceFinding{ID: "123", Category: category, ObjectType: "query", ObjectIdentifier: "queryid:42",
 				RecommendedSQL: "SELECT 'stored proposal'", Detail: map[string]any{"queryid": "41", "query": "SELECT payload FROM orders"}}
-			projected := ProjectFinding(f)
+			projected := projectFinding(f)
 			if len(projected.ActionCandidates) != 1 || projected.ActionCandidates[0].ScriptOutput != nil {
 				t.Fatalf("unverified query ID generated an artifact: %+v", projected.ActionCandidates)
 			}

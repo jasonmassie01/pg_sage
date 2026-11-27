@@ -41,6 +41,9 @@ type CanaryTarget interface {
 		approvedBy *int) (int64, error)
 	Rollback(ctx context.Context, actionLogID int64, reason string) error
 	ActionResult(ctx context.Context, actionLogID int64) (string, string, error)
+	// MonitorDeadline is when the target's own post-action monitor stops
+	// watching the action: its execution plus its class's monitor cap.
+	MonitorDeadline(ctx context.Context, actionLogID int64) (time.Time, error)
 }
 
 // TargetResolver resolves a fleet database name.
@@ -50,10 +53,15 @@ type TargetResolver func(database string) (CanaryTarget, error)
 type CanaryOptions struct {
 	CanaryInstances    int
 	RegressionLimitPct float64
-	// Settle is the wait after a change before measuring it.
-	Settle time.Duration
-	Now    func() time.Time
-	Log    func(format string, args ...any)
+	// PollEvery is how often a measurement re-reads a target's verdict
+	// while the target still monitors the change. Default: 15 s.
+	PollEvery time.Duration
+	// StageWait (lab-03b) is the pause after a database's verdict before
+	// the next database is changed. Zero: no pause. The sidecar passes
+	// sre.autonomy.canary.stage_wait_hours (default 24 h).
+	StageWait time.Duration
+	Now       func() time.Time
+	Log       func(format string, args ...any)
 }
 
 // StartRequest asks for a canary of one verified action.
@@ -72,8 +80,8 @@ type CanaryService struct {
 	resolve TargetResolver
 	runs    *PostgresRunStore
 	opts    CanaryOptions
-	// settle waits before a measurement (a test seam over opts.Settle).
-	settle  func(context.Context) error
+	// wait sleeps between verdict reads (a test seam over the clock).
+	wait    func(context.Context, time.Duration) error
 	running atomic.Bool
 }
 
@@ -92,19 +100,22 @@ func NewCanaryService(resolve TargetResolver, runs *PostgresRunStore,
 	if opts.Log == nil {
 		opts.Log = log.Printf
 	}
-	s := &CanaryService{resolve: resolve, runs: runs, opts: opts}
-	s.settle = func(ctx context.Context) error {
-		if opts.Settle <= 0 {
-			return nil
-		}
-		select {
-		case <-time.After(opts.Settle):
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if opts.PollEvery <= 0 {
+		opts.PollEvery = defaultVerdictPoll
 	}
-	return s, nil
+	return &CanaryService{resolve: resolve, runs: runs, opts: opts, wait: sleepContext}, nil
+}
+
+// sleepContext waits d, or less when ctx ends first.
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Run validates, records and runs a canary, waiting for it.
@@ -155,12 +166,14 @@ func (s *CanaryService) List(ctx context.Context, limit int) ([]RunRecord, error
 	return s.runs.List(ctx, limit)
 }
 
-// preparedCanary is a validated, recorded canary ready to run.
+// preparedCanary is a validated, recorded canary ready to run, and the
+// lock its run holds until it ends.
 type preparedCanary struct {
 	record    RunRecord
 	request   Request
 	source    SourceAction
 	approvedB *int
+	lock      *runLock
 }
 
 func (s *CanaryService) prepare(ctx context.Context, req StartRequest) (preparedCanary,
@@ -187,12 +200,19 @@ func (s *CanaryService) prepare(ctx context.Context, req StartRequest) (prepared
 	record := RunRecord{EvidenceID: "canary-" + newRunID(), SourceInstance: req.SourceDatabase,
 		PriorEvidenceID: prior.EvidenceID, Policy: request.Policy, State: "canary",
 		CreatedAt: now, UpdatedAt: now, Family: req.Family, Class: req.Class,
-		StartedBy: req.StartedBy}
+		StartedBy: req.StartedBy, Targets: append([]string(nil), req.Targets...)}
+	// The lock is held before the run is visible in canary, so a sweep
+	// never takes a run that is starting for one nobody runs.
+	lock, err := s.runs.lockRun(ctx, record.EvidenceID)
+	if err != nil {
+		return preparedCanary{}, err
+	}
 	if err := s.runs.Create(ctx, record); err != nil {
+		lock.release()
 		return preparedCanary{}, err
 	}
 	return preparedCanary{record: record, request: request, source: source,
-		approvedB: req.ApprovedBy}, nil
+		approvedB: req.ApprovedBy, lock: lock}, nil
 }
 
 func (s *CanaryService) policyFor(targets int) Policy {
@@ -212,8 +232,8 @@ func (s *CanaryService) verifiedSource(ctx context.Context, req StartRequest) (S
 	if err != nil {
 		return SourceAction{}, fmt.Errorf("%w: %v", ErrSourceNotVerified, err)
 	}
-	verified := src.Verification == "" || src.Verification == "success"
-	if src.Outcome != "success" || !verified || strings.TrimSpace(src.SQL) == "" ||
+	if src.Outcome != "success" || src.Verification != "success" ||
+		strings.TrimSpace(src.SQL) == "" ||
 		strings.TrimSpace(src.RollbackSQL) == "" {
 		return SourceAction{}, fmt.Errorf("%w: outcome %q, verification %q", ErrSourceNotVerified,
 			src.Outcome, src.Verification)
@@ -221,11 +241,16 @@ func (s *CanaryService) verifiedSource(ctx context.Context, req StartRequest) (S
 	return src, nil
 }
 
-// execute runs the engine over the targets and persists the result.
+// execute runs the engine over the targets, recording each target's part
+// as it goes, and persists the result. A run another sidecar marked
+// interrupted meanwhile stays interrupted.
 func (s *CanaryService) execute(ctx context.Context, p preparedCanary) (RunRecord, error) {
+	defer p.lock.release()
 	backend := &canaryBackend{svc: s, source: p.source, approvedBy: p.approvedB,
-		findings: map[string]int{}, actions: map[string]int64{}}
-	result, runErr := NewEngine(backend, backend).Rollout(ctx, p.request)
+		findings: map[string]int{}, actions: map[string]int64{},
+		targets: append([]string(nil), p.record.Targets...)}
+	progress := &progressBackend{canaryBackend: backend, runID: p.record.EvidenceID}
+	result, runErr := NewEngine(progress, progress).Rollout(ctx, p.request)
 	record := p.record
 	record.AppliedInstances = result.AppliedInstances
 	record.CanaryInstanceIDs = append([]string(nil), result.CanaryInstanceIDs...)
@@ -240,7 +265,11 @@ func (s *CanaryService) execute(ctx context.Context, p preparedCanary) (RunRecor
 		record.State = "complete"
 	}
 	persistCtx := context.WithoutCancel(ctx)
-	err := errors.Join(runErr, s.runs.Update(persistCtx, record),
+	updateErr := s.runs.Update(persistCtx, record)
+	if errors.Is(updateErr, ErrRunInterrupted) {
+		record.State, record.HaltReason = StateInterrupted, HaltSidecarRestart
+	}
+	err := errors.Join(runErr, updateErr,
 		s.runs.SaveInstances(persistCtx, record.EvidenceID, backend.records(result,
 			record.UpdatedAt)))
 	return record, err
@@ -302,11 +331,20 @@ type canaryBackend struct {
 	findings   map[string]int
 	actions    map[string]int64
 	order      []string
+	// targets are the run's databases in order; those with no action
+	// yet are untreated, the fleet control of a measurement (lab-03b).
+	targets []string
+	// pauseDue: a database's verdict was recorded, so the next database
+	// waits StageWait before it is re-verified and changed.
+	pauseDue bool
 }
 
 // Reverify requires the target's own analyzer to recommend the same SQL.
 func (b *canaryBackend) Reverify(ctx context.Context, instance Instance,
 	_ Prior) (Reverification, error) {
+	if err := b.stagePause(ctx); err != nil {
+		return Reverification{}, fmt.Errorf("pause before %s: %w", instance.ID, err)
+	}
 	b.note(instance.ID)
 	target, err := b.svc.resolve(instance.ID)
 	if err != nil {
@@ -343,37 +381,10 @@ func (b *canaryBackend) Apply(ctx context.Context, instance Instance,
 	return AppliedChange{Handle: strconv.FormatInt(actionID, 10)}, nil
 }
 
-// Measure waits for the change to settle and reads its verification.
-func (b *canaryBackend) Measure(ctx context.Context, instance Instance,
-	change AppliedChange) (Outcome, error) {
-	if err := b.svc.settle(ctx); err != nil {
-		return Outcome{}, err
-	}
-	target, err := b.svc.resolve(instance.ID)
-	if err != nil {
-		return Outcome{}, err
-	}
-	actionID, _ := strconv.ParseInt(change.Handle, 10, 64)
-	outcome, verification, err := target.ActionResult(ctx, actionID)
-	if err != nil {
-		return Outcome{}, err
-	}
-	o := Outcome{EvidenceID: "action_log:" + change.Handle,
-		Detail: fmt.Sprintf("outcome %s, verification %q", outcome, verification)}
-	switch verification {
-	case "failed", "revert", "unverifiable":
-		o.Failed = true
-	}
-	if outcome != "success" {
-		o.Failed = true
-	}
-	if o.Failed {
-		o.RegressionPct = 100
-	}
-	return o, nil
-}
-
-// Rollback undoes the change on the target.
+// Rollback undoes the change on the target. An action the target's own
+// monitor already rolled back (a revert verdict) is done: the target
+// refuses a second rollback, which is not a failure. When the outcome
+// cannot be read, the rollback is still attempted.
 func (b *canaryBackend) Rollback(ctx context.Context, instance Instance,
 	change AppliedChange) error {
 	target, err := b.svc.resolve(instance.ID)
@@ -381,6 +392,10 @@ func (b *canaryBackend) Rollback(ctx context.Context, instance Instance,
 		return err
 	}
 	actionID, _ := strconv.ParseInt(change.Handle, 10, 64)
+	if outcome, _, err := target.ActionResult(ctx, actionID); err == nil &&
+		outcome == "rolled_back" {
+		return nil
+	}
 	return target.Rollback(ctx, actionID, "fleet canary halted: rolled back")
 }
 
@@ -402,7 +417,9 @@ func (b *canaryBackend) records(result Result, at time.Time) []InstanceRecord {
 		}
 		out = append(out, InstanceRecord{InstanceID: id, Ordinal: i + 1, Status: res.Status,
 			EvidenceID: res.EvidenceID, ActionLogID: b.actions[id],
-			RegressionPct: res.RegressionPct, Detail: res.Detail, UpdatedAt: at})
+			RegressionPct: res.RegressionPct, Detail: res.Detail, UpdatedAt: at,
+			EffectPct: res.EffectPct, ControlPct: res.ControlPct,
+			EffectMethod: res.EffectMethod})
 	}
 	return out
 }

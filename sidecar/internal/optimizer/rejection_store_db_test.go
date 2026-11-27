@@ -20,10 +20,11 @@ import (
 // Integration: sage.optimizer_rejection on a real PostgreSQL, and the whole
 // optimizer cycle with a real HypoPG what-if.
 
+// rejectionDB is the package-wide pool (testdb.Pool: shared, so no test
+// closes it or leaves session state on it), with the sage schema.
 func rejectionDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool := connectTestDB(t)
-	t.Cleanup(pool.Close)
+	pool := testdb.Pool(t)
 	if err := schema.Bootstrap(context.Background(), pool); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
@@ -226,11 +227,11 @@ func TestNew_RejectionMemoryFollowsConfig(t *testing.T) {
 	pool := rejectionDB(t)
 	cfg := fnTestOptimizerConfig()
 	cfg.RejectionMemory = config.DefaultOptimizerRejectionMemory()
-	if o := New(pool, cfg, 170000, noopLog2); o.memory == nil {
+	if o := New(pool, cfg, noopLog2); o.memory == nil {
 		t.Fatal("enabled memory with a pool was not built")
 	}
 	cfg.RejectionMemory.Enabled = false
-	if o := New(pool, cfg, 170000, noopLog2); o.memory != nil {
+	if o := New(pool, cfg, noopLog2); o.memory != nil {
 		t.Fatal("disabled memory was built")
 	}
 }
@@ -249,7 +250,7 @@ func (c *countingDelegate) Validate(ctx context.Context, rec Recommendation, q [
 	return c.inner.Validate(ctx, rec, q)
 }
 
-func claimsITSetup(t *testing.T) (*pgxpool.Pool, int) {
+func claimsITSetup(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	hypopgSessionPool(t) // installs HypoPG, or skips when the server lacks it
 	pool := rejectionDB(t)
@@ -268,12 +269,7 @@ func claimsITSetup(t *testing.T) (*pgxpool.Pool, int) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	var version int
-	if err := pool.QueryRow(ctx, "SELECT current_setting('server_version_num')::int").
-		Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	return pool, version
+	return pool
 }
 
 func claimsSnapshot() *collector.Snapshot {
@@ -294,12 +290,12 @@ const claimsITDDL = "CREATE INDEX CONCURRENTLY %s ON rejmem_it.claims USING btre
 // next cycle is not measured again, and the measured shape is listed for
 // the tuning agent's case packet.
 func TestAdmit_RejectionMemoryWithRealHypoPG(t *testing.T) {
-	pool, version := claimsITSetup(t)
+	pool := claimsITSetup(t)
 	cfg := fnTestOptimizerConfig()
 	cfg.MinSnapshots = 0
 	cfg.RejectionMemory = config.DefaultOptimizerRejectionMemory()
 	logs := &logRecorder{}
-	o := New(pool, cfg, version, logs.log)
+	o := New(pool, cfg, logs.log)
 	w := &countingDelegate{inner: o.whatIf}
 	o.whatIf = w
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

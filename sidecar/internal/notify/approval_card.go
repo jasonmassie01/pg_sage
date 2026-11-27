@@ -38,6 +38,16 @@ type CardRef struct {
 	Title     string    `json:"title"`
 	Summary   string    `json:"summary,omitempty"`
 	ExpiresAt time.Time `json:"expires_at"`
+	// MaxTTL caps how long the card's buttons work (0: the issuer's TTL);
+	// a backend-signal card's evidence is minutes old (policy-08).
+	MaxTTL time.Duration `json:"max_ttl,omitempty"`
+	// NoSnooze leaves out the Snooze button: a backend signal is decided
+	// now or not at all.
+	NoSnooze bool `json:"no_snooze,omitempty"`
+	// NoApprove leaves out the Approve button: the card is above the chat
+	// approval cap (ux-09a, D7) and ApproveIn says where it is approved.
+	NoApprove bool   `json:"no_approve,omitempty"`
+	ApproveIn string `json:"approve_in,omitempty"`
 }
 
 // CardTokenIssuer mints and revokes per-channel card tokens.
@@ -107,9 +117,6 @@ func (d *Dispatcher) withCardToken(ctx context.Context, ch Channel, evt Event) (
 	func()) {
 	ref, ok := ApprovalCardOf(evt)
 	if !ok || d.cards == nil || !CardInteractive(ch) {
-		return evt, func() {}
-	}
-	if _, sre := approvalProposal(evt); sre {
 		return evt, func() {}
 	}
 	token, err := d.cards.Issue(ctx, ch, ref)

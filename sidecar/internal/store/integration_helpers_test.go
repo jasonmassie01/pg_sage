@@ -5,7 +5,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -13,14 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/crypto"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
-
-func testDSN() string {
-	if v := os.Getenv("SAGE_DATABASE_URL"); v != "" {
-		return v
-	}
-	return os.Getenv("SAGE_TEST_DATABASE_URL")
-}
 
 var (
 	testPool     *pgxpool.Pool
@@ -33,8 +26,8 @@ var (
 func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	ctx := context.Background()
+	dsn := testdb.SkipUnlessLive(t)
 	testPoolOnce.Do(func() {
-		dsn := testDSN()
 		qctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
 
@@ -63,10 +56,6 @@ func requireDB(t *testing.T) (*pgxpool.Pool, context.Context) {
 			testPoolErr = fmt.Errorf("bootstrap: %w", err)
 			testPool.Close()
 			testPool = nil
-			return
-		}
-		if err := schema.EnsureDatabasesTable(qctx, testPool); err != nil {
-			testPoolErr = fmt.Errorf("ensure databases: %w", err)
 			return
 		}
 	})

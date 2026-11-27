@@ -39,6 +39,11 @@ var (
 	ErrRefused = errors.New("ask: refused")
 	// ErrBlocked: the policy gate blocks the proposal.
 	ErrBlocked = errors.New("ask: blocked by policy")
+	// ErrConflict: a run is already active on the conversation, or the
+	// run to cancel already ended (mcp-07b).
+	ErrConflict = errors.New("ask: conflict")
+	// ErrBusy: the database has ask.max_concurrent_runs runs in progress.
+	ErrBusy = errors.New("ask: too many runs in progress")
 )
 
 // Answer statuses.
@@ -74,8 +79,12 @@ const (
 	MaxNotes                   = 5
 	MaxNoteRunes               = 300
 	MaxClaims                  = 8
-	maxTitleRunes              = 80
-	historyTurns               = 4
+	// MaxExcerptRunes bounds one citation's excerpt; MaxExcerptBytes
+	// bounds all excerpts of one answer, earlier citations first.
+	MaxExcerptRunes = 1500
+	MaxExcerptBytes = 24 * 1024
+	maxTitleRunes   = 80
+	historyTurns    = 4
 )
 
 // FinalTool is the tool the model answers with.
@@ -89,37 +98,58 @@ const (
 
 // Caller is who asks. Actor is the stable identity ("user:42",
 // "mcp:token:<id>"); MayPropose is the right to open an investigation or
-// queue a proposal (operator or admin, or the MCP propose scope); Agent
-// marks a program rather than a person. Nobody gets an approve path.
+// queue a proposal (operator or admin, or the MCP propose scope). Nobody
+// gets an approve path.
 type Caller struct {
 	Actor      string
 	MayPropose bool
-	Agent      bool
 }
 
-// Request is one question, optionally continuing a conversation.
+// For is the caller as it may act on r: a read-only request drops the
+// right to propose, so the write tools are never offered for it.
+func (c Caller) For(r Request) Caller {
+	if r.ReadOnly {
+		c.MayPropose = false
+	}
+	return c
+}
+
+// Request is one question, optionally continuing a conversation. ReadOnly
+// makes this one question answer-only: no investigation, proposal or fact
+// whatever the caller's role (Explain a case sends it).
 type Request struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	Question       string `json:"question"`
+	ReadOnly       bool   `json:"read_only,omitempty"`
 }
 
 // Statement is one verified sentence of an answer with the evidence ids
-// it cites.
+// it cites (each once) and the aliases of the reads it cites (each once;
+// they key Citation.Alias). Answers stored before aliases have no Aliases.
 type Statement struct {
 	Text      string   `json:"text"`
 	Citations []string `json:"citations"`
+	Aliases   []string `json:"aliases,omitempty"`
 }
 
-// Citation is one piece of evidence an answer cites: its id
-// ("finding:42"), kind and reference, the label and digest of exactly
-// what the model was shown, and the API path that serves the object.
+// Citation is one read an answer cites: its id ("finding:42"), the alias
+// the run showed it under (E1, E2, ...; two reads of one id are two
+// citations), kind and reference, the label and digest of exactly what
+// the model was shown, and the API path that serves the object. Answers
+// stored before aliases existed have none. Excerpt is what the model read
+// (redacted, clipped to MaxExcerptRunes); ExcerptTruncated says it is not
+// the whole text, or, with no Excerpt, that the answer's excerpt budget
+// was spent. Answers stored before excerpts have neither.
 type Citation struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Ref     string `json:"ref"`
-	Label   string `json:"label"`
-	Digest  string `json:"digest"`
-	APIPath string `json:"api_path,omitempty"`
+	ID               string `json:"id"`
+	Alias            string `json:"alias,omitempty"`
+	Kind             string `json:"kind"`
+	Ref              string `json:"ref"`
+	Label            string `json:"label"`
+	Digest           string `json:"digest"`
+	APIPath          string `json:"api_path,omitempty"`
+	Excerpt          string `json:"excerpt,omitempty"`
+	ExcerptTruncated bool   `json:"excerpt_truncated,omitempty"`
 }
 
 // ActionTaken is an investigation opened or a proposal queued (or the
@@ -153,6 +183,7 @@ type Answer struct {
 	Stop           string                   `json:"stop"`
 	Tokens         int                      `json:"tokens"`
 	Transcript     *agentloop.Transcript    `json:"transcript,omitempty"`
+	ReadOnly       bool                     `json:"read_only,omitempty"`
 	CreatedAt      time.Time                `json:"created_at"`
 }
 

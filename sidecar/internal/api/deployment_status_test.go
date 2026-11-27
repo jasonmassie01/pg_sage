@@ -42,7 +42,8 @@ func TestDeploymentStatusUsesActiveSnapshotAndNeverSerializesConfigSecrets(t *te
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result["source"] != "controller_active" || result["runtime_liveness"] != "not_reported" || result["sre"].(map[string]any)["automatic_start"] != false {
+	if result["source"] != "controller_active" || result["runtime_liveness"] != "partial" ||
+		result["sre"].(map[string]any)["automatic_start"] != false {
 		t.Fatalf("status did not use/qualify active snapshot: %s", w.Body.String())
 	}
 	if result["ai"].(map[string]any)["general"].(map[string]any)["endpoint_origin"] != "https://workspace.example" {
@@ -60,6 +61,7 @@ func TestDeploymentAndTelemetryStatusRequireRolesBeforeReadingRuntime(t *testing
 	}{
 		{"/api/v1/deployment/status", "", http.StatusUnauthorized},
 		{"/api/v1/deployment/status", auth.RoleViewer, http.StatusForbidden},
+		{"/api/v1/deployment/status", auth.RoleOperator, http.StatusForbidden},
 		{"/api/v1/deployment/status", auth.RoleAdmin, http.StatusOK},
 		{"/api/v1/lakebase-observability/status", "", http.StatusUnauthorized},
 		{"/api/v1/lakebase-observability/status", auth.RoleViewer, http.StatusOK},
@@ -74,7 +76,9 @@ func TestDeploymentAndTelemetryStatusRequireRolesBeforeReadingRuntime(t *testing
 			t.Fatalf("%s role=%q status=%d want=%d", tc.path, tc.role, w.Code, tc.want)
 		}
 	}
-	if reads != 1 {
+	// Exactly the two authorized requests read runtime: the admin deployment
+	// status (its databricks.telemetry block) and the viewer telemetry status.
+	if reads != 2 {
 		t.Fatalf("unauthorized request read runtime: reads=%d", reads)
 	}
 }

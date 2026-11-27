@@ -65,10 +65,7 @@ const maxCapabilityObjects = 50
 const toolRequestCapability = "agent_request_capability"
 
 func grantTools() []Tool {
-	return []Tool{{Name: toolRequestCapability, Description: "Ask for read access to " +
-		"tables or views for a while. Agent governance checks the request; an operator " +
-		"approves it in pg_sage (the result has the approval URL) and the grant then " +
-		"lists only columns the database's environment allows. It expires on its own",
+	return []Tool{{Name: toolRequestCapability,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 			`"capability":{"type":"string","enum":["read"]},` +
 			`"objects":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"string",` +
@@ -142,7 +139,7 @@ func (s *Server) callGrantTool(ctx context.Context, _ string,
 	}
 	backend, ok := s.backend.(GrantToolBackend)
 	if !ok {
-		return nil, failure(codeUnavailable, "agent grants are unavailable: agent "+
+		return nil, unconfigured("agent grants are unavailable: agent " +
 			"governance needs mode: meta or agents.control_database")
 	}
 	res, err := backend.RequestCapability(ctx, p.PrincipalID, in)
@@ -151,7 +148,8 @@ func (s *Server) callGrantTool(ctx context.Context, _ string,
 	}
 	if res.Verdict == VerdictPark {
 		return nil, failure(codeRateLimited, fmt.Sprintf("%s: retry after %d s",
-			res.ReasonCode, res.RetryAfterSeconds))
+			res.ReasonCode, res.RetryAfterSeconds)).withRetryAfter(
+			time.Duration(res.RetryAfterSeconds) * time.Second)
 	}
 	return toolSuccess(res), nil
 }

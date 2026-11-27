@@ -150,9 +150,9 @@ func killTargets(mgr *fleet.DatabaseManager) func(context.Context) (
 
 func killTarget(ctx context.Context, name string,
 	inst *fleet.DatabaseInstance) agentguard.KillTarget {
-	t := agentguard.KillTarget{Name: name, Pool: inst.Pool,
+	t := agentguard.KillTarget{Name: name, Pool: inst.Pool, SignalPool: inst.ActionPool,
 		ClusterKey: clusterKeyOf(ctx, name, inst.Pool),
-		Replicas:   killReplicas(inst.Config.Replicas, os.Getenv)}
+		Replicas:   killReplicas(inst.ConfigSnapshot().Replicas, os.Getenv)}
 	if inst.Executor != nil {
 		t.Executor = inst.Executor
 	}
@@ -208,4 +208,12 @@ func (l lateKillSwitch) Release(ctx context.Context, r agentguard.ReleaseRequest
 		return agentguard.UnfreezeResult{}, err
 	}
 	return sw.Release(ctx, r)
+}
+
+func (l lateKillSwitch) OpenFreezes(ctx context.Context) (agentguard.FreezeList, error) {
+	sw, err := l.sw()
+	if err != nil {
+		return agentguard.FreezeList{}, err
+	}
+	return sw.OpenFreezes(ctx)
 }

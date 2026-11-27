@@ -16,6 +16,7 @@ export const activeAgent = {
   kind: 'agent', scopes: ['read', 'propose'], databases: ['orders', 'billing'],
   created_by: 'creator@x.test', created_at: iso(-3), expires_at: iso(27),
   last_used_at: iso(-1), prefix: 'sage_mcp_AbC',
+  principal_id: 'agp_laptop00000000000000001', principal_status: 'active',
 }
 
 export const activeOperator = {
@@ -30,7 +31,8 @@ export const revokedAgent = {
   kind: 'agent', scopes: ['read'], databases: ['orders'],
   created_by: 'creator@x.test', created_at: iso(-20), expires_at: iso(10),
   revoked_at: iso(-2), revoked_by: 'secops@x.test', last_used_at: iso(-4),
-  prefix: 'sage_mcp_ReV',
+  prefix: 'sage_mcp_ReV', principal_id: 'agp_oldci000000000000000003',
+  principal_status: 'retired',
 }
 
 export const expiredAgent = {
@@ -38,6 +40,7 @@ export const expiredAgent = {
   kind: 'agent', scopes: ['read'], databases: ['*'],
   created_by: 'creator@x.test', created_at: iso(-40), expires_at: iso(-1),
   last_used_at: null, prefix: 'sage_mcp_ExP',
+  principal_id: 'agp_trial0000000000000000004', principal_status: 'frozen',
 }
 
 export const users = [
@@ -67,14 +70,16 @@ function defaultDelete(list, id) {
 
 // stubAPI installs a fetch mock. onPost(body) and onDelete(id, list) may
 // return a response (or a promise of one) to override the default replies.
+// usersStatus other than 200 fails the users list.
 export function stubAPI({
-  tokens = [], userList = users, listStatus = 200, onPost, onDelete,
+  tokens = [], userList = users, listStatus = 200, usersStatus = 200, onPost, onDelete,
 } = {}) {
   const list = [...tokens]
   const mock = vi.fn(async (url, init = {}) => {
     const path = String(url).split('?')[0]
     const method = (init.method || 'GET').toUpperCase()
     if (path === USERS_URL && method === 'GET') {
+      if (usersStatus !== 200) return response(usersStatus, { error: 'users unavailable' })
       return response(200, { users: userList })
     }
     if (path === TOKENS_URL && method === 'GET') {

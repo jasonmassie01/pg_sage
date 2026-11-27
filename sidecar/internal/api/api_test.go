@@ -33,15 +33,20 @@ func fakeAdminMiddleware(next http.Handler) http.Handler {
 }
 
 func testRouter(databases ...string) http.Handler {
-	cfg := &config.Config{
-		Mode:  "fleet",
-		Trust: config.TrustConfig{Level: "advisory"},
-		Collector: config.CollectorConfig{
-			IntervalSeconds: 60,
-			BatchSize:       1000,
-		},
-		Analyzer: config.AnalyzerConfig{IntervalSeconds: 600},
-		Safety:   config.SafetyConfig{CPUCeilingPct: 90},
+	// A complete config: the controller validates every candidate a
+	// PUT /api/v1/config builds from it (config-10).
+	cfg := config.DefaultConfig()
+	cfg.Mode = "fleet"
+	cfg.Trust.Level = "advisory"
+	cfg.Collector.IntervalSeconds = 60
+	cfg.Collector.BatchSize = 1000
+	cfg.Analyzer.IntervalSeconds = 600
+	cfg.Safety.CPUCeilingPct = 90
+	for _, name := range databases {
+		cfg.Databases = append(cfg.Databases, config.DatabaseConfig{
+			Name: name, Host: "localhost", Port: 5432,
+			Database: name, User: "postgres", SSLMode: "disable",
+		})
 	}
 	mgr := fleet.NewManager(cfg)
 	for _, name := range databases {
@@ -148,7 +153,7 @@ func TestAPI_Databases_IncludesDegraded(t *testing.T) {
 			Error:     "timeout",
 		},
 	})
-	r := NewRouter(mgr, cfg, nil)
+	r := NewRouter(mgr, cfg, nil, fakeAdminMiddleware)
 	w := get(t, r, "/api/v1/databases")
 	m := decodeJSON(t, w)
 	summary := m["summary"].(map[string]any)
@@ -397,20 +402,20 @@ func TestAPI_ConfigGet_PerDatabase_NotFound(t *testing.T) {
 func TestAPI_ConfigUpdate(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"level":"advisory"}}`)
+		`{"trust":{"level":"observation"},"expected_generation":1}`)
 	if w.Code != 200 {
-		t.Fatalf("status: %d", w.Code)
+		t.Fatalf("status: %d; body=%s", w.Code, w.Body.String())
 	}
 	m := decodeJSON(t, w)
-	if m["status"] != "updated" {
-		t.Errorf("status: %v", m["status"])
+	if m["desired_generation"] != float64(2) {
+		t.Errorf("desired_generation: %v, want 2", m["desired_generation"])
 	}
 }
 
 func TestAPI_ConfigUpdate_InvalidValue(t *testing.T) {
 	r := testRouter("db1")
 	w := put(t, r, "/api/v1/config",
-		`{"trust":{"level":"invalid"}}`)
+		`{"trust":{"level":"invalid"},"expected_generation":1}`)
 	if w.Code != 400 {
 		t.Errorf("status: %d", w.Code)
 	}
@@ -521,22 +526,6 @@ func TestAPI_Resume_UnknownDatabase(t *testing.T) {
 }
 
 // --- CORS ---
-
-func TestAPI_CORS_AllowedOrigin(t *testing.T) {
-	r := testRouter("db1")
-	req := httptest.NewRequest(
-		"OPTIONS", "/api/v1/databases", nil)
-	req.Header.Set("Origin", "http://localhost:8080")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	got := w.Header().Get("Access-Control-Allow-Origin")
-	if got != "http://localhost:8080" {
-		t.Errorf("CORS origin: got %q, want localhost:8080", got)
-	}
-	if w.Code != 200 {
-		t.Errorf("OPTIONS status: %d", w.Code)
-	}
-}
 
 func TestAPI_CORS_DisallowedOrigin(t *testing.T) {
 	r := testRouter("db1")

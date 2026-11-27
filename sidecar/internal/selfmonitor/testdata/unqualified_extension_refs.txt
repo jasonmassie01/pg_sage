@@ -1,0 +1,1 @@
+# Unqualified extension references per production file (security-01c); must stay empty.

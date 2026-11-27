@@ -6,45 +6,47 @@ import (
 	"strings"
 
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/metricsreg"
 	"github.com/pg-sage/sidecar/internal/selfcost"
 )
 
 // writeSelfCostFromFleet exports what pg_sage itself costs each database
-// (perf v1.8.3), as measured by each instance's analyzer.
+// (perf v1.8.3) and its database time by component (footprint-08), as
+// measured by each instance's analyzer.
 func writeSelfCostFromFleet(b *strings.Builder, mgr *fleet.DatabaseManager) {
 	if mgr == nil || cfg == nil {
 		return
 	}
 	costs := map[string]selfcost.Cost{}
+	comps := map[string][]selfcost.ComponentCost{}
 	for name, inst := range mgr.Instances() {
 		if inst != nil && inst.Analyzer != nil {
-			costs[name] = inst.Analyzer.SelfCost()
+			fp := inst.Analyzer.SelfFootprint()
+			costs[name], comps[name] = fp.Cost, fp.ByComponent
 		}
 	}
 	writeSelfCostMetrics(b, costs, cfg.Analyzer.SelfCostBudgetMs)
+	writeSelfComponentMetrics(b, comps)
 }
 
 // selfCostGauge is one per-database self-cost series.
 type selfCostGauge struct {
-	name, help string
-	value      func(selfcost.Cost) (float64, bool)
+	name  string
+	value func(selfcost.Cost) (float64, bool)
 }
 
 var selfCostGauges = []selfCostGauge{
-	{"pg_sage_self_db_time_ms_per_cycle", "Database time of pg_sage's own statements " +
-		"per collector cycle (ms, from pg_stat_statements)", dbTimeRate(
+	{"pg_sage_self_db_time_ms_per_cycle", dbTimeRate(
 		func(c selfcost.Cost) float64 { return c.DBTimeMsPerCycle })},
-	{"pg_sage_self_statements_per_cycle", "pg_sage statement executions per collector " +
-		"cycle", dbTimeRate(func(c selfcost.Cost) float64 { return c.CallsPerCycle })},
-	{"pg_sage_self_blocks_per_cycle", "Shared blocks hit or read by pg_sage's own " +
-		"statements per collector cycle", dbTimeRate(
+	{"pg_sage_self_statements_per_cycle",
+		dbTimeRate(func(c selfcost.Cost) float64 { return c.CallsPerCycle })},
+	{"pg_sage_self_blocks_per_cycle", dbTimeRate(
 		func(c selfcost.Cost) float64 { return c.BlocksPerCycle })},
-	{"pg_sage_self_rows_read_per_cycle", "Rows pg_sage read from its sage tables per " +
-		"collector cycle", tableRate(func(c selfcost.Cost) float64 { return c.RowsReadPerCycle })},
-	{"pg_sage_self_rows_written_per_cycle", "Rows pg_sage inserted, updated or deleted " +
-		"in its sage tables per collector cycle", tableRate(
+	{"pg_sage_self_rows_read_per_cycle",
+		tableRate(func(c selfcost.Cost) float64 { return c.RowsReadPerCycle })},
+	{"pg_sage_self_rows_written_per_cycle", tableRate(
 		func(c selfcost.Cost) float64 { return c.RowsWrittenPerCycle })},
-	{"pg_sage_self_schema_bytes", "Size of the sage schema (tables, TOAST, indexes)",
+	{"pg_sage_self_schema_bytes",
 		func(c selfcost.Cost) (float64, bool) {
 			return float64(c.SchemaBytes), c.SchemaBytes > 0
 		}},
@@ -70,17 +72,16 @@ func writeSelfCostMetrics(b *strings.Builder, costs map[string]selfcost.Cost, bu
 	}
 	sort.Strings(dbs)
 	for _, g := range selfCostGauges {
-		fmt.Fprintf(b, "# HELP %s %s\n# TYPE %s gauge\n", g.name, g.help, g.name)
+		metricsreg.Header(b, g.name)
 		for _, db := range dbs {
 			if v, ok := g.value(costs[db]); ok {
-				fmt.Fprintf(b, "%s{database=%q} %s\n", g.name, db, formatGauge(v))
+				writeSample(b, g.name, dbLabel(db), formatGauge(v))
 			}
 		}
 	}
 	if budgetMs > 0 {
-		fmt.Fprintf(b, "# HELP pg_sage_self_db_time_budget_ms analyzer.self_cost_budget_ms\n"+
-			"# TYPE pg_sage_self_db_time_budget_ms gauge\npg_sage_self_db_time_budget_ms %d\n",
-			budgetMs)
+		metricsreg.Header(b, "pg_sage_self_db_time_budget_ms")
+		fmt.Fprintf(b, "pg_sage_self_db_time_budget_ms %d\n", budgetMs)
 	}
 	b.WriteString("\n")
 }

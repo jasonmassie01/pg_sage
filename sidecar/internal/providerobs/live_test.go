@@ -36,7 +36,7 @@ func TestLiveSupabaseObservability(t *testing.T) {
 		t.Fatal("live API lacks CPU core counters or memory byte capacity")
 	}
 	now := time.Now().UTC()
-	entries, err := c.Logs(ctx, "postgres", now.Add(-15*time.Minute), now)
+	entries, _, err := c.Logs(ctx, "postgres", now.Add(-15*time.Minute), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestLiveSupabaseObservedPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	entries, err := c.Logs(context.Background(), "postgres", now.Add(-15*time.Minute), now)
+	entries, _, err := c.Logs(context.Background(), "postgres", now.Add(-15*time.Minute), now)
 	if err != nil {
 		t.Fatal(err)
 	}

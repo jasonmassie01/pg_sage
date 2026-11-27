@@ -22,13 +22,14 @@ func registerAccountLinkRoutes(
 	mux *http.ServeMux, pool *pgxpool.Pool,
 	provider *auth.OAuthProvider, providerName string,
 ) {
-	mux.HandleFunc("POST "+oauthLinkGrantPath, oauthLinkGrantHandler(provider, pool))
-	mux.HandleFunc("GET /api/v1/auth/sso", ssoStatusHandler(pool, provider, providerName))
-	adminOnly := RequireRole("admin")
-	mux.Handle("DELETE /api/v1/users/{id}/oidc",
-		adminOnly(http.HandlerFunc(unlinkUserSSOHandler(pool))))
-	mux.Handle("POST /api/v1/users/{id}/oidc-link-grant",
-		adminOnly(http.HandlerFunc(issueLinkGrantHandler(pool))))
+	route(mux, "POST "+oauthLinkGrantPath, gateSelfAuth,
+		http.HandlerFunc(oauthLinkGrantHandler(provider, pool)))
+	route(mux, "GET /api/v1/auth/sso", gateViewer,
+		http.HandlerFunc(ssoStatusHandler(pool, provider, providerName)))
+	route(mux, "DELETE /api/v1/users/{id}/oidc", gateAdmin,
+		http.HandlerFunc(unlinkUserSSOHandler(pool)))
+	route(mux, "POST /api/v1/users/{id}/oidc-link-grant", gateAdmin,
+		http.HandlerFunc(issueLinkGrantHandler(pool)))
 }
 
 // oauthAuthorizeRouter serves /auth/oauth/authorize: intent=link starts a
@@ -47,26 +48,37 @@ func oauthAuthorizeRouter(
 			return
 		}
 		// The authorize route is public for login, so the link branch
-		// resolves the session itself.
-		user := sessionUser(r, pool)
-		if user == nil {
+		// resolves the session itself, before saying anything about SSO.
+		user, err := sessionUser(r, pool)
+		if errors.Is(err, auth.ErrSessionInvalid) {
 			jsonError(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		if err != nil {
+			writeSessionStoreUnavailable(w, r, err)
+			return
+		}
+		// The middleware gate does not see this public route (apiauth-03).
+		if user.MustChangePassword {
+			jsonError(w, passwordChangeRequiredCode, http.StatusForbidden)
+			return
+		}
+		if ssoNotReady(w, provider) {
 			return
 		}
 		startLinkRoundTrip(w, r, provider, user.ID, auth.LinkViaSession)
 	}
 }
 
-func sessionUser(r *http.Request, pool *pgxpool.Pool) *auth.User {
+// sessionUser resolves the request's session: the user, ErrSessionInvalid
+// for no cookie or an invalid one, or ErrSessionStoreUnavailable when the
+// store cannot answer (apiauth-02).
+func sessionUser(r *http.Request, pool *pgxpool.Pool) (*auth.User, error) {
 	cookie, err := r.Cookie("sage_session")
-	if err != nil || pool == nil {
-		return nil
-	}
-	user, err := auth.ValidateSession(r.Context(), pool, cookie.Value)
 	if err != nil {
-		return nil
+		return nil, auth.ErrSessionInvalid
 	}
-	return user
+	return auth.ValidateSession(r.Context(), pool, cookie.Value)
 }
 
 func startLinkRoundTrip(
@@ -90,6 +102,11 @@ func oauthLinkGrantHandler(
 	return func(w http.ResponseWriter, r *http.Request) {
 		if provider == nil {
 			jsonError(w, "OAuth not configured", http.StatusNotFound)
+			return
+		}
+		// Before redeeming: a single-use grant must not be spent on a
+		// round trip that cannot start.
+		if ssoNotReady(w, provider) {
 			return
 		}
 		var req struct {

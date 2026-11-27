@@ -30,16 +30,15 @@ const maxClassBody = 4 << 10
 type classHandlers struct{ mgr *fleet.DatabaseManager }
 
 func registerAgentClassRoutes(mux *http.ServeMux, mgr *fleet.DatabaseManager) {
-	viewer := RequireRole("admin", "operator", "viewer")
-	operatorUp := RequireRole("admin", "operator")
 	h := classHandlers{mgr: mgr}
 	const base = "/api/v1/agent-classifications/{database}"
-	mux.Handle("GET "+base, viewer(http.HandlerFunc(h.list)))
-	mux.Handle("GET "+base+"/column", viewer(http.HandlerFunc(h.column)))
-	mux.Handle("PUT "+base+"/columns", operatorUp(http.HandlerFunc(h.set)))
-	mux.Handle("POST "+base+"/scan", operatorUp(http.HandlerFunc(h.scan)))
+	route(mux, "GET "+base, gateViewer, http.HandlerFunc(h.list))
+	route(mux, "GET "+base+"/column", gateViewer, http.HandlerFunc(h.column))
+	routeDB(mux, "PUT "+base+"/columns", gateOperator, classDB, http.HandlerFunc(h.set))
+	routeDB(mux, "POST "+base+"/scan", gateOperator, classDB, http.HandlerFunc(h.scan))
 	for _, verb := range []string{"confirm", "reject"} {
-		mux.Handle("POST "+base+"/{id}/"+verb, operatorUp(h.decide(verb == "confirm")))
+		routeDB(mux, "POST "+base+"/{id}/"+verb, gateOperator, classDB,
+			h.decide(verb == "confirm"))
 	}
 }
 

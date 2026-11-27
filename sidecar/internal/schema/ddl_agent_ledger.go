@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS sage.decision (
     feature             text NOT NULL,
     intent              text NOT NULL,
     target_objects      jsonb NOT NULL DEFAULT '[]'::jsonb,
-    policy_id           bigint REFERENCES sage.policy(id),
     policy_version      integer,
     verdict             text NOT NULL,
     risk_tier           text NOT NULL,

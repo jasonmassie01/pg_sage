@@ -6,7 +6,12 @@ import "fmt"
 // cluster-wide where the limit is (max_connections, WAL, slots) and are
 // labeled with whether they belong to the current database.
 
-const connectionSaturationSQL = `/* pg_sage sre:connection_saturation v3 */
+// connectionSaturationSQL's reserved_connections is every slot a normal
+// role cannot use: the superuser slots plus, from PostgreSQL 16, the
+// reserved_connections ones (the setting is absent, so 0, before). One
+// variant serves every version, so the case diagnostic's display SQL
+// (the lowest variant) counts them too.
+const connectionSaturationSQL = `/* pg_sage sre:connection_saturation v4 */
 WITH c AS (
     SELECT a.datname = pg_catalog.current_database() AS in_current_database,
            pg_catalog.left(COALESCE(a.application_name, ''), 64) AS application_name,
@@ -21,6 +26,7 @@ SELECT c.in_current_database, c.application_name, c.client_addr, c.state,
        count(*) FILTER (WHERE c.waiting)::int8 AS waiting_on_lock,
        pg_catalog.current_setting('max_connections')::int8 AS max_connections,
        pg_catalog.current_setting('superuser_reserved_connections')::int8
+           + COALESCE(pg_catalog.current_setting('reserved_connections', true)::int8, 0)
            AS reserved_connections,
        t.total AS total_client_backends,
        ` + serverIdentityColumns + `
@@ -105,13 +111,14 @@ SELECT c.num_timed::int8 AS timed_checkpoints,
 FROM pg_catalog.pg_stat_checkpointer c CROSS JOIN pg_catalog.pg_stat_wal w
 LIMIT $1`
 
-// connectionSaturationSpec is v3: M2 added the server start time and the
-// follow-ups the full server identity, so a restart or a failover between
-// two samples invalidates their comparison (CHECK-07).
+// connectionSaturationSpec is v4: v3 carried the full server identity, so
+// a restart or a failover between two samples invalidates their
+// comparison (CHECK-07); v4 counts reserved_connections from PG16
+// (playbooks-04).
 func connectionSaturationSpec() Spec {
 	s := needsStats(spec(ConnectionSaturation, FamilyConnections, ArgsNone,
 		Variant{MinVersion: 140000, SQL: connectionSaturationSQL}))
-	s.Version = "v3"
+	s.Version = "v4"
 	return s
 }
 

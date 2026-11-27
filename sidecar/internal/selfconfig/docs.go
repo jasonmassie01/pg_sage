@@ -21,10 +21,7 @@ func Markdown() string {
 	def := config.DefaultConfig()
 	for _, r := range Rules() {
 		bounds := r.Bounds(def)
-		lifecycle := "live"
-		if isRestart(r.Key) {
-			lifecycle = "restart"
-		}
+		lifecycle := DerivedLifecycle(r.Key)
 		direction := "lower"
 		if r.Widens == WidensWhenHigher {
 			direction = "higher"
@@ -59,7 +56,9 @@ const markdownIntro = "pg_sage derives these keys per database when the operator
 	"leaves them unset. Every other key is never derived: see the self-config class " +
 	"in [configuration field lifecycles](config-lifecycles.md).\n\n" +
 	"- **Evidence and bounds.** A rule reads the database (catalog size, scan " +
-	"times, connection limit, temp-file rate, pg_sage's own cost) and clamps its " +
+	"times, connection limit, temp-file rate) and the collector's measured statement " +
+	"time (each cost citation names its source: `collector` once the collector has " +
+	"run, `probe` before its first cycle), and clamps its " +
 	"value to bounds that never widen authority or spend: past the product default " +
 	"only where a fixed ceiling is justified below.\n" +
 	"- **Shadow first.** A new value is recorded in shadow and soaks for " +
@@ -68,6 +67,10 @@ const markdownIntro = "pg_sage derives these keys per database when the operator
 	"in shadow with the reason.\n" +
 	"- **Restart-bound keys** change only at startup; a value promoted while running " +
 	"is reported as pending restart.\n" +
+	"- **Live keys** are re-read by their reader every cycle, so a promoted value " +
+	"applies without a restart. The lifecycle here is the derived value's: an " +
+	"operator edit of the same key follows its field lifecycle in " +
+	"[configuration field lifecycles](config-lifecycles.md).\n" +
 	"- **The operator always wins.** A key set in the YAML file, a fleet " +
 	"`databases[]`/`defaults` field or an API override is never derived and shows as " +
 	"set by the operator. An admin can pin the current value (\"pin current\") or " +

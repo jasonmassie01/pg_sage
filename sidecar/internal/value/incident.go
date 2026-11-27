@@ -7,22 +7,19 @@ import (
 	"time"
 )
 
-// Incident kinds and severities. They mirror the CHECK constraints on
-// sage.incident_avoided.
+// Incident kinds and severities: the ones a producer writes. They mirror
+// the narrowed CHECK constraints on sage.incident_avoided (earned-09).
 const (
 	IncidentXIDWraparound = "xid_wraparound"
 	IncidentDiskFullSlot  = "disk_full_slot"
-	IncidentLockStorm     = "lock_storm"
 
-	SeverityNearMiss  = "near_miss"
-	SeverityPrevented = "prevented"
+	SeverityNearMiss = "near_miss"
 )
 
 // Credited minutes are deliberately conservative and versioned, so a later
 // model can change them without rewriting history.
 const (
 	NearMissMinutes      = 120.0
-	PreventedMinutes     = 480.0
 	incidentModelVersion = 1
 )
 
@@ -52,18 +49,14 @@ type IncidentCandidate struct {
 }
 
 func incidentMinutes(severity string) (float64, bool) {
-	switch severity {
-	case SeverityNearMiss:
+	if severity == SeverityNearMiss {
 		return NearMissMinutes, true
-	case SeverityPrevented:
-		return PreventedMinutes, true
 	}
 	return 0, false
 }
 
 func knownIncidentKind(kind string) bool {
-	return kind == IncidentXIDWraparound || kind == IncidentDiskFullSlot ||
-		kind == IncidentLockStorm
+	return kind == IncidentXIDWraparound || kind == IncidentDiskFullSlot
 }
 
 func (i AvoidedIncident) validate() error {

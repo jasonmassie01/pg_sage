@@ -130,7 +130,7 @@ func TestSlackPayload_Format(t *testing.T) {
 	))
 	defer srv.Close()
 
-	ch := NewSlack(srv.URL, noopLog)
+	ch := NewSlack(srv.URL, legacyTestClient, noopLog)
 	alert := Alert{
 		Findings: []AlertFinding{
 			{
@@ -285,7 +285,7 @@ func TestWebhook_CustomHeaders(t *testing.T) {
 		"X-Api-Key":    "secret123",
 		"X-Custom-Tag": "pg_sage",
 	}
-	ch := NewWebhook("myapp", srv.URL, headers, noopLog)
+	ch := NewWebhook("myapp", srv.URL, headers, legacyTestClient, noopLog)
 
 	alert := Alert{
 		Findings:  []AlertFinding{{ID: 1, Title: "Test"}},

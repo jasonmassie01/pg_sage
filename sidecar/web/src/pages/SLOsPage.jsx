@@ -1,13 +1,18 @@
+import { Fragment, useState } from 'react'
 import { Gauge } from 'lucide-react'
 import { useAPI } from '../hooks/useAPI'
 import { TimeAgo } from '../components/TimeAgo'
 import { LoadingSpinner } from '../components/LoadingSpinner'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { EmptyState } from '../components/EmptyState'
+import { SLODetail } from './slos/SLODetail'
+import { budgetText, humanize, since } from './slos/sloText'
 
 // Sage SRE M5 SLO view: error-budget state per SLO and database, burn
 // rates per window, unknown reasons (unknown is never "ok"), and the
-// change feed of the selected database.
+// change feed of the selected database. Each row says since when the SLO
+// is in its state and burning, and expands into its history and its
+// investigation (playbooks-09).
 
 const STATE_STYLES = {
   ok: { label: 'OK', color: 'var(--green)' },
@@ -19,10 +24,6 @@ const STATE_STYLES = {
 const card = {
   background: 'var(--bg-card)',
   border: '1px solid var(--border)',
-}
-
-function humanize(reason) {
-  return String(reason || '').replaceAll('_', ' ')
 }
 
 function formatBurn(view) {
@@ -56,13 +57,51 @@ function RuleCell({ rule }) {
   )
 }
 
-function Budget({ value }) {
-  const text = value === null || value === undefined
-    ? 'unknown' : `${Math.round(value * 100)}%`
-  return <span data-testid="slo-budget" className="text-sm">{text}</span>
+function Budget({ slo }) {
+  return (
+    <div data-testid="slo-budget" className="text-sm">
+      {budgetText(slo).map(line => <div key={line}>{line}</div>)}
+    </div>
+  )
 }
 
-function SLORow({ slo }) {
+function StateAge({ slo }) {
+  const age = since(slo.state_since)
+  return (
+    <>
+      {age && (
+        <div data-testid="slo-state-age" className="text-xs mt-1"
+          style={{ color: 'var(--text-secondary)' }}>
+          in {slo.state} for {age}
+        </div>
+      )}
+      {slo.burn_started_at && (
+        <div data-testid="slo-burn-start" className="text-xs mt-1"
+          style={{ color: 'var(--red)' }}>
+          burning since <TimeAgo timestamp={slo.burn_started_at} />
+        </div>
+      )}
+    </>
+  )
+}
+
+function SLORow({ slo, user }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Fragment>
+      <SLOSummary slo={slo} open={open} onToggle={() => setOpen(v => !v)} />
+      {open && (
+        <tr>
+          <td colSpan={6} style={{ background: 'var(--bg-card)' }}>
+            <SLODetail slo={slo} user={user} />
+          </td>
+        </tr>
+      )}
+    </Fragment>
+  )
+}
+
+function SLOSummary({ slo, open, onToggle }) {
   const unknown = slo.unknown || []
   return (
     <tr style={{ borderTop: '1px solid var(--border)' }}>
@@ -73,6 +112,11 @@ function SLORow({ slo }) {
         <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
           {slo.name}
         </div>
+        <button type="button" data-testid="slo-expand" aria-expanded={open}
+          className="text-xs underline" style={{ color: 'var(--accent)' }}
+          onClick={onToggle}>
+          {open ? 'Hide history' : 'History and investigation'}
+        </button>
         <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
           <span>{slo.kind === 'app' ? 'App SLI' : 'DB proxy'}</span>
           {` · target ${slo.target} over ${slo.window}`}
@@ -81,10 +125,19 @@ function SLORow({ slo }) {
       </td>
       <td className="p-2">
         <StateBadge state={slo.state} />
+        <StateAge slo={slo} />
         {slo.customer_impact && (
           <div data-testid="slo-impact" className="text-xs mt-1"
             style={{ color: 'var(--red)' }}>
             Customer impact
+          </div>
+        )}
+        {slo.coverage_unverified && (
+          <div data-testid="slo-coverage-unverified" className="text-xs mt-1"
+            style={{ color: 'var(--yellow)' }}
+            title={'No coverage_query: Prometheus windows are taken as fully ' +
+              'covered and fresh'}>
+            coverage unverified
           </div>
         )}
         {unknown.length > 0 && (
@@ -97,25 +150,27 @@ function SLORow({ slo }) {
       <td className="p-2">
         {(slo.rules || []).map((r, i) => <RuleCell key={i} rule={r} />)}
       </td>
-      <td className="p-2"><Budget value={slo.budget_remaining} /></td>
+      <td className="p-2"><Budget slo={slo} /></td>
       <td className="p-2 text-xs"><TimeAgo timestamp={slo.evaluated_at} /></td>
     </tr>
   )
 }
 
-function SLOTable({ slos }) {
+function SLOTable({ slos, user }) {
   return (
     <div className="rounded overflow-x-auto" style={card}>
       <table className="w-full text-left">
         <thead>
           <tr className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            <th className="p-2">Database</th><th className="p-2">SLO</th>
-            <th className="p-2">State</th><th className="p-2">Burn rates</th>
-            <th className="p-2">Budget left</th><th className="p-2">Evaluated</th>
+            <th scope="col" className="p-2">Database</th><th scope="col" className="p-2">SLO</th>
+            <th scope="col" className="p-2">State</th>
+            <th scope="col" className="p-2">Burn rates</th>
+            <th scope="col" className="p-2">Budget left</th>
+            <th scope="col" className="p-2">Evaluated</th>
           </tr>
         </thead>
         <tbody>
-          {slos.map(s => <SLORow key={`${s.database}/${s.name}`} slo={s} />)}
+          {slos.map(s => <SLORow key={`${s.database}/${s.name}`} slo={s} user={user} />)}
         </tbody>
       </table>
     </div>
@@ -155,7 +210,7 @@ function ChangeFeed({ database }) {
   )
 }
 
-export function SLOsPage({ database }) {
+export function SLOsPage({ database, user }) {
   const single = database && database !== 'all'
   const url = single
     ? `/api/v1/sre/slos?database=${encodeURIComponent(database)}`
@@ -178,7 +233,7 @@ export function SLOsPage({ database }) {
             'SLIs appear after the first evaluation; register app SLIs under sre.slo.'} />
         </div>
       )}
-      {slos.length > 0 && <SLOTable slos={slos} />}
+      {slos.length > 0 && <SLOTable slos={slos} user={user} />}
       {single && <ChangeFeed database={database} />}
     </div>
   )

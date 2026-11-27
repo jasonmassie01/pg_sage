@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // Dogfood lifeos-1: 143 incidents stayed open for months. An incident not
@@ -187,6 +188,10 @@ func TestBackendGone_Decision(t *testing.T) {
 	}
 }
 
+// vacuumSnapshot has a bloated table and pid idle in transaction, the
+// oldest xmin holder for an hour. rca-01: the holder read (XminHolders)
+// is what names a session; the fixture listed only its lock row, which
+// shows no xmin at all.
 func vacuumSnapshot(pid int, start time.Time) *collector.Snapshot {
 	idle := "idle in transaction"
 	return &collector.Snapshot{
@@ -195,6 +200,8 @@ func vacuumSnapshot(pid int, start time.Time) *collector.Snapshot {
 			CacheHitRatio: 0.999},
 		Tables: []collector.TableStats{{SchemaName: "public", RelName: "t",
 			NLiveTup: 1000, NDeadTup: 9000, TableBytes: 64 << 20}},
+		XminHolders: []probes.XminHolder{{Kind: probes.HolderSession, PID: int64(pid),
+			BackendStart: start, State: idle, XminAge: 5000, XactAgeS: 3600}},
 		Locks: []collector.LockInfo{{PID: pid, State: &idle, BackendStart: &start}},
 	}
 }
@@ -320,5 +327,58 @@ func TestStale_ConcurrentCyclesAndReaders(t *testing.T) {
 	wg.Wait()
 	if n := len(eng.ActiveIncidents()); n != 0 {
 		t.Fatalf("%d stale incidents still open", n)
+	}
+}
+
+// rca-01 state transitions: the named holder ends, so its incident
+// resolves as subject_gone; a session idle for a second is never named,
+// so it opens no incident of its own; the same holder crossing the
+// terminate minutes refreshes the open incident's recommended SQL.
+func TestVacuumBlocked_HolderEndsThenBriefIdleIsNotNamed(t *testing.T) {
+	start := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+	eng := testEngine()
+	eng.WithDatabaseName("orders")
+	first := eng.Analyze(vacuumSnapshot(4242, start), nil, testConfig(), nil)
+	if len(first) != 1 || !strings.Contains(first[0].RootCause, "PID 4242") {
+		t.Fatalf("first cycle = %+v, want the holder 4242 named", first)
+	}
+	brief := vacuumSnapshot(5151, start)
+	brief.XminHolders[0].XactAgeS = 1
+	eng.backendLookup = (&fakeBackends{live: map[int]*time.Time{5151: &start}}).lookup
+	got := eng.Analyze(brief, nil, testConfig(), nil)
+	if old := byID(eng, first[0].ID); old.ResolvedBy != ResolvedBySubjectGone {
+		t.Fatalf("old incident = %+v, want subject_gone once 4242 ended", old)
+	}
+	for _, inc := range got {
+		if ref, ok := backendSubject(&inc); ok || strings.Contains(inc.RootCause, "5151") ||
+			strings.Contains(inc.RecommendedSQL, "pg_terminate_backend") {
+			t.Fatalf("incident %q (subject %+v) names the 1 s idle session", inc.RootCause, ref)
+		}
+	}
+}
+
+func TestVacuumBlocked_TerminateMinutesRefreshTheOpenIncident(t *testing.T) {
+	start := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+	eng := testEngine()
+	eng.backendLookup = (&fakeBackends{live: map[int]*time.Time{4242: &start}}).lookup
+	snap := vacuumSnapshot(4242, start)
+	idleSince := snap.CollectedAt.Add(-time.Minute)
+	snap.Locks[0].StateChange = &idleSince
+	first := eng.Analyze(snap, nil, testConfig(), nil)
+	if len(first) != 1 || strings.Contains(first[0].RecommendedSQL, "pg_terminate_backend") ||
+		first[0].ActionRisk != "safe" {
+		t.Fatalf("first cycle = %+v, want a diagnostic after 1 min idle", first)
+	}
+	later := vacuumSnapshot(4242, start)
+	idleLong := later.CollectedAt.Add(-6 * time.Minute)
+	later.Locks[0].StateChange = &idleLong
+	got := eng.Analyze(later, nil, testConfig(), nil)
+	if len(got) != 1 || got[0].ID != first[0].ID {
+		t.Fatalf("second cycle = %+v, want the same open incident", got)
+	}
+	if got[0].RecommendedSQL != "SELECT pg_terminate_backend(4242); -- idle-in-tx xmin holder" ||
+		got[0].ActionRisk != "high_risk" {
+		t.Fatalf("refreshed sql %q risk %q, want the terminate at high_risk",
+			got[0].RecommendedSQL, got[0].ActionRisk)
 	}
 }

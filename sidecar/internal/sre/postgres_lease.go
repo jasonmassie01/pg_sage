@@ -75,7 +75,7 @@ func (s *PostgresStore) checkClaimable(ctx context.Context, tx pgx.Tx, scope Sco
 	case r.state == StatePaused:
 		return ErrInvalidTransition
 	case r.expiredNow:
-		if _, err := s.setState(ctx, tx, scope, id, StateExpired, "queue_expired",
+		if _, err := s.setState(ctx, tx, scope, id, StateExpired, ReasonQueueExpired,
 			"system"); err != nil {
 			return err
 		}
@@ -103,6 +103,8 @@ func (s *PostgresStore) grantLease(ctx context.Context, tx pgx.Tx, scope Scope, 
 		ttl = remaining
 	}
 	l := Lease{Scope: scope, InvestigationID: id, WorkerID: worker}
+	var untilLeft, segmentLeft float64
+	sent := time.Now()
 	err := tx.QueryRow(ctx, `UPDATE sage.sre_investigations
 		SET fence_token = fence_token + 1, version = version + 1,
 		    lease_owner = $4, lease_started_at = clock_timestamp(),
@@ -111,12 +113,16 @@ func (s *PostgresStore) grantLease(ctx context.Context, tx pgx.Tx, scope Scope, 
 		    active_ms = $7, updated_at = clock_timestamp(),
 		    state = CASE WHEN state IN ('queued', 'needs_evidence')
 		                 THEN 'collecting' ELSE state END
+		FROM `+leaseClock+`
 		WHERE deployment_id = $1 AND database_id = $2 AND id = $3
-		RETURNING version, fence_token, lease_until, segment_deadline`,
+		RETURNING version, fence_token, `+leaseLeftSQL,
 		string(scope.DeploymentID), string(scope.DatabaseID), string(id), string(worker),
 		ttl.Seconds(), remaining.Seconds(), active).
-		Scan(&l.Version, &l.Fence, &l.Until, &l.SegmentDeadline)
+		Scan(&l.Version, &l.Fence, &untilLeft, &segmentLeft)
 	if err != nil {
+		return l, err
+	}
+	if err := l.setDeadlines(sent, untilLeft, segmentLeft); err != nil {
 		return l, err
 	}
 	return l, appendEvent(ctx, tx, scope, id, EventClaimed, workerActor(l),
@@ -138,17 +144,26 @@ func (s *PostgresStore) Heartbeat(ctx context.Context, lease Lease) (Lease, erro
 		return Lease{}, err
 	}
 	out := lease
+	var untilLeft, segmentLeft float64
+	sent := time.Now()
 	err := s.pool.QueryRow(ctx, `UPDATE sage.sre_investigations
 		SET lease_until = LEAST(clock_timestamp() + make_interval(secs => $6),
 		                        segment_deadline)
+		FROM `+leaseClock+`
 		WHERE `+leaseGuard+`
-		RETURNING lease_until, segment_deadline`,
+		RETURNING `+leaseLeftSQL,
 		append(leaseArgs(lease), s.limits.LeaseTTL.Seconds())...).
-		Scan(&out.Until, &out.SegmentDeadline)
+		Scan(&untilLeft, &segmentLeft)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Lease{}, ErrLeaseLost
 	}
-	return out, storeErr(ctx, "heartbeat", err)
+	if err != nil {
+		return Lease{}, storeErr(ctx, "heartbeat", err)
+	}
+	if err := out.setDeadlines(sent, untilLeft, segmentLeft); err != nil {
+		return Lease{}, err
+	}
+	return out, nil
 }
 
 // chargeSQL charges the time since the lease started (at most until

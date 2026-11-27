@@ -32,7 +32,7 @@ func TestPlanRegression_DetailRecordsPlanFlip(t *testing.T) {
 	})
 	cur, _ := f.Detail["current_plan_hash"].(string)
 	prev, _ := f.Detail["previous_plan_hash"].(string)
-	if !strings.HasPrefix(cur, "v1:") || !strings.HasPrefix(prev, "v1:") {
+	if !strings.HasPrefix(cur, "v2u:") || !strings.HasPrefix(prev, "v2u:") {
 		t.Fatalf("plan hashes missing: current=%q previous=%q", cur, prev)
 	}
 	if cur == prev {

@@ -258,7 +258,7 @@ func TestSlack_NoRetryOnPermanent4xx(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 		}))
 	defer srv.Close()
-	s := NewSlack(srv.URL, noop)
+	s := NewSlack(srv.URL, legacyTestClient, noop)
 	if err := s.Send(context.Background(), Alert{
 		Findings: []AlertFinding{sampleFinding(1, "critical")},
 	}); err == nil {
@@ -276,7 +276,8 @@ func TestSenders_ErrorsDoNotLeakURLs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, ch := range []Channel{
-		NewSlack(secret, noop), NewWebhook("w", secret, nil, noop),
+		NewSlack(secret, legacyTestClient, noop),
+		NewWebhook("w", secret, nil, legacyTestClient, noop),
 	} {
 		err := ch.Send(ctx, alert)
 		if err == nil || strings.Contains(err.Error(), "ALERTSECRET") {
@@ -290,7 +291,7 @@ func TestSlackPayload_LimitsAndEscaping(t *testing.T) {
 	f := sampleFinding(1, "critical")
 	f.Title = "<!channel> " + strings.Repeat("t", 4000)
 	f.Recommendation = "<https://evil.example|click>"
-	raw, err := NewSlack("https://hooks.slack.com/x", noop).buildPayload(
+	raw, err := NewSlack("https://hooks.slack.com/x", legacyTestClient, noop).buildPayload(
 		Alert{Findings: []AlertFinding{f}, Severity: "critical",
 			Database: strings.Repeat("d", 300)})
 	if err != nil {
@@ -319,8 +320,8 @@ func TestSlackPayload_LimitsAndEscaping(t *testing.T) {
 func TestPayloads_CarryDatabaseName(t *testing.T) {
 	alert := Alert{Findings: []AlertFinding{sampleFinding(1, "critical")},
 		Severity: "critical", Database: "billing"}
-	slack, _ := NewSlack("https://hooks.slack.com/x", noop).buildPayload(alert)
-	pd, _ := NewPagerDuty("rk", noop).buildPayload(alert)
+	slack, _ := NewSlack("https://hooks.slack.com/x", legacyTestClient, noop).buildPayload(alert)
+	pd, _ := NewPagerDuty("rk", legacyTestClient, noop).buildPayload(alert)
 	web, _ := json.Marshal(alert)
 	for name, raw := range map[string][]byte{"slack": slack, "pd": pd, "webhook": web} {
 		if !strings.Contains(string(raw), "billing") {
@@ -332,7 +333,7 @@ func TestPayloads_CarryDatabaseName(t *testing.T) {
 // TestPagerDuty_ResolveUsesSameDedupKey is the alerting half of B14.
 func TestPagerDuty_ResolveUsesSameDedupKey(t *testing.T) {
 	f := sampleFinding(1, "critical")
-	p := NewPagerDuty("rk", noop)
+	p := NewPagerDuty("rk", legacyTestClient, noop)
 	trig, _ := p.buildPayload(Alert{Findings: []AlertFinding{f}, Severity: "critical"})
 	res, _ := p.buildPayload(Alert{Findings: []AlertFinding{f},
 		Severity: "critical", Resolved: true})

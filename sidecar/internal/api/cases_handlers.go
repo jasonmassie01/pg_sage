@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -14,131 +13,88 @@ import (
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/store"
-	"github.com/pg-sage/sidecar/internal/workload"
 )
 
-func casesHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		database, ok := readDatabaseParam(w, r)
-		if !ok {
-			return
-		}
-		if database == "" {
-			database = "all"
-		}
-		if rejectUnknownDatabase(w, mgr, database) {
-			return
-		}
-		if mgr == nil {
-			writeCasesResponse(w, database, []cases.Case{})
-			return
-		}
-
-		projected, err := queryProjectedCases(r.Context(), mgr, database)
-		if err != nil {
-			slog.Error("query cases failed", "error", err)
-			jsonError(w, "failed to query cases", http.StatusInternalServerError)
-			return
-		}
-		writeCasesResponse(w, database, projected)
-	}
-}
-
-func shadowReportHandler(mgr *fleet.DatabaseManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		database, ok := readDatabaseParam(w, r)
-		if !ok {
-			return
-		}
-		if database == "" {
-			database = "all"
-		}
-		if rejectUnknownDatabase(w, mgr, database) {
-			return
-		}
-		if mgr == nil {
-			jsonResponse(w, cases.BuildShadowReport(nil))
-			return
-		}
-
-		projected, err := queryProjectedCases(r.Context(), mgr, database)
-		if err != nil {
-			slog.Error("query shadow report failed", "error", err)
-			jsonError(w, "failed to query shadow report", http.StatusInternalServerError)
-			return
-		}
-		jsonResponse(w, cases.BuildShadowReport(projected))
-	}
-}
-
-func writeCasesResponse(w http.ResponseWriter, database string, projected []cases.Case) {
-	if projected == nil {
-		projected = []cases.Case{}
-	}
-	jsonResponse(w, map[string]any{
-		"database": database,
-		"cases":    projected,
-		"total":    len(projected),
-	})
-}
-
-func queryProjectedCases(
+// queryDatabaseCases projects one database's open findings, active
+// incidents and query hints (only the findings under a finding source
+// filter), each read one row past its cap so the cut is reported. The
+// finding, incident and query-hint candidates share one standing-policy
+// explanation for the database; a candidate past its
+// expires_at is blocked as evidence_expired.
+func queryDatabaseCases(
 	ctx context.Context,
 	mgr *fleet.DatabaseManager,
-	database string,
-) ([]cases.Case, error) {
-	filters := fleet.FindingFilters{Status: "open", Limit: 500, Sort: "severity", Order: "desc"}
-	pools := poolsForDatabaseSelection(mgr, database)
-	out := make([]cases.Case, 0)
-	for _, selected := range pools {
-		// The cases view needs no total: one bounded index-ordered read.
-		page, err := queryFindingsPage(ctx, selected.pool, filters,
-			listPage{Limit: filters.Limit}, selected.name, false)
-		if err != nil {
-			return nil, err
-		}
-		rows, _ := mergePage(page.rows, listPage{Limit: filters.Limit}, true,
-			filters.Sort, filters.Order)
-		selectedCases := make([]cases.Case, 0, len(rows))
-		findingIDs := make([]int, 0, len(rows))
-		for _, row := range rows {
-			// Never surface pg_sage's own monitoring queries as cases —
-			// including historical findings captured before queries were
-			// tagged (recognized by their catalog-read signature).
-			if selfmonitor.IsFinding(selfmonitor.FindingFields{
-				ObjectIdentifier: stringValue(row["object_identifier"]),
-				Title:            stringValue(row["title"]),
-				Detail:           detailMap(row["detail"]),
-				RecommendedSQL:   stringValue(row["recommended_sql"]),
-				RollbackSQL:      stringValue(row["rollback_sql"]),
-			}) {
-				continue
-			}
-			projected := cases.ProjectFinding(sourceFindingFromMap(row))
-			enrichCaseActionPolicies(&projected, mgr, selected.name)
-			if id, ok := caseFindingID(projected); ok {
-				findingIDs = append(findingIDs, id)
-			}
-			selectedCases = append(selectedCases, projected)
-		}
-		enrichCaseActionTimelines(
-			ctx, selectedCases, selected.pool,
-			store.NewActionStore(selected.pool), findingIDs,
-		)
-		out = append(out, selectedCases...)
-		incidentCases, err := queryIncidentCases(ctx, mgr, selected)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, incidentCases...)
-		queryHintCases, err := queryHintCases(ctx, selected)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, queryHintCases...)
+	selected namedPool,
+) (databaseCases, error) {
+	var res databaseCases
+	findingCases, findingIDs, cut, err := queryFindingCases(ctx, selected)
+	if err != nil {
+		return res, err
 	}
-	sortCasesGlobally(out)
-	return out, nil
+	res.truncated.Findings = cut
+	otherCases, err := queryOtherCases(ctx, selected, &res.truncated)
+	if err != nil {
+		return res, err
+	}
+	out := append(findingCases, otherCases...)
+	enrichCasesActionPolicies(ctx, out, mgr.GetInstance(selected.name))
+	enrichFindingCases(ctx, out[:len(findingCases)], selected, findingIDs)
+	cases.MarkExpiredCandidates(out, time.Now().UTC())
+	res.cases = out
+	return res, nil
+}
+
+// queryFindingCases projects one database's open findings (one bounded
+// index-ordered read; the cases view needs no total), skipping pg_sage's
+// own monitoring queries. The request's finding source filters the read
+// before the cap. cut reports open findings past the cap.
+func queryFindingCases(
+	ctx context.Context, selected namedPool,
+) (out []cases.Case, findingIDs []int, cut bool, err error) {
+	filters := fleet.FindingFilters{
+		Status: "open", Limit: caseFindingsCap, Sort: "severity", Order: "desc",
+		Source: findingSourceFrom(ctx),
+	}
+	page, err := queryFindingsPage(ctx, selected.pool, filters,
+		listPage{Limit: filters.Limit}, selected.name, false)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	rows, next := mergePage(page.rows, listPage{Limit: filters.Limit}, true,
+		filters.Sort, filters.Order)
+	attachSequenceRunway(ctx, selected.pool, selected.name, rows)
+	out, findingIDs = projectFindingRows(rows)
+	return out, findingIDs, next != "", nil
+}
+
+// projectFindingRows projects finding rows into cases and their finding
+// ids, skipping pg_sage's own monitoring queries.
+func projectFindingRows(rows []map[string]any) ([]cases.Case, []int) {
+	out := make([]cases.Case, 0, len(rows))
+	findingIDs := make([]int, 0, len(rows))
+	for _, row := range rows {
+		// Never surface pg_sage's own monitoring queries as cases —
+		// including historical findings captured before queries were
+		// tagged (recognized by their catalog-read signature).
+		// Never surface findings about pg_sage's own objects or queries.
+		if selfmonitor.IsFinding(selfmonitor.FindingFields{
+			Category:         stringValue(row["category"]),
+			ObjectType:       stringValue(row["object_type"]),
+			ObjectIdentifier: stringValue(row["object_identifier"]),
+			Title:            stringValue(row["title"]),
+			Detail:           detailMap(row["detail"]),
+			RecommendedSQL:   stringValue(row["recommended_sql"]),
+			RollbackSQL:      stringValue(row["rollback_sql"]),
+		}) {
+			continue
+		}
+		projected := cases.ProjectFinding(sourceFindingFromMap(row), executor.ClassifySQL)
+		if id, ok := caseFindingID(projected); ok {
+			findingIDs = append(findingIDs, id)
+		}
+		out = append(out, projected)
+	}
+	return out, findingIDs
 }
 
 func caseFindingID(c cases.Case) (int, bool) {
@@ -151,154 +107,37 @@ func caseFindingID(c cases.Case) (int, bool) {
 
 func queryIncidentCases(
 	ctx context.Context,
-	mgr *fleet.DatabaseManager,
 	selected namedPool,
-) ([]cases.Case, error) {
-	rows, err := queryActiveIncidents(ctx, selected.pool, "")
+) ([]cases.Case, bool, error) {
+	rows, err := queryActiveIncidentsLimit(ctx, selected.pool, "", caseIncidentsCap+1)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	cut := len(rows) > caseIncidentsCap
+	if cut {
+		rows = rows[:caseIncidentsCap]
+	}
+	out := projectIncidentRows(rows, selected.name)
+	enrichIncidentRecurrence(ctx, selected.pool, out)
+	return out, cut, nil
+}
+
+func projectIncidentRows(rows []map[string]any, database string) []cases.Case {
 	out := make([]cases.Case, 0, len(rows))
 	for _, row := range rows {
-		annotateIncidentFleetDatabase(row, selected.name)
-		projected := cases.ProjectIncident(sourceIncidentFromMap(row))
-		enrichCaseActionPolicies(&projected, mgr, selected.name)
-		out = append(out, projected)
-	}
-	return out, nil
-}
-
-func queryHintCases(
-	ctx context.Context,
-	selected namedPool,
-) ([]cases.Case, error) {
-	rows, err := queryQueryHints(ctx, selected.pool)
-	if err != nil {
-		return nil, err
-	}
-	annotateQueryHintTexts(ctx, selected.pool, rows)
-	rows = filterSelfMonitoringHintRows(rows)
-	out := make([]cases.Case, 0, len(rows))
-	for _, row := range rows {
-		if stringValue(row["status"]) == "retired" {
-			continue
-		}
-		row["database_name"] = selected.name
-		out = append(out, cases.ProjectQueryHint(sourceQueryHintFromMap(row)))
-	}
-	return out, nil
-}
-
-func annotateQueryHintTexts(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	rows []map[string]any,
-) {
-	queryIDs := uniqueQueryHintIDs(rows)
-	if len(queryIDs) == 0 {
-		return
-	}
-	psRows, err := pool.Query(ctx,
-		`/* pg_sage */ SELECT queryid, min(query)
-		 FROM pg_stat_statements
-		 WHERE dbid = (
-		   SELECT oid FROM pg_database WHERE datname = current_database()
-		 )
-		   AND queryid = ANY($1::bigint[])
-		 GROUP BY queryid`,
-		queryIDs,
-	)
-	if err != nil {
-		// Don't fail silently: without query_text the self-monitoring
-		// filter downstream can't recognize pg_sage's own hints, so they
-		// would leak into the UI. Surface the cause (D2).
-		slog.Warn("query-hint text annotation failed",
-			"error", err)
-		return
-	}
-	defer psRows.Close()
-
-	textByID := make(map[int64]string, len(queryIDs))
-	for psRows.Next() {
-		var queryID int64
-		var queryText string
-		if err := psRows.Scan(&queryID, &queryText); err == nil {
-			textByID[queryID] = queryText
-		}
-	}
-	for _, row := range rows {
-		if queryText := textByID[queryHintID(row)]; queryText != "" {
-			row["query_text"] = queryText
-		}
-	}
-}
-
-func uniqueQueryHintIDs(rows []map[string]any) []int64 {
-	seen := map[int64]bool{}
-	var out []int64
-	for _, row := range rows {
-		queryID := queryHintID(row)
-		if queryID == 0 || seen[queryID] {
-			continue
-		}
-		seen[queryID] = true
-		out = append(out, queryID)
+		annotateIncidentFleetDatabase(row, database)
+		out = append(out, cases.ProjectIncident(sourceIncidentFromMap(row)))
 	}
 	return out
 }
 
-func queryHintID(row map[string]any) int64 {
-	// queryid is a 64-bit pg_stat_statements hash and is stored as an
-	// int64 (see scanQueryHintRows). It must NOT go through float64:
-	// values beyond 2^53 lose precision, so the ANY($1::bigint[]) lookup
-	// in annotateQueryHintTexts would miss and the self-monitoring
-	// filter would silently fail (D1).
-	return int64Value(row["queryid"])
-}
-
-// int64Value extracts an int64 from a row value without a lossy float
-// round-trip. Integer types are returned exactly; float types are
-// truncated only as a last resort for values that arrived as floats.
-func int64Value(value any) int64 {
-	switch v := value.(type) {
-	case int64:
-		return v
-	case int32:
-		return int64(v)
-	case int:
-		return int64(v)
-	case float64:
-		return int64(v)
-	case float32:
-		return int64(v)
-	case string:
-		parsed, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return 0
-		}
-		return parsed
-	default:
-		return 0
-	}
-}
-
-func filterSelfMonitoringHintRows(
-	rows []map[string]any,
-) []map[string]any {
-	out := rows[:0]
-	for _, row := range rows {
-		if workload.Excluded(stringValue(row["query_text"])) {
-			continue
-		}
-		out = append(out, row)
-	}
-	return out
-}
-
+// enrichCaseActionTimelines attaches each finding case's queued and
+// executed actions. A history that cannot be read is logged and marks the
+// cases actions_unavailable rather than reading as "no actions".
 func enrichCaseActionTimelines(
 	ctx context.Context,
 	projected []cases.Case,
-	pool *pgxpool.Pool,
+	selected namedPool,
 	actionStore *store.ActionStore,
 	findingIDs []int,
 ) {
@@ -307,35 +146,36 @@ func enrichCaseActionTimelines(
 	}
 	now := time.Now().UTC()
 	queuedByID := map[int][]store.QueuedAction{}
-	loggedByID := map[int][]map[string]any{}
+	unavailable := false
 	if actionStore != nil {
-		if queued, err := actionStore.ListLedgerByFindingIDs(
-			ctx, findingIDs,
-		); err == nil {
+		queued, err := actionStore.ListLedgerByFindingIDs(ctx, findingIDs)
+		if err != nil {
+			slog.Warn("case action queue read failed",
+				"database", selected.name, "error", err)
+			unavailable = true
+		} else {
 			queuedByID = queued
 		}
 	}
-	if logged, err := queryActionLogsByFindingIDs(
-		ctx, pool, findingIDs,
-	); err == nil {
-		loggedByID = logged
+	loggedByID, err := queryActionLogsByFindingIDs(ctx, selected.pool, findingIDs)
+	if err != nil {
+		slog.Warn("case action log read failed",
+			"database", selected.name, "error", err)
+		unavailable = true
 	}
 	for i := range projected {
 		findingID, ok := caseFindingID(projected[i])
 		if !ok {
 			continue
 		}
+		projected[i].ActionsUnavailable = unavailable
 		for _, action := range queuedByID[findingID] {
-			projected[i].Actions = append(
-				projected[i].Actions,
-				caseActionFromQueuedAction(action, now),
-			)
+			projected[i].Actions = append(projected[i].Actions,
+				caseActionFromQueuedAction(action, now))
 		}
 		for _, action := range loggedByID[findingID] {
-			projected[i].Actions = append(
-				projected[i].Actions,
-				caseActionFromActionLog(action),
-			)
+			projected[i].Actions = append(projected[i].Actions,
+				caseActionFromActionLog(action))
 		}
 	}
 }
@@ -480,211 +320,4 @@ func durableVerificationStatus(row map[string]any) string {
 	default:
 		return "pending"
 	}
-}
-
-// enrichCaseActionPolicies shows each candidate's standing-policy verdict
-// from the database's own executor gate (one policy snapshot per case). No
-// instance or executor fails closed.
-func enrichCaseActionPolicies(
-	c *cases.Case,
-	mgr *fleet.DatabaseManager,
-	databaseName string,
-) {
-	var inst *fleet.DatabaseInstance
-	if mgr != nil {
-		inst = mgr.GetInstance(databaseName)
-	}
-	isReplica := false
-	provider := ""
-	if inst != nil {
-		capabilities := inst.SnapshotStatus().Capabilities
-		isReplica = capabilities.IsReplica
-		provider = capabilities.Provider
-	}
-	defer cases.ApplyProviderApplicability(c, provider)
-	var contracts []executor.ActionContract
-	var slots []int
-	for i := range c.ActionCandidates {
-		contract, ok := executor.ContractForActionType(c.ActionCandidates[i].ActionType)
-		if !ok {
-			c.ActionCandidates[i].BlockedReason = "unknown action type"
-			continue
-		}
-		contracts = append(contracts, contract)
-		slots = append(slots, i)
-	}
-	if len(contracts) == 0 {
-		return
-	}
-	decisions := fleet.InstanceFamilyExplainer(inst)(contracts, isReplica)
-	for k, decision := range decisions {
-		applyCandidatePolicy(&c.ActionCandidates[slots[k]], decision)
-	}
-}
-
-func applyCandidatePolicy(candidate *cases.ActionCandidate, decision executor.ActionPolicyDecision) {
-	candidate.PolicyDecision = &cases.ActionPolicyDecision{
-		Decision:                  decision.Decision,
-		RiskTier:                  decision.RiskTier,
-		RequiresApproval:          decision.RequiresApproval,
-		RequiresMaintenanceWindow: decision.RequiresMaintenanceWindow,
-		BlockedReason:             decision.BlockedReason,
-		Guardrails:                decision.Guardrails,
-		Provider:                  decision.Provider,
-	}
-	candidate.Guardrails = decision.Guardrails
-	candidate.RequiresApproval = decision.RequiresApproval
-	candidate.RequiresMaintenanceWindow = decision.RequiresMaintenanceWindow
-	if decision.BlockedReason != "" {
-		candidate.BlockedReason = decision.BlockedReason
-	}
-}
-
-func sourceFindingFromMap(row map[string]any) cases.SourceFinding {
-	return cases.SourceFinding{
-		ID:               stringValue(row["id"]),
-		DatabaseName:     stringValue(row["database_name"]),
-		Category:         stringValue(row["category"]),
-		Severity:         cases.Severity(stringValue(row["severity"])),
-		ObjectType:       stringValue(row["object_type"]),
-		ObjectIdentifier: stringValue(row["object_identifier"]),
-		RuleID:           stringValue(row["rule_id"]),
-		Title:            stringValue(row["title"]),
-		Recommendation:   stringValue(row["recommendation"]),
-		RecommendedSQL:   stringValue(row["recommended_sql"]),
-		RollbackSQL:      stringValue(row["rollback_sql"]),
-		Detail:           detailMap(row["detail"]),
-		ObservedAt:       timeFromMap(row, "last_seen"),
-	}
-}
-
-func sourceIncidentFromMap(row map[string]any) cases.SourceIncident {
-	return cases.SourceIncident{
-		ID:              stringValue(row["id"]),
-		DatabaseName:    stringValue(row["database_name"]),
-		Severity:        cases.Severity(stringValue(row["severity"])),
-		RootCause:       stringValue(row["root_cause"]),
-		CausalChain:     incidentChainFromAny(row["causal_chain"]),
-		AffectedObjects: stringSliceFromAny(row["affected_objects"]),
-		SignalIDs:       stringSliceFromAny(row["signal_ids"]),
-		RecommendedSQL:  stringValue(row["recommended_sql"]),
-		ActionRisk:      stringValue(row["action_risk"]),
-		Source:          stringValue(row["source"]),
-		Confidence:      floatValue(row["confidence"]),
-		DetectedAt:      timeFromMap(row, "detected_at"),
-		LastDetectedAt:  timeFromMap(row, "last_detected_at"),
-		ResolvedAt:      timePtrFromMap(row, "resolved_at"),
-		OccurrenceCount: int(floatValue(row["occurrence_count"])),
-	}
-}
-
-func sourceQueryHintFromMap(row map[string]any) cases.SourceQueryHint {
-	return cases.SourceQueryHint{
-		QueryID:          int64Value(row["queryid"]),
-		DatabaseName:     stringValue(row["database_name"]),
-		HintText:         stringValue(row["hint_text"]),
-		Symptom:          stringValue(row["symptom"]),
-		Status:           stringValue(row["status"]),
-		CreatedAt:        timeFromMap(row, "created_at"),
-		BeforeCost:       floatPtrFromAny(row["before_cost"]),
-		AfterCost:        floatPtrFromAny(row["after_cost"]),
-		SuggestedRewrite: stringValue(row["suggested_rewrite"]),
-		RewriteRationale: stringValue(row["rewrite_rationale"]),
-		VerifiedAt:       timePtrFromMap(row, "verified_at"),
-		RolledBackAt:     timePtrFromMap(row, "rolled_back_at"),
-	}
-}
-
-func incidentChainFromAny(v any) []cases.IncidentChainLink {
-	items, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]cases.IncidentChainLink, 0, len(items))
-	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		out = append(out, cases.IncidentChainLink{
-			Order:       int(floatValue(m["order"])),
-			Signal:      stringValue(m["signal"]),
-			Description: stringValue(m["description"]),
-			Evidence:    stringValue(m["evidence"]),
-		})
-	}
-	return out
-}
-
-func stringSliceFromAny(v any) []string {
-	switch items := v.(type) {
-	case []string:
-		return append([]string(nil), items...)
-	case []any:
-		out := make([]string, 0, len(items))
-		for _, item := range items {
-			if s := stringValue(item); s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
-func timePtrFromMap(row map[string]any, key string) *time.Time {
-	if row[key] == nil {
-		return nil
-	}
-	t := timeFromMap(row, key)
-	if t.IsZero() {
-		return nil
-	}
-	return &t
-}
-
-func detailMap(value any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	if m, ok := value.(map[string]any); ok {
-		return m
-	}
-	return map[string]any{"raw": value}
-}
-
-func stringValue(value any) string {
-	if value == nil {
-		return ""
-	}
-	if s, ok := value.(string); ok {
-		return s
-	}
-	return fmt.Sprint(value)
-}
-
-func floatValue(value any) float64 {
-	switch v := value.(type) {
-	case float64:
-		return v
-	case float32:
-		return float64(v)
-	case int:
-		return float64(v)
-	case int64:
-		return float64(v)
-	case int32:
-		return float64(v)
-	default:
-		return 0
-	}
-}
-
-func floatPtrFromAny(value any) *float64 {
-	if value == nil {
-		return nil
-	}
-	f := floatValue(value)
-	return &f
 }

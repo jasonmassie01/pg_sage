@@ -47,7 +47,7 @@ func (e *Executor) autonomyLimiter() policy.AutonomyLimiter {
 // bounds to WAL retention. Other custodian work has no family.
 func custodianIncidentFamily(feature string) string {
 	switch feature {
-	case "freeze", "freeze_blocker", "autovacuum_tuning":
+	case "freeze", "freeze_blocker":
 		return string(earned.FamilyWraparound)
 	case "wal":
 		return string(earned.FamilyWAL)
@@ -109,7 +109,7 @@ func (e *Executor) queueHandoff(
 	request policy.ActionRequest, key string, decision ActionPolicyDecision,
 ) error {
 	var busy bool
-	if err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT EXISTS (
+	if err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT EXISTS (
 		SELECT 1 FROM sage.action_queue WHERE identity_key = $1
 		  AND (status = 'pending' OR (status = 'rejected'
 		       AND decided_at > now() - make_interval(secs => $2::double precision))))`,
@@ -148,7 +148,7 @@ func (e *Executor) handoffFinding(
 	ctx context.Context, proposal CustodianProposal, key string,
 ) (int, error) {
 	var id int
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT id FROM sage.findings
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT id FROM sage.findings
 		WHERE category = $1 AND object_identifier = $2 AND status = 'open'
 		  AND acted_on_at IS NULL AND recommended_sql = $3
 		ORDER BY id DESC LIMIT 1`, handoffCategory, key, proposal.SQL).Scan(&id)
@@ -163,7 +163,7 @@ func (e *Executor) handoffFinding(
 	if jsonErr != nil {
 		return 0, fmt.Errorf("encode handoff detail: %w", jsonErr)
 	}
-	err = e.pool.QueryRow(ctx, `/* pg_sage */ INSERT INTO sage.findings
+	err = e.pool.QueryRow(ctx, `/* pg_sage executor */ INSERT INTO sage.findings
 		(category, severity, object_type, object_identifier, title, detail,
 		 recommendation, recommended_sql, status)
 		VALUES ($1, 'warning', 'custodian', $2, $3, $4, $5, $6, 'open') RETURNING id`,

@@ -3,7 +3,6 @@ package action
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -42,7 +41,7 @@ type liveChain struct {
 func startLiveChain(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	holderSQL ...string) *liveChain {
 	t.Helper()
-	dsn := os.Getenv(testdb.EnvName)
+	dsn := testdb.SkipUnlessLive(t)
 	lc := &liveChain{table: fmt.Sprintf("sre_m5_%d", time.Now().UnixNano()),
 		holderErr: make(chan error, len(holderSQL))}
 	ident := pgx.Identifier{lc.table}.Sanitize()
@@ -157,7 +156,10 @@ func newLiveActions(t *testing.T, st *sre.PostgresStore, pool *pgxpool.Pool,
 	if err != nil {
 		t.Fatalf("NewActionService: %v", err)
 	}
-	exec.SetApprovedActionRunner(actions)
+	if err := exec.AddApprovedActionRunner(RunnerName, RunnerKeyPrefixes(),
+		actions); err != nil {
+		t.Fatalf("add the SRE runner: %v", err)
+	}
 	h := &actionHarness{st: st, pool: pool, ctx: ctx, coord: coord, svc: svc, inv: inv,
 		actions: actions, as: store.NewActionStore(pool), cfg: ac}
 	return &liveActions{h: h, exec: exec, actions: actions}

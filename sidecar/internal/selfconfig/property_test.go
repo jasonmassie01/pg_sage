@@ -144,3 +144,43 @@ func TestCapsAreDeclared(t *testing.T) {
 		}
 	}
 }
+
+// Jitter property (footprint-04): evidence jittering by ±10% around a
+// step boundary (never more than one step either side: a wider spread is
+// a real move) promotes within the soak plus 3 passes, writes at most 3
+// ledger rows, and promotes one of the two values the jitter rounds to.
+func TestJitterAroundAStepBoundaryPromotesOnce(t *testing.T) {
+	rng := rand.New(rand.NewSource(20261108))
+	cfg := config.DefaultConfig()
+	// lowest boundary at which each rule's comparison favours the move
+	// from the default (below it the active value is within budget).
+	lowest := map[string]float64{"collector.interval_seconds": 90,
+		"safety.query_timeout_ms": 1300, "sre.runways.sequence_interval_seconds": 660}
+	keys := []string{"collector.interval_seconds", "safety.query_timeout_ms",
+		"sre.runways.sequence_interval_seconds"}
+	for i := 0; i < 1000; i++ {
+		key := keys[rng.Intn(len(keys))]
+		r := rule(t, key)
+		b := r.Bounds(cfg)
+		lo, hi := lowest[key]/r.Step, math.Floor(b.Max/r.Step)-1
+		boundary := (lo + float64(rng.Intn(int(hi-lo)+1))) * r.Step
+		amp := math.Min(0.1*boundary, 0.95*r.Step)
+		sim := newSimulation(r, cfg)
+		sim.run(soakPasses+4, func(int) Evidence {
+			return costEvidence(t, key, boundary+(2*rng.Float64()-1)*amp)
+		})
+		if sim.promotedAt < 0 || sim.promotedAt > soakPasses+3 {
+			t.Fatalf("%s around %v (±%v): promoted at pass %d, want by %d; ledger %+v",
+				key, boundary, amp, sim.promotedAt, soakPasses+3, sim.events)
+		}
+		if len(sim.events) > 3 {
+			t.Fatalf("%s around %v (±%v): %d ledger rows, want at most 3: %+v", key,
+				boundary, amp, len(sim.events), sim.events)
+		}
+		a := sim.state.Active
+		if a == nil || (*a != boundary && *a != boundary+r.Step) {
+			t.Fatalf("%s around %v: promoted %v, want %v or %v", key, boundary,
+				sim.state.Active, boundary, boundary+r.Step)
+		}
+	}
+}

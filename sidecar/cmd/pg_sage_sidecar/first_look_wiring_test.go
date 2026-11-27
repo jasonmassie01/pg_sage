@@ -23,7 +23,12 @@ import (
 // schema and returns its DSN and a pool.
 func firstLookDB(t *testing.T) (string, *pgxpool.Pool, context.Context) {
 	t.Helper()
-	dsn := testdb.CreateDatabase(t, "firstlook")
+	return firstLookOn(t, testdb.CreateDatabase(t, "firstlook"))
+}
+
+// firstLookOn bootstraps the database dsn names for a first look.
+func firstLookOn(t *testing.T, dsn string) (string, *pgxpool.Pool, context.Context) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
 	p, err := pgxpool.New(ctx, dsn)
@@ -53,6 +58,7 @@ func seedDuplicateIndex(t *testing.T, ctx context.Context, p *pgxpool.Pool) {
 func TestFirstLookRunPersistsMeasuresAndRecords(t *testing.T) {
 	_, p, ctx := firstLookDB(t)
 	seedDuplicateIndex(t, ctx, p)
+	t.Cleanup(func() { onboarding.ForgetSetup("app") }) // Init records a process gauge
 	if _, err := onboarding.Init(ctx, p, "app"); err != nil {
 		t.Fatalf("onboarding init: %v", err)
 	}
@@ -92,19 +98,20 @@ func TestFirstLookRunPersistsMeasuresAndRecords(t *testing.T) {
 
 func TestFirstLookAwaitsAnAnalyzerFindingWhenEmpty(t *testing.T) {
 	_, p, ctx := firstLookDB(t)
+	t.Cleanup(func() { onboarding.ForgetSetup("app") }) // Init records a process gauge
 	if _, err := onboarding.Init(ctx, p, "app"); err != nil {
 		t.Fatalf("onboarding init: %v", err)
 	}
 	tr := onboarding.NewTracker()
 	started := time.Now()
 	tr.Start("app", started)
-	tr.FirstLook("app", started, 0, time.Millisecond)
+	tr.FirstLook("app", started, 0, 0, time.Millisecond)
 	run := &firstLookRun{name: "app", pool: p, started: started, tracker: tr,
 		logf: func(string, string, ...any) {}}
 	go func() {
 		time.Sleep(300 * time.Millisecond)
 		_, _ = p.Exec(context.Background(), `INSERT INTO sage.findings (category, severity,
-			object_type, object_identifier, title, detail) VALUES ('unused_index', 'info',
+			object_type, object_identifier, title, detail) VALUES ('unused_index', 'warning',
 			'index', 'public.x', 'unused', '{}'::jsonb)`)
 	}()
 	wctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -250,3 +257,154 @@ func testDatabaseName(t *testing.T, p *pgxpool.Pool) string {
 	t.Helper()
 	return p.Config().ConnConfig.Database
 }
+
+func TestItemsNoteSingularAndPlural(t *testing.T) {
+	warn := firstlook.Item{Rule: "duplicate_index", Severity: firstlook.SeverityWarning}
+	note := firstlook.Item{Rule: "duplicate_index", Severity: firstlook.SeverityInfo}
+	for _, tc := range []struct {
+		items []firstlook.Item
+		want  string
+	}{
+		{nil, "0 findings, 0 items"},
+		{[]firstlook.Item{}, "0 findings, 0 items"},
+		{[]firstlook.Item{note}, "0 findings, 1 item"},
+		{[]firstlook.Item{warn}, "1 finding, 1 item"},
+		{[]firstlook.Item{warn, note}, "1 finding, 2 items"},
+		{[]firstlook.Item{warn, warn}, "2 findings, 2 items"},
+	} {
+		if got := itemsNote(tc.items); got != tc.want {
+			t.Errorf("itemsNote(%d items) = %q, want %q", len(tc.items), got, tc.want)
+		}
+	}
+}
+
+// count is how many recorded lines contain substr (the recorder is
+// sre_signals_owner_test.go's); awaitFirstFinding logs from its goroutine.
+func (l *logRecorder) count(substr string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	n := 0
+	for _, line := range l.lines {
+		if strings.Contains(line, substr) {
+			n++
+		}
+	}
+	return n
+}
+
+func insertAnalyzerFinding(t *testing.T, ctx context.Context, p *pgxpool.Pool, sev string) {
+	t.Helper()
+	if _, err := p.Exec(ctx, `INSERT INTO sage.findings (category, severity, object_type,
+		object_identifier, title, detail) VALUES ('unused_index', $1, 'index',
+		'public.x_' || $1, 'unused', '{}'::jsonb)`, sev); err != nil {
+		t.Fatalf("insert %s finding: %v", sev, err)
+	}
+}
+
+// awaitRun starts an analyzer wait for "app" after an empty first look.
+func awaitRun(t *testing.T, ctx context.Context, p *pgxpool.Pool) (*firstLookRun,
+	*logRecorder) {
+	t.Helper()
+	t.Cleanup(func() { onboarding.ForgetSetup("app") }) // Init records a process gauge
+	if _, err := onboarding.Init(ctx, p, "app"); err != nil {
+		t.Fatalf("onboarding init: %v", err)
+	}
+	tr := onboarding.NewTracker()
+	started := time.Now()
+	tr.Start("app", started)
+	tr.FirstLook("app", started, 0, 0, time.Millisecond)
+	logs := &logRecorder{}
+	return &firstLookRun{name: "app", pool: p, started: started, tracker: tr,
+		logf: logs.log}, logs
+}
+
+// TestAwaitFirstFindingWaitsPastAnInfoNote pins firstlook-07b: an info note
+// is not the first finding; the wait goes on until a warning arrives, which
+// records the time to first finding once, from the analyzer.
+func TestAwaitFirstFindingWaitsPastAnInfoNote(t *testing.T) {
+	_, p, ctx := firstLookDB(t)
+	run, logs := awaitRun(t, ctx, p)
+	insertAnalyzerFinding(t, ctx, p, "info")
+	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	done := make(chan bool, 1)
+	go func() { done <- run.awaitFirstFinding(wctx, 20*time.Millisecond) }()
+	select {
+	case got := <-done:
+		t.Fatalf("an info note ended the wait (returned %v)", got)
+	case <-time.After(400 * time.Millisecond):
+	}
+	if st, _, err := onboarding.Get(ctx, p, "app"); err != nil || st.FirstFindingAt != nil {
+		t.Fatalf("state after an info note = %+v err %v, want no first finding", st, err)
+	}
+	if m := run.tracker.Snapshot()[0]; m.HasTTFF {
+		t.Fatalf("tracker after an info note = %+v, want no ttff", m)
+	}
+	warnAt := time.Now()
+	insertAnalyzerFinding(t, ctx, p, "warning")
+	if !<-done {
+		t.Fatal("the warning was not seen as the first finding")
+	}
+	st, _, err := onboarding.Get(ctx, p, "app")
+	if err != nil || st.FirstFindingSource != "analyzer" || st.FirstFindingAt == nil ||
+		st.FirstFindingAt.Before(warnAt.Add(-time.Second)) || st.TTFFSeconds == nil {
+		t.Fatalf("state = %+v err %v, want an analyzer first finding after %s", st, err, warnAt)
+	}
+	if m := run.tracker.Snapshot()[0]; !m.HasTTFF || m.TTFF < warnAt.Sub(run.started) {
+		t.Fatalf("tracker = %+v, want a ttff of at least %s", m, warnAt.Sub(run.started))
+	}
+	first := *st.FirstFindingAt
+	if !run.awaitFirstFinding(wctx, 20*time.Millisecond) {
+		t.Fatal("second wait did not see the open warning")
+	}
+	again, _, err := onboarding.Get(ctx, p, "app")
+	if err != nil || again.FirstFindingAt == nil || !again.FirstFindingAt.Equal(first) {
+		t.Fatalf("second wait changed the first finding: %+v err %v", again, err)
+	}
+	if n := logs.count("first finding (analyzer)"); n != 1 {
+		t.Fatalf("first finding logged %d times, want once: %v", n, logs.lines)
+	}
+}
+
+// TestAwaitFirstFindingLogsReadErrorsAndKeepsPolling: a failed read logs
+// one WARN per poll and the wait goes on; it ends at the first warning once
+// the table reads again.
+func TestAwaitFirstFindingLogsReadErrorsAndKeepsPolling(t *testing.T) {
+	_, p, ctx := firstLookDB(t)
+	run, logs := awaitRun(t, ctx, p)
+	if _, err := p.Exec(ctx, "ALTER TABLE sage.findings RENAME TO findings_gone"); err != nil {
+		t.Fatalf("hide findings: %v", err)
+	}
+	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	done := make(chan bool, 1)
+	go func() { done <- run.awaitFirstFinding(wctx, 20*time.Millisecond) }()
+	deadline := time.Now().Add(10 * time.Second)
+	for logs.count("read open findings") < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	select {
+	case got := <-done:
+		t.Fatalf("a read error ended the wait (returned %v)", got)
+	default:
+	}
+	if _, err := p.Exec(ctx, "ALTER TABLE sage.findings_gone RENAME TO findings"); err != nil {
+		t.Fatalf("restore findings: %v", err)
+	}
+	insertAnalyzerFinding(t, ctx, p, "critical")
+	if !<-done {
+		t.Fatal("the wait did not resume after the read error")
+	}
+	warns, reads := logs.count("WARN "), logs.count("read open findings")
+	if reads < 2 || warns != reads ||
+		logs.count(`WARN db "app": watch for the first finding: read open findings`) != reads {
+		t.Fatalf("logs = %v, want one WARN per failed poll (at least 2)", logs.lines)
+	}
+	if st, _, err := onboarding.Get(ctx, p, "app"); err != nil ||
+		st.FirstFindingSource != "analyzer" {
+		t.Fatalf("state = %+v err %v, want an analyzer first finding", st, err)
+	}
+}
+
+// No concurrent-access test: one goroutine per database polls, and the
+// change is the SQL predicate only (the log recorder above is locked).

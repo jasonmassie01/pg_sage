@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -187,15 +188,24 @@ func (c *Client) logAdaptation(model string, kind adaptation) {
 }
 
 // statusError builds the provider error of a non-200 reply: an adaptError
-// when the request can be re-sent in another shape, otherwise a provider
-// failure recorded by the circuit breaker.
+// when the request can be re-sent in another shape, otherwise a classified
+// providerFailure. A tool-path 429 is ErrRateLimited.
 func (c *Client) statusError(
-	cfg config.LLMConfig, shape wireShape, tools bool, status int, body []byte,
-	apiErr error,
+	cfg config.LLMConfig, shape wireShape, tools bool, reply providerReply,
 ) error {
-	if kind := adaptationFor(cfg, shape, tools, status, body); kind != adaptNone {
+	apiErr := fmt.Errorf("LLM API error %d: %s", reply.status,
+		redactProviderText(string(reply.body)))
+	if tools && reply.status == http.StatusTooManyRequests {
+		apiErr = fmt.Errorf("%w (status 429)", ErrRateLimited)
+	}
+	if kind := adaptationFor(cfg, shape, tools, reply.status, reply.body); kind != adaptNone {
 		return &adaptError{kind: kind, err: apiErr}
 	}
-	c.recordFailure()
-	return apiErr
+	return &providerFailure{class: classify(reply.status, reply.body, nil),
+		status: reply.status, err: apiErr}
+}
+
+// malformed is a 200 whose body is not a usable completion.
+func malformed(err error) error {
+	return &providerFailure{class: classMalformed, status: http.StatusOK, err: err}
 }

@@ -11,14 +11,38 @@ test.describe('Dashboard page', () => {
     await mockAllAPIs(page)
   })
 
-  test('health hero renders with healthy status', async ({ page }) => {
-    await page.goto('/#/advanced')
+  // cases-11: one warning finding is open work, so the hero makes no
+  // health claim; only a summary with every count at zero is clear.
+  test('health hero reports the open warning instead of health',
+    async ({ page }) => {
+      await page.goto('/#/advanced')
 
-    const hero = page.locator('[data-testid="health-hero"]')
-    await expect(hero).toBeVisible()
-    // Mock data has 0 degraded + 0 critical => "All Systems Healthy"
-    await expect(hero).toContainText('All Systems Healthy')
-  })
+      const hero = page.locator('[data-testid="health-hero"]')
+      await expect(hero).toBeVisible()
+      await expect(hero).toContainText('1 warning finding')
+      await expect(hero).not.toContainText('No open critical or warning issues')
+      await expect(page.getByTestId('health-hero-cases-link'))
+        .toHaveAttribute('href', '#/cases')
+    })
+
+  test('health hero is clear only when every count is zero',
+    async ({ page }) => {
+      await page.route('**/api/v1/databases', route => {
+        if (route.request().url().includes('/managed')) {
+          return route.continue()
+        }
+        return route.fulfill({
+          json: {
+            ...mockDatabases,
+            summary: { ...mockDatabases.summary, total_warning: 0 },
+          },
+        })
+      })
+      await page.goto('/#/advanced')
+
+      const hero = page.locator('[data-testid="health-hero"]')
+      await expect(hero).toContainText('No open critical or warning issues')
+    })
 
   test('stat cards display correct counts', async ({ page }) => {
     await page.goto('/#/advanced')
@@ -70,20 +94,22 @@ test.describe('Dashboard page', () => {
     await expect(advisoryBadge).toBeVisible()
     await expect(advisoryBadge).toHaveAttribute(
       'title',
-      'SAFE actions may auto-execute only when execution_mode=auto, tier3_safe is on and the 8-day trust ramp has passed; otherwise they queue for approval',
+      'SAFE changes may auto-execute only when execution_mode=auto, Tier 3 Safe is on and the 8-day ramp has passed; otherwise they wait on you',
     )
     await expect(page.locator('[data-testid="trust-badge-observation"]'))
       .toBeVisible()
   })
 
-  test('recent findings section appears with data', async ({ page }) => {
+  test('top cases section appears with data', async ({ page }) => {
     await page.goto('/#/advanced')
-    await page.locator('[data-testid="overview-tab-recent-recos"]').click()
+    await page.locator('[data-testid="overview-tab-top-cases"]').click()
 
-    const findings = page.locator('[data-testid="recent-findings"]')
-    await expect(findings).toBeVisible()
-    await expect(findings).toContainText('Recent Recommendations')
-    await expect(findings).toContainText('Unused index')
+    const topCases = page.locator('[data-testid="top-cases"]')
+    await expect(topCases).toBeVisible()
+    await expect(topCases).toContainText('Top issues')
+    await expect(topCases).toContainText('Stats are stale')
+    await expect(topCases.locator('[data-testid="top-case-link"]').first())
+      .toHaveAttribute('href', /^#\/cases\?case=/)
   })
 
   test('health hero shows issues when data has degraded dbs',
@@ -114,7 +140,7 @@ test.describe('Dashboard page', () => {
       await expect(hero).toContainText('Need Attention')
     })
 
-  test('onboarding welcome shows when no databases exist',
+  test('the Snapshot page points to setup when no databases exist',
     async ({ page }) => {
       // Override databases to return empty.
       await page.route('**/api/v1/databases', route => {
@@ -137,9 +163,12 @@ test.describe('Dashboard page', () => {
 
       await page.goto('/#/advanced')
 
-      const welcome = page.locator('[data-testid="onboarding-welcome"]')
-      await expect(welcome).toBeVisible()
-      await expect(welcome).toContainText('Welcome to pg_sage')
-      await expect(welcome).toContainText('Add your first database')
+      // ux-04b: the welcome moved to the setup wizard on the home page; the
+      // Snapshot page points there.
+      const empty = page.getByTestId('snapshot-no-databases')
+      await expect(empty).toBeVisible()
+      await expect(empty).toContainText('No database is connected yet')
+      await expect(empty.getByRole('link', { name: 'Set up pg_sage' }))
+        .toHaveAttribute('href', '#/')
     })
 })

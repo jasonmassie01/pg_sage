@@ -37,7 +37,9 @@ func assertAdvisory(t *testing.T, f analyzer.Finding, mention string) {
 func TestApplyConfigAllowlist_UnknownGUCBecomesAdvisory(t *testing.T) {
 	for _, sql := range []string{
 		"ALTER SYSTEM SET log_statement = 'all';",
-		"ALTER SYSTEM SET idle_in_transaction_session_timeout = '60s';",
+		// idle_in_transaction_session_timeout is documented since advisors-07
+		// (database scope, approval only); statement_timeout is not.
+		"ALTER SYSTEM SET statement_timeout = '60s';",
 		"ALTER SYSTEM RESET fsync;",
 	} {
 		got := applyConfigAllowlist([]analyzer.Finding{configFinding(sql)})
@@ -127,7 +129,7 @@ func TestApplyConfigAllowlist_SplitsMultiKeyReloptions(t *testing.T) {
 func TestApplyConfigAllowlist_SingleReloptionAndOtherSQLUnchanged(t *testing.T) {
 	in := []analyzer.Finding{
 		configFinding(`ALTER TABLE public.orders SET (fillfactor = 90);`),
-		configFinding(`VACUUM public.orders;`),
+		bloatFinding(`VACUUM public.orders;`),
 		configFinding(``),
 		configFinding(`ALTER TABLE public.orders RESET (autovacuum_vacuum_threshold);`),
 	}
@@ -170,5 +172,83 @@ func TestParseLLMFindings_AppliesConfigAllowlist(t *testing.T) {
 	}
 	if got[2].RecommendedSQL != "ALTER SYSTEM SET work_mem = '64MB';" {
 		t.Errorf("allowlisted change lost its SQL: %q", got[2].RecommendedSQL)
+	}
+}
+
+func bloatFinding(sql string) analyzer.Finding {
+	f := configFinding(sql)
+	f.Category = "bloat_remediation"
+	return f
+}
+
+// Defence in depth (advisors-04): a config sub-advisor's value is the
+// setting change itself, so any other SQL it returns is advisory only.
+func TestApplyConfigAllowlist_ConfigCategoryOtherSQLIsAdvisory(t *testing.T) {
+	sqls := []string{
+		"CREATE INDEX CONCURRENTLY i ON public.t (a);",
+		"VACUUM FULL t;",
+		"SELECT pg_terminate_backend(42);",
+		"ALTER SYSTEM RESET ALL;",
+		"ALTER DATABASE orders SET work_mem = '1GB';",
+		"ALTER ROLE app SET work_mem = '1GB';",
+		"DROP TABLE t;",
+		"ALTER TABLE t ADD COLUMN c int;",
+	}
+	for c := range configCategories {
+		for _, sql := range sqls {
+			f := configFinding(sql)
+			f.Category = c
+			got := applyConfigAllowlist([]analyzer.Finding{f})
+			if len(got) != 1 {
+				t.Fatalf("%s %q: got %d findings, want 1", c, sql, len(got))
+			}
+			assertAdvisory(t, got[0], "not a setting change")
+		}
+	}
+}
+
+// Boundary: the statements a config sub-advisor may run stay executable,
+// a config finding that carries no SQL is left alone, and the advisory
+// categories keep their own handling.
+func TestApplyConfigAllowlist_ConfigCategoryBoundary(t *testing.T) {
+	for _, sql := range []string{
+		"ALTER SYSTEM SET work_mem = '64MB';",
+		"ALTER SYSTEM RESET work_mem;",
+		"ALTER TABLE public.t SET (fillfactor = 90);",
+		"ALTER TABLE public.t RESET (fillfactor);",
+	} {
+		f := configFinding(sql)
+		f.Category = "wal_tuning"
+		got := applyConfigAllowlist([]analyzer.Finding{f})
+		if len(got) != 1 || got[0].RecommendedSQL != sql || got[0].ActionRisk != "moderate" {
+			t.Errorf("%q: got %+v, want unchanged", sql, got)
+		}
+	}
+	empty := applyConfigAllowlist([]analyzer.Finding{configFinding("")})
+	if len(empty) != 1 || empty[0].Recommendation != "because" ||
+		empty[0].Severity != "warning" {
+		t.Errorf("SQL-less config finding changed: %+v", empty)
+	}
+	for _, c := range []string{"bloat_remediation", "query_rewrite"} {
+		f := configFinding("VACUUM FULL t;")
+		f.Category = c
+		got := applyConfigAllowlist([]analyzer.Finding{f})
+		if len(got) != 1 || got[0].RecommendedSQL != "VACUUM FULL t;" {
+			t.Errorf("%s: got %+v, want its own handling unchanged", c, got)
+		}
+	}
+}
+
+// Through the parse path the WAL advisor's CREATE INDEX or VACUUM FULL is
+// kept as advice with no SQL and no action risk (it was "safe" before).
+func TestParseLLMFindings_WALAdvisorNonConfigSQLIsAdvisory(t *testing.T) {
+	for _, sql := range []string{"CREATE INDEX CONCURRENTLY i ON t (a)", "VACUUM FULL t"} {
+		raw := `[{"object_identifier":"instance","severity":"warning",` +
+			`"rationale":"because","recommended_sql":"` + sql + `"}]`
+		got := parseLLMFindings(raw, "wal_tuning", noopLog)
+		if len(got) != 1 {
+			t.Fatalf("%q: got %d findings, want 1", sql, len(got))
+		}
+		assertAdvisory(t, got[0], "not a setting change")
 	}
 }

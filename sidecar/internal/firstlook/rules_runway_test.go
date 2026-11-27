@@ -215,7 +215,7 @@ func TestMaxItemsPerRuleCapsAndCounts(t *testing.T) {
 		x.Valid = false
 		idx = append(idx, x)
 	}
-	items, dropped := capItems(InvalidIndexes(idx), th.MaxItemsPerRule)
+	items, dropped := capItems(InvalidIndexes(idx, IndexBuilds{}), th.MaxItemsPerRule)
 	if len(items) != 2 || dropped != 3 {
 		t.Fatalf("capped = %d dropped = %d, want 2 and 3", len(items), dropped)
 	}

@@ -10,7 +10,7 @@ func TestAutovacuumTuningDoesNotPromiseUncapturedRecovery(t *testing.T) {
 	}
 	candidate := autovacuumTuningCandidate(SourceFinding{
 		RecommendedSQL: "ALTER TABLE public.t SET (autovacuum_vacuum_scale_factor = 0.05)",
-	})
+	}, testClassify)
 	if candidate.RollbackClass != "unknown" || candidate.RecoveryDetail == "" || candidate.ScriptOutput.RollbackSQL != "" {
 		t.Fatalf("candidate must require captured previous settings: %#v", candidate)
 	}

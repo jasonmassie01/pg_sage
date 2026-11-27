@@ -13,9 +13,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/appmode"
 )
 
-const DatabricksAppMode = "databricks_app"
+const DatabricksAppMode = appmode.AuthMode
 
 // ErrDatabricksAppAudienceDenied distinguishes an audience refusal from an
 // unavailable account store, without querying or provisioning that identity.
@@ -31,11 +32,18 @@ type DatabricksAppConfig struct {
 	Workspace           string
 	AdminEmail          string
 	AllowedEmailDomains []string
+	// IdentityPin is off, log or enforce (SAGE_DATABRICKS_APP_IDENTITY_PIN,
+	// default log); empty behaves as log. See checkIdentityPin.
+	IdentityPin string
 }
 
-// LoadDatabricksAppConfigFromEnv returns nil for ordinary session auth.
-// Selecting proxy identity outside the declared Apps runtime fails closed.
+// LoadDatabricksAppConfigFromEnv returns nil for ordinary session auth outside
+// Databricks Apps. Selecting proxy identity outside the declared Apps runtime,
+// or running inside it without App auth mode, fails closed.
 func LoadDatabricksAppConfigFromEnv(getenv func(string) string) (*DatabricksAppConfig, error) {
+	if err := appmode.Required(getenv); err != nil {
+		return nil, err
+	}
 	mode := getenv("SAGE_AUTH_MODE")
 	if mode == "" || mode == "session" {
 		return nil, nil
@@ -67,7 +75,12 @@ func LoadDatabricksAppConfigFromEnv(getenv func(string) string) (*DatabricksAppC
 	if err != nil {
 		return nil, err
 	}
-	cfg := &DatabricksAppConfig{Workspace: strings.TrimRight(u.String(), "/"), AdminEmail: email, AllowedEmailDomains: domains}
+	pin, err := databricksAppPinMode(getenv(databricksAppPinEnv))
+	if err != nil {
+		return nil, err
+	}
+	cfg := &DatabricksAppConfig{Workspace: strings.TrimRight(u.String(), "/"), AdminEmail: email,
+		AllowedEmailDomains: domains, IdentityPin: pin}
 	if err := cfg.CheckEmailAudience(email); err != nil {
 		return nil, fmt.Errorf("SAGE_DATABRICKS_ADMIN_EMAIL must belong to SAGE_DATABRICKS_ALLOWED_EMAIL_DOMAINS: %w", err)
 	}
@@ -122,7 +135,8 @@ func (c DatabricksAppConfig) CheckEmailAudience(email string) error {
 
 // DatabricksAppEmail rejects lists, display names and whitespace. Identity is
 // keyed by the platform-asserted email in this workspace, not a body field or
-// arbitrary forwarded user/role header. Email is not claimed to be immutable.
+// arbitrary forwarded user/role header. Email is not claimed to be immutable:
+// the forwarded IdP user value is pinned beside it (checkIdentityPin).
 func DatabricksAppEmail(raw string) (string, error) {
 	a, err := mail.ParseAddress(raw)
 	if err != nil || a.Name != "" || a.Address != raw || len(raw) > 254 ||
@@ -139,7 +153,10 @@ func (c DatabricksAppConfig) Identity(email string) Identity {
 
 // ResolveDatabricksAppUser reads the durable role on every request. It does
 // not grant administrator privileges from request headers or cache stale roles.
-func ResolveDatabricksAppUser(ctx context.Context, pool *pgxpool.Pool, c DatabricksAppConfig, email string) (*User, error) {
+// forwardedUser is the X-Forwarded-User value, or "" when absent; a value is
+// pinned to the account on first sight and compared afterwards.
+func ResolveDatabricksAppUser(ctx context.Context, pool *pgxpool.Pool, c DatabricksAppConfig,
+	email, forwardedUser string) (*User, error) {
 	if err := c.CheckEmailAudience(email); err != nil {
 		return nil, err
 	}
@@ -148,13 +165,13 @@ func ResolveDatabricksAppUser(ctx context.Context, pool *pgxpool.Pool, c Databri
 	}
 	identity := c.Identity(email)
 	u, err := userByOAuthIdentity(ctx, pool, identity)
-	if err == nil {
-		return u, nil
+	if errors.Is(err, pgx.ErrNoRows) {
+		u, err = FindOrCreateOAuthUser(ctx, pool, identity, "databricks_apps", RoleViewer)
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil {
 		return nil, err
 	}
-	return FindOrCreateOAuthUser(ctx, pool, identity, "databricks_apps", RoleViewer)
+	return c.checkIdentityPin(ctx, pool, u, forwardedUser)
 }
 
 // BootstrapDatabricksAppAdmin explicitly binds the configured owner, preserving
@@ -203,7 +220,7 @@ func BootstrapDatabricksAppAdmin(ctx context.Context, pool *pgxpool.Pool, c Data
 	if err != nil {
 		return fmt.Errorf("bind Databricks admin: %w", err)
 	}
-	if _, err := tx.Exec(ctx, "DELETE FROM sage.sessions WHERE user_id = $1", userID); err != nil {
+	if _, err := EndUserSessions(ctx, tx, userID, ""); err != nil {
 		return fmt.Errorf("revoke previous admin sessions: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

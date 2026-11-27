@@ -8,6 +8,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/sre/probes"
 )
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,12 @@ func testConfig() *config.Config {
 			TableBloatDeadTuplePct: 10,
 		},
 	}
+}
+
+// withMaxConns gives system stats the 100 connection slots the fixtures use.
+func withMaxConns(s collector.SystemStats) collector.SystemStats {
+	s.MaxConnections = 100
+	return s
 }
 
 func testEngine() *Engine {
@@ -130,16 +137,10 @@ func TestAnalyze_ConnectionsHigh_IdleInTx(t *testing.T) {
 			TotalBackends:     85,
 			MaxConnections:    100,
 			IdleInTransaction: 40,
-			CacheHitRatio:     0.999,
-		},
-		ConfigData: &collector.ConfigSnapshot{
-			ConnectionStates: []collector.ConnectionState{
-				{
-					State:              "idle in transaction",
-					Count:              40,
-					AvgDurationSeconds: 600.0, // 10 minutes > 5 min threshold
-				},
-			},
+			// rca-03: the longest idle session, read with the system stats
+			// (was the configuration snapshot's average).
+			IdleInTxMaxSeconds: 600.0, // 10 minutes > 5 min threshold
+			CacheHitRatio:      0.999,
 		},
 	}
 
@@ -210,10 +211,8 @@ func TestAnalyze_CacheHitDrop_WorkingSet(t *testing.T) {
 	}
 	curr := &collector.Snapshot{
 		CollectedAt: time.Now(),
-		System: collector.SystemStats{
-			MaxConnections: 100,
-			CacheHitRatio:  0.80, // below 0.95
-		},
+		// rca-03: the interval ratio is the signal's (was the lifetime one).
+		System: withMaxConns(intervalRatio(0.80)), // below 0.95
 		Queries: []collector.QueryStats{
 			{QueryID: 1, SharedBlksRead: 150, Query: "SELECT 1"}, // 1.5x, not 10x
 		},
@@ -279,25 +278,17 @@ func TestAnalyze_WALSpike(t *testing.T) {
 	eng := testEngine()
 	cfg := testConfig()
 
-	prev := &collector.Snapshot{
-		CollectedAt: time.Now().Add(-time.Minute),
-		System: collector.SystemStats{
-			MaxConnections: 100,
-			CacheHitRatio:  0.999,
-		},
-		Queries: []collector.QueryStats{
-			{QueryID: 1, WALBytes: 1000},
-		},
-	}
-	curr := &collector.Snapshot{
-		CollectedAt: time.Now(),
-		System: collector.SystemStats{
-			MaxConnections: 100,
-			CacheHitRatio:  0.999,
-		},
-		Queries: []collector.QueryStats{
-			{QueryID: 1, WALBytes: 3000}, // 3x spike
-		},
+	// rca-03: the WAL rate is the insert LSN's advance per minute over
+	// each collector interval, a cumulative position the collector
+	// differences. The old fixture fed summed statement WAL bytes of 1000
+	// then 3000 as if they were per-interval deltas. Here the cluster
+	// writes 10 MiB in the first minute and 30 MiB in the second.
+	base := time.Now().Add(-2 * time.Minute)
+	first := walSnap(base)
+	prev := walIvSnap(base.Add(time.Minute), 10<<20)
+	curr := walIvSnap(base.Add(2*time.Minute), 30<<20) // 3x the previous minute's rate
+	if got := eng.Analyze(prev, first, cfg, nil); len(got) != 0 {
+		t.Fatalf("first interval opened %d incidents, want none", len(got))
 	}
 
 	incidents := eng.Analyze(curr, prev, cfg, nil)
@@ -396,14 +387,9 @@ func TestDedup_DifferentSourcesNotMerged(t *testing.T) {
 	eng.Analyze(connSnap, nil, cfg, nil)
 
 	// Snapshot that fires cache_hit_drop (different source).
-	cacheSnap := &collector.Snapshot{
-		CollectedAt: time.Now(),
-		System: collector.SystemStats{
-			TotalBackends:  10,
-			MaxConnections: 100,
-			CacheHitRatio:  0.80,
-		},
-	}
+	cacheSys := withMaxConns(intervalRatio(0.80)) // rca-03: the interval ratio
+	cacheSys.TotalBackends = 10
+	cacheSnap := &collector.Snapshot{CollectedAt: time.Now(), System: cacheSys}
 	active := eng.Analyze(cacheSnap, nil, cfg, nil)
 
 	// Should have at least 2 different incidents: one from connections_high
@@ -799,9 +785,7 @@ func TestAnalyze_ConnectionsHigh_GradualGrowth(t *testing.T) {
 			MaxConnections: 100,
 			CacheHitRatio:  0.999,
 		},
-		ConfigData: &collector.ConfigSnapshot{
-			ConnectionChurn: 10,
-		},
+		ConfigData: &collector.ConfigSnapshot{},
 	}
 	curr := &collector.Snapshot{
 		CollectedAt: time.Now(),
@@ -810,9 +794,7 @@ func TestAnalyze_ConnectionsHigh_GradualGrowth(t *testing.T) {
 			MaxConnections: 100,
 			CacheHitRatio:  0.999,
 		},
-		ConfigData: &collector.ConfigSnapshot{
-			ConnectionChurn: 12, // not 2x of 10
-		},
+		ConfigData: &collector.ConfigSnapshot{},
 	}
 
 	incidents := eng.Analyze(curr, prev, cfg, nil)
@@ -847,15 +829,16 @@ func TestAnalyze_ConnectionsHigh_ConnectionStorm(t *testing.T) {
 	eng := testEngine()
 	cfg := testConfig()
 
-	// Churn doubled => connection storm branch.
+	// Churn doubled => connection storm branch. rca-03: churn is the
+	// sessions opened per minute (pg_stat_database.sessions over the
+	// interval), not the surviving sessions started in the last 5 minutes.
+	prevSessions, currSessions := int64(10), int64(25) // > 10*2
 	prev := &collector.Snapshot{
 		CollectedAt: time.Now().Add(-time.Minute),
 		System: collector.SystemStats{
 			MaxConnections: 100,
 			CacheHitRatio:  0.999,
-		},
-		ConfigData: &collector.ConfigSnapshot{
-			ConnectionChurn: 10,
+			Interval:       &collector.SystemInterval{Seconds: 60, Sessions: &prevSessions},
 		},
 	}
 	curr := &collector.Snapshot{
@@ -864,9 +847,7 @@ func TestAnalyze_ConnectionsHigh_ConnectionStorm(t *testing.T) {
 			TotalBackends:  85,
 			MaxConnections: 100,
 			CacheHitRatio:  0.999,
-		},
-		ConfigData: &collector.ConfigSnapshot{
-			ConnectionChurn: 25, // > 10*2
+			Interval:       &collector.SystemInterval{Seconds: 60, Sessions: &currSessions},
 		},
 	}
 
@@ -902,25 +883,29 @@ func TestAnalyze_CacheHitDrop_SpecificQuery(t *testing.T) {
 	eng := testEngine()
 	cfg := testConfig()
 
+	// rca-03: the counters are cumulative. Query 42 read 1 block a call
+	// over its first 100 calls and 490 a call over the 10 calls of this
+	// interval, under one pg_stat_statements epoch; the interval ratio is
+	// the signal's.
+	epoch := time.Now().Add(-24 * time.Hour)
 	prev := &collector.Snapshot{
 		CollectedAt: time.Now().Add(-time.Minute),
+		StatsEpoch:  epoch,
 		System: collector.SystemStats{
 			MaxConnections: 100,
 			CacheHitRatio:  0.999,
 		},
 		Queries: []collector.QueryStats{
-			{QueryID: 42, SharedBlksRead: 100, Query: "SELECT big"},
+			{QueryID: 42, Calls: 100, SharedBlksRead: 100, Query: "SELECT big"},
 		},
 	}
 	curr := &collector.Snapshot{
 		CollectedAt: time.Now(),
-		System: collector.SystemStats{
-			MaxConnections: 100,
-			CacheHitRatio:  0.80,
-		},
+		StatsEpoch:  epoch,
+		System:      withMaxConns(intervalRatio(0.80)),
 		Queries: []collector.QueryStats{
-			{QueryID: 42, SharedBlksRead: 5000, Query: "SELECT big"},
-			// 5000 > 100*10 => specific query branch
+			{QueryID: 42, Calls: 110, SharedBlksRead: 5000, Query: "SELECT big"},
+			// 4900/10 = 490 per call > 1*10 => specific query branch
 		},
 	}
 
@@ -971,6 +956,11 @@ func TestAnalyze_VacuumBlocked_XminHolder(t *testing.T) {
 				TableBytes: 64 << 20,
 			},
 		},
+		// rca-01: the holder read shows 1234 holding the oldest xmin for
+		// an hour. The test listed only its lock row, pinning blame on an
+		// idle session with no evidence it holds the horizon.
+		XminHolders: []probes.XminHolder{{Kind: probes.HolderSession, PID: 1234,
+			State: idleState, XminAge: 4000, XactAgeS: 3600}},
 		Locks: []collector.LockInfo{
 			{PID: 1234, State: &idleState},
 		},

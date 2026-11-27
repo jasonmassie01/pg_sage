@@ -181,3 +181,55 @@ describe('InvestigationPanel review', () => {
       .toBeInTheDocument()
   })
 })
+
+// sre-02: how old the evidence was when the run concluded, and a stale
+// resume that ended expired instead of concluding on old evidence.
+describe('InvestigationPanel evidence age', () => {
+  const withSummary = (inv, extra) => ({ ...inv, summary: { ...inv.summary, ...extra } })
+
+  it('says how old the evidence was when it is older than a sample interval', () => {
+    const inv = withSummary(concluded.investigation,
+      { evidence_newest_at: '2026-09-27T09:35:00Z', evidence_age_s: 1500 })
+    detail = { ...concluded, investigation: inv }
+    const panel = open(inv)
+    expect(within(panel).getByTestId('investigation-evidence-age'))
+      .toHaveTextContent('Concluded on evidence 25 min old')
+  })
+
+  it('says nothing about evidence collected within the run', () => {
+    const inv = withSummary(concluded.investigation,
+      { evidence_newest_at: '2026-09-27T10:00:01Z', evidence_age_s: 4 })
+    detail = { ...concluded, investigation: inv }
+    const panel = open(inv)
+    expect(within(panel).queryByTestId('investigation-evidence-age')).toBeNull()
+    expect(within(panel).queryByTestId('investigation-stale')).toBeNull()
+  })
+
+  it('says a stale resume ended because its evidence was too old, with no re-run control',
+    () => {
+      const inv = { ...concluded.investigation, state: 'expired',
+        failure_code: 'stale_evidence',
+        summary: { conclusive: false, reason: 'stale_evidence',
+          evidence_newest_at: '2026-09-27T09:00:00Z', evidence_age_s: 3600 } }
+      detail = { ...concluded, investigation: inv, hypotheses: [] }
+      const panel = open(inv, { role: 'operator' })
+      expect(screen.getByTestId('investigation-state')).toHaveTextContent('Expired')
+      const stale = within(panel).getByTestId('investigation-stale')
+      expect(stale).toHaveTextContent('Evidence too old to conclude')
+      expect(stale).toHaveTextContent('60 min old')
+      expect(within(panel).queryByTestId('investigation-evidence-age')).toBeNull()
+      expect(within(panel).getByTestId('investigation-likely'))
+        .toHaveTextContent('Evidence too old to conclude')
+      const controls = [...within(panel).queryAllByRole('button'),
+        ...within(panel).queryAllByRole('link')].map(b => b.textContent)
+      expect(controls.filter(b => /new attempt|re-?run|retry|start/i.test(b))).toEqual([])
+    })
+
+  it('does not call another expiry stale evidence', () => {
+    const inv = { ...concluded.investigation, state: 'expired',
+      failure_code: 'queue_expired', summary: { conclusive: false } }
+    detail = { ...concluded, investigation: inv, hypotheses: [] }
+    const panel = open(inv)
+    expect(within(panel).queryByTestId('investigation-stale')).toBeNull()
+  })
+})

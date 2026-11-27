@@ -51,6 +51,6 @@ func (op *LifecycleMutation) UpdateMetadata(
 	if m.instances[expected.Name] != expected {
 		return ErrInstanceConflict
 	}
-	expected.Config = cfg
+	expected.setConfig(cfg)
 	return nil
 }

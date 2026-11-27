@@ -45,7 +45,7 @@ func (e *Executor) serializeBudget(
 		return ctx, nil, fmt.Errorf("begin the budget transaction: %w", err)
 	}
 	namespace, database := e.budgetLockKeys()
-	if _, err := tx.Exec(ctx, `/* pg_sage */ SELECT pg_advisory_xact_lock($1, $2)`,
+	if _, err := tx.Exec(ctx, `/* pg_sage executor */ SELECT pg_advisory_xact_lock($1, $2)`,
 		namespace, database); err != nil {
 		if rollbackErr := tx.Rollback(context.WithoutCancel(ctx)); rollbackErr != nil {
 			e.logFn("executor", "roll back the budget transaction: %v", rollbackErr)
@@ -78,14 +78,13 @@ func (e *Executor) usageRow(ctx context.Context, sql string, args ...any) pgx.Ro
 // recordStandingDecision records a standing-gate decision in the ledger,
 // inside the budget transaction when the gate holds the budget lock.
 func (e *Executor) recordStandingDecision(
-	ctx context.Context, policyVersion int64, request policy.ActionRequest,
-	decision policy.Decision,
+	ctx context.Context, request policy.ActionRequest, decision policy.Decision,
 ) (string, int64, error) {
 	repository := ledger.NewPostgresRepository(e.pool)
 	if tx, ok := budgetTx(ctx); ok {
 		repository = ledger.NewTxRepository(tx)
 	}
-	input := ledgerInput(e.databaseID, policyVersion, request, decision)
+	input := ledgerInput(e.databaseID, request, decision)
 	recorded, err := ledger.NewService(repository).RecordDecision(ctx, input)
 	if err == nil {
 		countDecision(e.databaseName, decision)

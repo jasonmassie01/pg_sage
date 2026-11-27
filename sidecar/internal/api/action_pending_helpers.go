@@ -18,6 +18,13 @@ func fleetReadFailure(database, op string, err error) map[string]string {
 	}
 }
 
+// notConnectedFailure reports a fleet database that has no pool, so a
+// fleet-wide read is known to be partial. It is expected while a database
+// connects, so it is not logged as an error.
+func notConnectedFailure(database string) map[string]string {
+	return map[string]string{"database": database, "error": "not connected"}
+}
+
 // singleModeDatabaseFilter parses ?database= for the single-database
 // pending handler. A numeric value filters by database id; a name is
 // validated and, since there is only one database, applies no filter

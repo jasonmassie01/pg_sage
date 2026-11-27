@@ -1,0 +1,141 @@
+# pg_sage alert rules (observability-09). Load this file with
+# `rule_files:` in prometheus.yml; `promtool test rules
+# pg_sage.rules_test.yml` checks every rule. The families and the
+# runbooks are documented in docs/metrics.md, which each runbook_url links.
+#
+# PgSageDown assumes the scrape job is named "pg_sage"; change the job
+# matcher if yours differs. PgSageCollectorStale assumes the default
+# collector.interval_seconds of 60 (3 intervals = 180 s).
+groups:
+  - name: pg_sage
+    rules:
+      - alert: PgSageDown
+        expr: up{job="pg_sage"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "pg_sage target {{ $labels.instance }} is not being scraped"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagedown"
+
+      - alert: PgSageDatabaseDown
+        expr: pg_sage_database_up == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "pg_sage cannot reach database {{ $labels.database }}"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagedatabasedown"
+
+      - alert: PgSageCollectorStale
+        expr: time() - pg_sage_collector_last_success_timestamp_seconds > 180
+        for: 2m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "pg_sage has not collected a snapshot of {{ $labels.database }} in 3 intervals"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagecollectorstale"
+
+      - alert: PgSageLLMCircuitOpen
+        expr: pg_sage_llm_circuit_open == 1
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "pg_sage's LLM circuit breaker has been open for 15 minutes"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagellmcircuitopen"
+
+      # A series that first appears at 1 has no increase() yet, so the
+      # second arm, the persisted time of the latest failure, catches a
+      # database's first failure in a class without re-alerting old ones
+      # when Prometheus itself starts fresh.
+      - alert: PgSageActionFailed
+        expr: >-
+          increase(pg_sage_actions_total{outcome="failed"}[15m]) > 0
+          or on(database)
+          (time() - pg_sage_action_last_failure_timestamp_seconds < 900)
+        labels:
+          severity: page
+        annotations:
+          summary: "pg_sage recorded a failed action on {{ $labels.database }}"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageactionfailed"
+
+      # The second arm catches a class's first rollback; a Prometheus with
+      # no history of the last hour also reports earlier rollbacks once.
+      - alert: PgSageActionRolledBack
+        expr: >-
+          increase(pg_sage_actions_total{outcome="rolled_back"}[1h]) > 0
+          or (pg_sage_actions_total{outcome="rolled_back"} > 0
+          unless pg_sage_actions_total{outcome="rolled_back"} offset 1h)
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A pg_sage {{ $labels.class }} action was rolled back on {{ $labels.database }}"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageactionrolledback"
+
+      - alert: PgSageSelfBudgetExceeded
+        expr: pg_sage_self_budget_exceeded == 1
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "pg_sage exceeds its {{ $labels.resource }} budget on {{ $labels.database }}"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageselfbudgetexceeded"
+
+      - alert: PgSageSLOPage
+        expr: pg_sage_slo_state{state="page"} == 1
+        labels:
+          severity: page
+        annotations:
+          summary: "SLO {{ $labels.slo }} on {{ $labels.database }} burns its error budget fast"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageslopage"
+
+      - alert: PgSageInvestigationBacklogOld
+        expr: pg_sage_sre_investigation_oldest_open_age_seconds > 3600
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "A Sage SRE investigation on {{ $labels.database }} has been open over an hour"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageinvestigationbacklogold"
+
+      # observability-09b. Only a sidecar serving the API over TLS exports
+      # the expiry; 14 days matches /ready's tls_expiring.
+      - alert: PgSageTLSCertExpiring
+        expr: pg_sage_api_tls_cert_not_after_seconds - time() < 14 * 86400
+        for: 1h
+        labels:
+          severity: ticket
+        annotations:
+          summary: "The API TLS certificate of {{ $labels.instance }} expires within 14 days"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagetlscertexpiring"
+
+      # 90 s is three lease TTLs (leader.DefaultTTL, 30 s); the elector
+      # renews every TTL/3, so this is many missed renewals, not one.
+      - alert: PgSageLeaderLeaseStale
+        expr: pg_sage_leader_last_renew_age_seconds > 90
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "pg_sage has not reached the lease store for {{ $labels.scope }} in 90 s"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageleaderleasestale"
+
+      # Only a sidecar with OAuth enabled exports the readiness.
+      - alert: PgSageSSODiscoveryDown
+        expr: pg_sage_sso_discovery_ready == 0
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "SSO sign-in on {{ $labels.instance }} is down: OIDC discovery fails"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsagessodiscoverydown"
+
+      - alert: PgSageApprovalsWaiting
+        expr: pg_sage_actions_pending_approval > 0
+        for: 24h
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $labels.database }} has had {{ $labels.risk }}-risk approvals waiting a day"
+          runbook_url: "https://jasonmassie01.github.io/pg_sage/metrics/#pgsageapprovalswaiting"

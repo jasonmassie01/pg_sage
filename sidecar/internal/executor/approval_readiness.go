@@ -34,6 +34,12 @@ func (e *Executor) ApprovalReadinessWithEvidence(
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	if actionID, ok := restoreQueueActionID(action); ok {
+		return e.dropRestoreReadiness(action, now, actionID)
+	}
+	if IsRevertCard(action) {
+		return e.revertReadiness(action, now)
+	}
 	readiness := lifecycleReadiness(action, now, evidencePresent)
 	if !readiness.Eligible {
 		return readiness
@@ -41,7 +47,8 @@ func (e *Executor) ApprovalReadinessWithEvidence(
 	if _, ok := ContractForQueuedAction(action); !ok {
 		return readinessForUnknownContract(readiness, action)
 	}
-	return e.withPolicyReadiness(readiness, action)
+	return withPolicyReadiness(readiness,
+		e.explainOperatorAction(context.Background(), action.ProposedSQL))
 }
 
 func ContractForQueuedAction(action store.QueuedAction) (ActionContract, bool) {
@@ -106,12 +113,14 @@ func readinessForUnknownContract(
 	return readiness
 }
 
-func (e *Executor) withPolicyReadiness(
+// withPolicyReadiness applies the gate's explanation of an operator
+// approval of the item.
+func withPolicyReadiness(
 	readiness ApprovalReadiness,
-	action store.QueuedAction,
+	decision ActionPolicyDecision,
 ) ApprovalReadiness {
 	readiness.PolicyKnown = true
-	readiness.Policy = e.explainOperatorAction(context.Background(), action.ProposedSQL)
+	readiness.Policy = decision
 	if readiness.Policy.Decision != PolicyDecisionExecute {
 		readiness.Eligible = false
 		readiness.DeferReason = humanPolicyReason(readiness.Policy)

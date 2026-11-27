@@ -14,6 +14,10 @@ import (
 
 const LakebasePlanSource = "lakebase_plan_history"
 
+// ErrInvalidProviderPlan marks a captured plan that can never be stored, so a
+// telemetry consumer rejects that row instead of retrying it.
+var ErrInvalidProviderPlan = errors.New("invalid provider plan")
+
 // ProviderPlan carries a captured workload plan, not a request to run EXPLAIN.
 // AnalyzeEnabled is independent of capture: a logged plan may contain estimates.
 type ProviderPlan struct {
@@ -33,18 +37,23 @@ type ProviderPlan struct {
 // StoreProviderPlan is idempotent at the monitored sink, including a crash after
 // this commit but before the control inbox acknowledges delivery.
 func StoreProviderPlan(ctx context.Context, pool *pgxpool.Pool, p ProviderPlan) error {
-	if pool == nil || p.QueryID == 0 || p.ScopeHash == "" || p.ComputeID == "" || p.EventID == "" ||
+	if pool == nil {
+		return errors.New("provider plan sink requires the monitored database pool")
+	}
+	if p.QueryID == 0 || p.ScopeHash == "" || p.ComputeID == "" || p.EventID == "" ||
 		p.CapturedAt.IsZero() || p.ReceivedAt.IsZero() || len(p.JSON) == 0 || len(p.JSON) > 1<<20 ||
 		!json.Valid(p.JSON) || math.IsNaN(p.TotalCost) || math.IsInf(p.TotalCost, 0) || p.TotalCost < 0 ||
 		math.IsNaN(p.ExecutionMS) || math.IsInf(p.ExecutionMS, 0) || p.ExecutionMS < 0 {
-		return errors.New("provider plan requires valid resource, occurrence, timestamps and bounded plan data")
+		return fmt.Errorf("%w: requires valid resource, occurrence, timestamps and "+
+			"bounded plan data", ErrInvalidProviderPlan)
 	}
 	if selfmonitor.IsQueryText(p.Query) {
 		return ErrSelfStatement
 	}
-	hash := planHashParam(p.JSON)
+	// A failed root read leaves the v2u fingerprint, which records it.
+	hash, _ := planHashParam(ctx, pool, p.JSON)
 	if hash == nil {
-		return errors.New("provider plan has no valid EXPLAIN shape")
+		return fmt.Errorf("%w: plan tree has no valid EXPLAIN shape", ErrInvalidProviderPlan)
 	}
 	_, err := pool.Exec(ctx, `/* pg_sage */ INSERT INTO sage.explain_cache
  (queryid,query_text,plan_json,source,total_cost,execution_time,captured_at,plan_hash,

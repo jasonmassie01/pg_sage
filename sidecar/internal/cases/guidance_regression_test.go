@@ -13,7 +13,7 @@ func TestUnprovenIndexIdentityDoesNotInventRecoveryOrVerification(t *testing.T) 
 		"multiple statements":             "CREATE INDEX CONCURRENTLY orders_customer ON public.orders (customer_id); SELECT 1;",
 	} {
 		t.Run(name, func(t *testing.T) {
-			c := ProjectFinding(SourceFinding{Category: "missing_index", RecommendedSQL: sql})
+			c := projectFinding(SourceFinding{Category: "missing_index", RecommendedSQL: sql})
 			if len(c.ActionCandidates) != 1 {
 				t.Fatalf("expected reviewable proposal: %#v", c)
 			}
@@ -34,7 +34,7 @@ func TestUnprovenIndexIdentityDoesNotInventRecoveryOrVerification(t *testing.T) 
 }
 
 func TestQuotedIndexIdentitySurvivesRecoveryAndCatalogLiteral(t *testing.T) {
-	c := ProjectFinding(SourceFinding{
+	c := projectFinding(SourceFinding{
 		Category:       "missing_index",
 		RecommendedSQL: `CREATE INDEX CONCURRENTLY "Customer's ""lookup""" ON "Sales'Q"."Orders" (customer_id);`,
 	})
@@ -69,7 +69,7 @@ func TestDropIndexRecoveryRequiresMatchingCapturedDefinition(t *testing.T) {
 		{"captured definition", "CREATE INDEX orders_customer ON public.orders (customer_id);", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			a := ProjectFinding(SourceFinding{
+			a := projectFinding(SourceFinding{
 				Category: "duplicate_index", ObjectIdentifier: "public.orders_customer",
 				RecommendedSQL: "DROP INDEX CONCURRENTLY public.orders_customer;",
 				RollbackSQL:    test.rollback,
@@ -87,7 +87,7 @@ func TestDropIndexRecoveryRequiresMatchingCapturedDefinition(t *testing.T) {
 
 func TestUrgencyUsesEvidenceRatherThanSeverity(t *testing.T) {
 	for _, severity := range []Severity{SeverityInfo, SeverityWarning, SeverityCritical} {
-		c := ProjectFinding(SourceFinding{Severity: severity})
+		c := projectFinding(SourceFinding{Severity: severity})
 		if c.WhyNow != "Urgency not assessed" {
 			t.Fatalf("severity %s invented urgency: %q", severity, c.WhyNow)
 		}
@@ -96,14 +96,20 @@ func TestUrgencyUsesEvidenceRatherThanSeverity(t *testing.T) {
 		finding SourceFinding
 		want    string
 	}{
-		{SourceFinding{Detail: map[string]any{"n_mod_since_analyze": 1200}}, "table changed since last analyze: 1200 rows"},
-		{SourceFinding{Detail: map[string]any{"projected_at": "2026-11-01T00:00:00Z"}}, "forecast threshold projected at 2026-11-01T00:00:00Z"},
+		{SourceFinding{Category: "forecast_disk_growth", Detail: map[string]any{
+			"days_until_full": 3, "r_squared": 0.94, "covered_days": 30}},
+			"About 3 days until storage is full " +
+				"(days_until_full 3 from a 30-day regression, R² 0.94)"},
+		{SourceFinding{Category: "forecast_connection_saturation", Detail: map[string]any{
+			"days_to_warn_pct": 12.0, "r_squared": 0.9}},
+			"About 12 days until connections reach the warning share of max_connections " +
+				"(days_to_warn_pct 12 from a daily regression, R² 0.90)"},
 	} {
-		if got := ProjectFinding(test.finding).WhyNow; got != test.want {
+		if got := projectFinding(test.finding).WhyNow; got != test.want {
 			t.Fatalf("measured rationale = %q, want %q", got, test.want)
 		}
 	}
-	sequence := ProjectFinding(SourceFinding{Category: "sequence_exhaustion", Severity: SeverityCritical})
+	sequence := projectFinding(SourceFinding{Category: "sequence_exhaustion", Severity: SeverityCritical})
 	if !strings.Contains(sequence.WhyNow, "time to exhaustion and application impact have not been established") {
 		t.Fatalf("sequence urgency must disclose unknowns: %q", sequence.WhyNow)
 	}
@@ -171,7 +177,7 @@ func TestCommentOnlyRecoveryDoesNotBecomeAReversibilityGuarantee(t *testing.T) {
 }
 
 func TestRoleWorkMemDoesNotFabricateResetOfUncapturedPreviousValue(t *testing.T) {
-	a := ProjectFinding(SourceFinding{Category: "query_work_mem_promotion", ObjectIdentifier: `reporting role`, RecommendedSQL: `ALTER ROLE "reporting role" SET work_mem = '64MB';`}).ActionCandidates[0]
+	a := projectFinding(SourceFinding{Category: "query_work_mem_promotion", ObjectIdentifier: `reporting role`, RecommendedSQL: `ALTER ROLE "reporting role" SET work_mem = '64MB';`}).ActionCandidates[0]
 	if a.RollbackClass != "unknown" || a.RecoveryDetail == "" || a.ScriptOutput.RollbackSQL != "" {
 		t.Fatalf("role default requires captured prior state: %#v", a)
 	}

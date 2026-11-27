@@ -59,7 +59,7 @@ func StripJSON(s string, shape JSONShape) string {
 // surrounding prose/fences, extracts the expected JSON shape,
 // and unmarshals into out. On the first unmarshal failure it
 // retries with RepairTruncatedJSON, which salvages truncated
-// array responses from thinking models that exhaust the token
+// object and array responses from thinking models that exhaust the token
 // budget. The returned error reports both attempts so callers
 // can log the raw failure cause.
 //
@@ -84,7 +84,9 @@ func ParseJSON(raw string, shape JSONShape, out any) error {
 		return nil
 	}
 	if err := json.Unmarshal([]byte(cleaned), out); err != nil {
-		repaired := RepairTruncatedJSON(cleaned)
+		// The repair keeps an object wrapper; reshape it so an array
+		// caller still gets the wrapped array (json_object mode).
+		repaired := StripJSON(RepairTruncatedJSON(cleaned), shape)
 		if err2 := json.Unmarshal([]byte(repaired), out); err2 != nil {
 			return fmt.Errorf(
 				"json unmarshal: %w (repair also failed: %v, "+

@@ -3,7 +3,6 @@ package sre
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +20,7 @@ import (
 
 func holdSession(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) int {
 	t.Helper()
-	conn, err := pgx.Connect(ctx, os.Getenv(testdb.EnvName))
+	conn, err := pgx.Connect(ctx, testdb.SkipUnlessLive(t))
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}

@@ -26,20 +26,29 @@ var (
 	ErrNotConfigured = errors.New("game days are not configured")
 	ErrRunning       = errors.New("a game day is already running")
 	ErrMonitoredDSN  = errors.New("the game-day database is a monitored database")
+	// ErrNotDisposable: the local game-day database is not provably
+	// disposable (a standby, has standbys, unmarked, or unreadable).
+	ErrNotDisposable = errors.New("the game-day database is not provably disposable")
 )
 
 // Game-day statuses.
 const (
-	StatusRunning       = "running"
-	StatusCompleted     = "completed"
-	StatusFailed        = "failed"
-	StatusDestroyFailed = "destroy_failed"
+	StatusRunning   = "running"
+	StatusCompleted = "completed"
+	// StatusCompletedUnscored is a run that finished but scored no run
+	// (benches-08): every fault program skipped, or the report had none.
+	StatusCompletedUnscored = "completed_unscored"
+	StatusFailed            = "failed"
+	StatusDestroyFailed     = "destroy_failed"
 )
 
 // FaultRunner runs fault programs against a disposable database and
-// returns the PGIncidentBench JSON report.
+// returns the PGIncidentBench JSON report. bindings are the customer
+// programs to run with their tables or skip reasons (benches-12; nil: the
+// bench's fixtures only).
 type FaultRunner interface {
-	Run(ctx context.Context, dsn string, families []string) ([]byte, error)
+	Run(ctx context.Context, dsn string, families []string, bindings []Binding) ([]byte,
+		error)
 }
 
 // Ledger is where game-day evidence goes (earned.Service).
@@ -62,6 +71,12 @@ type GameDay struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	Error      string     `json:"error,omitempty"`
 	EvalRunID  string     `json:"eval_run_id,omitempty"`
+	// Summary is what the run's report scored; nil when there was no
+	// report (the run failed before it, or the row predates benches-08).
+	Summary *Summary `json:"summary,omitempty"`
+	// Exercised is what the run exercised; nil for a row that predates
+	// benches-12.
+	Exercised *Exercised `json:"exercised,omitempty"`
 }
 
 // Config configures one database's game days.
@@ -75,6 +90,18 @@ type Config struct {
 	Now      func() time.Time
 	// Log reports a background game day that failed (it is also recorded).
 	Log func(format string, args ...any)
+	// Warn reports a game day that scored nothing (nil: the standard
+	// logger).
+	Warn func(format string, args ...any)
+	// Leases are the shared targets held in this process (nil: the
+	// process-wide table every runtime shares).
+	Leases *Leases
+	// CustomerPrograms runs the customer programs on the clone (nil: when
+	// the provider's clones hold customer objects).
+	CustomerPrograms *bool
+	// Snapshots is the monitored database's collector, which the customer
+	// programs' tables are chosen from (nil: none, so they skip).
+	Snapshots TableSnapshots
 }
 
 // Runner runs one database's game days, one at a time.
@@ -114,33 +141,58 @@ func NewRunner(cfg Config, provider clone.Provider, faults FaultRunner, ledger L
 	if cfg.Log == nil {
 		cfg.Log = log.Printf
 	}
+	if cfg.Warn == nil {
+		cfg.Warn = defaultWarn
+	}
+	cfg.Leases = leasesOr(cfg.Leases)
 	return &Runner{cfg: cfg, provider: provider, faults: faults, ledger: ledger,
 		store: store}, nil
 }
 
 func (r *Runner) now() time.Time { return r.cfg.Now().UTC() }
 
-// Run runs one game day now and waits for it.
+// Run runs one game day now and waits for it. A target another run
+// holds refuses it (ErrRunning) before anything is recorded.
 func (r *Runner) Run(ctx context.Context) (GameDay, error) {
 	if !r.running.CompareAndSwap(false, true) {
 		return GameDay{}, ErrRunning
 	}
 	defer r.running.Store(false)
-	return r.run(ctx)
+	id, release, err := r.lease(ctx)
+	if err != nil {
+		return GameDay{}, err
+	}
+	defer release()
+	return r.run(ctx, id)
 }
 
-// Start runs one game day in the background (it takes minutes).
+// Start runs one game day in the background (it takes minutes); a busy
+// target refuses it here, not in the background.
 func (r *Runner) Start(ctx context.Context) error {
 	if !r.running.CompareAndSwap(false, true) {
 		return ErrRunning
 	}
+	id, release, err := r.lease(ctx)
+	if err != nil {
+		r.running.Store(false)
+		return err
+	}
 	go func() {
 		defer r.running.Store(false)
-		if gd, err := r.run(context.WithoutCancel(ctx)); err != nil {
+		defer release()
+		if gd, err := r.run(context.WithoutCancel(ctx), id); err != nil {
 			r.cfg.Log("gameday: %s on %s %s: %v", gd.ID, gd.Database, gd.Status, err)
 		}
 	}()
 	return nil
+}
+
+// lease names the next game day and holds its target for it.
+func (r *Runner) lease(ctx context.Context) (string, func(), error) {
+	id := newID()
+	release, err := r.cfg.Leases.Acquire(ctx, r.provider, Holder{Kind: kindGameDay, ID: id,
+		Database: r.cfg.Database})
+	return id, release, err
 }
 
 // RunDue runs a game day when the last one started an interval ago.
@@ -161,11 +213,15 @@ func (r *Runner) List(ctx context.Context, limit int) ([]GameDay, error) {
 	return r.store.List(ctx, r.cfg.Database, limit)
 }
 
-func (r *Runner) run(ctx context.Context) (GameDay, error) {
-	gd := GameDay{ID: newID(), Database: r.cfg.Database, Provider: r.cfg.Provider,
+func (r *Runner) run(ctx context.Context, id string) (GameDay, error) {
+	ctx, cancel := context.WithTimeout(ctx, runBudget)
+	defer cancel()
+	bindings := r.bindings()
+	planned := exercisedOf(r.cfg.Provider, bindings, nil)
+	gd := GameDay{ID: id, Database: r.cfg.Database, Provider: r.cfg.Provider,
 		Families: append([]string{}, r.cfg.Families...), Status: StatusRunning,
-		StartedAt: r.now()}
-	if err := r.store.start(ctx, gd); err != nil {
+		StartedAt: r.now(), Exercised: &planned}
+	if err := r.store.start(ctx, gd, rowGameDay); err != nil {
 		return gd, err
 	}
 	c, err := r.provider.Create(ctx, clone.CloneSpec{IncludeData: true})
@@ -173,31 +229,89 @@ func (r *Runner) run(ctx context.Context) (GameDay, error) {
 		return r.finish(ctx, gd, StatusFailed, fmt.Errorf("create clone: %w", err))
 	}
 	gd.CloneID = c.ID
-	runErr := r.exercise(ctx, &gd, c.DSN)
+	runErr := r.store.attachClone(ctx, gd.ID, c.ID)
+	if runErr == nil {
+		runErr = r.exercise(ctx, &gd, c.DSN, bindings)
+	}
+	status, runErr := destroyClone(ctx, r.provider, c, runErr)
+	return r.finish(ctx, gd, r.scoredStatus(status, gd), runErr)
+}
+
+// scoredStatus is a finished game day's status: completed_unscored when
+// its report scored nothing (benches-08) or a customer program it ran
+// scored nothing (benches-12: the run then says nothing about this
+// database); each is logged once.
+func (r *Runner) scoredStatus(status string, gd GameDay) string {
+	if status = scoredStatus(status, gd.Summary); status == StatusCompletedUnscored {
+		warnUnscored(r.cfg.Warn, "game day", gd.ID, gd.Database, gd.Summary)
+		return status
+	}
+	if status != StatusCompleted || gd.Exercised == nil {
+		return status
+	}
+	if sc, unscored := customerUnscored(*gd.Exercised); unscored {
+		r.cfg.Warn("game day %s on %s: completed_unscored: customer program %s scored no run: %s",
+			gd.ID, gd.Database, sc.ID, sc.Skip)
+		return StatusCompletedUnscored
+	}
+	return status
+}
+
+// bindings are the customer programs' tables, or why each has none.
+func (r *Runner) bindings() []Binding {
+	b := Binding{Program: ProgramCustomerHotTable}
+	on := HoldsCustomerObjects(r.cfg.Provider)
+	if r.cfg.CustomerPrograms != nil {
+		on = *r.cfg.CustomerPrograms
+	}
+	switch {
+	case !HoldsCustomerObjects(r.cfg.Provider):
+		b.Skip = SkipLocalProvider
+	case !on:
+		b.Skip = SkipProgramsOff
+	case r.cfg.Snapshots == nil:
+		b.Skip = SkipNoSnapshot
+	default:
+		b = HotTableBinding(r.cfg.Snapshots.LatestSnapshot(), r.cfg.Snapshots.PreviousSnapshot())
+	}
+	return []Binding{b}
+}
+
+// destroyClone destroys a run's clone, even when ctx is cancelled, and
+// returns the run's status: completed, failed (runErr), or
+// destroy_failed.
+func destroyClone(ctx context.Context, provider clone.Provider, c clone.Clone,
+	runErr error) (string, error) {
 	status := StatusCompleted
 	if runErr != nil {
 		status = StatusFailed
 	}
-	if err := r.provider.Destroy(context.WithoutCancel(ctx), c); err != nil {
+	if err := provider.Destroy(context.WithoutCancel(ctx), c); err != nil {
 		status = StatusDestroyFailed
 		runErr = errors.Join(runErr, fmt.Errorf("destroy clone %s: %w", c.ID, err))
 	}
-	return r.finish(ctx, gd, status, runErr)
+	return status, runErr
 }
 
 // exercise runs the fault programs on the clone and records the evidence.
-func (r *Runner) exercise(ctx context.Context, gd *GameDay, dsn string) error {
-	raw, err := r.faults.Run(ctx, dsn, gd.Families)
+// A customer program that errored fails the game day after its report is
+// ingested (its errored run is excluded from every rate).
+func (r *Runner) exercise(ctx context.Context, gd *GameDay, dsn string,
+	bindings []Binding) error {
+	raw, err := r.faults.Run(ctx, dsn, gd.Families, bindings)
 	if err != nil {
 		return fmt.Errorf("fault programs: %w", err)
 	}
+	summary := summarize(raw)
+	exercised := exercisedOf(r.cfg.Provider, bindings, raw)
+	gd.Summary, gd.Exercised = &summary, &exercised
 	run, err := r.ledger.IngestEvalRun(ctx, raw, earned.SourceGameDay, earned.ActorPgSage,
 		gd.Database)
 	if err != nil {
 		return fmt.Errorf("ingest game-day report: %w", err)
 	}
 	gd.EvalRunID = run.ID
-	return r.recordViolations(ctx, run)
+	return errors.Join(r.recordViolations(ctx, run), customerFailure(exercised))
 }
 
 // recordViolations turns each family's forbidden actions into a safety

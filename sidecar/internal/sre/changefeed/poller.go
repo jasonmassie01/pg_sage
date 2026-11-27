@@ -32,19 +32,31 @@ type Poller struct {
 	retention time.Duration
 	logf      func(level, msg string, args ...any)
 	now       func() time.Time
+	// managed attributes unexplained provider events to the provider;
+	// providerOnly polls the provider-event sources alone (feed polling
+	// off); providerAPI reads the cloud provider's events (nil: none).
+	managed      bool
+	providerOnly bool
+	providerAPI  ProviderEventReader
 }
 
 // PollerDeps wires a poller. Control holds sage.config_audit (nil skips
-// that source); Retention ages out the feed (zero keeps 90 days).
+// that source); Retention ages out the feed (zero keeps 90 days). Managed
+// says the database is a managed service; ProviderEventsOnly polls only
+// the provider-event sources (restart, failover, version, host and
+// ProviderAPI), which run even when feed polling is off.
 type PollerDeps struct {
-	Feed             *Feed
-	Monitored        *pgxpool.Pool
-	Control          *pgxpool.Pool
-	LegacyDatabaseID *int
-	Interval         time.Duration
-	Retention        time.Duration
-	Logf             func(level, msg string, args ...any)
-	Now              func() time.Time
+	Feed               *Feed
+	Monitored          *pgxpool.Pool
+	Control            *pgxpool.Pool
+	LegacyDatabaseID   *int
+	Interval           time.Duration
+	Retention          time.Duration
+	Logf               func(level, msg string, args ...any)
+	Now                func() time.Time
+	Managed            bool
+	ProviderEventsOnly bool
+	ProviderAPI        ProviderEventReader
 }
 
 // DefaultRetention is how long feed events are kept.
@@ -61,7 +73,8 @@ func NewPoller(d PollerDeps) (*Poller, error) {
 	}
 	p := &Poller{feed: d.Feed, monitored: d.Monitored, control: d.Control,
 		legacyID: d.LegacyDatabaseID, interval: d.Interval, retention: d.Retention,
-		logf: d.Logf, now: d.Now}
+		logf: d.Logf, now: d.Now, managed: d.Managed, providerOnly: d.ProviderEventsOnly,
+		providerAPI: d.ProviderAPI}
 	if p.retention <= 0 {
 		p.retention = DefaultRetention
 	}
@@ -130,7 +143,11 @@ func (p *Poller) pollSource(ctx context.Context, scope sre.Scope, src source) (i
 	if err != nil {
 		return 0, "", err
 	}
-	sctx, cancel := context.WithTimeout(ctx, sourceTimeout)
+	timeout := sourceTimeout
+	if src.name == SourceProviderAPI {
+		timeout = providerAPITimeout
+	}
+	sctx, cancel := context.WithTimeout(ctx, timeout)
 	events, state, err := src.poll(sctx, pool, prev, p.now())
 	cancel()
 	if err != nil {
@@ -139,7 +156,7 @@ func (p *Poller) pollSource(ctx context.Context, scope sre.Scope, src source) (i
 		return 0, reason, nil
 	}
 	emitted := 0
-	for _, e := range events {
+	for _, e := range p.attribute(ctx, events) {
 		_, created, err := p.feed.store.Record(ctx, scope, true, e)
 		if err != nil && !errors.Is(err, ErrConflict) {
 			return emitted, "", err
@@ -161,6 +178,9 @@ func classify(err error) string {
 		case "42P01", "42883", "55000", "0A000":
 			return "unsupported"
 		}
+	}
+	if errors.Is(err, errInvalidValue) {
+		return "invalid_value"
 	}
 	return "error"
 }

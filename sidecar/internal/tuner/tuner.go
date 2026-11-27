@@ -7,15 +7,27 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/advisor"
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/catalogread"
+	"github.com/pg-sage/sidecar/internal/extschema"
+	"github.com/pg-sage/sidecar/internal/planfresh"
+	"github.com/pg-sage/sidecar/internal/selfbudget"
 	"github.com/pg-sage/sidecar/internal/workload"
 )
 
 // Tuner produces per-query tuning findings from plan analysis.
 type Tuner struct {
-	pool          *pgxpool.Pool
-	cfg           TunerConfig
-	hintPlan      *HintPlanAvailability
+	pool *pgxpool.Pool
+	cfg  TunerConfig
+	// hintPlan holds the pg_hint_plan facts; read it through hints(). It is
+	// replaced, never changed in place, under hintMu: the tuning agent reads
+	// it from its own goroutine while a cycle re-reads it (tuning-04).
+	hintPlan *HintPlanAvailability
+	hintMu   sync.RWMutex
+	// hintSource re-reads the facts each cycle (the pool; nil without one).
+	hintSource HintQuerier
+
 	logFn         func(string, string, ...any)
 	recentlyTuned map[int64]int
 
@@ -36,6 +48,31 @@ type Tuner struct {
 	// facts are the catalog facts of the current cycle (table rows,
 	// usable indexes); nil when they could not be loaded.
 	facts *CatalogFacts
+
+	// spill holds the stat-spill baselines across cycles (tuning-03);
+	// guarded by mu.
+	spill statSpill
+
+	// hostMemory reads live host memory (nil: unknown); set before use.
+	hostMemory advisor.HostMemorySource
+
+	// planExplain replaces a stale cached plan (nil: no fallback) and
+	// planTimeouts bound the plan reads (tuning-08); see plan_fresh.go.
+	planExplain  planfresh.ExplainFunc
+	planTimeouts catalogread.Timeouts
+	// plans memoizes each candidate's plan for one tuneCandidates pass;
+	// nil outside it. Guarded by mu.
+	plans map[int64]planfresh.Plan
+
+	// querySource is the collector's snapshot the parameterization detector
+	// reads, and pgMajor the server's major version (tuning-11); paramEmitted
+	// holds the shapes reported this cycle, guarded by mu.
+	querySource  QuerySource
+	pgMajor      int
+	paramEmitted map[string]bool
+
+	// compare configures the hinted EXPLAIN gate (tuning-05); nil: off.
+	compare *hintCompare
 }
 
 // New creates a Tuner with the given dependencies.
@@ -51,10 +88,15 @@ func New(
 		hintPlan:      hintPlan,
 		logFn:         logFn,
 		recentlyTuned: make(map[int64]int),
+		spill:         statSpill{baselines: map[spillKey]spillBaseline{}},
+		planTimeouts:  catalogread.Default(),
 	}
-	// Active hints are loaded on the first Tune() call when
-	// recentlyTuned is empty (see Tune()), so bootstrap here is
-	// unnecessary and would require a context we don't have.
+	if pool != nil {
+		t.hintSource = pool
+	}
+	// recentlyTuned is only the post-proposal cooldown: one hint per
+	// statement is enforced from the durable state on every check
+	// (hintStates), so nothing is bootstrapped here.
 	return t
 }
 
@@ -66,6 +108,9 @@ type candidate struct {
 	MeanPlanTime    float64
 	TempBlksRead    int64
 	TempBlksWritten int64
+	UserID          int64
+	// foreignHint: hint_plan.hints holds a hint pg_sage did not install.
+	foreignHint bool
 }
 
 // Tune queries pg_stat_statements for slow queries, scans
@@ -83,6 +128,8 @@ func (t *Tuner) Tune(
 	ctx context.Context,
 	deferredTables map[string]bool,
 ) ([]analyzer.Finding, error) {
+	ctx, done := selfbudget.Process().TrackFor(ctx, "tuner")
+	defer done()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -94,23 +141,54 @@ func (t *Tuner) Tune(
 	}
 	t.staleStats = cache
 	t.staleStatsEmitted = map[string]bool{}
+	t.refreshHintPlan(ctx)
 	t.loadFacts(ctx)
 	t.reconcileHintStatuses(ctx)
 
 	t.tickCooldowns()
+	paramFindings := t.parameterizationFindings()
 	candidates, err := t.fetchCandidates(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("tuner: fetch candidates: %w", err)
 	}
 	candidates = filterSelfMonitoringCandidates(candidates)
-	if len(t.recentlyTuned) == 0 {
-		t.loadActiveHints(ctx)
+	t.observeSpills(ctx, candidates)
+	findings, err := t.tuneCandidates(ctx, candidates, deferredTables)
+	if err != nil {
+		return nil, err
 	}
+	findings = append(paramFindings, findings...)
+	// C11: remove installed hints whose metadata was retired/broken.
+	findings = append(findings, t.hintRemovalFindings(ctx)...)
+	return findings, nil
+}
+
+// tuneCandidates runs the deterministic rules over the candidates. A
+// statement in its cooldown or with an installed pg_sage hint is skipped;
+// one with a hint pg_sage did not install gets an informational finding
+// without SQL (tuning-02). A failed read of the durable hint state fails
+// the pass, so no hint is proposed blind. The caller holds t.mu.
+func (t *Tuner) tuneCandidates(
+	ctx context.Context, candidates []candidate, deferredTables map[string]bool,
+) ([]analyzer.Finding, error) {
+	states, err := t.hintStates(ctx, candidateIDs(candidates))
+	if err != nil {
+		return nil, fmt.Errorf("tuner: %w", err)
+	}
+	t.plans = map[int64]planfresh.Plan{}
+	defer func() { t.plans = nil }()
 	var findings []analyzer.Finding
 	for _, c := range candidates {
 		if _, ok := t.recentlyTuned[c.QueryID]; ok {
 			continue
 		}
+		switch states[c.QueryID] {
+		case hintInstalled:
+			continue
+		case hintForeign:
+			c.foreignHint = true
+		}
+		t.plans[c.QueryID] = t.readPlan(ctx, c.QueryID, c.Query)
 		if reason := t.deferralReason(ctx, c, deferredTables); reason != "" {
 			t.logFn("INFO",
 				"tuner: deferring queryid=%d, %s "+
@@ -124,8 +202,6 @@ func (t *Tuner) Tune(
 		}
 		findings = append(findings, f...)
 	}
-	// C11: remove installed hints whose metadata was retired/broken.
-	findings = append(findings, t.hintRemovalFindings(ctx)...)
 	return findings, nil
 }
 
@@ -153,54 +229,6 @@ func (t *Tuner) recordTuned(queryID int64) {
 	t.recentlyTuned[queryID] = t.cooldownCycles()
 }
 
-// deferralReason returns a non-empty string when the candidate
-// should be skipped because at least one of the relations its
-// plan touches has a pending index optimizer recommendation.
-// The string identifies the matched relation for logging.
-func (t *Tuner) deferralReason(
-	ctx context.Context,
-	c candidate,
-	deferredTables map[string]bool,
-) string {
-	if len(deferredTables) == 0 {
-		return ""
-	}
-	planJSON := t.fetchPlanJSON(ctx, c.QueryID)
-	if planJSON == "" {
-		return ""
-	}
-	reason, err := matchDeferred([]byte(planJSON), deferredTables)
-	if err != nil {
-		t.logFn("WARN",
-			"tuner: extract relations queryid=%d: %v",
-			c.QueryID, err)
-		return ""
-	}
-	return reason
-}
-
-// matchDeferred is the pure form of the deferral check: given a
-// plan JSON and a deferred-tables set, it returns a non-empty
-// reason string when any relation in the plan is in the set.
-// Pulled out so the gating logic is testable without a database.
-func matchDeferred(
-	planJSON []byte, deferredTables map[string]bool,
-) (string, error) {
-	if len(deferredTables) == 0 || len(planJSON) == 0 {
-		return "", nil
-	}
-	rels, err := ExtractRelations(planJSON)
-	if err != nil {
-		return "", err
-	}
-	for rel := range rels {
-		if deferredTables[rel] {
-			return "table " + rel + " has pending index recommendation", nil
-		}
-	}
-	return "", nil
-}
-
 // tickCooldowns decrements all cooldown counters and removes
 // entries that have reached zero.
 func (t *Tuner) tickCooldowns() {
@@ -223,55 +251,6 @@ func (t *Tuner) cooldownCycles() int {
 	return 3
 }
 
-// loadActiveHints bootstraps the recentlyTuned map from
-// sage.query_hints so hints survive sidecar restarts.
-func (t *Tuner) loadActiveHints(ctx context.Context) {
-	if t.pool == nil {
-		return
-	}
-	rows, err := t.pool.Query(ctx,
-		`/* pg_sage */ SELECT queryid FROM sage.query_hints
-		 WHERE status IN ('active', 'proposed')`,
-	)
-	if err != nil {
-		t.logFn("WARN",
-			"tuner: load active hints: %v", err)
-		return
-	}
-	defer rows.Close()
-
-	cooldown := t.cooldownCycles()
-	for rows.Next() {
-		var qid int64
-		if err := rows.Scan(&qid); err != nil {
-			t.logFn("WARN",
-				"tuner: scan active hint: %v", err)
-			continue
-		}
-		t.recentlyTuned[qid] = cooldown
-	}
-	if err := rows.Err(); err != nil {
-		t.logFn("WARN",
-			"tuner: iterate active hints: %v", err)
-	}
-}
-
-var candidateSQL = `/* pg_sage */
-SELECT queryid, query, calls, mean_exec_time,
-       mean_plan_time, temp_blks_read, temp_blks_written
-FROM pg_stat_statements
-WHERE calls >= $1
-  AND dbid = (
-      SELECT oid FROM pg_database WHERE datname = current_database()
-  )
-  AND ` + workload.AdviceSQL("query") + `
-  AND (mean_exec_time > 100
-       OR temp_blks_written > 0
-       OR (mean_plan_time > 0
-           AND mean_plan_time > mean_exec_time * $2))
-ORDER BY mean_exec_time * calls DESC
-LIMIT 50`
-
 // filterSelfMonitoringCandidates keeps workload candidates
 // (internal/workload): never pg_sage's own statements or diagnostic
 // tooling.
@@ -289,8 +268,12 @@ func filterSelfMonitoringCandidates(candidates []candidate) []candidate {
 func (t *Tuner) fetchCandidates(
 	ctx context.Context,
 ) ([]candidate, error) {
+	rel, err := extschema.StatementsRel(ctx, t.pool, "pg_stat_statements")
+	if err != nil {
+		return nil, fmt.Errorf("query pg_stat_statements: %w", err)
+	}
 	rows, err := t.pool.Query(
-		ctx, candidateSQL,
+		ctx, candidateSQL(rel),
 		t.cfg.MinQueryCalls, t.cfg.PlanTimeRatio,
 	)
 	if err != nil {
@@ -304,7 +287,7 @@ func (t *Tuner) fetchCandidates(
 		err := rows.Scan(
 			&c.QueryID, &c.Query, &c.Calls,
 			&c.MeanExecTime, &c.MeanPlanTime,
-			&c.TempBlksRead, &c.TempBlksWritten,
+			&c.TempBlksRead, &c.TempBlksWritten, &c.UserID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
@@ -326,6 +309,9 @@ func (t *Tuner) processCandidate(
 	// ANALYZE findings so they bypass the query-hint flow.
 	var staleFindings []analyzer.Finding
 	symptoms, staleFindings = t.extractStaleStats(symptoms)
+	// High planning time is parameterization advice, never a hint (tuning-11).
+	symptoms, paramFindings := t.extractPlanTime(c, symptoms)
+	staleFindings = append(staleFindings, paramFindings...)
 
 	if len(symptoms) == 0 {
 		return staleFindings
@@ -335,83 +321,43 @@ func (t *Tuner) processCandidate(
 	// (roadmap 2.2); this pass is the deterministic rules only.
 	prescriptions := t.prescribeAll(symptoms)
 	if len(prescriptions) == 0 {
-		return nil
+		// The advice and ANALYZE findings split off above still stand.
+		return staleFindings
 	}
 
-	combined := CombineHints(prescriptions)
-	// Deterministic prescriptions interpolate plan-derived identifiers
-	// raw (e.g. HashJoin(alias)), so re-validate the combined directive
-	// the same way agent hints are validated (W4). A malformed hint is
-	// dropped rather than emitted as an unparseable directive.
-	if combined != "" && !validateHintSyntax(combined) {
-		t.logFn("tuner",
-			"dropping unparseable combined hint: %s", combined)
-		combined = ""
-	}
-	title := buildTitle(symptoms)
+	combined := t.combinedHint(prescriptions)
 	rationale := buildRationale(prescriptions)
-	rewrite, rewriteRationale := extractRewrite(prescriptions)
-	finding := t.buildFinding(ctx, c, symptoms, combined,
-		title, rationale, rewrite, rewriteRationale)
+	if c.foreignHint && combined != "" {
+		f := operatorHintFinding(c, symptoms, combined, rationale)
+		return append(staleFindings, withJoinHintNote(withAntipatterns(f, symptoms), symptoms))
+	}
+	// Every work_mem hint stays within min(work_mem_max_mb, 5% of host
+	// memory); with host memory unknown it needs approval (tuning-03).
+	budget := t.workMemBudget()
+	combined, budgetDetail := budget.capHint(combined)
+	cmp, refused := t.gateCandidate(ctx, c, combined)
+	if refused {
+		return staleFindings
+	}
+	finding := t.buildGatedFinding(ctx, c, symptoms, combined, buildTitle(symptoms),
+		rationale, cmp)
+	finding = withSpillSizing(budget.annotate(finding, combined, budgetDetail), symptoms)
+	finding = withJoinHintNote(withAntipatterns(finding, symptoms), symptoms)
 	return append(staleFindings, finding)
 }
 
-// extractStaleStats splits a symptom list into the non-stale
-// tail (returned first) and one ANALYZE finding per distinct
-// stale table, deduping against t.staleStatsEmitted so the
-// same table never produces two findings in one cycle.
-func (t *Tuner) extractStaleStats(
-	symptoms []PlanSymptom,
-) ([]PlanSymptom, []analyzer.Finding) {
-	var kept []PlanSymptom
-	var findings []analyzer.Finding
-	for _, s := range symptoms {
-		if s.Kind != SymptomStaleStats {
-			kept = append(kept, s)
-			continue
-		}
-		schema := s.Schema
-		table := s.RelationName
-		if schema == "" {
-			schema = "public"
-		}
-		canonical := schema + "." + table
-		if t.staleStatsEmitted[canonical] {
-			continue
-		}
-		t.staleStatsEmitted[canonical] = true
-
-		sizeMB := int64(0)
-		if t.staleStats != nil {
-			sizeMB = t.staleStats.SizeMB(canonical)
-		}
-		findings = append(findings, analyzer.Finding{
-			Category:         "stale_statistics",
-			Severity:         "warning",
-			ObjectType:       "table",
-			ObjectIdentifier: canonical,
-			Title: fmt.Sprintf(
-				"Stale statistics on %s — ANALYZE recommended",
-				canonical,
-			),
-			Detail: map[string]any{
-				"canonical":  canonical,
-				"trigger":    "nested_loop_misestimate",
-				"size_mb":    sizeMB,
-				"schemaname": schema,
-				"tablename":  table,
-			},
-			Recommendation: fmt.Sprintf(
-				"Run ANALYZE on %s to refresh optimizer statistics",
-				canonical,
-			),
-			ActionRisk: "safe",
-			RecommendedSQL: fmt.Sprintf(
-				"ANALYZE %s", QuoteQualified(schema, table),
-			),
-		})
+// combinedHint combines the prescriptions' directives. Deterministic
+// prescriptions interpolate plan-derived identifiers raw (e.g.
+// HashJoin(alias)), so the combined directive is re-validated the same way
+// agent hints are (W4); a malformed hint is dropped ("") rather than
+// emitted as an unparseable directive.
+func (t *Tuner) combinedHint(prescriptions []Prescription) string {
+	combined := CombineHints(prescriptions)
+	if combined != "" && !validateHintSyntax(combined) {
+		t.logFn("tuner", "dropping unparseable combined hint: %s", combined)
+		return ""
 	}
-	return kept, findings
+	return combined
 }
 
 func (t *Tuner) gatherSymptoms(
@@ -427,59 +373,30 @@ func (t *Tuner) gatherSymptoms(
 		})
 	}
 
-	// Stat-based temp spill detection: when no plan-level
-	// spill symptoms were found but pg_stat_statements shows
-	// temp blocks written, emit a stat-based symptom.
-	if c.TempBlksWritten > 0 && !hasSpillSymptom(symptoms) {
+	// Stat-based temp spill (tuning-03): when no plan-level spill
+	// symptom was found, the spill this cycle sized from the interval's
+	// per-call temp blocks against the role's work_mem.
+	if sz, ok := t.spill.needs[keyOf(c)]; ok && !hasSpillSymptom(symptoms) {
 		symptoms = append(symptoms, PlanSymptom{
-			Kind: SymptomStatTempSpill,
-			Detail: map[string]any{
-				"temp_blks_written": c.TempBlksWritten,
-			},
+			Kind: SymptomStatTempSpill, Detail: sz.detail(),
 		})
 	}
 	return symptoms
 }
 
-func (t *Tuner) scanPlanForQuery(
-	ctx context.Context, queryID int64,
-) []PlanSymptom {
-	planJSON := t.fetchPlanJSON(ctx, queryID)
-	if planJSON == "" {
-		return nil
-	}
-	symptoms, err := ScanPlan([]byte(planJSON),
-		WithCatalogFacts(t.cycleFacts(ctx, []byte(planJSON)), t.cfg.ParallelMinTableRows))
+// scanPlan scans one cached plan with this tuner's thresholds, then routes
+// bad_nested_loop to stale_stats symptoms when any relation in the plan has
+// stale statistics.
+func (t *Tuner) scanPlan(ctx context.Context, planJSON []byte, extra ...ScanOption) (
+	[]PlanSymptom, error) {
+	opts := append([]ScanOption{
+		WithCatalogFacts(t.cycleFacts(ctx, planJSON), t.cfg.ParallelMinTableRows),
+		WithNestedLoopMinRows(t.cfg.NestedLoopRowThreshold)}, extra...)
+	symptoms, err := ScanPlan(planJSON, opts...)
 	if err != nil {
-		t.logFn("tuner", "scan plan for queryid %d: %v",
-			queryID, err)
-		return nil
+		return nil, err
 	}
-	// Route bad_nested_loop to stale_stats symptoms when any
-	// relation in the plan has stale statistics.
-	symptoms = annotateForStaleStats(
-		[]byte(planJSON), symptoms, t.staleStats,
-	)
-	return symptoms
-}
-
-func (t *Tuner) fetchPlanJSON(
-	ctx context.Context, queryID int64,
-) string {
-	if t.pool == nil {
-		return ""
-	}
-	var planJSON []byte
-	err := t.pool.QueryRow(ctx,
-		`/* pg_sage */ SELECT plan_json FROM sage.explain_cache
-		 WHERE queryid = $1 AND source <> 'lakebase_plan_history'
-		 ORDER BY captured_at DESC LIMIT 1`,
-		queryID,
-	).Scan(&planJSON)
-	if err != nil {
-		return ""
-	}
-	return string(planJSON)
+	return annotateForStaleStats(planJSON, symptoms, t.staleStats), nil
 }
 
 func (t *Tuner) isHighPlanTime(c candidate) bool {
@@ -506,7 +423,19 @@ func (t *Tuner) buildFinding(
 	c candidate,
 	symptoms []PlanSymptom,
 	combinedHint, title, rationale string,
-	suggestedRewrite, rewriteRationale string,
+) analyzer.Finding {
+	return t.buildGatedFinding(ctx, c, symptoms, combinedHint, title, rationale, nil)
+}
+
+// buildGatedFinding builds the query_tuning finding; cmp is the hinted
+// EXPLAIN comparison (nil: the gate did not run). An unverifiable hint
+// stays advisory and is not recorded as proposed (tuning-05).
+func (t *Tuner) buildGatedFinding(
+	ctx context.Context,
+	c candidate,
+	symptoms []PlanSymptom,
+	combinedHint, title, rationale string,
+	cmp *HintComparison,
 ) analyzer.Finding {
 	names := symptomNames(symptoms)
 	detail := map[string]any{
@@ -514,10 +443,7 @@ func (t *Tuner) buildFinding(
 		"query":          c.Query,
 		"symptoms":       names,
 		"hint_directive": combinedHint,
-	}
-	if suggestedRewrite != "" {
-		detail["suggested_rewrite"] = suggestedRewrite
-		detail["rewrite_rationale"] = rewriteRationale
+		"plan":           t.planProvenance(ctx, c.QueryID),
 	}
 	f := analyzer.Finding{
 		Category:         "query_tuning",
@@ -530,204 +456,27 @@ func (t *Tuner) buildFinding(
 		ActionRisk:       "safe",
 	}
 	// An empty hint is never installed or recorded (Phase 0 item 11): the
-	// finding stays informational (e.g. a sort-limit or rewrite advice).
+	// finding stays informational (e.g. sort-limit advice).
 	if strings.TrimSpace(combinedHint) == "" {
 		return f
 	}
-	if t.hintPlan != nil && t.hintPlan.Available && t.hintPlan.HintTableReady {
-		f.RecommendedSQL = BuildInsertSQL(
-			c.QueryID, combinedHint,
-		)
-		f.RollbackSQL = BuildDeleteSQL(c.QueryID)
+	// Executable SQL only when the hint would change the application's plan
+	// (tuning-04); otherwise the finding stays advisory and names why.
+	// A hint that cannot be installed is not recorded as proposed either
+	// (tuning-06): it could only wait there until it expired.
+	if !t.HintsAvailable() {
+		detail["hint_readiness"] = t.hints().Readiness()
+		return f
 	}
-
+	if cmp != nil {
+		detail["hint_evidence"] = cmp.Evidence()
+		if cmp.Verdict == HintUnverifiable {
+			return f
+		}
+	}
+	f.RecommendedSQL = BuildInsertSQL(c.QueryID, combinedHint)
+	f.RollbackSQL = BuildDeleteSQL(c.QueryID, combinedHint)
 	// Persist to sage.query_hints for the dashboard query-hints page.
-	t.upsertQueryHint(ctx, c.QueryID, combinedHint,
-		strings.Join(names, ", "), suggestedRewrite, rewriteRationale)
-
+	t.upsertQueryHint(ctx, c.QueryID, combinedHint, strings.Join(names, ", "))
 	return f
-}
-
-// BuildInsertSQL generates an INSERT for hint_plan.hints.
-//
-// The SQL this produces is stored as Finding.RecommendedSQL and
-// executed later by the executor (see executor.ExecInTransaction),
-// so it must be self-contained — we cannot use bind parameters.
-//
-// Safety: we emit the hint as a PostgreSQL dollar-
-// quoted string literals ($sageqh$…$sageqh$). Dollar-quoted
-// strings do not interpret backslash escapes or double single
-// quotes, so they are immune to single-quote-based injection
-// regardless of standard_conforming_strings. The only attack
-// surface is a literal that itself contains the tag; we pick a
-// unique tag for each call to eliminate that case and strip NUL
-// bytes as extra defense-in-depth.
-func BuildInsertSQL(queryID int64, hint string) string {
-	hint = stripNULs(hint)
-	tag := chooseDollarTag(hint)
-	return fmt.Sprintf(
-		"INSERT INTO hint_plan.hints "+
-			"(query_id, application_name, hints) "+
-			"SELECT %d, '', %s%s%s "+
-			"WHERE NOT EXISTS ("+
-			"SELECT 1 FROM hint_plan.hints "+
-			"WHERE query_id = %d AND application_name = '')",
-		queryID, tag, hint, tag, queryID,
-	)
-}
-
-// BuildDeleteSQL generates a DELETE for hint_plan.hints.
-// See BuildInsertSQL for the dollar-quoting safety rationale.
-func BuildDeleteSQL(queryID int64) string {
-	return fmt.Sprintf(
-		"DELETE FROM hint_plan.hints "+
-			"WHERE query_id = %d "+
-			"AND application_name = ''",
-		queryID,
-	)
-}
-
-// stripNULs removes NUL bytes, which PostgreSQL rejects in text
-// columns but which could truncate client-side string handling.
-func stripNULs(s string) string {
-	return strings.ReplaceAll(s, "\x00", "")
-}
-
-// chooseDollarTag picks a dollar-quote tag guaranteed not to
-// appear in any of the provided payloads, so the closing tag is
-// unambiguous. It starts with $sageqh$ and extends with digits
-// until the tag is not a substring of any payload.
-func chooseDollarTag(payloads ...string) string {
-	base := "sageqh"
-	for i := 0; i < 1000; i++ {
-		var tag string
-		if i == 0 {
-			tag = "$" + base + "$"
-		} else {
-			tag = fmt.Sprintf("$%s%d$", base, i)
-		}
-		collides := false
-		for _, p := range payloads {
-			if strings.Contains(p, tag) {
-				collides = true
-				break
-			}
-		}
-		if !collides {
-			return tag
-		}
-	}
-	// Extremely unlikely fallback — caller payloads are from
-	// pg_stat_statements and unlikely to collide with 1000
-	// different candidate tags.
-	return "$sageqh_fallback$"
-}
-
-// hasSpillSymptom returns true if any symptom indicates a
-// disk sort or hash spill (plan-level detection).
-func hasSpillSymptom(symptoms []PlanSymptom) bool {
-	for _, s := range symptoms {
-		switch s.Kind {
-		case SymptomDiskSort, SymptomHashSpill:
-			return true
-		}
-	}
-	return false
-}
-
-func symptomNames(symptoms []PlanSymptom) []string {
-	out := make([]string, len(symptoms))
-	for i, s := range symptoms {
-		out[i] = string(s.Kind)
-	}
-	return out
-}
-
-func buildTitle(symptoms []PlanSymptom) string {
-	if len(symptoms) == 1 {
-		return singleSymptomTitle(symptoms[0].Kind)
-	}
-	return multiSymptomTitle(symptoms)
-}
-
-func singleSymptomTitle(kind SymptomKind) string {
-	switch kind {
-	case SymptomDiskSort:
-		return "Per-query tuning: increase work_mem " +
-			"for disk-sorting query"
-	case SymptomHashSpill:
-		return "Per-query tuning: increase work_mem " +
-			"for hash-spilling query"
-	case SymptomHighPlanTime:
-		return "Per-query tuning: force generic plan " +
-			"for high-planning-time query"
-	case SymptomBadNestedLoop:
-		return "Per-query tuning: fix nested loop " +
-			"join strategy"
-	case SymptomSeqScanWithIndex:
-		return "Per-query tuning: force index scan " +
-			"for seq-scanning query"
-	case SymptomParallelDisabled:
-		return "Per-query tuning: enable parallel " +
-			"workers for scan"
-	case SymptomStatTempSpill:
-		return "Per-query tuning: increase work_mem " +
-			"for temp-spilling query"
-	default:
-		return "Per-query tuning recommendation"
-	}
-}
-
-func multiSymptomTitle(symptoms []PlanSymptom) string {
-	kinds := make(map[SymptomKind]bool)
-	for _, s := range symptoms {
-		kinds[s.Kind] = true
-	}
-	var parts []string
-	if kinds[SymptomDiskSort] || kinds[SymptomHashSpill] {
-		parts = append(parts, "work_mem")
-	}
-	if kinds[SymptomHighPlanTime] {
-		parts = append(parts, "generic plan")
-	}
-	if kinds[SymptomBadNestedLoop] {
-		parts = append(parts, "join strategy")
-	}
-	if kinds[SymptomSeqScanWithIndex] {
-		parts = append(parts, "index scan")
-	}
-	if kinds[SymptomParallelDisabled] {
-		parts = append(parts, "parallel workers")
-	}
-	if kinds[SymptomStatTempSpill] {
-		parts = append(parts, "work_mem")
-	}
-	if len(parts) == 0 {
-		return "Per-query tuning recommendation"
-	}
-	return fmt.Sprintf(
-		"Per-query tuning: %s for query",
-		strings.Join(parts, " + "),
-	)
-}
-
-func buildRationale(prescriptions []Prescription) string {
-	parts := make([]string, len(prescriptions))
-	for i, p := range prescriptions {
-		parts[i] = p.Rationale
-	}
-	return strings.Join(parts, "; ")
-}
-
-// extractRewrite returns the first non-empty suggested rewrite
-// from the prescription list.
-func extractRewrite(
-	prescriptions []Prescription,
-) (rewrite, rationale string) {
-	for _, p := range prescriptions {
-		if p.SuggestedRewrite != "" {
-			return p.SuggestedRewrite, p.RewriteRationale
-		}
-	}
-	return "", ""
 }

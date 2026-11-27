@@ -2,11 +2,14 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/config"
+	"github.com/pg-sage/sidecar/internal/rolegrants"
 )
 
 // ---------------------------------------------------------------------------
@@ -31,77 +34,36 @@ func connectTestDB2(t *testing.T) *pgxpool.Pool {
 // checkSchemaCreate (was 57.1%) — test missing-grant path
 // ---------------------------------------------------------------------------
 
-func TestPhase2_CheckSchemaCreate_ResolvesCurrentUser(t *testing.T) {
-	pool := connectTestDB2(t)
-	defer pool.Close()
-
-	var logged []string
-	logFn := func(_ string, msg string, args ...any) {
-		logged = append(logged, msg)
-	}
-
-	// Call VerifyGrants which resolves the current user.
-	VerifyGrants(context.Background(), pool, "", "advisory", logFn)
-	// Should not panic and should resolve user correctly.
-}
-
 // ---------------------------------------------------------------------------
-// checkSignalBackend (was 57.1%) — test missing-role path
+// checkSignalBackend probes the connected role: a superuser may signal, and
+// a failed probe is logged and never reported as missing.
 // ---------------------------------------------------------------------------
 
-func TestPhase2_CheckSignalBackend_PostgresUser(t *testing.T) {
+func TestPhase2_CheckSignalBackend_ConnectedRole(t *testing.T) {
 	pool := connectTestDB2(t)
 	defer pool.Close()
-
 	var logged []string
 	logFn := func(_ string, msg string, args ...any) {
-		logged = append(logged, msg)
+		logged = append(logged, fmt.Sprintf(msg, args...))
 	}
-
-	checkSignalBackend(
-		context.Background(), pool, "postgres", logFn,
-	)
-
-	// postgres superuser should have pg_signal_backend membership
-	// (or equivalent). Either way, should not panic.
-}
-
-func TestPhase2_CheckSignalBackend_NonExistentUser(t *testing.T) {
-	pool := connectTestDB2(t)
-	defer pool.Close()
-
-	var logged []string
-	logFn := func(_ string, msg string, args ...any) {
-		logged = append(logged, msg)
+	var super bool
+	if err := pool.QueryRow(context.Background(),
+		"SELECT rolsuper FROM pg_roles WHERE rolname = current_user").Scan(&super); err != nil {
+		t.Fatalf("superuser: %v", err)
 	}
-
-	checkSignalBackend(
-		context.Background(), pool,
-		"nonexistent_role_xyz_12345", logFn,
-	)
-
-	// Should log an error (can't check role for non-existent user).
-	if len(logged) == 0 {
-		t.Error("expected log output for non-existent role")
+	sig, lacking := checkSignalBackend(context.Background(), pool, logFn)
+	if super && (lacking || !sig.Usable || sig.MemberOnly || sig.Version < 140000) {
+		t.Fatalf("superuser: sig = %+v, lacking = %v; want usable", sig, lacking)
 	}
-}
-
-func TestPhase2_CheckSignalBackend_EmptyUser(t *testing.T) {
-	pool := connectTestDB2(t)
-	defer pool.Close()
-
-	var logged []string
-	logFn := func(_ string, msg string, args ...any) {
-		logged = append(logged, msg)
+	if len(logged) != 0 {
+		t.Fatalf("logged %q, want nothing for a probe that ran", logged)
 	}
-
-	checkSignalBackend(
-		context.Background(), pool, "", logFn,
-	)
-
-	// Empty user should trigger error path.
-	if len(logged) == 0 {
-		t.Error("expected log output for empty user")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sig, lacking = checkSignalBackend(ctx, pool, logFn)
+	if lacking || sig != (rolegrants.SignalBackend{}) || len(logged) != 1 ||
+		!strings.Contains(logged[0], "could not check pg_signal_backend") {
+		t.Fatalf("cancelled: sig = %+v, lacking = %v, logged %q", sig, lacking, logged)
 	}
 }
 
@@ -240,65 +202,8 @@ func TestPhase2_ExtractIndexName_Variants(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// NeedsConcurrently + NeedsTopLevel — edge cases
-// ---------------------------------------------------------------------------
-
-func TestPhase2_NeedsConcurrently_Variants(t *testing.T) {
-	tests := []struct {
-		sql  string
-		want bool
-	}{
-		{"CREATE INDEX CONCURRENTLY idx ON t (a)", true},
-		{"REINDEX INDEX CONCURRENTLY idx", true},
-		{"DROP INDEX CONCURRENTLY idx", true},
-		{"CREATE INDEX idx ON t (a)", false},
-		{"VACUUM ANALYZE t", false},
-	}
-	for _, tt := range tests {
-		got := NeedsConcurrently(tt.sql)
-		if got != tt.want {
-			t.Errorf("NeedsConcurrently(%q) = %v, want %v",
-				tt.sql, got, tt.want)
-		}
-	}
-}
-
-func TestPhase2_NeedsTopLevel_Variants(t *testing.T) {
-	tests := []struct {
-		sql  string
-		want bool
-	}{
-		{"VACUUM ANALYZE t", true},
-		{"VACUUM t", true},
-		{"vacuum full t", true},
-		{"CREATE INDEX idx ON t (a)", false},
-		{"SELECT 1", false},
-	}
-	for _, tt := range tests {
-		got := NeedsTopLevel(tt.sql)
-		if got != tt.want {
-			t.Errorf("NeedsTopLevel(%q) = %v, want %v",
-				tt.sql, got, tt.want)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // VerifyGrants full integration
 // ---------------------------------------------------------------------------
-
-func TestPhase2_VerifyGrants_FullIntegration(t *testing.T) {
-	pool := connectTestDB2(t)
-	defer pool.Close()
-
-	var messages []string
-	logFn := func(_ string, msg string, args ...any) {
-		messages = append(messages, msg)
-	}
-
-	// Should not panic. postgres user should have grants.
-	VerifyGrants(context.Background(), pool, "postgres", "advisory", logFn)
-}
 
 // ---------------------------------------------------------------------------
 // Executor accessor methods

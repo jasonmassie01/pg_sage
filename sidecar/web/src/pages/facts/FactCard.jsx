@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { decideFact, formatFactDate } from '../../lib/facts'
+import { FactCoverage } from './FactCoverage'
 
 // FactCard shows one binding fact: the fact in words, what it is about,
 // who proposed it from what evidence, its decision and provenance, and,
@@ -42,6 +43,11 @@ export function FactCard({ fact, canDecide, onDecided }) {
         <p className="text-sm" style={strong}>Rationale: {fact.rationale}</p>
       )}
       <FactDecisionInfo fact={fact} />
+      {fact.status === 'proposed' && (
+        <FactCoverage database={fact.database} kind={fact.subject_kind}
+          subject={fact.subject || ''} testId={`fact-coverage-${fact.id}`}
+          key={`${fact.subject_kind}:${fact.subject}`} />
+      )}
       {canDecide && DECISIONS[fact.status] && (
         <FactDecision fact={fact} onDecided={onDecided} />
       )}
@@ -59,7 +65,7 @@ function FactMeta({ fact }) {
       <span>Source: {fact.source}</span>
       {fact.proposed_by && <span>Proposed by: {fact.proposed_by}</span>}
       <span data-testid={`fact-proposals-${fact.id}`}>
-        Proposals: {fact.proposals ?? 0}
+        Times proposed: {fact.proposals ?? 0}
       </span>
     </div>
   )
@@ -83,6 +89,7 @@ function FactEvidence({ fact }) {
 
 function FactDecisionInfo({ fact }) {
   const expires = formatFactDate(fact.expires_at)
+  const absent = formatFactDate(fact.missing_since)
   return (
     <div className="text-xs space-y-0.5" style={muted}>
       {fact.provenance && (
@@ -93,16 +100,30 @@ function FactDecisionInfo({ fact }) {
       {fact.decision_note && <div>Note: {fact.decision_note}</div>}
       {expires && <div data-testid={`fact-expires-${fact.id}`}>Expires: {expires}</div>}
       {fact.expired_reason && <div>Expired: {fact.expired_reason}</div>}
+      {absent && (
+        <div data-testid={`fact-absent-${fact.id}`}>
+          Absent since {absent}
+          {fact.status === 'confirmed' && ' (still binds until the absence grace ends)'}
+        </div>
+      )}
     </div>
   )
+}
+
+// widens reports whether deciding verb lifts a guard: revoking or expiring
+// a confirmed fact lets pg_sage act on its subject again (facts-07).
+function widens(fact, verb) {
+  return fact.status === 'confirmed' && (verb === 'reject' || verb === 'expire')
 }
 
 function FactDecision({ fact, onDecided }) {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [pending, setPending] = useState(null)
 
   async function decide(verb) {
+    setPending(null)
     setBusy(true)
     setError(null)
     try {
@@ -116,6 +137,11 @@ function FactDecision({ fact, onDecided }) {
     }
   }
 
+  function choose(verb) {
+    if (widens(fact, verb)) setPending(verb)
+    else decide(verb)
+  }
+
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap gap-2 items-center">
@@ -126,7 +152,7 @@ function FactDecision({ fact, onDecided }) {
             color: 'var(--text-primary)' }} />
         {DECISIONS[fact.status].map(([verb, label, tid]) => (
           <button key={tid} type="button" data-testid={`fact-${tid}-${fact.id}`}
-            disabled={busy} onClick={() => decide(verb)}
+            disabled={busy || pending !== null} onClick={() => choose(verb)}
             className="px-3 py-1 rounded text-sm"
             style={{ border: '1px solid var(--border)', opacity: busy ? 0.5 : 1,
               color: verb === 'confirm' ? 'var(--green)' : 'var(--text-primary)' }}>
@@ -134,12 +160,47 @@ function FactDecision({ fact, onDecided }) {
           </button>
         ))}
       </div>
+      {pending && (
+        <WidenConfirm fact={fact} verb={pending} onConfirm={() => decide(pending)}
+          onCancel={() => setPending(null)} />
+      )}
       {error && (
         <div role="alert" data-testid={`fact-error-${fact.id}`} className="text-sm"
           style={{ color: 'var(--red)' }}>
           {error}
         </div>
       )}
+    </div>
+  )
+}
+
+// WidenConfirm asks before a decision that lifts a guard. Cancel sends
+// nothing.
+function WidenConfirm({ fact, verb, onConfirm, onCancel }) {
+  const action = verb === 'expire' ? 'Expire' : 'Revoke'
+  const titleId = `fact-widen-title-${fact.id}`
+  return (
+    <div role="alertdialog" aria-labelledby={titleId}
+      data-testid={`fact-widen-${fact.id}`} className="rounded border p-2 space-y-2 text-sm"
+      style={{ borderColor: 'var(--yellow)', background: 'var(--bg-primary)' }}>
+      <div id={titleId} className="font-medium" style={strong}>
+        {action} fact #{fact.id}: {fact.summary}?
+      </div>
+      <p style={muted}>
+        It stops binding. pg_sage and operator approvals may then act on {fact.subject} again.
+      </p>
+      <div className="flex gap-2">
+        <button type="button" data-testid={`fact-widen-confirm-${fact.id}`}
+          onClick={onConfirm} className="px-3 py-1 rounded text-sm"
+          style={{ border: '1px solid var(--border)', color: 'var(--red)' }}>
+          {action}
+        </button>
+        <button type="button" data-testid={`fact-widen-cancel-${fact.id}`}
+          onClick={onCancel} className="px-3 py-1 rounded text-sm"
+          style={{ border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }

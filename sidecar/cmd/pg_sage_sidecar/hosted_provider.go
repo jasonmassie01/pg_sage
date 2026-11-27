@@ -32,3 +32,13 @@ func hostedProviderFromHost(host string) string {
 		return ""
 	}
 }
+
+// knownProviders is every name provider detection (detectCloudEnv) can
+// return: unknown, self-managed, the SQL probe answers and the hosted
+// endpoint names above. Every provider consumer must handle each one;
+// TestProviderConsumersAgree fails until it does.
+var knownProviders = []string{
+	providerUnknown, providerSelfManaged,
+	"aurora", "rds", "alloydb", "cloud-sql", "azure",
+	"lakebase", "neon", "supabase", "azure-cosmos",
+}

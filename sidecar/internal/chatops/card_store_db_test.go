@@ -4,11 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // A card token is minted per card per channel, stored only as its
@@ -127,7 +131,8 @@ func TestCardConsumeExpired(t *testing.T) {
 		t.Fatalf("expired: err = %v, want ErrCardExpired", err)
 	}
 	got, err := s.Lookup(ctx, token)
-	if err != nil || got.UsedAt != nil || !got.Expired(time.Now()) {
+	// expires_at is the database's now() - 1 s: judge it on that clock (ci-14).
+	if err != nil || got.UsedAt != nil || !got.Expired(testdb.MustDBNow(t, pool)) {
 		t.Fatalf("expired card = %+v, %v", got, err)
 	}
 }
@@ -218,5 +223,207 @@ func TestCardFollowupQueue(t *testing.T) {
 	got, _ := s.Lookup(ctx, a)
 	if got.FollowupVerdict != "verified" || got.FollowedUpAt == nil {
 		t.Fatalf("followed-up card = %+v", got)
+	}
+}
+
+// policy-06: a new card for the same item in the same chat closes the
+// older open ones, so the verdict is posted once per chat.
+func TestCardIssueSupersedesOlderOpenCardsOfTheSameChannel(t *testing.T) {
+	s, _, ctx := liveCards(t)
+	base := cardIssue(808)
+	a1 := issueOK(t, ctx, s, base)
+	otherChannel := base
+	otherChannel.ChannelID = 8
+	b1 := issueOK(t, ctx, s, otherChannel)
+	otherDB := base
+	otherDB.Database = "billing"
+	c1 := issueOK(t, ctx, s, otherDB)
+	if _, err := s.Consume(ctx, a1, 1, DecisionSnooze, 55); err != nil {
+		t.Fatalf("snooze: %v", err)
+	}
+	a2 := issueOK(t, ctx, s, base)
+	got := lookupOK(t, ctx, s, a1)
+	if got.FollowedUpAt == nil || got.FollowupVerdict != "superseded" ||
+		got.Decision != "snooze" || got.MessageID != 55 {
+		t.Fatalf("older snoozed card = %+v, want superseded with its decision kept", got)
+	}
+	for name, tok := range map[string]string{"other channel": b1, "other database": c1,
+		"new card": a2} {
+		if d := lookupOK(t, ctx, s, tok); d.FollowedUpAt != nil || d.FollowupVerdict != "" {
+			t.Fatalf("%s card was closed: %+v", name, d)
+		}
+	}
+	// A failed insert closes nothing: the statement is one unit.
+	bad := base
+	bad.CardHash = strings.Repeat("x", 200)
+	if _, err := s.Issue(ctx, bad); err == nil {
+		t.Fatal("an over-long card hash was accepted")
+	}
+	if d := lookupOK(t, ctx, s, a2); d.FollowedUpAt != nil {
+		t.Fatalf("a failed insert superseded the open card: %+v", d)
+	}
+	// A card already followed up keeps its verdict.
+	b := lookupOK(t, ctx, s, b1)
+	if err := s.MarkFollowedUp(ctx, b.ID, "verified"); err != nil {
+		t.Fatal(err)
+	}
+	issueOK(t, ctx, s, otherChannel)
+	if d := lookupOK(t, ctx, s, b1); d.FollowupVerdict != "verified" {
+		t.Fatalf("followed-up card rewritten to %q", d.FollowupVerdict)
+	}
+}
+
+func issueOK(t *testing.T, ctx context.Context, s *CardStore, in CardIssue) string {
+	t.Helper()
+	token, err := s.Issue(ctx, in)
+	if err != nil {
+		t.Fatalf("issue %+v: %v", in, err)
+	}
+	return token
+}
+
+func lookupOK(t *testing.T, ctx context.Context, s *CardStore, token string) CardDelivery {
+	t.Helper()
+	d, err := s.Lookup(ctx, token)
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	return d
+}
+
+func TestCardFollowupsWaitForTheirNextCheck(t *testing.T) {
+	s, pool, ctx := liveCards(t)
+	if _, err := pool.Exec(ctx, `DELETE FROM sage.approval_card_deliveries`); err != nil {
+		t.Fatal(err)
+	}
+	a := lookupOK(t, ctx, s, issueOK(t, ctx, s, cardIssue(909)))
+	b := lookupOK(t, ctx, s, issueOK(t, ctx, s, cardIssue(910)))
+	if a.NextCheckAt.IsZero() || a.NextCheckAt.After(time.Now().Add(5*time.Second)) {
+		t.Fatalf("a new card is due at %v, want now", a.NextCheckAt)
+	}
+	if err := s.DeferFollowup(ctx, a.ID, 10*time.Minute); err != nil {
+		t.Fatalf("defer: %v", err)
+	}
+	pending, err := s.PendingFollowups(ctx, 10)
+	if err != nil || len(pending) != 1 || pending[0].ID != b.ID {
+		t.Fatalf("pending with a deferred = %+v, %v", pending, err)
+	}
+	a = lookupOK(t, ctx, s, issueOK(t, ctx, s, cardIssue(911)))
+	if _, err := pool.Exec(ctx, `UPDATE sage.approval_card_deliveries SET next_check_at =
+		CASE id WHEN $1 THEN now() - interval '1 hour' ELSE now() - interval '2 hours' END
+		WHERE id IN ($1, $2)`, a.ID, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = s.PendingFollowups(ctx, 10)
+	if err != nil || len(pending) != 2 || pending[0].ID != b.ID || pending[1].ID != a.ID {
+		t.Fatalf("pending = %+v, %v; want the earliest re-check first", pending, err)
+	}
+	if err := s.DeferFollowup(ctx, 987654321, time.Minute); !errors.Is(err, ErrCardUnknown) {
+		t.Fatalf("unknown card: %v", err)
+	}
+	for _, d := range []time.Duration{0, -time.Second} {
+		if err := s.DeferFollowup(ctx, a.ID, d); !errors.Is(err, ErrMalformed) {
+			t.Fatalf("delay %v: err = %v, want ErrMalformed", d, err)
+		}
+	}
+	if err := s.MarkFollowedUp(ctx, b.ID, "verified"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeferFollowup(ctx, b.ID, time.Minute); !errors.Is(err, ErrCardUnknown) {
+		t.Fatalf("deferring a followed-up card: %v", err)
+	}
+}
+
+func TestCardFollowupQueueSchemaAndPlan(t *testing.T) {
+	_, pool, ctx := liveCards(t)
+	var nullable, typ, def string
+	if err := pool.QueryRow(ctx, `SELECT is_nullable, data_type, column_default
+		FROM information_schema.columns WHERE table_schema = 'sage'
+		AND table_name = 'approval_card_deliveries' AND column_name = 'next_check_at'`).Scan(
+		&nullable, &typ, &def); err != nil {
+		t.Fatalf("next_check_at: %v", err)
+	}
+	if nullable != "NO" || typ != "timestamp with time zone" || !strings.Contains(def, "now()") {
+		t.Fatalf("next_check_at is %s %s default %s", nullable, typ, def)
+	}
+	var idx string
+	if err := pool.QueryRow(ctx, `SELECT pg_get_indexdef(
+		'sage.idx_approval_card_next_check'::regclass)`).Scan(&idx); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	if !strings.Contains(idx, "(next_check_at, id) WHERE (followed_up_at IS NULL)") {
+		t.Fatalf("index = %s", idx)
+	}
+	var gone bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('sage.idx_approval_card_followup')
+		IS NULL`).Scan(&gone); err != nil || !gone {
+		t.Fatalf("the replaced index is still there (%v)", err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL enable_seqscan = off`); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := tx.Query(ctx, `EXPLAIN `+pendingFollowupsSQL, 500)
+	if err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	plan, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+	if !strings.Contains(strings.Join(plan, "\n"), "idx_approval_card_next_check") {
+		t.Fatalf("PendingFollowups does not use the partial index:\n%s",
+			strings.Join(plan, "\n"))
+	}
+}
+
+// policy-06 review: an older card pressed after a re-send takes the open
+// follow-up back, so the verdict still replies to the decision's message.
+// A card whose chat already got its verdict hands nothing back.
+func TestCardConsumeOfSupersededCardCarriesTheFollowup(t *testing.T) {
+	s, _, ctx := liveCards(t)
+	old := issueOK(t, ctx, s, cardIssue(812))
+	resent := issueOK(t, ctx, s, cardIssue(812))
+	got, err := s.Consume(ctx, old, 1, DecisionApprove, 4242)
+	if err != nil {
+		t.Fatalf("approve from the older card: %v", err)
+	}
+	if got.FollowedUpAt != nil || got.FollowupVerdict != "" || got.MessageID != 4242 {
+		t.Fatalf("pressed card = %+v, want it open with message 4242", got)
+	}
+	if d := lookupOK(t, ctx, s, resent); d.FollowedUpAt == nil ||
+		d.FollowupVerdict != "superseded" {
+		t.Fatalf("newer unused card = %+v, want superseded", d)
+	}
+	open := lookupOK(t, ctx, s, old)
+	if err := s.MarkFollowedUp(ctx, open.ID, "verified"); err != nil {
+		t.Fatal(err)
+	}
+	// The verdict is out: a later press of the superseded card reopens nothing.
+	stale := lookupOK(t, ctx, s, resent)
+	got, err = s.Consume(ctx, resent, 1, DecisionApprove, 4343)
+	if err != nil {
+		t.Fatalf("late press: %v", err)
+	}
+	if got.FollowedUpAt == nil || got.FollowupVerdict != "superseded" {
+		t.Fatalf("late press reopened its card: %+v (was %+v)", got, stale)
+	}
+	if d := lookupOK(t, ctx, s, old); d.FollowupVerdict != "verified" {
+		t.Fatalf("posted card rewritten to %q", d.FollowupVerdict)
+	}
+	// Another chat's open card is not taken over.
+	other := cardIssue(813)
+	other.ChannelID = 9
+	keep := issueOK(t, ctx, s, other)
+	mine := issueOK(t, ctx, s, cardIssue(813))
+	if _, err := s.Consume(ctx, mine, 1, DecisionDeny, 1); err != nil {
+		t.Fatal(err)
+	}
+	if d := lookupOK(t, ctx, s, keep); d.FollowedUpAt != nil {
+		t.Fatalf("another channel's card was closed: %+v", d)
 	}
 }

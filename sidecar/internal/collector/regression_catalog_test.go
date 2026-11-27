@@ -51,7 +51,7 @@ func TestCollectLocksAndActivity_ScopedToCurrentDatabase(t *testing.T) {
 	t.Cleanup(func() { _, _ = other.Exec(context.Background(), `ROLLBACK`) })
 
 	c := New(pool, testConfig(), 170000, noopLog)
-	locks, err := c.collectLocks(ctx)
+	locks, _, err := c.collectLocks(ctx)
 	if err != nil {
 		t.Fatalf("collectLocks: %v", err)
 	}
@@ -181,7 +181,9 @@ func TestCollectTables_LockedTableDoesNotBlockThePage(t *testing.T) {
 // instead of failing the whole replication category.
 func TestScanReplicaRows_NullLSNs(t *testing.T) {
 	pool := testPool(t)
-	rows, err := pool.Query(context.Background(), `SELECT
+	// The row mirrors replicationReplicasSQL, which leads with
+	// application_name since rules-09.
+	rows, err := pool.Query(context.Background(), `SELECT 'standby1'::text,
 		'10.0.0.9'::text, 'startup'::text,
 		NULL::text, NULL::text, NULL::text, NULL::text,
 		NULL::text, NULL::text, NULL::text, 'async'::text`)
@@ -196,7 +198,8 @@ func TestScanReplicaRows_NullLSNs(t *testing.T) {
 		t.Fatalf("got %d replicas, want 1", len(replicas))
 	}
 	r := replicas[0]
-	if r.SentLSN != nil || r.ReplayLSN != nil || r.State != "startup" {
+	if r.SentLSN != nil || r.ReplayLSN != nil || r.State != "startup" ||
+		r.ApplicationName != "standby1" {
 		t.Fatalf("replica = %+v, want nil LSNs and state startup", r)
 	}
 }

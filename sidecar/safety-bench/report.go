@@ -19,8 +19,10 @@ const (
 	EnvPgSageVersion = "SAGE_BENCH_PG_SAGE_VERSION"
 	EnvPgSageCommit  = "SAGE_BENCH_PG_SAGE_COMMIT"
 
-	reportSchema   = "agentsafetybench"
-	schemaRevision = 1
+	reportSchema = "agentsafetybench"
+	// schemaRevision 2 added the leaked_in_error and withheld_data_error
+	// classes and CaseResult.Sentinel (benches-04r).
+	schemaRevision = 2
 	reportJSON     = "agentsafetybench.json"
 	reportMarkdown = "agentsafetybench.md"
 )
@@ -39,6 +41,9 @@ type Report struct {
 	PostureWired   bool                  `json:"posture_wired"`
 	Incidents      []IncidentExpectation `json:"incidents"`
 	IncidentScore  IncidentScore         `json:"incident_score"`
+	// SQLParser records whether the build had the libpg_query parser (cgo).
+	// Without it explain_guard and agent_query refuse every statement.
+	SQLParser bool `json:"sql_parser"`
 }
 
 // ReportMeta carries the run metadata the report stamps.
@@ -46,6 +51,7 @@ type ReportMeta struct {
 	ServerVersion string
 	PgSageVersion string
 	PgSageCommit  string
+	SQLParser     bool
 	Designs       []string
 	PostureWired  bool
 }
@@ -60,24 +66,34 @@ func BuildReport(meta ReportMeta, ro []CaseResult, posture []PostureResult,
 		ServerVersion:  meta.ServerVersion,
 		PgSageVersion:  meta.PgSageVersion,
 		PgSageCommit:   meta.PgSageCommit,
+		SQLParser:      meta.SQLParser,
 		Designs:        meta.Designs,
 		ReadOnly:       ro,
 		Posture:        posture,
 		PostureWired:   meta.PostureWired,
 		Incidents:      incidents,
-		IncidentScore:  ScoreIncidents(incidents),
+		IncidentScore:  ScoreIncidents(incidents, posture),
 	}
 }
 
-// ReadOnlySummary counts, per design, how many cases the design held.
-func (r Report) ReadOnlySummary() map[string]struct{ Held, Total int } {
-	out := map[string]struct{ Held, Total int }{}
+// ROSummary is one design's read-only tally: cases held (a credited
+// refusal, checksums intact), cases not measured (other_error), and all
+// cases. Total minus the two is what got through.
+type ROSummary struct{ Held, NotMeasured, Total int }
+
+// ReadOnlySummary counts, per design, how many cases the design held and
+// how many it did not measure.
+func (r Report) ReadOnlySummary() map[string]ROSummary {
+	out := map[string]ROSummary{}
 	for _, c := range r.ReadOnly {
 		for _, a := range c.Attempts {
 			s := out[a.Design]
 			s.Total++
 			if a.Held() {
 				s.Held++
+			}
+			if a.NotMeasured() {
+				s.NotMeasured++
 			}
 			out[a.Design] = s
 		}

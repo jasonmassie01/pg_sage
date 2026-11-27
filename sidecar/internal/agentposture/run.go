@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
 // ArmSkip records a detector arm that does not apply to the server.
@@ -20,18 +21,32 @@ type ArmSkip struct {
 	Reason string
 }
 
-// Outcome is one detector's completed run.
-type Outcome struct {
-	Detector string
-	Findings []Finding
-	Skipped  []ArmSkip
+// Truncation is a capped catalog read that hit its row limit: the rows
+// past the limit were not checked.
+type Truncation struct {
+	Arm   string // which read: "relations", "dblink", ...
+	Limit int
 }
 
-// Note states the skipped arms with their reasons, for the check note.
+// Outcome is one detector's completed run. A truncated run reports the
+// findings it read, but it did not evaluate the rows past its limit.
+type Outcome struct {
+	Detector  string
+	Findings  []Finding
+	Skipped   []ArmSkip
+	Truncated []Truncation
+}
+
+// Note states the skipped arms with their reasons and the truncated
+// reads with their limits, for the check note.
 func (o Outcome) Note() string {
-	parts := make([]string, len(o.Skipped))
-	for i, s := range o.Skipped {
-		parts[i] = "arm " + s.Arm + " skipped: " + s.Reason
+	parts := make([]string, 0, len(o.Skipped)+len(o.Truncated))
+	for _, s := range o.Skipped {
+		parts = append(parts, "arm "+s.Arm+" skipped: "+s.Reason)
+	}
+	for _, tr := range o.Truncated {
+		parts = append(parts, fmt.Sprintf("%s: first %s rows read, later rows not checked",
+			tr.Arm, thousands(tr.Limit)))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -49,7 +64,7 @@ func RunDetector(ctx context.Context, d Detector, q Querier, env Env) (Outcome, 
 		return Outcome{}, fmt.Errorf("agent posture %s: %w", spec.ID, err)
 	}
 	out := Outcome{Detector: spec.ID}
-	in := Input{Q: q, Env: env, active: map[string]bool{}}
+	in := Input{Q: q, Env: env, active: map[string]bool{}, truncated: &out.Truncated}
 	for _, a := range spec.Arms {
 		if a.Applies(env.VersionNum) {
 			in.active[a.Name] = true
@@ -112,12 +127,26 @@ type Result struct {
 	Failed   map[string]error // detector id -> why it did not complete
 }
 
-// EvaluatedCategories are the categories of the detectors that completed:
-// their open findings that were not reported again may resolve.
+// EvaluatedCategories are the categories of the detectors that completed
+// without truncation: their open findings that were not reported again
+// may resolve.
 func (r Result) EvaluatedCategories() []string {
+	return r.categories(func(o Outcome) bool { return len(o.Truncated) == 0 })
+}
+
+// TruncatedCategories are the categories of the detectors that completed
+// but hit a row limit: they report findings, yet the open findings past
+// the limit must not resolve.
+func (r Result) TruncatedCategories() []string {
+	return r.categories(func(o Outcome) bool { return len(o.Truncated) > 0 })
+}
+
+func (r Result) categories(keep func(Outcome) bool) []string {
 	out := make([]string, 0, len(r.Outcomes))
 	for _, o := range r.Outcomes {
-		out = append(out, CategoryPrefix+o.Detector)
+		if keep(o) {
+			out = append(out, CategoryPrefix+o.Detector)
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -162,6 +191,11 @@ func RunAll(ctx context.Context, pool *pgxpool.Pool, opts RunOptions) (Result, e
 	}
 	res := Result{Env: env, Failed: map[string]error{}}
 	for _, d := range reg.Detectors() {
+		if env.SessionsErr != nil && d.Spec().ReadsSessions {
+			res.Failed[d.Spec().ID] = fmt.Errorf("agent posture %s: the session list is "+
+				"unreadable: %w", d.Spec().ID, env.SessionsErr)
+			continue
+		}
 		out, err := runSaved(ctx, tx, d, env)
 		if ctx.Err() != nil {
 			return Result{}, fmt.Errorf("agent posture: %w", ctx.Err())
@@ -177,18 +211,17 @@ func RunAll(ctx context.Context, pool *pgxpool.Pool, opts RunOptions) (Result, e
 
 // runSaved runs one detector under a savepoint of tx.
 func runSaved(ctx context.Context, tx pgx.Tx, d Detector, env Env) (Outcome, error) {
-	sp, err := tx.Begin(ctx)
-	if err != nil {
-		return Outcome{}, fmt.Errorf("agent posture %s: savepoint: %w", d.Spec().ID, err)
+	var out Outcome
+	var detErr error
+	err := catalogread.InSavepoint(ctx, tx, func(sp pgx.Tx) error {
+		out, detErr = RunDetector(ctx, d, sp, env)
+		return detErr
+	})
+	if detErr != nil {
+		return Outcome{}, detErr
 	}
-	out, err := RunDetector(ctx, d, sp, env)
 	if err != nil {
-		_ = sp.Rollback(ctx) // the detector's error is the one to report
-		return Outcome{}, err
-	}
-	if err := sp.Commit(ctx); err != nil {
-		return Outcome{}, fmt.Errorf("agent posture %s: release savepoint: %w",
-			d.Spec().ID, err)
+		return Outcome{}, fmt.Errorf("agent posture %s: %w", d.Spec().ID, err)
 	}
 	return out, nil
 }
@@ -200,16 +233,9 @@ func beginRead(ctx context.Context, pool *pgxpool.Pool, timeout time.Duration) (
 	if timeout <= 0 {
 		timeout = DefaultStatementTimeout
 	}
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead,
-		AccessMode: pgx.ReadOnly})
+	tx, err := catalogread.BeginSnapshot(ctx, pool, Tag, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("agent posture: begin read-only transaction: %w", err)
-	}
-	if _, err := tx.Exec(ctx, Tag+`SELECT pg_catalog.set_config('jit', 'off', true),
-		pg_catalog.set_config('statement_timeout', $1, true)`,
-		strconv.FormatInt(timeout.Milliseconds(), 10)); err != nil {
-		_ = tx.Rollback(context.Background())
-		return nil, fmt.Errorf("agent posture: set JIT and statement timeout: %w", err)
+		return nil, fmt.Errorf("agent posture: %w", err)
 	}
 	return tx, nil
 }

@@ -31,7 +31,7 @@ func TestInTransactionDDLHonorsPolicyLockCeiling(t *testing.T) {
 	}
 
 	sql := "ALTER TABLE public." + table + " SET (fillfactor = 90)"
-	lockMS := ddlLockTimeoutMS(sql, 30000, 3000)
+	lockMS := ddlLockTimeoutMS(ActionTypeForSQL(sql), 30000, 3000)
 	if lockMS != 3000 {
 		t.Fatalf("effective lock timeout = %dms, want the 3000ms policy ceiling", lockMS)
 	}

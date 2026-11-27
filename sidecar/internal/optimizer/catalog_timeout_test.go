@@ -46,7 +46,7 @@ func ctxFixture(t *testing.T) (*pgxpool.Pool, *collector.Snapshot) {
 
 func TestTableContext_SlowCatalogReadsDegrade(t *testing.T) {
 	pool, snap := ctxFixture(t)
-	o := New(pool, &config.OptimizerConfig{}, 170000, func(string, string, ...any) {},
+	o := New(pool, &config.OptimizerConfig{}, func(string, string, ...any) {},
 		WithCatalogReadTimeouts(catalogread.Timeouts{Statement: 200 * time.Millisecond}))
 	base, ok, err := o.TableContext(context.Background(), snap, "public.ctx_bounded")
 	if err != nil || !ok || len(base.Columns) != 2 || len(base.ColStats) == 0 {
@@ -65,12 +65,14 @@ func TestTableContext_SlowCatalogReadsDegrade(t *testing.T) {
 		t.Fatalf("context under slow reads = %+v (%v, %v), want the table without details",
 			got, ok, err)
 	}
-	if got.Columns != nil || got.ColStats != nil || got.Collation != "" {
+	if got.Columns != nil || got.ColStats != nil || got.Collation != "" ||
+		got.KeyDefaults != nil {
 		t.Fatalf("timed-out reads produced data: %+v", got)
 	}
-	if calls.Load() != 3 {
-		t.Fatalf("%d reads went through the bounded helper, want 3 (collation, "+
-			"columns, stats)", calls.Load())
+	// indexes-01 added the fourth read: the columns' key defaults.
+	if calls.Load() != 4 {
+		t.Fatalf("%d reads went through the bounded helper, want 4 (collation, "+
+			"columns, key defaults, stats)", calls.Load())
 	}
 	if el := time.Since(start); el > 3*time.Second {
 		t.Fatalf("context build under slow reads took %s", el)
@@ -78,12 +80,12 @@ func TestTableContext_SlowCatalogReadsDegrade(t *testing.T) {
 }
 
 func TestOptimizer_CatalogReadTimeouts(t *testing.T) {
-	o := New(nil, &config.OptimizerConfig{}, 170000, func(string, string, ...any) {})
+	o := New(nil, &config.OptimizerConfig{}, func(string, string, ...any) {})
 	if o.catalogTimeouts != catalogread.Default() {
 		t.Fatalf("default timeouts = %+v", o.catalogTimeouts)
 	}
 	want := catalogread.Timeouts{Statement: time.Second, Lock: 2 * time.Second}
-	o = New(nil, &config.OptimizerConfig{}, 170000, func(string, string, ...any) {},
+	o = New(nil, &config.OptimizerConfig{}, func(string, string, ...any) {},
 		WithCatalogReadTimeouts(want))
 	if o.catalogTimeouts != want {
 		t.Fatalf("timeouts = %+v, want %+v", o.catalogTimeouts, want)

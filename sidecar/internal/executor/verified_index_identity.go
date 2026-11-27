@@ -84,7 +84,7 @@ func (e *Executor) prepareVerifiedIndex(ctx context.Context, action *verifiedInd
 		tableRef = pgx.Identifier{schemaName, tableName}
 	}
 	var resolved string
-	err := e.pool.QueryRow(ctx, `/* pg_sage */ SELECT n.nspname FROM pg_class c
+	err := e.pool.QueryRow(ctx, `/* pg_sage executor */ SELECT n.nspname FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE c.oid = to_regclass($1)`, tableRef.Sanitize()).Scan(&resolved)
 	if err != nil {
@@ -97,7 +97,7 @@ func (e *Executor) prepareVerifiedIndex(ctx context.Context, action *verifiedInd
 		return fmt.Errorf("check index name %s: %w", qualified, err)
 	}
 	if exists {
-		return fmt.Errorf("%w: index %s already exists", ErrVerificationUnavailable, qualified)
+		return &indexNameTakenError{Index: qualified}
 	}
 	action.IndexName = qualified
 	action.RollbackSQL = "DROP INDEX CONCURRENTLY IF EXISTS " + qualified

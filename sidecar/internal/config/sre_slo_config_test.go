@@ -187,16 +187,37 @@ func TestSRESLOConfig_InvalidObjectives(t *testing.T) {
 		"reserved name": pushSection + objective("name: db_latency\nsource: push\ntarget: 0.99"),
 		"duplicate names": pushSection + objective(pushA) +
 			"      - {name: a, source: push, target: 0.99}\n",
-		"bad source":      objective("name: a\nsource: statsd\ntarget: 0.99"),
-		"target 1":        pushSection + objective("name: a\nsource: push\ntarget: 1"),
-		"window 91":       pushSection + objective(pushA+"\nwindow_days: 91"),
-		"push no secret":  objective(pushA),
-		"prom no url":     objective("name: a\nsource: prometheus\ntarget: 0.99" + promQueries),
+		"bad source":     objective("name: a\nsource: statsd\ntarget: 0.99"),
+		"target 1":       pushSection + objective("name: a\nsource: push\ntarget: 1"),
+		"window 91":      pushSection + objective(pushA+"\nwindow_days: 91"),
+		"push no secret": objective(pushA),
+		"prom no url":    objective("name: a\nsource: prometheus\ntarget: 0.99" + promQueries),
 		"prom no $window": promSection + objective("name: a\nsource: prometheus\ntarget: 0.99\n"+
 			"bad_query: x\neligible_query: 'y[$window]'"),
 		"push with query": pushSection + objective(pushA+"\nbad_query: 'x[$window]'"),
-		"negative min":    pushSection + objective(pushA+"\nmin_eligible_events: -1"),
+		"prom coverage no $window": promSection + objective("name: a\nsource: prometheus\n"+
+			"target: 0.99"+promQueries+"\ncoverage_query: 'min_over_time(timestamp(y)[30d:1m])'"),
+		"push with coverage": pushSection + objective(pushA+
+			"\ncoverage_query: 'min_over_time(timestamp(y)[$window:1m])'"),
+		"negative min": pushSection + objective(pushA+"\nmin_eligible_events: -1"),
 	})
+}
+
+// An optional coverage query on a Prometheus objective loads as given;
+// without one the key is empty (coverage unverified).
+func TestSRESLOConfig_CoverageQuery(t *testing.T) {
+	q := "min_over_time(timestamp(y)[$window:1m])"
+	cfg, err := loadRCAYAML(t, "sre:\n  slo:\n"+promSection+objective("name: a\n"+
+		"source: prometheus\ntarget: 0.99"+promQueries+"\ncoverage_query: '"+q+"'")+
+		"      - {name: b, source: prometheus, target: 0.99, bad_query: 'x[$window]', "+
+		"eligible_query: 'y[$window]'}\n")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	objs := cfg.SRE.SLO.Objectives
+	if len(objs) != 2 || objs[0].CoverageQuery != q || objs[1].CoverageQuery != "" {
+		t.Fatalf("objectives = %+v", objs)
+	}
 }
 
 func TestSREChangeEventsConfig_Invalid(t *testing.T) {

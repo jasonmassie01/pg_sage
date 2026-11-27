@@ -43,7 +43,8 @@ func (s *cronSchedule) dayMatches(t time.Time) bool {
 // no history the worker's start time is the anchor. A worker built
 // without either (tests) falls back to exact-minute matching.
 func (w *Worker) ShouldRun(now time.Time) bool {
-	if !w.schedule.valid {
+	sched := w.settings().schedule
+	if !sched.valid {
 		return false
 	}
 	w.loadLastRun()
@@ -52,14 +53,20 @@ func (w *Worker) ShouldRun(now time.Time) bool {
 		anchor = w.startedAt
 	}
 	if anchor.IsZero() {
-		return w.schedule.matches(now)
+		return sched.matches(now)
 	}
-	return w.schedule.crossedSince(anchor, now)
+	return sched.crossedSince(anchor, now)
 }
 
-// MarkRan records that a briefing was just generated.
+// MarkRan records that a briefing was just generated: at the stored
+// briefing's generated_at, which starts the next window, or now when the
+// briefing could not be stored.
 func (w *Worker) MarkRan() {
-	w.markRanAt(time.Now())
+	t := w.lastGenerated
+	if t.IsZero() {
+		t = time.Now()
+	}
+	w.markRanAt(t)
 }
 
 func (w *Worker) markRanAt(t time.Time) {

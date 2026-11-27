@@ -170,7 +170,43 @@ describe('TrustPage', () => {
     const ret = screen.getByTestId('trust-row-orders-hygiene-retention')
     expect(within(ret).getByTestId('trust-next')).toHaveTextContent(/irreversible/i)
     const create = screen.getByTestId('trust-row-orders-tuning-index_create')
-    expect(within(create).getByTestId('trust-next')).toHaveTextContent(/waiting for an admin/i)
+    expect(within(create).getByTestId('trust-next')).toHaveTextContent(/under Waiting promotions/i)
+  })
+
+  // earned-10: the newest bench report decides whatever its origin, so
+  // the row and the approval card say which report it is and where from.
+  it('shows the deciding bench report and its origin on the row and the card', () => {
+    const bench = (id, origin, provenance) => ({ id, origin, provenance,
+      signed: origin === 'signed_release', generated_at: '2026-10-03T11:00:00Z' })
+    apiState.data = { ...apiState.data, databases: [{ ...ordersView, rows: [
+      { family: 'wal_retention', kind: 'incident', class: 'wal_bound', level: 'L1',
+        cap: 'L3', reversibility: 'reversible', provenance: 'ledger', evidence: {},
+        last_change: {}, bench: bench('run-op-1', 'operator', 'unsigned (operator-provided)'),
+        pending: { id: '33333333-3333-4333-8333-333333333333', from: 'L1', to: 'L2',
+          status: 'pending' } },
+      { family: 'lock_blocking', kind: 'incident', class: 'backend_cancel', level: 'L1',
+        cap: 'L2', reversibility: 'reversible', provenance: 'ledger', evidence: {},
+        last_change: {},
+        bench: bench('run-rel-2', 'signed_release',
+          'signed release report (pg_sage 1.8.5, commit aaaaaaa)') },
+      { family: 'checkpoint_storm', kind: 'incident', class: 'checkpoint_tune',
+        level: 'L1', cap: 'L2', reversibility: 'reversible', provenance: 'ledger',
+        evidence: {}, last_change: {} },
+    ] }] }
+    render(<TrustPage database="all" user={admin} />)
+    const wal = screen.getByTestId('trust-row-orders-wal_retention-wal_bound')
+    const walBench = within(wal).getByTestId('trust-bench')
+    expect(walBench).toHaveTextContent('unsigned (operator-provided)')
+    expect(walBench).toHaveAttribute('data-origin', 'operator')
+    expect(walBench).toHaveAttribute('title', expect.stringContaining('run-op-1'))
+    expect(within(wal).getByTestId('trust-pending-bench'))
+      .toHaveTextContent(/unsigned \(operator-provided\)/)
+    const lock = screen.getByTestId('trust-row-orders-lock_blocking-backend_cancel')
+    expect(within(lock).getByTestId('trust-bench')).toHaveTextContent(
+      'signed release report (pg_sage 1.8.5, commit aaaaaaa)')
+    expect(within(lock).queryByTestId('trust-pending-bench')).toBeNull()
+    const ckpt = screen.getByTestId('trust-row-orders-checkpoint_storm-checkpoint_tune')
+    expect(within(ckpt).queryByTestId('trust-bench')).toBeNull()
   })
 
   it('asks for the selected database', () => {

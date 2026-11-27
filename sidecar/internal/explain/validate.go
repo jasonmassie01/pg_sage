@@ -2,6 +2,7 @@ package explain
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +40,66 @@ func explainBody(query string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(query[:end]), nil
+}
+
+// maxBindParams is the most bind parameters the wire protocol can carry
+// (an int16 count); a higher $N cannot be bound and would only make the
+// EXECUTE argument list huge.
+const maxBindParams = 65535
+
+// paramPlaceholders returns the highest $N bind parameter in body, the
+// count EXECUTE must supply. It walks the body with the literal-aware
+// scanner, so "$5" inside a string, quoted identifier, dollar quote or
+// comment is not a parameter. $0 and numbers past maxBindParams are
+// ErrExplainInvalidRequest errors.
+func paramPlaceholders(body string) (int, error) {
+	s := sqlScanner{src: body}
+	highest := 0
+	for s.pos < len(s.src) {
+		var err error
+		switch {
+		case s.startsComment():
+			err = s.skipComment()
+		case s.atParam():
+			var n int
+			n, err = s.readParam()
+			highest = max(highest, n)
+		default:
+			err = s.skipToken()
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+	return highest, nil
+}
+
+// atParam reports a "$" followed by a digit: a positional parameter.
+func (s *sqlScanner) atParam() bool {
+	i := s.pos + 1
+	return s.src[s.pos] == '$' && i < len(s.src) && s.src[i] >= '0' && s.src[i] <= '9'
+}
+
+// readParam consumes "$<digits>" and returns its number.
+func (s *sqlScanner) readParam() (int, error) {
+	start := s.pos + 1
+	s.pos = start
+	for s.pos < len(s.src) && s.src[s.pos] >= '0' && s.src[s.pos] <= '9' {
+		s.pos++
+	}
+	digits := s.src[start:s.pos]
+	n, err := strconv.Atoi(digits)
+	if err != nil || n > maxBindParams {
+		if len(digits) > 12 {
+			digits = digits[:12] + "..."
+		}
+		return 0, invalidExplain(fmt.Sprintf(
+			"parameter $%s is out of range; at most $%d is supported", digits, maxBindParams))
+	}
+	if n == 0 {
+		return 0, invalidExplain("parameter $0 does not exist; parameters start at $1")
+	}
+	return n, nil
 }
 
 func invalidExplain(msg string) error {

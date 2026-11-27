@@ -232,57 +232,6 @@ func TestCoverage_Dispatch_MultipleChannels_MixedResults(
 }
 
 // ---------------------------------------------------------------------------
-// Manager.logAlert
-// ---------------------------------------------------------------------------
-
-func TestCoverage_LogAlert_NilPool(t *testing.T) {
-	m := New(nil, ManagerConfig{}, nil, noop)
-	// Should not panic with nil pool.
-	m.logAlert(
-		context.Background(),
-		1, "critical", "slack", "key:1", "sent", "",
-	)
-}
-
-func TestCoverage_LogAlert_PoolExecError(t *testing.T) {
-	// Connect to a real DB to test logAlert with an invalid table.
-	// If DB not available, skip.
-	dsn := os.Getenv("SAGE_DATABASE_URL")
-	pool, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Skipf("DB unavailable: %v", err)
-	}
-	defer pool.Close()
-
-	// Ping to confirm the connection actually works.
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Skipf("DB ping failed: %v", err)
-	}
-
-	var loggedErr string
-	logFn := func(level string, msg string, args ...any) {
-		if level == "ERROR" {
-			loggedErr = fmt.Sprintf(msg, args...)
-		}
-	}
-
-	m := New(pool, ManagerConfig{}, nil, logFn)
-
-	// sage.alert_log may or may not exist. If it doesn't exist, the
-	// exec will fail and we verify the error is logged. If it does
-	// exist, the insert will succeed (which is also fine -- we just
-	// verify no panic).
-	m.logAlert(
-		context.Background(),
-		99999, "critical", "test", "key:test", "sent", "",
-	)
-
-	// We can't assert on the error message content because the table
-	// might exist. The important thing is no panic occurred.
-	_ = loggedErr
-}
-
-// ---------------------------------------------------------------------------
 // Manager.Run (context cancellation)
 // ---------------------------------------------------------------------------
 
@@ -376,7 +325,7 @@ func TestCoverage_Manager_Run_NegativeInterval(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCoverage_SlackChannel_Name(t *testing.T) {
-	ch := NewSlack("https://example.com", noop)
+	ch := NewSlack("https://example.com", legacyTestClient, noop)
 	if ch.Name() != "slack" {
 		t.Fatalf("expected 'slack', got %q", ch.Name())
 	}
@@ -392,7 +341,7 @@ func TestCoverage_Slack_SendWithRetry_Success(t *testing.T) {
 	))
 	defer srv.Close()
 
-	ch := NewSlack(srv.URL, noop)
+	ch := NewSlack(srv.URL, legacyTestClient, noop)
 	alert := Alert{
 		Findings:  []AlertFinding{sampleFinding(1, "warning")},
 		Severity:  "warning",
@@ -424,7 +373,7 @@ func TestCoverage_Slack_SendWithRetry_RetriesOnFailure(
 	))
 	defer srv.Close()
 
-	ch := NewSlack(srv.URL, noop)
+	ch := NewSlack(srv.URL, legacyTestClient, noop)
 	alert := Alert{
 		Findings:  []AlertFinding{sampleFinding(1, "critical")},
 		Severity:  "critical",
@@ -448,7 +397,7 @@ func TestCoverage_Slack_SendWithRetry_AllFail(t *testing.T) {
 	))
 	defer srv.Close()
 
-	ch := NewSlack(srv.URL, noop)
+	ch := NewSlack(srv.URL, legacyTestClient, noop)
 	alert := Alert{
 		Findings:  []AlertFinding{sampleFinding(1, "warning")},
 		Severity:  "warning",
@@ -474,7 +423,7 @@ func TestCoverage_Slack_SendWithRetry_ContextCancelledBefore(
 	))
 	defer srv.Close()
 
-	ch := NewSlack(srv.URL, noop)
+	ch := NewSlack(srv.URL, legacyTestClient, noop)
 	alert := Alert{
 		Findings:  []AlertFinding{sampleFinding(1, "warning")},
 		Severity:  "warning",
@@ -501,7 +450,7 @@ func TestCoverage_Slack_DoPost_NonOKStatus(t *testing.T) {
 	))
 	defer srv.Close()
 
-	ch := NewSlack(srv.URL, noop)
+	ch := NewSlack(srv.URL, legacyTestClient, noop)
 	err := ch.doPost(context.Background(), []byte(`{}`))
 	if err == nil {
 		t.Fatal("expected error for non-OK status")
@@ -512,7 +461,7 @@ func TestCoverage_Slack_DoPost_NonOKStatus(t *testing.T) {
 }
 
 func TestCoverage_Slack_DoPost_InvalidURL(t *testing.T) {
-	ch := NewSlack("http://192.0.2.1:1/invalid", noop)
+	ch := NewSlack("http://192.0.2.1:1/invalid", legacyTestClient, noop)
 	// Use a short timeout context so we don't wait forever.
 	ctx, cancel := context.WithTimeout(
 		context.Background(), 100*time.Millisecond,
@@ -526,7 +475,7 @@ func TestCoverage_Slack_DoPost_InvalidURL(t *testing.T) {
 }
 
 func TestCoverage_Slack_BuildPayload_MultipleFindings(t *testing.T) {
-	ch := NewSlack("https://example.com", noop)
+	ch := NewSlack("https://example.com", legacyTestClient, noop)
 	alert := Alert{
 		Findings: []AlertFinding{
 			sampleFinding(1, "warning"),
@@ -562,7 +511,7 @@ func TestCoverage_Slack_BuildPayload_MultipleFindings(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCoverage_PagerDuty_NewAndName(t *testing.T) {
-	ch := NewPagerDuty("rk-123", noop)
+	ch := NewPagerDuty("rk-123", legacyTestClient, noop)
 	if ch == nil {
 		t.Fatal("NewPagerDuty returned nil")
 	}
@@ -634,7 +583,7 @@ func TestCoverage_PagerDuty_Send_Success(t *testing.T) {
 }
 
 func TestCoverage_PagerDuty_BuildPayload_EmptyFindings(t *testing.T) {
-	ch := NewPagerDuty("rk-123", noop)
+	ch := NewPagerDuty("rk-123", legacyTestClient, noop)
 	alert := Alert{
 		Findings:  []AlertFinding{},
 		Severity:  "warning",
@@ -651,7 +600,7 @@ func TestCoverage_PagerDuty_BuildPayload_EmptyFindings(t *testing.T) {
 }
 
 func TestCoverage_PagerDuty_BuildPayload_LongSummary(t *testing.T) {
-	ch := NewPagerDuty("rk-123", noop)
+	ch := NewPagerDuty("rk-123", legacyTestClient, noop)
 
 	// Create findings with long titles to exceed 1024 char summary.
 	findings := make([]AlertFinding, 0, 50)
@@ -690,7 +639,7 @@ func TestCoverage_PagerDuty_BuildPayload_LongSummary(t *testing.T) {
 func TestCoverage_PagerDuty_BuildPayload_MultipleFindings(
 	t *testing.T,
 ) {
-	ch := NewPagerDuty("rk-456", noop)
+	ch := NewPagerDuty("rk-456", legacyTestClient, noop)
 	alert := Alert{
 		Findings: []AlertFinding{
 			sampleFinding(1, "critical"),
@@ -743,7 +692,7 @@ func TestCoverage_Webhook_Send_NonOKStatus(t *testing.T) {
 	))
 	defer srv.Close()
 
-	ch := NewWebhook("test", srv.URL, nil, noop)
+	ch := NewWebhook("test", srv.URL, nil, legacyTestClient, noop)
 	alert := Alert{
 		Findings:  []AlertFinding{sampleFinding(1, "info")},
 		Severity:  "info",
@@ -760,7 +709,7 @@ func TestCoverage_Webhook_Send_NonOKStatus(t *testing.T) {
 }
 
 func TestCoverage_Webhook_Send_UnreachableURL(t *testing.T) {
-	ch := NewWebhook("test", "http://192.0.2.1:1/nope", nil, noop)
+	ch := NewWebhook("test", "http://192.0.2.1:1/nope", nil, legacyTestClient, noop)
 	ctx, cancel := context.WithTimeout(
 		context.Background(), 100*time.Millisecond,
 	)
@@ -788,7 +737,7 @@ func TestCoverage_Webhook_Send_NoHeaders(t *testing.T) {
 	))
 	defer srv.Close()
 
-	ch := NewWebhook("plain", srv.URL, nil, noop)
+	ch := NewWebhook("plain", srv.URL, nil, legacyTestClient, noop)
 	alert := Alert{
 		Findings:  []AlertFinding{sampleFinding(1, "info")},
 		Severity:  "info",
@@ -819,7 +768,7 @@ func TestCoverage_Webhook_Send_BodyIsValidJSON(t *testing.T) {
 	))
 	defer srv.Close()
 
-	ch := NewWebhook("jsontest", srv.URL, nil, noop)
+	ch := NewWebhook("jsontest", srv.URL, nil, legacyTestClient, noop)
 	finding := sampleFinding(42, "warning")
 	alert := Alert{
 		Findings:  []AlertFinding{finding},
@@ -867,22 +816,6 @@ func TestCoverage_ShouldAlert_UnknownSeverity(t *testing.T) {
 	if th.ShouldAlert("k1", "banana") {
 		t.Fatal("unknown severity within cooldown should block")
 	}
-}
-
-func TestCoverage_ShouldAlert_QuietHoursBlock(t *testing.T) {
-	// Create throttle with quiet hours that cover current time.
-	// Use a range 0:00-23:59 so it's always quiet.
-	th := NewThrottle(0, "00:00", "23:00", "UTC")
-	// At a time within quiet hours (e.g. 12:00 UTC).
-	// ShouldAlert uses time.Now() internally, so we verify via
-	// IsQuietHours first.
-	noon := time.Date(2026, 4, 1, 12, 0, 0, 0, time.UTC)
-	if !th.IsQuietHours(noon) {
-		t.Skip("test requires 12:00 UTC to be in quiet hours 0-23")
-	}
-
-	// ShouldAlert uses time.Now(), so we cannot control it directly.
-	// But we've verified the quiet hours logic is correct above.
 }
 
 // ---------------------------------------------------------------------------

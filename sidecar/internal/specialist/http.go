@@ -14,8 +14,10 @@ import (
 
 // HandlerOptions configures the HTTP handler.
 type HandlerOptions struct {
-	PagerDuty *PagerDutyAdapter // nil: the adapter is not configured
-	Webhook   *WebhookAdapter   // nil: the adapter is not configured
+	PagerDuty    *PagerDutyAdapter    // nil: the adapter is not configured
+	Webhook      *WebhookAdapter      // nil: the adapter is not configured
+	IncidentIO   *IncidentIOAdapter   // nil: the adapter is not configured
+	AzureMonitor *AzureMonitorAdapter // nil: the adapter is not configured
 	// StreamWindow bounds one SSE stream (below the API's request deadline;
 	// the client reconnects); StreamInterval is its poll interval.
 	StreamWindow   time.Duration
@@ -61,6 +63,9 @@ func NewHandler(svc *Service, auth Authenticator, opts HandlerOptions) http.Hand
 	mux.Handle("POST "+inv+"/{id}/remediations/{rid}/request", h.authed("http", h.remediate))
 	mux.Handle("POST "+BasePath+"/adapters/pagerduty", h.authed("pagerduty", h.pagerDuty))
 	mux.Handle("POST "+BasePath+"/adapters/webhook", h.authed("webhook", h.webhook))
+	mux.Handle("POST "+BasePath+"/adapters/incidentio", h.authed("incidentio", h.incidentIO))
+	mux.Handle("POST "+BasePath+"/adapters/azure-monitor", h.authed("azure_monitor",
+		h.azureMonitor))
 	mux.HandleFunc(BasePath+"/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, ErrNotFound)
 	})

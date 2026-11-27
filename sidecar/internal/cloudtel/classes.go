@@ -60,3 +60,30 @@ func sizeMultiplier(size string) float64 {
 	}
 	return float64(2 * v)
 }
+
+// burstableVCPUs is the vCPU count of the t3/t4g sizes.
+var burstableVCPUs = map[string]int{"micro": 2, "small": 2, "medium": 2, "large": 2,
+	"xlarge": 4, "2xlarge": 8}
+
+// InstanceClassVCPUs is the documented vCPU count of class: large = 2,
+// xlarge = 4, Nxlarge = 4N; burstable sizes by table (0: unknown).
+func InstanceClassVCPUs(class string) int {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(class)), ".")
+	if len(parts) != 3 || parts[0] != "db" {
+		return 0
+	}
+	family, size := parts[1], parts[2]
+	if family == "t3" || family == "t4g" {
+		return burstableVCPUs[size]
+	}
+	if _, ok := largeGiB[family]; !ok {
+		return 0
+	}
+	return int(2 * sizeMultiplier(size))
+}
+
+// IsBurstableClass reports a t3/t4g class (CPU credits, not a fixed share).
+func IsBurstableClass(class string) bool {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(class)), ".")
+	return len(parts) == 3 && parts[0] == "db" && (parts[1] == "t3" || parts[1] == "t4g")
+}

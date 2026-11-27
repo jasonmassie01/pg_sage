@@ -35,14 +35,14 @@ func newPools(cfg Config) *pools {
 // acquire takes one connection of the total budget, then one connection of
 // the principal's pool, which logs in as role with password. release
 // returns both.
-func (p *pools) acquire(ctx context.Context, t Target, principalID, principalName, role,
+func (p *pools) acquire(ctx context.Context, t Target, principalID, role,
 	password string) (*pgxpool.Conn, func(), error) {
 	select {
 	case p.budget <- struct{}{}:
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
-	lp, err := p.poolFor(ctx, t, principalID, principalName, role, password)
+	lp, err := p.poolFor(ctx, t, principalID, role, password)
 	if err != nil {
 		<-p.budget
 		return nil, nil, err
@@ -55,7 +55,7 @@ func (p *pools) acquire(ctx context.Context, t Target, principalID, principalNam
 	return conn, func() { conn.Release(); <-p.budget }, nil
 }
 
-func (p *pools) poolFor(ctx context.Context, t Target, principalID, principalName, role,
+func (p *pools) poolFor(ctx context.Context, t Target, principalID, role,
 	password string) (*pgxpool.Pool, error) {
 	key := principalID + "\x00" + t.Name
 	sum := sha256.Sum256([]byte(role + "\x00" + password))
@@ -68,7 +68,7 @@ func (p *pools) poolFor(ctx context.Context, t Target, principalID, principalNam
 		lp.pool.Close()
 		delete(p.byKey, key)
 	}
-	cfg, err := p.poolConfig(t, principalName, role, password)
+	cfg, err := p.poolConfig(t, principalID, role, password)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (p *pools) poolFor(ctx context.Context, t Target, principalID, principalNam
 
 // poolConfig copies pg_sage's connection target (host, port, database,
 // TLS) and replaces the login with the broker role's.
-func (p *pools) poolConfig(t Target, principalName, role, password string) (
+func (p *pools) poolConfig(t Target, principalID, role, password string) (
 	*pgxpool.Config, error) {
 	if t.Pool == nil {
 		return nil, fmt.Errorf("%w: no connection target for %s", ErrUnavailable, t.Name)
@@ -96,7 +96,7 @@ func (p *pools) poolConfig(t Target, principalName, role, password string) (
 	if conn.RuntimeParams == nil {
 		conn.RuntimeParams = map[string]string{}
 	}
-	conn.RuntimeParams["application_name"] = applicationName(principalName)
+	conn.RuntimeParams["application_name"] = applicationName(principalID)
 	// PgBouncer transaction pooling: no server-side prepared statements.
 	conn.DefaultQueryExecMode = pgx.QueryExecModeExec
 	cfg.ConnConfig = conn
@@ -106,9 +106,11 @@ func (p *pools) poolConfig(t Target, principalName, role, password string) (
 	return cfg, nil
 }
 
-// applicationName tags brokered sessions for pg_stat_activity and pgaudit.
-func applicationName(principalName string) string {
-	name := "pg_sage agent:" + principalName
+// applicationName tags brokered sessions for pg_stat_activity and pgaudit
+// with the principal's id, which pgaudit attribution checks against the
+// session's role (the id's hash names the role).
+func applicationName(principalID string) string {
+	name := "pg_sage agent:" + principalID
 	return strings.ToValidUTF8(name, "")
 }
 

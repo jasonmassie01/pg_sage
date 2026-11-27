@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 	"unicode"
 )
 
@@ -15,13 +16,17 @@ type Server struct {
 	tools     []Tool
 	directory Directory
 	version   string
+	// events and waiters serve wait_for_decision (mcp-01b).
+	events  DecisionEvents
+	waiters *waiterPool
 }
 
 // NewServer returns a server over backend. Backends that also implement
 // the optional tool interfaces (facts, investigations, coding-agent
 // tools, ...) serve those tools; the others report them unavailable.
 func NewServer(backend Backend) *Server {
-	return &Server{backend: backend, tools: toolDefinitions(), version: "dev"}
+	return &Server{backend: backend, tools: toolDefinitions(), version: "dev",
+		waiters: newWaiterPool()}
 }
 
 // WithDirectory sets the fleet the server validates `database` against.
@@ -57,6 +62,12 @@ type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
+	// retryAfter is the known wait before a retry (ux-05f); retryKnown
+	// tells a known zero from none. unconfigured marks an unavailable
+	// feature only a person can switch on, so no retry is suggested.
+	retryAfter   time.Duration
+	retryKnown   bool
+	unconfigured bool
 }
 
 // toolFamily routes one family of tools.
@@ -71,10 +82,14 @@ func familyOf(name string) toolFamily {
 		return (*Server).callSignalTool
 	case sreActionToolNames[name]:
 		return (*Server).callSREActionTool
+	case sreMaintenanceToolNames[name]:
+		return (*Server).callSREMaintenanceTool
 	case autonomyToolNames[name]:
 		return (*Server).callAutonomyTool
 	case factToolNames[name]:
 		return (*Server).callFactTool
+	case planToolNames[name]:
+		return (*Server).callPlanTool
 	case specialistToolNames[name]:
 		return (*Server).callSpecialistTool
 	case agentToolNames[name]:
@@ -83,14 +98,28 @@ func familyOf(name string) toolFamily {
 		return (*Server).callAskTool
 	case fleetToolNames[name]:
 		return (*Server).callFleetTool
+	case requestStatusToolNames[name]:
+		return (*Server).callRequestStatusTool
+	case upgradeToolNames[name]:
+		return (*Server).callUpgradeTool
+	case workloadPackToolNames[name]:
+		return (*Server).callWorkloadPackTool
 	case agentBrokerToolNames[name]:
 		return (*Server).callAgentBrokerTool
-	case name == toolRequestCapability:
-		return (*Server).callGrantTool
-	case name == "list_databases":
-		return (*Server).listDatabases
+	}
+	if family, ok := singleToolFamilies[name]; ok {
+		return family
 	}
 	return (*Server).callIntentTool
+}
+
+// singleToolFamilies route the tools that are a family of one.
+var singleToolFamilies = map[string]toolFamily{
+	toolGetInbox: (*Server).callInboxTool, toolGetOutcomes: (*Server).callOutcomesTool,
+	toolRestoreDrills: (*Server).callDrillTool, toolReviewGrade: (*Server).callReviewTool,
+	toolReviewScorecard: (*Server).callReviewScorecardTool,
+	toolCheckPressure:   (*Server).callPressureTool, toolWhyNot: (*Server).callWhyNotTool,
+	toolRequestCapability: (*Server).callGrantTool, "list_databases": (*Server).listDatabases,
 }
 
 // callTool answers tools/call. Protocol problems (an unknown tool,
@@ -112,25 +141,30 @@ func (s *Server) callTool(ctx context.Context, raw json.RawMessage) (map[string]
 	if !ok {
 		return nil, failure(codeInvalidParams, "tool arguments must be a JSON object")
 	}
+	if failed := databasesUnavailable(ctx); failed != nil {
+		return s.callError(call.Name, arguments, failed), nil
+	}
 	if failed := authorizeTool(ctx, call.Name, arguments); failed != nil {
-		return toolError(failed), nil
+		return s.callError(call.Name, arguments, failed), nil
 	}
-	ctx, arguments, failed := s.bindDatabase(ctx, call.Name, arguments)
+	ctx, bound, failed := s.bindDatabase(ctx, call.Name, arguments)
 	if failed != nil {
-		return toolError(failed), nil
+		return s.callError(call.Name, arguments, failed), nil
 	}
+	arguments = bound
 	ctx = bindAgentRef(ctx, call.Name)
 	result, failed := familyOf(call.Name)(s, ctx, call.Name, arguments)
 	if failed != nil {
 		if failed.Code == codeCancelled {
 			return nil, failed
 		}
-		return toolError(failed), nil
+		return s.callError(call.Name, arguments, failed), nil
 	}
-	if structured, ok := result.(map[string]any); ok {
-		return structured, nil
+	out, ok := result.(map[string]any)
+	if !ok {
+		out = toolSuccess(result)
 	}
-	return toolSuccess(result), nil
+	return withHeldFields(ctx, call.Name, arguments, out), nil
 }
 
 // objectArguments returns the arguments when they are a JSON object

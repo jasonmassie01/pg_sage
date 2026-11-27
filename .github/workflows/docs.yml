@@ -1,21 +1,57 @@
-name: Deploy Docs
+name: Docs
 
+# Pull requests that touch the docs build the site strictly. The site is
+# deployed only from release tags (or by hand), so it describes the latest
+# release rather than unreleased work on master.
 on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
   push:
-    branches:
-      - master
+    # Release tags only: a pre-release tag such as v2.6.0-rc.1 would publish
+    # features that have not shipped.
+    tags:
+      - 'v*'
+      - '!v*-*'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: pages
+  group: docs-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements-docs.txt
+
+      - name: Build docs strictly
+        run: mkdocs build --strict
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,12 +61,13 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install mkdocs-material pymdown-extensions
+        run: pip install -r requirements-docs.txt
+
+      - name: Build docs strictly
+        run: mkdocs build --strict
 
       - name: Deploy docs
         run: mkdocs gh-deploy --force

@@ -11,6 +11,9 @@ type Platform struct {
 	// Backup is the provider's backup posture from cloud telemetry; nil
 	// when telemetry is off, failing or not available for the provider.
 	Backup *BackupPosture
+	// DataAPI is the Supabase project's Data API exposure from cloud
+	// telemetry (fleetpol-02c); nil when it was not read (unknown).
+	DataAPI *DataAPIExposure
 }
 
 // BackupPosture is what the provider's instance description says about

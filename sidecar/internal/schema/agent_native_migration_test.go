@@ -18,7 +18,7 @@ var agentNativeTableColumns = map[string][]string{
 	},
 	"decision": {
 		"id", "database_id", "feature", "intent", "target_objects",
-		"policy_id", "policy_version", "verdict", "risk_tier", "reason",
+		"policy_version", "policy_doc_sha256", "verdict", "risk_tier", "reason",
 		"guardrails", "off_window_ok", "deadline_kind", "deadline_hard_at",
 		"evidence", "evidence_id", "action_log_id", "queue_id", "created_at",
 		"resolved_at",
@@ -236,7 +236,7 @@ func TestAgentNativeForeignKeysLinkEvidenceHistory(t *testing.T) {
 	bootstrapWithRetry(t, ctx, pool)
 	want := map[string][]string{
 		"policy":           {"supersedes_id"},
-		"decision":         {"policy_id", "action_log_id", "queue_id"},
+		"decision":         {"action_log_id", "queue_id"},
 		"change_lease":     {"decision_id"},
 		"schema_baseline":  {"last_authorized_decision_id", "last_authorized_action_id"},
 		"incident_avoided": {"decision_id", "action_log_id", "verification_id"},

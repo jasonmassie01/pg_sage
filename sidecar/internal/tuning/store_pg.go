@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/analyzer"
+	"github.com/pg-sage/sidecar/internal/apppath"
 	"github.com/pg-sage/sidecar/internal/catalogread"
 )
 
@@ -23,12 +22,28 @@ type postgresStore struct {
 	pool     *pgxpool.Pool
 	version  int
 	timeouts catalogread.Timeouts
+	// planMaxAge bounds a cached plan's age (tuning-08); 0 is the default.
+	planMaxAge time.Duration
+}
+
+// StoreOption configures NewPostgresStore.
+type StoreOption func(*postgresStore)
+
+// PlanMaxAge sets the age at which a cached plan is stale
+// (tuner.plan_max_age_minutes); 0 or less keeps the 24h default.
+func PlanMaxAge(d time.Duration) StoreOption {
+	return func(s *postgresStore) { s.planMaxAge = d }
 }
 
 // NewPostgresStore returns the Store reading pool; pgVersion decides
 // whether a parameterized statement can be planned (GENERIC_PLAN, PG16+).
-func NewPostgresStore(pool *pgxpool.Pool, pgVersion int, t catalogread.Timeouts) Store {
-	return &postgresStore{pool: pool, version: pgVersion, timeouts: t}
+func NewPostgresStore(pool *pgxpool.Pool, pgVersion int, t catalogread.Timeouts,
+	opts ...StoreOption) Store {
+	s := &postgresStore{pool: pool, version: pgVersion, timeouts: t}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 const openFindingsSQL = `/* pg_sage */
@@ -125,51 +140,24 @@ func (s *postgresStore) Outcomes(ctx context.Context, classes []string, since ti
 	return out, nil
 }
 
-const cachedPlanSQL = `/* pg_sage */
-SELECT plan_json::text FROM sage.explain_cache
-WHERE queryid = $1 AND source <> 'lakebase_plan_history' ORDER BY captured_at DESC LIMIT 1`
-
 // paramRef finds a bind parameter ($1) outside literals and comments.
 var paramRef = regexp.MustCompile(`\$[0-9]+`)
 
 // errMultiStatement refuses text that is not one statement.
 var errMultiStatement = errors.New("tuning: a plan is read for one statement only")
 
-func (s *postgresStore) Plan(ctx context.Context, queryID int64, text string) (Plan, error) {
-	var cached string
-	err := s.pool.QueryRow(ctx, cachedPlanSQL, queryID).Scan(&cached)
-	switch {
-	case err == nil:
-		return Plan{Source: PlanSourceCache, JSON: []byte(cached)}, nil
-	case !errors.Is(err, pgx.ErrNoRows):
-		return Plan{}, fmt.Errorf("read explain cache for queryid %d: %w", queryID, err)
-	}
-	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text), ";"))
-	if body == "" || hasSemicolon(body) {
-		return Plan{}, errMultiStatement
-	}
-	source, explain := PlanSourceExplain, "EXPLAIN (FORMAT JSON) "
-	if paramRef.MatchString(blankLiteralsAndComments(body)) {
-		if s.version < 160000 {
-			return Plan{Source: PlanSourceNone}, nil
-		}
-		source, explain = PlanSourceGeneric, "EXPLAIN (GENERIC_PLAN, FORMAT JSON) "
-	}
-	plan, err := s.explain(ctx, explain+body)
-	if err != nil {
-		return Plan{}, fmt.Errorf("plan queryid %d: %w", queryID, err)
-	}
-	return Plan{Source: source, JSON: plan}, nil
-}
-
 // explain runs one EXPLAIN (never ANALYZE) in a bounded READ ONLY
-// transaction that is always rolled back.
+// transaction that is always rolled back, on the application's
+// search_path (security-01c-n).
 func (s *postgresStore) explain(ctx context.Context, sql string) ([]byte, error) {
 	tx, err := catalogread.Begin(ctx, s.pool, s.timeouts)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := apppath.Pin(ctx, tx); err != nil {
+		return nil, err
+	}
 	return rawSingleValue(ctx, tx.Conn().PgConn(), sql)
 }
 

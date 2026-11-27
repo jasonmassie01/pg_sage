@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,26 +41,51 @@ func ResolveStaleFindings(
 	return tag.RowsAffected(), nil
 }
 
-// staleResolver runs ResolveStaleFindings at most once per interval.
-type staleResolver struct {
-	pool    *pgxpool.Pool
+// StaleResolver runs ResolveStaleFindings at most once per interval. One
+// database has one resolver, shared by the activity detector and the log
+// detector (migration-12), so it is safe for concurrent use: the interval
+// is claimed under the lock and the UPDATE runs outside it.
+type StaleResolver struct {
+	mu      sync.Mutex
+	resolve func(context.Context) (int64, error)
 	logFn   func(string, string, ...any)
 	lastRun time.Time
 	now     func() time.Time
 }
 
-func newStaleResolver(
+// NewStaleResolver returns the resolver for one database's findings, or
+// nil without a pool (a nil resolver does nothing).
+func NewStaleResolver(
 	pool *pgxpool.Pool, logFn func(string, string, ...any),
-) *staleResolver {
-	return &staleResolver{pool: pool, logFn: logFn, now: time.Now}
+) *StaleResolver {
+	if pool == nil {
+		return nil
+	}
+	return &StaleResolver{
+		resolve: func(ctx context.Context) (int64, error) {
+			return ResolveStaleFindings(ctx, pool, DefaultStaleFindingAge)
+		},
+		logFn: logFn, now: time.Now,
+	}
 }
 
-func (r *staleResolver) maybeRun(ctx context.Context) {
-	if r == nil || r.pool == nil || r.now().Sub(r.lastRun) < staleCheckInterval {
+// claim reports whether this call owns the current interval's run.
+func (r *StaleResolver) claim() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	if !r.lastRun.IsZero() && now.Sub(r.lastRun) < staleCheckInterval {
+		return false
+	}
+	r.lastRun = now
+	return true
+}
+
+func (r *StaleResolver) maybeRun(ctx context.Context) {
+	if r == nil || r.resolve == nil || !r.claim() {
 		return
 	}
-	r.lastRun = r.now()
-	n, err := ResolveStaleFindings(ctx, r.pool, DefaultStaleFindingAge)
+	n, err := r.resolve(ctx)
 	if err != nil {
 		r.logFn("warn", "migration: %v", err)
 		return

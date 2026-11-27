@@ -19,7 +19,7 @@ func TestRegression_CaseTimesAnchoredToEvidence(t *testing.T) {
 		RecommendedSQL: `DROP INDEX CONCURRENTLY "public"."idx_x";`,
 		ObservedAt:     observed,
 	}
-	c := ProjectFinding(f)
+	c := projectFinding(f)
 	if !c.ObservedAt.Equal(observed) {
 		t.Fatalf("ObservedAt = %v, want %v", c.ObservedAt, observed)
 	}
@@ -38,7 +38,7 @@ func TestRegression_CaseTimesAnchoredToEvidence(t *testing.T) {
 // G2-B24: vacuum-autopilot candidates are anchored the same way.
 func TestRegression_VacuumCandidateExpiryAnchored(t *testing.T) {
 	observed := time.Date(2026, 9, 20, 10, 0, 0, 0, time.UTC)
-	c := ProjectFinding(SourceFinding{
+	c := projectFinding(SourceFinding{
 		ID: "8", Category: "table_bloat", Severity: SeverityWarning,
 		ObjectType: "table", ObjectIdentifier: "public.orders",
 		Title: "bloat", ObservedAt: observed,
@@ -53,7 +53,7 @@ func TestRegression_VacuumCandidateExpiryAnchored(t *testing.T) {
 
 // C16: the fallback VACUUM statement must quote the identifier.
 func TestRegression_TableBloatFallbackQuotes(t *testing.T) {
-	c := ProjectFinding(SourceFinding{
+	c := projectFinding(SourceFinding{
 		ID: "9", Category: "table_bloat", Severity: SeverityWarning,
 		ObjectType: "table", ObjectIdentifier: "Sales.Orders", Title: "bloat",
 	})

@@ -21,6 +21,9 @@ type TokenRequest struct {
 	Databases []string // ["*"] = every database the principal is granted
 	ExpiresIn time.Duration
 	CreatedBy string
+	// Audit is who minted it; recorded as agent_token_minted in the
+	// insert's transaction (Event and Reason are not used).
+	Audit Audit
 }
 
 // IssueToken mints an agent token bound to an active principal. The
@@ -43,7 +46,9 @@ func IssueToken(ctx context.Context, principals *Store, tokens *mcptoken.Store,
 	}
 	tok, err := tokens.Create(ctx, mcptoken.CreateRequest{Name: req.Name,
 		Kind: mcptoken.KindAgent, Scopes: req.Scopes, Databases: req.Databases,
-		ExpiresIn: req.ExpiresIn, PrincipalID: p.ID, CreatedBy: req.CreatedBy})
+		ExpiresIn: req.ExpiresIn, PrincipalID: p.ID, CreatedBy: req.CreatedBy,
+		Audit: mcptoken.Audit{ActorUserID: req.Audit.ActorUserID,
+			SourceIP: req.Audit.SourceIP}})
 	switch {
 	case errors.Is(err, mcptoken.ErrPrincipalRequired):
 		// The principal was retired between the check and the insert.

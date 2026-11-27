@@ -13,6 +13,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/extstats"
 	"github.com/pg-sage/sidecar/internal/optimizer"
+	"github.com/pg-sage/sidecar/internal/sqlident"
 	"github.com/pg-sage/sidecar/internal/tuner"
 	"github.com/pg-sage/sidecar/internal/verify"
 )
@@ -142,10 +143,10 @@ func statsFinding(table, schema, rel string, cols, kinds []string,
 	name := statsName(rel, cols)
 	quoted := make([]string, len(cols))
 	for i, col := range cols {
-		quoted[i] = quoteIdent(col)
+		quoted[i] = sqlident.Ident(col)
 	}
 	sql := fmt.Sprintf("CREATE STATISTICS %s.%s (%s) ON %s FROM %s",
-		quoteIdent(schema), name, strings.Join(kinds, ", "), strings.Join(quoted, ", "), table)
+		sqlident.Ident(schema), name, strings.Join(kinds, ", "), strings.Join(quoted, ", "), table)
 	parsed, err := extstats.ParseCreate(sql)
 	if err != nil {
 		return analyzer.Finding{}, fmt.Errorf("not the accepted statistics form: %w", err)
@@ -180,7 +181,7 @@ func (v *validator) judgeHint(ctx context.Context, c Case, p Proposal) Judged {
 	switch {
 	case errors.Is(err, tuner.ErrHintsUnavailable):
 		return reject(p, ReasonDisabled, "%v", err)
-	case errors.Is(err, tuner.ErrHintExists):
+	case errors.Is(err, tuner.ErrHintExists), errors.Is(err, tuner.ErrForeignHint):
 		return reject(p, ReasonDuplicate, "%v", err)
 	case err != nil:
 		return reject(p, ReasonInvalid, "the tuner refused the hint: %v", err)
@@ -188,7 +189,22 @@ func (v *validator) judgeHint(ctx context.Context, c Case, p Proposal) Judged {
 	pred := verify.Prediction{Class: verify.ClassQueryHint, Method: verify.MethodModel,
 		Metric: verify.MetricMeanExecTime, ExpectedChangePct: p.ExpectedChangePct,
 		TargetQueryIDs: []int64{qid}, Source: PredictionSource,
-		Note: "the model's estimate"}
-	return Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: c.Tables,
+		Note: hintPredictionNote(f)}
+	j := Judged{Proposal: p, Verdict: VerdictAdmitted, Finding: &f, Tables: c.Tables,
 		Class: verify.ClassQueryHint, Prediction: pred, Hint: &hp}
+	if f.RecommendedSQL == "" {
+		// Advisory (hinted EXPLAIN unverifiable): nothing to record.
+		j.Hint = nil
+	}
+	return j
+}
+
+// hintPredictionNote names what the prediction rests on: the hinted EXPLAIN
+// when it proved the plan changes (tuning-05), else the model's estimate.
+func hintPredictionNote(f analyzer.Finding) string {
+	if ev, ok := f.Detail["hint_evidence"].(map[string]any); ok &&
+		ev["verdict"] == string(tuner.HintChanged) {
+		return "plan cost comparison"
+	}
+	return "the model's estimate"
 }

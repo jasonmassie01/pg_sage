@@ -3,9 +3,7 @@ package providerobs
 import (
 	"context"
 	"errors"
-	"regexp"
 	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/autoexplain"
@@ -42,11 +40,13 @@ func NewLogSink(pool *pgxpool.Pool, database string, cfg *config.Config) (*LogSi
 		return autoexplain.StoreObservedPlan(ctx, pool, plan)
 	}
 	s.classifierConfig = logwatch.ClassifierConfig{DedupWindowS: cfg.LogWatch.DedupWindowS,
-		ExcludeApps:      append([]string(nil), cfg.LogWatch.ExcludeApplications...),
-		SlowQueryEnabled: cfg.LogWatch.SlowQueryEnabled,
-		TempFileMinBytes: int64(cfg.LogWatch.TempFileMinBytes),
-		MaxLinesPerCycle: cfg.LogWatch.MaxLinesPerCycle}
-	if cfg.RCA.Enabled && cfg.LogWatch.Enabled {
+		ExcludeApps:           append([]string(nil), cfg.LogWatch.ExcludeApplications...),
+		SlowQueryEnabled:      cfg.LogWatch.SlowQueryEnabled,
+		TempFileMinBytes:      int64(cfg.LogWatch.TempFileMinBytes),
+		MaxLinesPerCycle:      cfg.LogWatch.MaxLinesPerCycle,
+		DeadlockStatementText: cfg.RCA.DeadlockStatementText}
+	// A configured provider sink is a detected log source (rca-09b).
+	if cfg.RCA.Enabled && cfg.LogWatch.IsActive(true) {
 		s.classifier = logwatch.NewClassifier(s.classifierConfig, nil)
 	}
 	return s, nil
@@ -105,6 +105,10 @@ func (s *LogSink) Handle(ctx context.Context, entries []logwatch.LogEntry) error
 		return nil
 	}
 	s.classifier.ResetCycle()
+	// Handle is the sink's cycle boundary: the repeats the previous batches
+	// counted are reported before their windows are cleaned (rca-07). The
+	// queue may exceed its cap by these few, one per (signal, database).
+	s.signals = append(s.signals, s.classifier.FollowUps()...)
 	s.classifier.CleanExpiredDedup()
 	for _, entry := range matching {
 		if signal := s.classifier.Classify(entry); signal != nil {
@@ -124,37 +128,24 @@ func (s *LogSink) matchingEntries(entries []logwatch.LogEntry) []logwatch.LogEnt
 	return matching
 }
 
+// storePlans stores the batch's executed plans through the shared
+// auto_explain sink (rca-04). A store failure fails the batch, which the
+// provider then delivers again; the store skips duplicate deliveries.
 func (s *LogSink) storePlans(ctx context.Context, entries []logwatch.LogEntry) error {
 	if !s.plansEnabled {
 		return nil
 	}
-	bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	for _, entry := range entries {
-		if !actualPlanHeader.MatchString(entry.Message) {
-			continue
-		}
-		plan, err := autoexplain.ParseObservedPlan(entry, s.database)
-		if errors.Is(err, autoexplain.ErrSelfStatement) {
-			s.rejectPlan("pg_sage_self")
-			continue
-		}
-		if err != nil {
-			s.rejectPlan("invalid_json_plan")
-			continue
-		}
-		if plan.QueryID == 0 {
-			s.rejectPlan("missing_query_identifier")
-			continue
-		}
-		if err := s.store(bounded, plan); err != nil {
-			return &logSinkError{cause: err}
-		}
+	sink := autoexplain.ObservedPlanSink{Database: s.database, Store: s.store,
+		StopOnStoreError: true}
+	res, err := sink.Ingest(ctx, entries)
+	for reason, n := range res.Rejected {
+		s.rejectPlans(reason, n)
+	}
+	if err != nil {
+		return &logSinkError{cause: err}
 	}
 	return nil
 }
-
-var actualPlanHeader = regexp.MustCompile(`^duration:\s+\S+\s+ms\s+plan:\s*`)
 
 func (s *LogSink) SetRejectionReporter(report func(string, uint64)) {
 	s.mu.Lock()
@@ -162,10 +153,10 @@ func (s *LogSink) SetRejectionReporter(report func(string, uint64)) {
 	s.reportRejection = report
 }
 
-func (s *LogSink) rejectPlan(reason string) {
-	s.rejections[reason]++
+func (s *LogSink) rejectPlans(reason string, n int) {
+	s.rejections[reason] += uint64(n)
 	if s.reportRejection != nil {
-		s.reportRejection(reason, 1)
+		s.reportRejection(reason, uint64(n))
 	}
 }
 

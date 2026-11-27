@@ -14,11 +14,9 @@ import (
 // account's current role.
 
 func registerChatOpsIdentityRoutes(mux *http.ServeMux, ids *chatops.Store) {
-	adminOnly := RequireRole("admin")
-	mux.Handle("GET /api/v1/chatops/identities", adminOnly(listIdentitiesHandler(ids)))
-	mux.Handle("POST /api/v1/chatops/identities", adminOnly(linkIdentityHandler(ids)))
-	mux.Handle("DELETE /api/v1/chatops/identities/{id}",
-		adminOnly(unlinkIdentityHandler(ids)))
+	route(mux, "GET /api/v1/chatops/identities", gateAdmin, listIdentitiesHandler(ids))
+	route(mux, "POST /api/v1/chatops/identities", gateAdmin, linkIdentityHandler(ids))
+	route(mux, "DELETE /api/v1/chatops/identities/{id}", gateAdmin, unlinkIdentityHandler(ids))
 }
 
 func listIdentitiesHandler(ids *chatops.Store) http.HandlerFunc {

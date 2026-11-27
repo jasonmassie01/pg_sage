@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pg-sage/sidecar/internal/autoexplain"
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/lakebaseobs"
@@ -50,6 +49,7 @@ func lakebaseTelemetryStatuses() any {
 		row := map[string]any{"state": st.state, "historical_only": true, "payload_enabled": st.payload, "complete": false, "exact_multiplicity": false, "delivery_outcomes_since_start": counts}
 		if st.runtime != nil {
 			row["streams"] = st.runtime.Status()
+			row["delivery"] = st.runtime.Deliveries()
 		}
 		st.mu.Unlock()
 		result[name] = row
@@ -71,7 +71,8 @@ func lakebaseTelemetryOptions(c config.LakebaseObservabilityConfig) lakebaseobs.
 		MaxRows: c.MaxRows, MaxBytes: c.MaxBytes, QueriesPerPoll: c.QueriesPerPoll,
 		PollInterval: c.PollInterval(), QueryTimeout: time.Duration(c.QueryTimeoutSeconds) * time.Second,
 		Window: time.Duration(c.WindowSeconds) * time.Second, Retention: time.Duration(c.RetentionHours) * time.Hour,
-		Streams: streams}
+		Streams: streams, SettleLag: time.Duration(c.SettleLagSeconds) * time.Second,
+		ShortLookback: time.Duration(c.ShortLookbackSeconds) * time.Second}
 }
 func (rt *databaseRuntime) startLakebaseTelemetry() {
 	c := rt.cfg.LakebaseObservability
@@ -165,43 +166,7 @@ func (rt *databaseRuntime) bindLakebaseTelemetry(ctx context.Context, b config.L
 	if err = store.EnsureSchema(ctx); err != nil {
 		return nil, err
 	}
-	consumer := lakebaseobs.ConsumerFunc{ID: "normalized_history_v1", Handle: func(ctx context.Context, e lakebaseobs.Event) error {
-		var err error
-		switch e.Stream {
-		case lakebaseobs.Plans:
-			var p lakebaseobs.Plan
-			p, err = lakebaseobs.NormalizePlan(e)
-			if err == nil {
-				err = autoexplain.StoreProviderPlan(ctx, rt.spec.Pool, autoexplain.ProviderPlan{
-					ObservedPlan: autoexplain.ObservedPlan{QueryID: p.QueryID, Query: p.Query, JSON: p.JSON, TotalCost: p.TotalCost, ExecutionMS: p.ExecutionMS, CapturedAt: p.CapturedAt},
-					ScopeHash:    e.ScopeHash, ComputeID: e.ComputeID, EventID: e.ID, ReceivedAt: e.ReceivedAt,
-					AnalyzeEnabled: p.AnalyzeEnabled, BuffersEnabled: p.BuffersEnabled, TimingEnabled: p.TimingEnabled, Fingerprint: p.Fingerprint, DurationSource: p.DurationSource})
-			}
-		case lakebaseobs.Logs:
-			_, err = lakebaseobs.NormalizeLog(e)
-		case lakebaseobs.ASH:
-			_, err = lakebaseobs.NormalizeASH(e)
-		case lakebaseobs.DDL:
-			_, err = lakebaseobs.NormalizeDDL(e)
-		default:
-			_, err = lakebaseobs.NormalizeMetrics(e)
-		}
-		// These rows remain durable historical evidence; unavailable payloads are
-		// classified, never fabricated as healthy/no-error observations.
-		outcome := "normalized"
-		switch {
-		case errors.Is(err, lakebaseobs.ErrMasked):
-			outcome = "payload_unavailable"
-		case errors.Is(err, lakebaseobs.ErrMalformed), errors.Is(err, lakebaseobs.ErrBudget):
-			outcome = "rejected_row"
-		case errors.Is(err, lakebaseobs.ErrSelfStatement), errors.Is(err, autoexplain.ErrSelfStatement):
-			outcome = "self_excluded"
-		case err != nil:
-			return err
-		}
-		st.outcome(e.Stream, outcome)
-		return nil
-	}}
+	consumer := newLakebaseHistoryConsumer(rt.spec.Pool, st)
 	if err = store.ActivateOwner(ctx, scope, rt.cfg.LakebaseObservability.AllowPayload); err != nil {
 		return nil, err
 	}
@@ -229,19 +194,6 @@ func (rt *databaseRuntime) runLakebaseTelemetry(history *lakebaseobs.Runtime, c 
 		case <-tick.C:
 		}
 	}
-}
-
-func (rt *databaseRuntime) currentLakebaseScope() string {
-	if rt.cfg == nil || rt.spec.Pool == nil || !rt.cfg.LakebaseObservability.Enabled || !rt.cfg.LakebaseObservability.AllowPayload {
-		return ""
-	}
-	value, _ := rt.lakebaseScope.Load().(lakebaseVerifiedBinding)
-	conn := rt.spec.Pool.Config().ConnConfig
-	binding, ok := rt.cfg.LakebaseObservability.Binding(conn.Host, conn.Database)
-	if !ok || value.PolicyBinding != lakebasePolicyBinding(binding) {
-		return ""
-	}
-	return value.ScopeHash
 }
 
 func lakebasePolicyBinding(b config.LakebaseObservabilityBinding) string {
@@ -340,18 +292,29 @@ func (rt *databaseRuntime) cleanupLakebaseHistory(ctx context.Context, store *la
 	return err
 }
 
-func lakebaseTelemetryHistory(ctx context.Context, database, stream string, from, to time.Time, limit int) (any, error) {
+// lakebaseHistorySource is database's own telemetry runtime and store, or
+// lakebaseobs.ErrHistoryUnavailable; it never borrows another database's.
+func lakebaseHistorySource(database string) (*lakebaseobs.Runtime, *lakebaseobs.Store, error) {
 	lakebaseTelemetryRegistry.Lock()
 	st := lakebaseTelemetryRegistry.entries[database]
 	lakebaseTelemetryRegistry.Unlock()
 	if st == nil {
-		return nil, fmt.Errorf("history source unavailable")
+		return nil, nil, lakebaseobs.ErrHistoryUnavailable
 	}
 	st.mu.Lock()
 	runtime, store := st.runtime, st.store
 	st.mu.Unlock()
 	if runtime == nil || store == nil {
-		return nil, fmt.Errorf("history source unavailable")
+		return nil, nil, lakebaseobs.ErrHistoryUnavailable
+	}
+	return runtime, store, nil
+}
+
+func lakebaseTelemetryHistory(ctx context.Context, database, stream string, from, to time.Time,
+	limit int) (any, error) {
+	runtime, store, err := lakebaseHistorySource(database)
+	if err != nil {
+		return nil, err
 	}
 	events, err := store.History(ctx, runtime.Binding(), lakebaseobs.Stream(stream), from, to, limit, time.Now())
 	if err != nil {
@@ -360,19 +323,7 @@ func lakebaseTelemetryHistory(ctx context.Context, database, stream string, from
 	rows := make([]map[string]any, 0, len(events))
 	for _, e := range events {
 		row := map[string]any{"event_id": e.ID, "stream": e.Stream, "scope_hash": e.ScopeHash, "compute_id": e.ComputeID, "occurred_at": e.OccurredAt, "received_at": e.ReceivedAt, "historical_only": true}
-		var value any
-		switch e.Stream {
-		case lakebaseobs.Plans:
-			value, err = lakebaseobs.NormalizePlan(e)
-		case lakebaseobs.Logs:
-			value, err = lakebaseobs.NormalizeLog(e)
-		case lakebaseobs.ASH:
-			value, err = lakebaseobs.NormalizeASH(e)
-		case lakebaseobs.DDL:
-			value, err = lakebaseobs.NormalizeDDL(e)
-		default:
-			value, err = lakebaseobs.NormalizeMetrics(e)
-		}
+		value, err := normalizeLakebaseHistory(e)
 		if err == nil {
 			row["availability"] = "observed"
 			row["observation"] = value

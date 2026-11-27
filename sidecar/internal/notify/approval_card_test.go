@@ -241,16 +241,25 @@ func TestDispatcherCardTokenEdgeCases(t *testing.T) {
 			t.Fatalf("issued %v", issuer.issued)
 		}
 	})
-	t.Run("sre proposal events keep their own buttons", func(t *testing.T) {
-		slack := &cardSender{typ: "slack"}
-		issuer := &fakeIssuer{}
-		d := cardDispatcher(interactive(), issuer, slack)
-		evt := WithApprovalCard(approvalEvent(), cardRef(), "body")
-		_ = d.Dispatch(context.Background(), evt)
-		if len(issuer.issued) != 0 {
-			t.Fatalf("an SRE proposal got a card token: %v", issuer.issued)
-		}
-	})
+}
+
+// policy-08: a Sage SRE card is minted a token like any card, keeping its
+// backend-signal limits (15 minutes, no Snooze).
+func TestDispatcherMintsSRECardTokens(t *testing.T) {
+	slack := &cardSender{typ: "slack"}
+	issuer := &fakeIssuer{}
+	d := cardDispatcher(map[int]*Channel{1: {ID: 1, Type: "slack", Enabled: true,
+		Config: map[string]string{"interactive": "true", "signing_secret": "s"}}},
+		issuer, slack)
+	_ = d.Dispatch(context.Background(), sreCardEvent())
+	if len(issuer.issued) != 1 || issuer.issued[0].QueueID != 9 ||
+		issuer.issued[0].MaxTTL != 15*time.Minute || !issuer.issued[0].NoSnooze {
+		t.Fatalf("an SRE card was not issued as a backend-signal card: %+v",
+			issuer.issued)
+	}
+	if len(slack.events) != 1 || slack.events[0].Data[DataCardToken] != testCardToken {
+		t.Fatalf("slack events = %+v", slack.events)
+	}
 }
 
 func TestSlackRendersCardButtons(t *testing.T) {

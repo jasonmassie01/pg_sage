@@ -27,7 +27,7 @@ import (
 // only the API (G10-B01).
 const (
 	documentedAPIAddr  = "127.0.0.1:8080" // DefaultAPIListenAddr
-	documentedPromAddr = "127.0.0.1:9187" // DefaultPrometheusListenAddr
+	documentedPromAddr = "127.0.0.1:8187" // DefaultPrometheusListenAddr
 	// The first collector cycle runs one default interval (60s) after start.
 	firstSnapshotTimeout = 100 * time.Second
 )

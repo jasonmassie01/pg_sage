@@ -36,6 +36,12 @@ type investigatorSession struct {
 	commits   int // reads committed as evidence
 	memory    string
 	memoryRef *MemoryRef
+	// observed caches the stored evidence for graph_state: seeded from the
+	// store on its first call, then appended with each committed read
+	// (sre-11). It never feeds the conclusion: finish re-reads the store
+	// and re-verifies every cited hash.
+	observed []Evidence
+	seeded   bool
 }
 
 // investigate runs the investigator on a diagnosis. It returns the
@@ -82,7 +88,7 @@ func (s *investigatorSession) loopConfig(ctx context.Context, d causal.Diagnosis
 			MaxCost:   s.plan.probeBudget(s.c.store.Limits(), cur.ProbeCount),
 			Wall:      wall,
 			MaxTokens: int(s.plan.MaxTokens), StepTokens: s.plan.StepTokens,
-			StepTimeout: s.c.cfg.ModelTimeout}}, nil, nil
+			StepTimeout: s.c.cfg.ModelTimeout, ReasoningPerCall: s.reasoning()}}, nil, nil
 }
 
 // seedEvidence is the stored evidence the model may cite from its first
@@ -128,13 +134,9 @@ func (s *investigatorSession) finish(ctx context.Context, prior causal.Diagnosis
 		return s.lease, d, out, s.noConclusion(ctx, run)
 	}
 	narrative := verifiedNarrative(res.Claims, stored)
-	kept := 0
-	if narrative != nil {
-		kept = len(narrative.Claims)
-	}
 	r := inconclusive(DowngradeInvalidOutcome)
 	if f, ferr := decodeFinal(res.Final); ferr == nil {
-		r = resolveOutcome(d, f, kept)
+		r = resolveSupported(d, f, narrative, stored, s.c.investigator.RequireSupportCitation)
 	}
 	var g RootGrant
 	if r.outcome == ModelContested || r.outcome == ModelConcluded {

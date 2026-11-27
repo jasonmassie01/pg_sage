@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/analyzer"
 	"github.com/pg-sage/sidecar/internal/policy"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // Operator typed-target lease (debt item 2): an operator-approved action
@@ -314,11 +315,14 @@ func TestOperatorQueueTimeoutRefuses(t *testing.T) {
 	queue.PollInterval, queue.OperatorMaxWait = 20*time.Millisecond, 300*time.Millisecond
 	exec.WithLeaseQueue(queue)
 	holdTypedLease(t, pool, "custodian", "public."+table)
-	started := time.Now()
+	// The operator queue bound is enforced on the database clock; measure
+	// the wait on it too (ci-14 class, found by ci-17: the host measured
+	// 110ms of a 300ms database-clock wait).
+	started := testdb.MustDBNow(t, pool)
 
 	_, err := exec.ExecuteManual(context.Background(), findingID, sql, "", nil)
 
-	elapsed := time.Since(started)
+	elapsed := testdb.MustDBNow(t, pool).Sub(started)
 	if !errors.Is(err, ErrTargetLeased) || !errors.Is(err, policy.ErrLeaseQueueTimeout) {
 		t.Fatalf("operator queue timeout = %v, want ErrTargetLeased/ErrLeaseQueueTimeout", err)
 	}
@@ -402,6 +406,7 @@ func TestIsLeasedMutation(t *testing.T) {
 		"ALTER TABLE public.t SET (fillfactor = 90)":       true,
 		"VACUUM (FREEZE) public.t":                         true,
 		"vacuum public.t":                                  true,
+		"REVOKE ALL ON TABLE public.t FROM PUBLIC":         true,
 		"ANALYZE public.t":                                 false,
 		"ALTER SYSTEM SET max_slot_wal_keep_size = '10GB'": false,
 		"SELECT pg_terminate_backend(42)":                  false,

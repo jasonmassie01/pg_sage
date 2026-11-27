@@ -47,7 +47,7 @@ func TestRedirectIndexReplaceAttachesTheTwoStatementMigration(t *testing.T) {
 		ObjectIdentifier: "public.orders", RecommendedSQL: sql, RollbackSQL: rollback,
 		ActionRisk: "moderate", Detail: map[string]any{"table": "public.orders"}}
 	owned := confirmed(1, TypeAppMigrations, KindTable, "public.orders", nil)
-	out, _ := ApplyFindings([]Fact{owned}, []analyzer.Finding{f}, nil, bindNow)
+	out, _ := ApplyFindings([]Fact{owned}, []analyzer.Finding{f}, nil, nil, bindNow)
 	if len(out) != 1 || out[0].RecommendedSQL != "" || out[0].RollbackSQL != "" {
 		t.Fatalf("the DDL is withheld: %+v", out)
 	}

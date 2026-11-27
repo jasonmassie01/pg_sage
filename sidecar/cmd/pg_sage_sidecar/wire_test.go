@@ -35,7 +35,7 @@ func TestWireRouter_Standalone_DBDepsWired(t *testing.T) {
 	// Use a nil pool — we can't create a real pgxpool in unit
 	// tests, but wireRouter only stores it, never queries.
 	// The key assertion is that dbDeps is non-nil.
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:      cfg,
 		Pool:     nil, // would be non-nil in real standalone
 		FleetMgr: testFleetMgr(cfg),
@@ -62,7 +62,7 @@ func TestWireRouter_Standalone_ActionDepsFromStore(t *testing.T) {
 	as := &store.ActionStore{}
 	ex := &executor.Executor{}
 
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:      cfg,
 		FleetMgr: fm,
 		Actions: struct {
@@ -92,7 +92,7 @@ func TestWireRouter_Fleet_ActionDepsFromFleet(t *testing.T) {
 
 	// Fleet mode: no global actionStore/executor, so actionDeps
 	// should use the Fleet path.
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:      cfg,
 		FleetMgr: fm,
 	})
@@ -115,7 +115,7 @@ func TestWireRouter_Fleet_DBDepsFromFleetPool(t *testing.T) {
 
 	// Empty fleet (no instances) → PoolForDatabase("all") returns
 	// nil → dbDeps stays nil (can't wire without a pool).
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:      cfg,
 		FleetMgr: fm,
 	})
@@ -138,7 +138,7 @@ func TestWireRouter_MetaDB_DBDepsFromStore(t *testing.T) {
 		Store: store.NewDatabaseStore(nil, nil),
 	}
 
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:       cfg,
 		FleetMgr:  fm,
 		MetaState: metaState,
@@ -165,7 +165,7 @@ func TestWireRouter_NoLLM_GracefulDegradation(t *testing.T) {
 	fm := testFleetMgr(cfg)
 
 	// No LLM manager — router should still build without panic.
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:      cfg,
 		FleetMgr: fm,
 		LLMMgr:   nil,
@@ -204,7 +204,7 @@ func TestWireRouter_WithLLM_RouteRegistered(t *testing.T) {
 	client := llm.New(llmCfg, func(_, _ string, _ ...any) {})
 	mgr := llm.NewManager(client, nil, false)
 
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:      cfg,
 		FleetMgr: fm,
 		LLMMgr:   mgr,
@@ -225,7 +225,7 @@ func TestWireRouter_NilFleetMgr_NoPanic(t *testing.T) {
 	cfg := testConfig()
 
 	// Verify wireRouter handles nil FleetMgr without panic.
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg: cfg,
 	})
 
@@ -245,7 +245,7 @@ func TestWireRouter_RateLimiter_Applied(t *testing.T) {
 	rl := NewRateLimiter(1) // 1 request per minute
 	t.Cleanup(rl.Stop)
 
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:         cfg,
 		FleetMgr:    fm,
 		RateLimiter: rl,
@@ -263,7 +263,7 @@ func TestWireRouter_AuthPoolFallback(t *testing.T) {
 	// nil → authPool falls back to p.Pool.
 	fm := testFleetMgr(cfg)
 
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:      cfg,
 		Pool:     nil, // in real code this would be a pgxpool
 		FleetMgr: fm,
@@ -282,7 +282,7 @@ func TestWireRouter_CoreRoutesRegistered(t *testing.T) {
 	cfg := testConfig()
 	fm := testFleetMgr(cfg)
 
-	result := wireRouter(WireParams{
+	result := testWireRouter(WireParams{
 		Cfg:      cfg,
 		FleetMgr: fm,
 	})

@@ -13,7 +13,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -27,18 +26,14 @@ import (
 	"github.com/pg-sage/sidecar/internal/executor"
 	"github.com/pg-sage/sidecar/internal/recommendation"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/testdb"
 )
 
 // pipelineURL returns the throwaway-Postgres URL or skips the test with an
 // explicit reason (no silent skips: the runner script always sets it).
 func pipelineURL(t *testing.T) string {
 	t.Helper()
-	u := os.Getenv("SAGE_TEST_DATABASE_URL")
-	if u == "" {
-		t.Skip("SKIPPED: SAGE_TEST_DATABASE_URL not set — run via " +
-			"scripts/run_pipeline_coverage.sh (dedicated container)")
-	}
-	return u
+	return testdb.SkipUnlessLive(t)
 }
 
 // pipelinePool connects, bootstraps the sage schema, and registers cleanup.
@@ -286,8 +281,12 @@ func settledString(t *testing.T, pool *pgxpool.Pool, sql string) string {
 // repo-mandated verification checklist.
 type checkReport struct {
 	lines []string
+	notes []string
 	fails int
 }
+
+// note adds a context line the dump prints before the CHECK lines.
+func (r *checkReport) note(line string) { r.notes = append(r.notes, line) }
 
 func (r *checkReport) add(t *testing.T, id string, pass bool, desc string) {
 	t.Helper()
@@ -307,6 +306,9 @@ func (r *checkReport) add(t *testing.T, id string, pass bool, desc string) {
 func (r *checkReport) dump(t *testing.T, header string) {
 	t.Helper()
 	t.Logf("===== %s =====", header)
+	for _, n := range r.notes {
+		t.Logf("%s", n)
+	}
 	for _, l := range r.lines {
 		t.Logf("%s", l)
 	}

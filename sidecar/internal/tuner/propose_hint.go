@@ -19,6 +19,11 @@ var (
 	// ErrHintExists: the statement already has a proposed or active hint,
 	// or was tuned within the cooldown.
 	ErrHintExists = errors.New("statement already has a hint or is cooling down")
+	// ErrForeignHint: hint_plan.hints holds a hint for the statement that
+	// pg_sage did not install (an operator hint present); pg_sage never
+	// replaces it.
+	ErrForeignHint = errors.New("statement has a hint pg_sage did not install " +
+		"(operator hint present)")
 )
 
 // agentSymptom is the symptom sage.query_hints records for agent hints.
@@ -34,29 +39,44 @@ type HintProposal struct {
 	Detail    map[string]any
 }
 
-// HintsAvailable reports whether hints can be installed: pg_hint_plan is
-// loaded and its hint table is ready.
+// HintsAvailable reports whether installed hints change application plans
+// (ApplicationEffect, tuning-04) and the hint table is ready.
 func (t *Tuner) HintsAvailable() bool {
-	return t != nil && t.hintPlan != nil && t.hintPlan.Available &&
-		t.hintPlan.HintTableReady
+	if t == nil {
+		return false
+	}
+	h := t.hints()
+	return h != nil && h.ApplicationEffect && h.HintTableReady
 }
 
 // CheckHint turns an agent hint into a query_tuning finding with the
 // tuner's own safeguards: pg_hint_plan syntax, the Set() allowlist and the
-// work_mem clamp, and one hint per statement (proposed or active hints and
-// the cooldown). It has no side effects: the agent records only the hints
-// it keeps after its per-cycle cap, through RecordHint.
+// work_mem clamp, the host-memory budget (ErrHintMemory above 5% of host
+// RAM, approval_required when host memory is unknown), and one hint per
+// statement (proposed or installed hints, an operator's hint, and the
+// cooldown). With the hinted EXPLAIN gate on (WithHintComparison) the hint
+// must change the plan within the cost tolerance (ErrHintRefused
+// otherwise); an unverifiable hint keeps its finding without SQL, with the
+// reason in detail.hint_evidence. It has no side
+// effects: the agent records only the hints it keeps after its per-cycle
+// cap, through RecordHint.
 func (t *Tuner) CheckHint(ctx context.Context, p HintProposal) (analyzer.Finding, error) {
 	hint, err := t.admitHint(p)
 	if err != nil {
 		return analyzer.Finding{}, err
 	}
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	if err := t.coolingErr(ctx, p.QueryID); err != nil {
+	err = t.coolingErr(ctx, p.QueryID)
+	var f analyzer.Finding
+	if err == nil {
+		f = t.workMemBudget().annotate(agentHintFinding(p, hint), hint, nil)
+	}
+	t.mu.Unlock()
+	if err != nil {
 		return analyzer.Finding{}, err
 	}
-	return agentHintFinding(p, hint), nil
+	// The hinted EXPLAIN runs outside t.mu: it may take its timeouts.
+	return t.gateFinding(ctx, f, p.QueryID, p.Query, hint, t.spillPlanFor(ctx, p, hint))
 }
 
 // RecordHint records a checked hint in sage.query_hints and cools the
@@ -72,7 +92,7 @@ func (t *Tuner) RecordHint(ctx context.Context, p HintProposal) error {
 	if err := t.coolingErr(ctx, p.QueryID); err != nil {
 		return err
 	}
-	t.upsertQueryHint(ctx, p.QueryID, hint, agentSymptom, "", "")
+	t.upsertQueryHint(ctx, p.QueryID, hint, agentSymptom)
 	t.recordTuned(p.QueryID)
 	return nil
 }
@@ -86,13 +106,23 @@ func (t *Tuner) admitHint(p HintProposal) (string, error) {
 	return t.checkHint(p)
 }
 
-// coolingErr refuses a statement with a proposed or active hint or in its
-// cooldown. The caller holds t.mu.
+// coolingErr refuses a statement in its cooldown, with an open proposal or
+// an installed hint (ErrHintExists), or with a hint pg_sage did not install
+// (ErrForeignHint). The durable state is read on every call; a failed read
+// refuses the hint. The caller holds t.mu.
 func (t *Tuner) coolingErr(ctx context.Context, queryID int64) error {
-	if len(t.recentlyTuned) == 0 {
-		t.loadActiveHints(ctx)
-	}
 	if _, cooling := t.recentlyTuned[queryID]; cooling {
+		return fmt.Errorf("%w: queryid %d", ErrHintExists, queryID)
+	}
+	states, err := t.hintStates(ctx, []int64{queryID})
+	if err != nil {
+		return fmt.Errorf("tuner: refusing hint for queryid %d, hint state unknown: %w",
+			queryID, err)
+	}
+	switch states[queryID] {
+	case hintForeign:
+		return fmt.Errorf("%w: queryid %d", ErrForeignHint, queryID)
+	case hintProposed, hintInstalled:
 		return fmt.Errorf("%w: queryid %d", ErrHintExists, queryID)
 	}
 	return nil
@@ -109,6 +139,15 @@ func (t *Tuner) checkHint(p HintProposal) (string, error) {
 	hint, err := normalizeSetDirectives(strings.TrimSpace(p.Hint), t.cfg.WorkMemMaxMB)
 	if err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidHint, err)
+	}
+	budget := t.workMemBudget()
+	if err := budget.refuse(hint); err != nil {
+		// The 64 MB floor of hint work_mem can lift a request within the cap
+		// above it on a small host: clamp that to the cap, refuse the rest.
+		if mb, ok := requestedWorkMemMB(p.Hint); !ok || mb > budget.CeilingMB {
+			return "", err
+		}
+		hint, _ = budget.capHint(hint)
 	}
 	return hint, nil
 }
@@ -130,7 +169,7 @@ func agentHintFinding(p HintProposal, hint string) analyzer.Finding {
 		Detail:           detail,
 		Recommendation:   p.Rationale,
 		RecommendedSQL:   BuildInsertSQL(p.QueryID, hint),
-		RollbackSQL:      BuildDeleteSQL(p.QueryID),
+		RollbackSQL:      BuildDeleteSQL(p.QueryID, hint),
 		ActionRisk:       "safe",
 	}
 }

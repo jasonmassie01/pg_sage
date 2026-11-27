@@ -253,7 +253,10 @@ func TestManager_EmergencyStop_DoesNotCancelMonitoring(t *testing.T) {
 
 func TestManager_Resume(t *testing.T) {
 	mgr := newTestManager("a", "b")
-	mgr.EmergencyStop("")
+	// fleet-09: a stop of all is now a fleet latch that only a resume of
+	// all lifts, so this per-database resume pins stops of a and b.
+	mgr.EmergencyStop("a")
+	mgr.EmergencyStop("b")
 	resumed := mgr.Resume("a")
 	if resumed != 1 {
 		t.Errorf("resumed: %d", resumed)

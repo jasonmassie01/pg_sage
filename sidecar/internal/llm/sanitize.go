@@ -213,22 +213,44 @@ func isTagCont(c byte) bool {
 }
 
 // SanitizeForLLM applies the full pre-LLM sanitization: strip
-// comments (which may contain prompt-injection text) and redact
-// string literals (which may contain PII or secrets).
+// comments (which may contain prompt-injection text), redact string
+// literals (which may contain PII or secrets) and, while
+// llm.redact_numeric_literals is on, numbers of 6 or more digits in
+// comparisons (card numbers, SSNs, account ids; see RedactNumericLiterals).
 //
 // Plan JSON is sanitized per string value: there double quotes delimit
-// JSON strings that hold SQL, not quoted identifiers. Text that only looks
+// JSON strings that hold SQL, not quoted identifiers, and JSON numbers
+// (Plan Rows, Total Cost) are kept byte for byte. Text that only looks
 // like JSON (it fails to parse) is scanned with double quotes as plain
 // bytes, so literals inside its string values are still redacted.
 func SanitizeForLLM(text string) string {
+	return sanitizeForLLM(text, RedactNumericLiteralsEnabled()) // one call, one mode
+}
+
+// SanitizeForLLMStrict is SanitizeForLLM with numeric redaction on
+// whatever llm.redact_numeric_literals says: for text whose redaction must
+// not depend on the process switch (the workload pack's model tier).
+func SanitizeForLLMStrict(text string) string { return sanitizeForLLM(text, true) }
+
+func sanitizeForLLM(text string, numbers bool) string {
 	trimmed := strings.TrimSpace(text)
 	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-		if out, ok := sanitizeJSONStrings(trimmed); ok {
+		if out, ok := sanitizeJSONStrings(trimmed, numbers); ok {
 			return out
 		}
-		return redactLiterals(stripComments(text, false), false)
+		return sanitizeSQL(text, false, numbers)
 	}
-	return RedactSQLLiterals(StripSQLComments(text))
+	return sanitizeSQL(text, true, numbers)
+}
+
+// sanitizeSQL strips comments and redacts literals and, with numbers,
+// long compared numbers; identifiers=false reads double quotes as bytes.
+func sanitizeSQL(text string, identifiers, numbers bool) string {
+	out := redactLiterals(stripComments(text, identifiers), identifiers)
+	if numbers {
+		out = redactNumbers(out, identifiers)
+	}
+	return out
 }
 
 // skipBlockComment advances past a /* ... */ block comment,
@@ -255,4 +277,38 @@ func skipBlockComment(text string, start int) int {
 		i++
 	}
 	return i // unterminated comment: skip to end
+}
+
+// SplitStatements splits SQL text at top-level semicolons with the quote
+// rules of SanitizeForLLM: a ';' inside a literal, quoted identifier,
+// dollar-quoted body or comment does not end a statement. Each piece keeps
+// its terminating ';' and the whitespace around it, so joining the pieces
+// gives back the input. Empty text has no pieces.
+func SplitStatements(text string) []string {
+	var out []string
+	start, i := 0, 0
+	for i < len(text) {
+		if end, ok := quotedTokenEnd(text, i, true); ok {
+			i = end
+			continue
+		}
+		switch {
+		case strings.HasPrefix(text[i:], "/*"):
+			i = skipBlockComment(text, i)
+		case strings.HasPrefix(text[i:], "--"):
+			for i < len(text) && text[i] != '\n' {
+				i++
+			}
+		case text[i] == ';':
+			i++
+			out = append(out, text[start:i])
+			start = i
+		default:
+			i++
+		}
+	}
+	if start < len(text) {
+		out = append(out, text[start:])
+	}
+	return out
 }

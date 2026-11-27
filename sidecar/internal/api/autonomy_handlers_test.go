@@ -51,6 +51,8 @@ type autonomyAPIFixture struct {
 	ledger     *earned.Service
 	reg        *earned.Registry
 	clock      *autonomyClock
+	// build is the pg_sage build the ledgers run (none unless set).
+	build earned.Build
 }
 
 func apiUUID(t *testing.T) string {
@@ -83,11 +85,13 @@ func (f *autonomyAPIFixture) register(database string) *earned.Service {
 		f.t.Fatal(err)
 	}
 	cfg := earned.DefaultConfig()
-	cfg.Now, cfg.EvidenceCacheTTL = f.clock.Now, 0
+	cfg.Now, cfg.EvidenceCacheTTL, cfg.Build = f.clock.Now, 0, f.build
 	ledger, err := earned.NewService(store, cfg)
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	// The investigator runs the model the lift reports measured (llm-01).
+	ledger.WithRunningModel(func() string { return "gpt-4o-mini" })
 	f.reg.Register(database, earned.RegistryEntry{Service: ledger,
 		Limiter: ledger.Limiter(earned.Binding{Database: database})})
 	return ledger
@@ -103,7 +107,7 @@ func (f *autonomyAPIFixture) router(user *auth.User) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-	return NewRouterFullRuntime(f.mgr, config.DefaultConfig(), nil, nil, nil, nil,
+	return newTestRouter(f.mgr, config.DefaultConfig(), nil, nil, nil, nil,
 		&RuntimeDeps{Autonomy: &AutonomyDeps{Ledgers: f.reg}}, inject)
 }
 
@@ -366,7 +370,7 @@ func TestAutonomyAPI_RejectsMalformedInput(t *testing.T) {
 		"/api/v1/sre/autonomy/proposals/not-a-uuid/approve?database=orders": `{}`,
 		"/api/v1/sre/autonomy/downgrade?database=orders": `{"family":"lock_blocking",` +
 			`"class":"backend_cancel","level":"L9","reason":"r"}`,
-		"/api/v1/sre/autonomy/bench-results?database=orders": `{"schema":"x"}`,
+		"/api/v1/sre/autonomy/bench-results?database=orders":      `{"schema":"x"}`,
 		"/api/v1/sre/autonomy/history?database=orders&limit=9999": ``,
 	} {
 		method := "POST"

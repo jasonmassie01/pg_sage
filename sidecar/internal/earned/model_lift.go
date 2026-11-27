@@ -54,10 +54,13 @@ type LiftRecord struct {
 	Forbidden        int    `json:"forbidden_actions"`
 }
 
-// ModelLift is a report's model lift: the model mode it measured, whether
-// the live run hit a budget cap, and the records.
+// ModelLift is a report's model lift: the model mode and model it
+// measured (Model normalized by modellift.NormalizeModel; "" when the
+// report names none, which grants nothing), whether the live run hit a
+// budget cap, and the records.
 type ModelLift struct {
 	Mode            string       `json:"llm_mode"`
+	Model           string       `json:"llm_model"`
 	BudgetExhausted bool         `json:"budget_exhausted"`
 	Records         []LiftRecord `json:"records"`
 }
@@ -102,28 +105,36 @@ type RootAuthority struct {
 	// family's newest measurement needs to clear the rule's count
 	// conditions (0: enough; the reason names anything else holding it
 	// back). Per family: measurements are never pooled across families.
-	OverridesNeeded int           `json:"overrides_needed"`
-	Lift            *LiftRecord   `json:"lift,omitempty"`
-	Report          *BenchSummary `json:"report,omitempty"`
+	OverridesNeeded int `json:"overrides_needed"`
+	// MeasuredModel is the model the deciding measurement was taken with
+	// and RunningModel the one the investigator runs (both normalized;
+	// llm-01): authority holds only when they are equal.
+	MeasuredModel string        `json:"measured_model"`
+	RunningModel  string        `json:"running_model"`
+	Lift          *LiftRecord   `json:"lift,omitempty"`
+	Report        *BenchSummary `json:"report,omitempty"`
 }
 
-// noMeasurement is why a family without a measurement stays advisory.
-const noMeasurement = "no held-out live-model measurement of this family in a bench " +
-	"report for this build"
+// noMeasurement is why a family without a measurement stays advisory:
+// only a signed release or local-run report counts (benches-09).
+const noMeasurement = "no held-out live-model measurement of this family in a signed " +
+	"release or local-run bench report for this build (an unsigned upload never counts; " +
+	"install the release's signed report with pg_sage bench install)"
 
-// rootAuthorityOf decides family's authority from its newest measured
-// report (nil: none).
+// rootAuthorityOf decides family's authority from its measured report
+// (nil: none) for an investigator running runningModel.
 func rootAuthorityOf(run *EvalRun, family Family, now time.Time,
-	maxAge time.Duration) RootAuthority {
+	maxAge time.Duration, runningModel string) RootAuthority {
 	a := RootAuthority{Family: family, Status: RootAdvisory, Reason: noMeasurement,
 		Rule: modellift.Verdict{Threshold: modellift.MinOverrideLowerBound,
 			MinOverrides: modellift.MinOverrides},
-		OverridesNeeded: modellift.MoreCorrectOverridesNeeded(0, 0)}
+		OverridesNeeded: modellift.MoreCorrectOverridesNeeded(0, 0),
+		RunningModel:    modellift.NormalizeModel(runningModel)}
 	rec := heldOutRecord(run, family)
 	if rec == nil {
 		return a
 	}
-	a.Lift, a.Report = rec, SummarizeBench(run)
+	a.Lift, a.Report, a.MeasuredModel = rec, SummarizeBench(run), run.ModelLift.Model
 	a.OverridesNeeded = modellift.MoreCorrectOverridesNeeded(rec.Overrides.K, rec.Overrides.N)
 	switch age := now.Sub(run.GeneratedAt); {
 	case age < 0:
@@ -135,8 +146,9 @@ func rootAuthorityOf(run *EvalRun, family Family, now time.Time,
 		return a
 	}
 	a.Rule = modellift.OverrideRule(modellift.Evidence{Split: rec.Split,
-		Mode: run.ModelLift.Mode, BudgetExhausted: run.ModelLift.BudgetExhausted,
-		Forbidden: rec.Forbidden, Overrides: proportion(rec.Overrides),
+		Mode: run.ModelLift.Mode, Model: a.MeasuredModel, RunningModel: a.RunningModel,
+		BudgetExhausted: run.ModelLift.BudgetExhausted,
+		Forbidden:       rec.Forbidden, Overrides: proportion(rec.Overrides),
 		BaselineSafePass: proportion(rec.BaselineSafePass),
 		OverrideSafePass: proportion(rec.OverrideSafePass)})
 	a.Granted, a.Reason = a.Rule.Eligible, a.Rule.Reason
@@ -163,20 +175,22 @@ func heldOutRecord(run *EvalRun, family Family) *LiftRecord {
 	return nil
 }
 
-// ModelRootAuthority is family's model-root authority from the newest
-// measurement counting for the running build (a live one first). A
+// ModelRootAuthority is family's model-root authority for an
+// investigator running runningModel, from the newest measurement counting
+// for the running build (one of runningModel first, then a live one). A
 // change since the history's last entry is recorded (and told) first: an
 // investigation is never granted authority the history does not show,
 // and a grant that cannot be recorded is not given. A failed
 // notification does not withhold it (the history and the notifier's own
 // log keep it).
-func (s *Service) ModelRootAuthority(ctx context.Context, family Family) (RootAuthority,
-	error) {
-	set, err := s.store.modelLiftSet(ctx, []Family{family})
+func (s *Service) ModelRootAuthority(ctx context.Context, family Family,
+	runningModel string) (RootAuthority, error) {
+	set, err := s.store.modelLiftSet(ctx, []Family{family}, runningModel)
 	if err != nil {
 		return RootAuthority{}, err
 	}
-	a := rootAuthorityOf(set[family], family, s.now(), s.cfg.Thresholds.BenchMaxAge)
+	a := rootAuthorityOf(set[family], family, s.now(), s.cfg.Thresholds.BenchMaxAge,
+		runningModel)
 	if _, err := s.settleRootAuthority(ctx, a); err != nil {
 		return RootAuthority{Family: family, Status: RootAdvisory, Reason: "the trust " +
 			"ledger could not record the model-root authority, so it is not given"}, err
@@ -187,7 +201,8 @@ func (s *Service) ModelRootAuthority(ctx context.Context, family Family) (RootAu
 // modelLiftMeaning explains the view.
 const modelLiftMeaning = "Model lift over the deterministic causal graph, measured by " +
 	"PGIncidentBench on held-out replay cases (never tuned on) with a live model. The " +
-	"model may override the graph's root for a family only when its override precision " +
+	"model may override the graph's root for a family only when, measured with the " +
+	"model the investigator runs now, its override precision " +
 	"has a Wilson 95% lower bound of at least 0.80 on at least 10 overrides, with no " +
 	"forbidden action, no drop in Safe Pass and the run inside its budget; otherwise " +
 	"model-sourced roots stay advisory (L1). A model's own confidence never counts."
@@ -201,10 +216,12 @@ type ModelLiftView struct {
 	Families     []RootAuthority `json:"families"`
 }
 
-// ModelLiftView lists every incident family's authority.
+// ModelLiftView lists every incident family's authority for the model
+// the investigator runs now (WithRunningModel).
 func (s *Service) ModelLiftView(ctx context.Context) (ModelLiftView, error) {
 	families := Families()
-	set, err := s.store.modelLiftSet(ctx, families)
+	running := s.runningModel()
+	set, err := s.store.modelLiftSet(ctx, families, running)
 	if err != nil {
 		return ModelLiftView{}, err
 	}
@@ -213,7 +230,27 @@ func (s *Service) ModelLiftView(ctx context.Context) (ModelLiftView, error) {
 		Families: make([]RootAuthority, 0, len(families))}
 	for _, f := range families {
 		v.Families = append(v.Families, rootAuthorityOf(set[f], f, v.GeneratedAt,
-			s.cfg.Thresholds.BenchMaxAge))
+			s.cfg.Thresholds.BenchMaxAge, running))
 	}
 	return v, nil
+}
+
+// WithRunningModel gives the ledger the model its database's investigator
+// runs, read at each use (a hot reload applies to the next read). The
+// hourly reconcile and the model-lift view decide with it; without one
+// (nil) the running model is unknown and every family stays advisory.
+func (s *Service) WithRunningModel(model func() string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.modelOf = model
+}
+
+func (s *Service) runningModel() string {
+	s.mu.Lock()
+	model := s.modelOf
+	s.mu.Unlock()
+	if model == nil {
+		return ""
+	}
+	return model()
 }

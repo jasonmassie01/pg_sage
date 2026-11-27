@@ -32,7 +32,20 @@ type Trust struct {
 	NextLevel   string             `json:"next_level,omitempty"`
 	Path        []string           `json:"path,omitempty"`
 	Unavailable string             `json:"unavailable,omitempty"`
-	Line        string             `json:"line"`
+	// Bench is the deciding bench report's provenance label, BenchOrigin
+	// its origin and BenchID its id (none without bench evidence).
+	Bench       string `json:"bench,omitempty"`
+	BenchOrigin string `json:"bench_origin,omitempty"`
+	BenchID     string `json:"bench_id,omitempty"`
+	// AllowAlways offers "Approve, and stop asking for <class> on
+	// <database>" (ux-07a), labelled AllowAlwaysLabel; AllowAlwaysWhy is
+	// why it is offered or not. ApprovalHistory is the class's person
+	// approvals in the window.
+	AllowAlways      bool                    `json:"allow_always"`
+	AllowAlwaysLabel string                  `json:"allow_always_label,omitempty"`
+	AllowAlwaysWhy   string                  `json:"allow_always_why,omitempty"`
+	ApprovalHistory  *earned.ApprovalHistory `json:"approval_history,omitempty"`
+	Line             string                  `json:"line"`
 }
 
 // trustRead is one read of a database's Trust view.
@@ -94,12 +107,31 @@ func trustOf(in Inputs) *Trust {
 	if row.Effective != nil {
 		t.Effective = row.Effective.String()
 	}
+	if b := row.Bench; b != nil {
+		t.Bench, t.BenchOrigin, t.BenchID = b.Provenance, b.Origin, b.ID
+	}
 	if row.Next != nil {
 		t.NextLevel = row.Next.Target.String()
 		t.Path = pathOf(*row.Next)
 	}
+	t.ApprovalHistory = row.ApprovalHistory
+	allowAlwaysOf(t, *row, in)
 	t.Line = trustLine(t)
 	return t
+}
+
+// allowAlwaysOf decides the card's allow-always button by the ledger's
+// rule against the database's gate inputs; without them (no executor)
+// it is never offered.
+func allowAlwaysOf(t *Trust, row earned.TrustRow, in Inputs) {
+	if in.Ceiling == nil {
+		t.AllowAlwaysWhy = "the gate's inputs are not known (no executor)"
+		return
+	}
+	t.AllowAlways, t.AllowAlwaysWhy = earned.AllowAlways(row, *in.Ceiling)
+	if t.AllowAlways {
+		t.AllowAlwaysLabel = earned.AllowAlwaysLabel(row.Class, in.Database)
+	}
 }
 
 // pathOf lists what the next level still needs.
@@ -137,6 +169,9 @@ func trustLine(t *Trust) string {
 		"%d regressed, %d rolled back, %d rejected", t.Family, t.Class, level,
 		strings.Join(notes, ", "), e.Improved, e.Neutral, e.Regressed, e.RolledBack,
 		e.Rejected)
+	if t.Bench != "" {
+		line += strings.TrimRight("; bench: "+t.Bench+" "+t.BenchID, " ")
+	}
 	switch {
 	case t.NextLevel == "":
 		return line + "; at its highest level"

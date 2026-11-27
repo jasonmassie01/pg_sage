@@ -4,15 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 )
 
 // Claim validator (AI-SRE-SPEC §2.3/§5): every claim must cite evidence
-// ids in scope, and every number it states must equal a number in the
-// evidence that claim cites. Numbers are computed by code and bound as
-// evidence; the model may only quote them.
+// ids in scope, and every number it states must equal a value in the
+// evidence that claim cites (exact tokens, see grounding.go). Numbers are
+// computed by code and bound as evidence; the model may only quote them.
 
 // Claim limits.
 const (
@@ -41,8 +40,6 @@ var (
 )
 
 var (
-	numberPattern = regexp.MustCompile(`\d+(?:\.\d+)?`)
-	thousandsSep  = regexp.MustCompile(`(\d),(\d{3})\b`)
 	evidenceRef   = regexp.MustCompile(`\b[EPH]\d+\b`)
 	spaceCollapse = regexp.MustCompile(`\s+`)
 )
@@ -70,49 +67,45 @@ func ValidateClaims(claims []Claim, ev EvidenceCatalog) error {
 }
 
 func validateClaim(n int, c Claim, ev EvidenceCatalog) error {
-	text := strings.TrimSpace(c.Text)
-	switch {
-	case text == "":
-		return fmt.Errorf("%w: claim %d is empty", ErrInvalidClaim, n)
-	case utf8.RuneCountInString(text) > MaxClaimRunes:
-		return fmt.Errorf("%w: claim %d longer than %d characters", ErrInvalidClaim, n,
-			MaxClaimRunes)
-	case len(c.EvidenceIDs) == 0:
-		return fmt.Errorf("%w: claim %d", ErrUncitedClaim, n)
+	text, err := claimShape(n, c)
+	if err != nil {
+		return err
 	}
-	known := map[float64]bool{}
+	known := groundSet{}
 	for _, id := range c.EvidenceIDs {
 		body, ok := ev[id]
 		if !ok || id == "" {
 			return fmt.Errorf("%w %q in claim %d", ErrUnknownEvidence, id, n)
 		}
-		for _, v := range numbers(body) {
-			known[v.value] = true
-		}
+		known.add(textTokens(body))
 	}
-	for _, v := range numbers(evidenceRef.ReplaceAllString(text, "")) {
-		if !known[v.value] {
-			return fmt.Errorf("%w %s in claim %d", ErrUngroundedNumber, v.token, n)
+	return groundNumbers(n, text, known)
+}
+
+// claimShape checks a claim's text and that it cites something.
+func claimShape(n int, c Claim) (string, error) {
+	text := strings.TrimSpace(c.Text)
+	switch {
+	case text == "":
+		return "", fmt.Errorf("%w: claim %d is empty", ErrInvalidClaim, n)
+	case utf8.RuneCountInString(text) > MaxClaimRunes:
+		return "", fmt.Errorf("%w: claim %d longer than %d characters", ErrInvalidClaim, n,
+			MaxClaimRunes)
+	case len(c.EvidenceIDs) == 0:
+		return "", fmt.Errorf("%w: claim %d", ErrUncitedClaim, n)
+	}
+	return text, nil
+}
+
+// groundNumbers checks that every number and timestamp of a claim's text
+// (evidence references such as E2 aside) is in known.
+func groundNumbers(n int, text string, known groundSet) error {
+	for _, t := range groundTokens(evidenceRef.ReplaceAllString(text, "")) {
+		if !known[t.key] {
+			return fmt.Errorf("%w %s in claim %d", ErrUngroundedNumber, t.token, n)
 		}
 	}
 	return nil
-}
-
-type number struct {
-	token string
-	value float64
-}
-
-// numbers extracts the decimal numbers of s ("1,200" is 1200).
-func numbers(s string) []number {
-	s = thousandsSep.ReplaceAllString(s, "$1$2")
-	var out []number
-	for _, tok := range numberPattern.FindAllString(s, -1) {
-		if v, err := strconv.ParseFloat(tok, 64); err == nil {
-			out = append(out, number{token: tok, value: v})
-		}
-	}
-	return out
 }
 
 // Citations is the union of the claims' evidence ids, in first-seen order.

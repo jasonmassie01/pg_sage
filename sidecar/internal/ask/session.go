@@ -11,7 +11,8 @@ import (
 )
 
 // session is one question's run: the caller, the evidence the tools
-// produced (by id, for the answer's citations) and the actions taken. A
+// produced (by durable id, for propose_fact's citations; the answer's
+// citations come from the loop's aliases) and the actions taken. A
 // run may open at most one investigation and queue at most one proposal.
 type session struct {
 	s        *Service
@@ -52,7 +53,7 @@ func (ss *session) tools() []agentloop.Tool {
 	if ss.caller.MayPropose {
 		out = append(out, ss.proposeFactTool())
 	}
-	return out
+	return ss.tracked(out)
 }
 
 // cite builds a citable output and remembers its evidence.
@@ -71,14 +72,10 @@ func (ss *session) record(a ActionTaken) {
 	ss.actions = append(ss.actions, a)
 }
 
-func (ss *session) snapshot() (map[string]agentloop.Evidence, []ActionTaken) {
+func (ss *session) actionsTaken() []ActionTaken {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	ev := make(map[string]agentloop.Evidence, len(ss.evidence))
-	for k, v := range ss.evidence {
-		ev[k] = v
-	}
-	return ev, append([]ActionTaken{}, ss.actions...)
+	return append([]ActionTaken{}, ss.actions...)
 }
 
 // tool builds one read-only tool of cost 1 with a strict object schema.

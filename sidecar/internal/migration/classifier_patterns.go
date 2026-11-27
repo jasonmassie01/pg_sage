@@ -48,10 +48,18 @@ var (
 			`)\s+(?:SET\s+DATA\s+)?TYPE\s+([^,;]+?)` +
 			`(?:\s+(?:USING|COLLATE)\b.*)?(?:,|;|$)`)
 
-	// ADD [COLUMN] x type ... DEFAULT expr
+	// reUsingOrCollate finds the USING or COLLATE clause of an ALTER TYPE
+	// match, either of which keeps the change a rewrite.
+	reUsingOrCollate = regexp.MustCompile(`(?i)\b(?:USING|COLLATE)\b`)
+
+	// ADD [COLUMN] x type ... DEFAULT expr: the first DEFAULT after the
+	// ADD, so matching it at every ADD (reAddHead) reads every clause.
 	reAddColumnDefault = regexp.MustCompile(
 		`(?i)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + identRE +
-			`)\s+\S+.*\bDEFAULT\s+(.+?)(?:\s*,|\s*;|\s*\)|$)`)
+			`)\s+\S+.*?\bDEFAULT\s+(.+?)(?:\s*,|\s*;|\s*\)|$)`)
+
+	// reAddHead finds each ADD of a multi-clause ALTER TABLE.
+	reAddHead = regexp.MustCompile(`(?i)\bADD\s`)
 
 	// ADD [COLUMN] x serial / IDENTITY / GENERATED ... STORED: all
 	// populate every existing row and therefore rewrite the table.
@@ -59,12 +67,6 @@ var (
 		`(?i)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + identRE +
 			`)\s+(?:(?:small|big)?serial[248]?\b|\S+.*\bGENERATED\s+` +
 			`(?:ALWAYS|BY\s+DEFAULT)\s+AS\s+(?:IDENTITY\b|\(.*\)\s*STORED\b))`)
-
-	// ADD [COLUMN] x type NOT NULL without DEFAULT
-	reAddColumnNotNull = regexp.MustCompile(
-		`(?i)\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + identRE +
-			`)\s+\S+\s+NOT\s+NULL\b`)
-	reHasDefault = regexp.MustCompile(`(?i)\bDEFAULT\b`)
 
 	// DROP [COLUMN] [IF EXISTS] x
 	reDropColumn = regexp.MustCompile(
@@ -116,10 +118,6 @@ var (
 	// ALTER TABLE schema.table
 	reAlterTable = regexp.MustCompile(
 		`(?i)^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?` + qualifiedRE)
-
-	// SET lock_timeout
-	reLockTimeout = regexp.MustCompile(
-		`(?i)\bSET\s+(?:LOCAL\s+)?lock_timeout\b`)
 )
 
 // reservedAfterKeyword lists words that follow ADD/DROP/ALTER inside
@@ -168,15 +166,26 @@ var immutableDefaults = map[string]bool{
 	"statement_timestamp":   true,
 }
 
-var reFuncCall = regexp.MustCompile(`(?i)([\w$]+)\s*\(`)
+// callIdentRE is one identifier of a function call: bare, or "quoted"
+// with "" for a quote (an empty quoted name is kept, as unknown).
+const callIdentRE = `"(?:[^"]|"")*"|[\w$]+`
+
+// reFuncCall is a function call: group 1 is the schema (empty when the
+// call is unqualified) and group 2 the name.
+var reFuncCall = regexp.MustCompile(
+	`(?:(` + callIdentRE + `)\s*\.\s*)?(` + callIdentRE + `)\s*\(`)
 
 // isVolatileDefault returns true if the default expression contains a
-// function call that is NOT in the stable/immutable allowlist.
+// function call that is NOT in the stable/immutable allowlist. It reads
+// the name as PostgreSQL does: a quoted name keeps its case, and a schema
+// other than pg_catalog can name any function, so it counts as volatile
+// (the parse-tree mapping's volatileExpr; env-cgo-b).
 func isVolatileDefault(expr string) bool {
-	matches := reFuncCall.FindAllStringSubmatch(expr, -1)
-	for _, m := range matches {
-		fname := strings.ToLower(m[1])
-		if !immutableDefaults[fname] {
+	for _, m := range reFuncCall.FindAllStringSubmatch(expr, -1) {
+		if m[1] != "" && unquoteIdent(m[1]) != "pg_catalog" {
+			return true
+		}
+		if !immutableDefaults[unquoteIdent(m[2])] {
 			return true
 		}
 	}

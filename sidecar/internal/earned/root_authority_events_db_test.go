@@ -38,12 +38,7 @@ func (n *rootNotifier) got() []RootAuthorityChange {
 
 func (f *fixture) ingestLift(at time.Time, recs ...string) EvalRun {
 	f.t.Helper()
-	run, err := f.svc.IngestEvalRun(f.ctx, liftReport(at, "live", false, recs...),
-		SourceBench, "admin", "")
-	if err != nil {
-		f.t.Fatalf("ingest lift report: %v", err)
-	}
-	return run
+	return f.ingestSignedLift(liftReport(at, "live", false, recs...))
 }
 
 // rootEvents is the database's model-root history, oldest first.
@@ -190,7 +185,7 @@ func TestRootAuthorityEvents_AskingRecordsTheGrantBeforeUsingIt(t *testing.T) {
 	n := &rootNotifier{}
 	f.svc.WithRootAuthorityNotifier(n)
 	run := f.ingestLift(fixtureEpoch.Add(-time.Hour), good("lock_blocking", 16, 16))
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err != nil || !got.Granted {
 		t.Fatalf("authority = %+v (%v)", got, err)
 	}
@@ -199,7 +194,8 @@ func TestRootAuthorityEvents_AskingRecordsTheGrantBeforeUsingIt(t *testing.T) {
 		decodeEvidence(t, evs[0].Evidence)["report_id"] != run.ID {
 		t.Fatalf("history = %+v", evs)
 	}
-	if _, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking); err != nil {
+	if _, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking,
+		fixtureModel); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.rootEvents(FamilyLockBlocking)) != 1 || len(n.got()) != 1 {
@@ -215,7 +211,7 @@ func TestRootAuthorityEvents_UnrecordableGrantIsNotGranted(t *testing.T) {
 	f := newFixture(t)
 	f.ingestLift(fixtureEpoch.Add(-time.Hour), good("lock_blocking", 16, 16))
 	f.rejectRootEvents()
-	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+	got, err := f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 	if err == nil || got.Granted || !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("authority = %+v (%v), want ErrUnavailable and no grant", got, err)
 	}
@@ -259,7 +255,7 @@ func TestRootAuthorityEvents_ConcurrentAsksRecordOnce(t *testing.T) {
 				_, errs[i] = f.svc.ReconcileRootAuthority(f.ctx)
 				return
 			}
-			_, errs[i] = f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking)
+			_, errs[i] = f.svc.ModelRootAuthority(f.ctx, FamilyLockBlocking, fixtureModel)
 		}(i)
 	}
 	wg.Wait()
@@ -309,6 +305,8 @@ func TestRootAuthorityEvents_PerDatabase(t *testing.T) {
 	dep := newUUID(t)
 	orders := newFixtureFor(t, dep, "orders")
 	billing := newFixtureFor(t, dep, "billing")
+	// One sidecar's databases run one build (the signed lift names it).
+	billing.svc.cfg.Build = buildA
 	orders.ingestLift(fixtureEpoch.Add(-time.Hour), good("lock_blocking", 16, 16))
 	if _, err := orders.svc.ReconcileRootAuthority(orders.ctx); err != nil {
 		t.Fatal(err)

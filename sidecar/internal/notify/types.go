@@ -7,6 +7,14 @@ type Channel struct {
 	Type    string            `json:"type"`
 	Config  map[string]string `json:"config"`
 	Enabled bool              `json:"enabled"`
+	// ManagedBy is "config" for a channel the alerting reconciler owns
+	// (alerting-06b), else "api" (or empty where not read).
+	ManagedBy string `json:"managed_by,omitempty"`
+	// QuietStart, QuietEnd (HH:MM) and QuietTZ are the channel's own
+	// quiet hours (ux-09b); empty keeps the global alerting pair.
+	QuietStart string `json:"quiet_hours_start,omitempty"`
+	QuietEnd   string `json:"quiet_hours_end,omitempty"`
+	QuietTZ    string `json:"quiet_hours_timezone,omitempty"`
 }
 
 // Rule maps events to channels with severity filtering.
@@ -16,6 +24,11 @@ type Rule struct {
 	Event       string `json:"event"`
 	MinSeverity string `json:"min_severity"`
 	Enabled     bool   `json:"enabled"`
+	// ManagedBy is "config" for a rule the alerting reconciler owns.
+	ManagedBy string `json:"managed_by,omitempty"`
+	// DeliveryClass is page, ask or digest for a class rule (ux-09a);
+	// empty for a legacy rule of one event type.
+	DeliveryClass string `json:"delivery_class,omitempty"`
 }
 
 // Event is the payload dispatched through the notification system.
@@ -31,6 +44,10 @@ type Event struct {
 	// Resolve marks a recovery notification for an earlier trigger with
 	// the same DedupKey (PagerDuty "resolve", G7-B14).
 	Resolve bool
+	// RefID is the incident a delivery belongs to, recorded in
+	// sage.notification_log.ref_id so a later follow-up finds the channels
+	// the page reached (sre-08). Empty for events of no incident.
+	RefID string
 }
 
 // ValidEventTypes lists all supported event types.
@@ -39,10 +56,16 @@ var ValidEventTypes = map[string]bool{
 	"action_failed":           true,
 	"approval_needed":         true,
 	"finding_critical":        true,
+	"finding_opened":          true,
+	"finding_resolved":        true,
 	"query_rewrite_suggested": true,
 	"incident_detected":       true,
 	"incident_escalated":      true,
 	"incident_resolved":       true,
+	"custodian_escalation":    true,
+	"fact_expired":            true,
+	"canary_interrupted":      true,
+	EventDigestReady:          true,
 }
 
 // ValidSeverities lists all supported severity levels with numeric rank.
@@ -60,6 +83,10 @@ var EventSeverity = map[string]string{
 	"approval_needed":         "warning",
 	"finding_critical":        "critical",
 	"query_rewrite_suggested": "warning",
+	"custodian_escalation":    "critical",
+	"fact_expired":            "warning",
+	"canary_interrupted":      "warning",
+	EventDigestReady:          "info",
 }
 
 // DefaultMinSeverity is the min_severity a new rule for event gets when
@@ -81,6 +108,8 @@ var variableSeverityEvents = map[string]string{
 	"incident_detected":  "critical",
 	"incident_escalated": "critical",
 	"incident_resolved":  "critical",
+	"finding_opened":     "critical",
+	"finding_resolved":   "critical",
 }
 
 // maxEventSeverity returns the highest severity an event type can carry.

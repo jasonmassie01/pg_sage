@@ -2,15 +2,19 @@ package optimizer
 
 import "strings"
 
-// coverShape is an index's shape for coverage: ordered key shapes and the
-// columns it carries in INCLUDE.
+// coverShape is an index's shape for coverage: ordered key shapes (with
+// collation, operator class and, for btree, ordering), the bare key
+// columns and expressions, and the columns it carries in INCLUDE.
 type coverShape struct {
-	method, where string
-	unique        bool
-	keys, include []string
+	method, where        string
+	unique               bool
+	keys, bases, include []string
 }
 
-func coverShapeOf(ddl string) (coverShape, bool) {
+// coverShapeOf parses an index DDL or definition; defaults are the
+// table's column defaults (nil: none known, so every explicit opclass and
+// collation stays part of the key).
+func coverShapeOf(ddl string, defaults map[string]KeyDefault) (coverShape, bool) {
 	spec, err := ParseIndexDDL(ddl)
 	if err != nil {
 		return coverShape{}, false
@@ -20,7 +24,8 @@ func coverShapeOf(ddl string) (coverShape, bool) {
 		return coverShape{}, false
 	}
 	return coverShape{method: spec.Method, where: canonicalShape(spec.Where),
-		unique: spec.Unique, keys: keyShapes(keys), include: keyShapes(include)}, true
+		unique: spec.Unique, keys: shapeKeys(keys, spec.Method, defaults),
+		bases: keyBases(keys), include: keyBases(include)}, true
 }
 
 // CoveredBy reports whether the existing index (a pg_get_indexdef
@@ -33,8 +38,15 @@ func coverShapeOf(ddl string) (coverShape, bool) {
 // candidate is a constraint: only a unique index on exactly its keys
 // covers it. It is the one coverage rule: the optimizer applies it when it
 // proposes, the executor before it queues or runs any index create.
+//
+// Keys match only when expression, operator class and collation are all
+// equal (indexes-01: text_pattern_ops is not a plain btree, and
+// vector_cosine_ops is not vector_l2_ops). For btree the compared prefix
+// must have the same ordering or be its uniform reversal, NULLS included.
+// Without the catalog an explicitly named default opclass or collation
+// does not match an omitted one, which errs toward "not covered".
 func CoveredBy(candidateDDL, existingDef string) bool {
-	return covers(existingDef, candidateDDL, false)
+	return covers(existingDef, candidateDDL, false, nil)
 }
 
 // Subsumes reports whether the wider index serves every lookup of the
@@ -45,26 +57,28 @@ func CoveredBy(candidateDDL, existingDef string) bool {
 // quality_score) WHERE valid_to IS NULL AND deleted_at IS NULL subsumes the
 // same keys WHERE ... AND quality_score IS NOT NULL.
 func Subsumes(widerDef, narrowerDef string) bool {
-	return covers(widerDef, narrowerDef, true)
+	return covers(widerDef, narrowerDef, true, nil)
 }
 
-// LeadingKey is the first key of an index DDL, lower-cased.
+// LeadingKey is the first key of an index DDL, lower-cased, without its
+// collation, operator class or ordering.
 func LeadingKey(ddl string) (string, bool) {
-	s, ok := coverShapeOf(ddl)
-	if !ok || len(s.keys) == 0 {
+	s, ok := coverShapeOf(ddl, nil)
+	if !ok || len(s.bases) == 0 {
 		return "", false
 	}
-	return strings.ToLower(s.keys[0]), true
+	return strings.ToLower(s.bases[0]), true
 }
 
 // covers reports whether the index have serves every lookup of want; with
-// implied, have's predicate may be weaker than want's.
-func covers(haveDef, wantDef string, implied bool) bool {
-	want, ok := coverShapeOf(wantDef)
+// implied, have's predicate may be weaker than want's. defaults normalize
+// both sides' keys (nil: none known).
+func covers(haveDef, wantDef string, implied bool, defaults map[string]KeyDefault) bool {
+	want, ok := coverShapeOf(wantDef, defaults)
 	if !ok || len(want.keys) == 0 {
 		return false
 	}
-	have, ok := coverShapeOf(haveDef)
+	have, ok := coverShapeOf(haveDef, defaults)
 	if !ok || have.method != want.method || !predicateServes(have.where, want.where,
 		implied) || len(want.keys) > len(have.keys) ||
 		(want.method != "btree" && len(want.keys) != len(have.keys)) ||
@@ -76,8 +90,8 @@ func covers(haveDef, wantDef string, implied bool) bool {
 			return false
 		}
 	}
-	served := make(map[string]bool, len(have.keys)+len(have.include))
-	for _, c := range append(append([]string(nil), have.keys...), have.include...) {
+	served := make(map[string]bool, len(have.bases)+len(have.include))
+	for _, c := range append(append([]string(nil), have.bases...), have.include...) {
 		served[c] = true
 	}
 	for _, c := range want.include {

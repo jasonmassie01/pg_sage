@@ -122,12 +122,13 @@ func (s *EvidenceSource) readAt(ctx context.Context, id probes.ID, args probes.A
 			res.Truncated = true
 			events = events[:evidenceRows]
 		}
+		hash := s.planHasher(ctx)
 		for _, e := range events {
 			if ctx.Err() != nil {
 				res.Status, res.Reason, res.Rows = probes.StatusError, "history_read_budget_exhausted", nil
 				return res
 			}
-			row, err := historicalRow(e, args.QueryID)
+			row, err := historicalRow(e, args.QueryID, hash)
 			switch {
 			case errors.Is(err, ErrMasked):
 				res.History.UnavailableRows++
@@ -213,7 +214,23 @@ func rollbackEvidenceRead(tx pgx.Tx) {
 	_ = tx.Rollback(ctx)
 }
 
-func historicalRow(e Event, query int64) (probes.Row, error) {
+// planHasher fingerprints historical plans with partitions resolved on the
+// monitored database when this source holds it, and unresolved (v2u)
+// otherwise. A failed root read also leaves the v2u fingerprint, which
+// records it (collection-09).
+func (s *EvidenceSource) planHasher(ctx context.Context) func([]byte) (string, error) {
+	if s.monitored == nil {
+		return planhash.Compute
+	}
+	return func(plan []byte) (string, error) {
+		roots, _ := planhash.Resolve(ctx, s.monitored, plan)
+		return planhash.ComputeWith(plan, planhash.Options{Roots: roots})
+	}
+}
+
+// historicalRow maps one history event to a probe row; hash fingerprints
+// plan payloads.
+func historicalRow(e Event, query int64, hash func([]byte) (string, error)) (probes.Row, error) {
 	row := probes.Row{"event_id": e.ID, "source": string(e.Stream), "scope_hash": e.ScopeHash,
 		"compute_id": e.ComputeID, "occurred_at": e.OccurredAt, "received_at": e.ReceivedAt,
 		"historical_only": true, "complete": false, "exact_multiplicity": false}
@@ -249,11 +266,12 @@ func historicalRow(e Event, query int64) (probes.Row, error) {
 		if query != 0 && p.QueryID != query {
 			return nil, nil
 		}
-		hash, err := planhash.Compute(p.JSON)
+		planHash, err := hash(p.JSON)
 		if err != nil {
 			return nil, ErrMalformed
 		}
-		row["queryid"], row["plan_hash"], row["total_cost"], row["duration_ms"] = p.QueryID, hash, p.TotalCost, p.ExecutionMS
+		row["queryid"], row["plan_hash"] = p.QueryID, planHash
+		row["total_cost"], row["duration_ms"] = p.TotalCost, p.ExecutionMS
 		row["analyze_enabled"], row["buffers_enabled"], row["timing_enabled"], row["duration_source"] = p.AnalyzeEnabled, p.BuffersEnabled, p.TimingEnabled, p.DurationSource
 	case Logs:
 		entry, err := historicalLog(e)

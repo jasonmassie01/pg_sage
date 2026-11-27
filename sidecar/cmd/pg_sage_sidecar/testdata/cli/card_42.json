@@ -1,0 +1,8 @@
+{"card":{"queue_id":42,"database":"orders","title":"Refresh statistics on public.orders",
+ "action_type":"analyze_table","status":"pending","targets":["public.orders"],
+ "finding":{"id":900,"category":"stale_statistics","severity":"warning","object":"public.orders",
+  "title":"Stale statistics on public.orders"},
+ "sql":"ANALYZE public.orders","risk":{"tier":"safe","blast_radius":"one table","lock":"none",
+ "guardrails":[],"post_checks":[]},"why_approval":[{"code":"trust","text":"trust is advisory"}],
+ "card_hash":"5e1d0c7a9b8f6e4d3c2b1a0918273645f5e4d3c2b1a0918273645f5e4d3c2b1a"},
+ "eligible":true}

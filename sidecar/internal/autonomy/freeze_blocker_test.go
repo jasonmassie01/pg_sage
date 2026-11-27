@@ -11,7 +11,7 @@ import (
 )
 
 // Regression tests for G4-B03 (freeze blocker selection must be scoped to
-// the current database and exclude protected backends) and G4-B38 (XID rate
+// the current database and never signal protected backends) and G4-B38 (XID rate
 // must not count read-only transactions or invent a first-tick rate).
 
 func holdSnapshot(t *testing.T, pool *pgxpool.Pool, appName string) int {
@@ -40,44 +40,61 @@ func holdSnapshot(t *testing.T, pool *pgxpool.Pool, appName string) int {
 	return pid
 }
 
-func TestOldestXminBlockerExcludesProtectedApplications(t *testing.T) {
+// vacuum-02: protected applications are still holders (named in the
+// evidence) but never a signal target.
+func TestXminHoldersMarkProtectedApplications(t *testing.T) {
 	pool := requireAutonomyDB(t)
 	protected := holdSnapshot(t, pool, "pg_dump")
-	custodian := NewPostgresFreezeCustodian(pool, "testdb", 25)
 
-	blocker, err := custodian.oldestXminBlocker(context.Background())
+	holders, err := readXminHolders(context.Background(), pool)
 
 	if err != nil {
-		t.Fatalf("oldestXminBlocker: %v", err)
+		t.Fatalf("xminHolders: %v", err)
 	}
-	if blocker != nil && blocker.PID == protected {
-		t.Fatalf("pg_dump backend %d selected as cancellable xmin blocker", protected)
+	found := holderByPID(holders, protected)
+	if found == nil || !found.Protected || found.Kind != freeze.HolderSession {
+		t.Fatalf("pg_dump backend %d holder = %#v in %#v", protected, found, holders)
+	}
+	response, err := freeze.HolderResponse(*found, []string{"public.orders"})
+	if err != nil || response.SQL != "" || response.Kind != freeze.ResponseEscalateHolder {
+		t.Fatalf("pg_dump holder response = %#v, %v; want an escalation", response, err)
 	}
 }
 
-func TestOldestXminBlockerCapturesBackendIdentity(t *testing.T) {
+func TestXminHoldersCaptureBackendIdentity(t *testing.T) {
 	pool := requireAutonomyDB(t)
-	holdSnapshot(t, pool, "xmin_holder_app")
-	custodian := NewPostgresFreezeCustodian(pool, "testdb", 25)
+	pid := holdSnapshot(t, pool, "xmin_holder_app")
 
-	blocker, err := custodian.oldestXminBlocker(context.Background())
+	holders, err := readXminHolders(context.Background(), pool)
 
-	if err != nil || blocker == nil {
-		t.Fatalf("oldestXminBlocker = %#v, %v; want a blocker", blocker, err)
+	if err != nil {
+		t.Fatalf("xminHolders: %v", err)
 	}
-	// Another client session of this database may hold an older xmin; the
-	// identity must describe whichever backend was selected.
+	holder := holderByPID(holders, pid)
+	if holder == nil {
+		t.Fatalf("held snapshot %d is not a holder: %#v", pid, holders)
+	}
 	var backendStart time.Time
 	var appName string
 	if err := pool.QueryRow(context.Background(), `SELECT backend_start,
 		COALESCE(application_name, '') FROM pg_stat_activity WHERE pid=$1`,
-		blocker.PID).Scan(&backendStart, &appName); err != nil {
-		t.Fatalf("read blocker session: %v", err)
+		pid).Scan(&backendStart, &appName); err != nil {
+		t.Fatalf("read holder session: %v", err)
 	}
-	if !blocker.BackendStart.Equal(backendStart) || blocker.AppName != appName {
-		t.Fatalf("blocker identity %#v does not match session (%s, %q)",
-			blocker, backendStart, appName)
+	if !holder.BackendStart.Equal(backendStart) || holder.AppName != appName ||
+		holder.Protected || holder.State != "idle in transaction" || holder.XminAge < 0 {
+		t.Fatalf("holder identity %#v does not match session (%s, %q)",
+			holder, backendStart, appName)
 	}
+}
+
+func holderByPID(holders []freeze.XminBlocker, pid int) *freeze.XminBlocker {
+	for i := range holders {
+		if holders[i].Kind == freeze.HolderSession && holders[i].PID == pid {
+			return &holders[i]
+		}
+	}
+	return nil
 }
 
 func TestFreezeRatesNeedTwoSamples(t *testing.T) {
@@ -111,18 +128,15 @@ func TestFreezeProposalOmitsDeadlineWhenRateUnknown(t *testing.T) {
 
 func TestBlockerResponseEvidenceCarriesIdentity(t *testing.T) {
 	start := time.Now().Add(-time.Hour).UTC()
-	response, err := freeze.PlanResponse(freeze.ResponseInput{
-		Schema: "public", Table: "orders", Urgency: freeze.UrgencyRed,
-		Blocker: &freeze.XminBlocker{
-			PID: 42, BackendStart: start, QueryStart: start, AppName: "app",
-			Query: "SELECT 1", State: "active",
-		},
-	})
+	response, err := freeze.HolderResponse(freeze.XminBlocker{
+		Kind: freeze.HolderSession, PID: 42, BackendStart: start, QueryStart: start,
+		AppName: "app", Query: "SELECT 1", State: "active",
+	}, []string{"public.orders"})
 	if err != nil {
-		t.Fatalf("PlanResponse: %v", err)
+		t.Fatalf("HolderResponse: %v", err)
 	}
 	if response.Evidence["backend_start"] != start.Format(time.RFC3339Nano) ||
-		response.Evidence["app_name"] != "app" {
+		response.Evidence["app_name"] != "app" || response.Evidence["query"] != "SELECT 1" {
 		t.Fatalf("blocker evidence = %#v", response.Evidence)
 	}
 }

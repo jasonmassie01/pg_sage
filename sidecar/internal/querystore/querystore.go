@@ -1,16 +1,13 @@
 // Package querystore maintains a per-queryid metrics time-series in
 // sage.query_store (F2). Because pg_stat_statements only exposes lifetime
-// averages, pg_sage samples per-queryid totals each cycle so it can
-// compute *windowed* latency — the substrate for per-queryid
-// verify-and-revert (F1) and plan-regression detection (A5).
+// averages, pg_sage samples per-queryid totals each cycle (Recorder) so it
+// can compute *windowed* latency: the substrate for per-queryid
+// verify-and-revert (F1, QueryIntervals) and the SLO latency proxy
+// (CaptureDeltas). The window rules (anchor and epoch, R10) live only in
+// intervals.go.
 package querystore
 
-import (
-	"context"
-	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-)
+import "time"
 
 // Sample is one per-queryid metrics observation for a cycle.
 type Sample struct {
@@ -25,20 +22,6 @@ type Sample struct {
 	StatsEpoch time.Time
 }
 
-// Record writes every sample to sage.query_store in one statement, changed
-// or not (the collector uses a Recorder, which writes only moved queries).
-// A nil/empty batch is a no-op. Samples sharing a queryid
-// (pg_stat_statements splits a statement by userid and toplevel) are
-// summed into one row so each cycle has exactly one sample per queryid
-// (G1-B05).
-func Record(ctx context.Context, db Execer, samples []Sample) error {
-	samples = aggregateSamples(samples)
-	if len(samples) == 0 {
-		return nil
-	}
-	return insertSamples(ctx, db, samples)
-}
-
 // epochParam maps an unknown (zero) epoch to NULL.
 func epochParam(epoch time.Time) *time.Time {
 	if epoch.IsZero() {
@@ -47,53 +30,29 @@ func epochParam(epoch time.Time) *time.Time {
 	return &epoch
 }
 
-type sampleRow struct {
-	calls int64
-	total float64
-}
-
-// WindowedLatencyMs returns the average per-call latency (ms) for a
-// queryid over every sample captured at or after `since`. ok is false
-// unless the window is measurable: at least two samples, new calls, no
-// counter decrease and a single known statistics epoch (see
-// WindowedLatencyEvidence).
-func WindowedLatencyMs(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	queryid int64,
-	since time.Time,
-) (float64, bool, error) {
-	ev, err := windowEvidence(ctx, pool, queryid, since, nil)
-	if err != nil {
-		return 0, false, err
+// aggregateSamples sums samples that share a queryid, keeping first-seen
+// order. The mean is recomputed from the summed totals.
+func aggregateSamples(samples []Sample) []Sample {
+	if len(samples) == 0 {
+		return nil
 	}
-	return ev.LatencyMs, ev.Status == EvidenceMeasured, nil
-}
-
-// WindowedLatencyMsBetween returns the average per-call latency (ms) for
-// a queryid between the earliest and latest samples inside [from, to].
-// ok is false for any non-measured evidence; callers that must tell
-// "not sampled" apart from "no regression" use WindowedLatencyEvidence.
-func WindowedLatencyMsBetween(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	queryid int64,
-	from, to time.Time,
-) (float64, bool, error) {
-	ev, err := WindowedLatencyEvidence(ctx, pool, queryid, from, to)
-	if err != nil {
-		return 0, false, err
+	index := make(map[int64]int, len(samples))
+	out := make([]Sample, 0, len(samples))
+	for _, s := range samples {
+		i, seen := index[s.QueryID]
+		if !seen {
+			index[s.QueryID] = len(out)
+			out = append(out, s)
+			continue
+		}
+		out[i].Calls += s.Calls
+		out[i].TotalExecMs += s.TotalExecMs
+		out[i].Rows += s.Rows
 	}
-	return ev.LatencyMs, ev.Status == EvidenceMeasured, nil
-}
-
-// windowedLatencyMs is the pure delta computation. A pg_stat_statements
-// reset (counters decreasing) yields ok=false rather than a bogus value.
-func windowedLatencyMs(earliest, latest sampleRow) (float64, bool) {
-	dCalls := latest.calls - earliest.calls
-	dTotal := latest.total - earliest.total
-	if dCalls <= 0 || dTotal < 0 {
-		return 0, false
+	for i := range out {
+		if out[i].Calls > 0 {
+			out[i].MeanExecMs = out[i].TotalExecMs / float64(out[i].Calls)
+		}
 	}
-	return dTotal / float64(dCalls), true
+	return out
 }

@@ -3,6 +3,7 @@ package analyzer
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pg-sage/sidecar/internal/collector"
 	"github.com/pg-sage/sidecar/internal/config"
@@ -180,9 +181,13 @@ func TestSlowSlot_NilConfig_UsesOneGBDefault(t *testing.T) {
 func TestSlowSlot_InactiveSlot_StillProducesInactiveCategory(t *testing.T) {
 	// Regression check: inactive slots should still produce
 	// "inactive_slot" category, not "slow_replication_slot".
+	// rules-09: dropping a slot is irreversible, so the drop is manual
+	// SQL behind approval, never a "safe" RecommendedSQL.
+	idleSince := time.Now().Add(-time.Hour)
 	snap := slotSnapshot([]collector.SlotInfo{
 		{SlotName: "orphan", Active: false, SlotType: "logical",
-			RetainedBytes: 10 * (1 << 30)}, // 10 GB but inactive
+			RetainedBytes: 10 * (1 << 30), // 10 GB but inactive
+			InactiveSince: &idleSince},
 	})
 
 	findings := ruleInactiveSlots(snap, nil, nil, nil)
@@ -192,20 +197,24 @@ func TestSlowSlot_InactiveSlot_StillProducesInactiveCategory(t *testing.T) {
 		assert.Equal(t, "inactive_slot", f.Category,
 			"inactive slots must still use 'inactive_slot' category")
 		assert.Equal(t, "warning", f.Severity)
-		assert.Equal(t, "safe", f.ActionRisk)
-		assert.Contains(t, f.RecommendedSQL, "pg_drop_replication_slot")
+		assert.Equal(t, "high_risk", f.ActionRisk)
+		assert.Equal(t, "", f.RecommendedSQL)
+		assert.Contains(t, f.Detail["manual_sql"], "pg_drop_replication_slot")
 	}
 }
 
 func TestSlowSlot_MixedActiveAndInactive(t *testing.T) {
 	oneGB := int64(1 << 30)
+	// rules-09: an inactive slot is reported once it has been idle past
+	// the threshold; inactive_since (PG17+) proves that here.
+	idleSince := time.Now().Add(-time.Hour)
 	snap := slotSnapshot([]collector.SlotInfo{
 		{SlotName: "healthy", Active: true, SlotType: "logical",
 			RetainedBytes: 100}, // well below threshold
 		{SlotName: "slow_cdc", Active: true, SlotType: "logical",
 			RetainedBytes: 2 * oneGB}, // above threshold
 		{SlotName: "dead", Active: false, SlotType: "physical",
-			RetainedBytes: 0},
+			RetainedBytes: 0, InactiveSince: &idleSince},
 	})
 
 	findings := ruleInactiveSlots(snap, nil, nil, nil)
