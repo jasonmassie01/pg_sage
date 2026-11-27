@@ -139,7 +139,7 @@ func TestPathExplainPlans(t *testing.T) {
 // The attribution view after brokered reads: the audit pages newest
 // first, and pg_stat_statements attributes the reads to the broker role.
 func TestPathActivityAfterReads(t *testing.T) {
-	f := newFixture(t, envbind.EnvProd)
+	f := newAttributionFixture(t, envbind.EnvProd)
 	exec(t, f.super, "CREATE EXTENSION IF NOT EXISTS pg_stat_statements")
 	b, _ := f.pathBroker(t)
 	for _, q := range []struct {

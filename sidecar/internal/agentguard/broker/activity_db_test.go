@@ -54,7 +54,7 @@ func (f *fixture) runTagged(t *testing.T, n int) []string {
 }
 
 func TestActivityAttributesEveryStatementByRole(t *testing.T) {
-	f := newFixture(t, envbind.EnvProd)
+	f := newAttributionFixture(t, envbind.EnvProd)
 	ensurePSS(t, f.super)
 	tags := f.runTagged(t, 3)
 	blocked := f.query(t, "SELECT pg_sleep(0)")
@@ -94,7 +94,7 @@ func TestActivityAttributesEveryStatementByRole(t *testing.T) {
 // Entries removed for the role (as a partial reset or an eviction would)
 // are detected by the coverage check, and the view falls back to the audit.
 func TestActivityFallsBackWhenEntriesAreMissing(t *testing.T) {
-	f := newFixture(t, envbind.EnvProd)
+	f := newAttributionFixture(t, envbind.EnvProd)
 	ensurePSS(t, f.super)
 	f.runTagged(t, 2)
 	exec(t, f.super, fmt.Sprintf("SELECT pg_stat_statements_reset(to_regrole('%s')::oid, "+
