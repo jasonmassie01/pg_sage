@@ -24,7 +24,8 @@ type exclusiveMeasurer struct {
 }
 
 // exclusiveMeasurers are the measuring tests moved to the exclusive server
-// (ci-13, ci-23, and the freeze verdict PG14 left neutral on the shared one).
+// (ci-13, ci-23, and the freeze and reindex verdicts PG14 left neutral on
+// the shared one).
 var exclusiveMeasurers = []exclusiveMeasurer{
 	{"internal/autonomy", "TestFreezeEmergencyProfileLifecycleOnRealPostgres",
 		[]string{"requireAutonomyDB"}},
@@ -38,6 +39,16 @@ var exclusiveMeasurers = []exclusiveMeasurer{
 		[]string{"testPool"}},
 	{"internal/executor", "TestOutcome_VacuumFreezeVerifiedByXIDAge",
 		[]string{"requireDB"}},
+	{"internal/verify", "TestIndexFootprintBeforeAndAfterReindex",
+		[]string{"verifyIntegrationPool"}},
+	{"internal/verify", "TestIndexFootprintIgnoresASnapshotInAnotherDatabase",
+		[]string{"verifyIntegrationPool"}},
+	{"internal/verify", "TestWaitSnapshotsPastNowSeesASnapshotInItsOwnDatabase",
+		[]string{"verifyIntegrationPool"}},
+	{"internal/verify", "TestSnapshotsPastNowSeesAnIdleWritersXID",
+		[]string{"verifyIntegrationPool"}},
+	{"internal/verify", "TestSnapshotsPastNowSeesABackendStillLoggingIn",
+		[]string{"verifyIntegrationPool"}},
 }
 
 // measurerProblems reports each measurer that is missing, does not reach

@@ -138,9 +138,21 @@ func TestEstimateErrorsWithoutPool(t *testing.T) {
 }
 
 // The footprint of a REINDEX target: an index's size and validity, or the
-// sum over a table's indexes (valid only if all are).
+// sum over a table's indexes (valid only if all are). The rebuilt index
+// keeps every deleted row the VACUUM before it could not remove, so the
+// test holds the exclusive server: on the shared one, PostgreSQL 14 counts
+// a backend still logging in to any database in this database's horizon,
+// with a snapshot reaching back to the oldest transaction running there,
+// and no view lists it (CI, PG14: 1138688 -> 1138688 bytes, neutral).
 func TestIndexFootprintBeforeAndAfterReindex(t *testing.T) {
-	pool := verifyIntegrationPool(t)
+	checkReindexFootprint(t, verifyExclusivePool(t,
+		"the VACUUM before a REINDEX must face no snapshot older than its deletes"))
+}
+
+// checkReindexFootprint bloats an index, reindexes it and checks the
+// footprint before and after on pool.
+func checkReindexFootprint(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
 	ctx := t.Context()
 	table := fmt.Sprintf("vreidx_%d", time.Now().UnixNano())
 	mustExec(t, ctx, pool, "CREATE TABLE public."+table+" (a int)")
@@ -202,10 +214,11 @@ func TestIndexFootprintReportsAnInvalidIndex(t *testing.T) {
 	}
 }
 
-// waitSnapshotsPastNow waits until no other backend holds a snapshot older
-// than this moment. On the shared CI server another package's open
-// transaction kept the deleted rows visible, so neither VACUUM nor REINDEX
-// could drop them and the "bloated" index kept its size (PG14 CI: neutral).
+// waitSnapshotsPastNow waits until no other backend holds a snapshot or a
+// transaction id older than this moment (snapshotsPastNowSQL). On the
+// shared CI server another package's open transaction kept the deleted rows
+// visible, so neither VACUUM nor REINDEX could drop them and the "bloated"
+// index kept its size (PG14 CI: neutral).
 func waitSnapshotsPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	var now string
@@ -225,21 +238,33 @@ func waitSnapshotsPastNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool)
 	t.Fatal("another backend held a snapshot older than the test's deletes for 30 s")
 }
 
-// snapshotsPastNow reports whether no other backend that can hold back a
-// VACUUM of this database's tables holds a snapshot older than the
-// transaction id now. Those are the backends of this database and the ones
-// bound to none (a walsender with hot_standby_feedback); PostgreSQL ignores
-// other databases' snapshots for ordinary tables, so the shared test
-// server's other packages never count (ci-17).
+// snapshotsPastNowSQL is true when no other backend that can hold back a
+// VACUUM or REINDEX of this database's tables holds a snapshot or a
+// transaction id older than the transaction id $1. Those are the backends
+// of this database and the ones bound to none (a walsender with
+// hot_standby_feedback); PostgreSQL ignores other databases' snapshots for
+// ordinary tables, so the shared test server's other packages never count
+// (ci-17). A writer idle in its transaction holds no snapshot, only its
+// transaction id. A backend that pg_stat_activity does not list yet but
+// whose transaction holds its virtualxid lock is still logging in:
+// PostgreSQL 14 counts it in every database's horizon, with a snapshot
+// that reaches back to the oldest transaction running in any database.
+const snapshotsPastNowSQL = `SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity
+		WHERE pid <> pg_backend_pid() AND (datid IS NULL OR datname = current_database())
+		  AND (age(backend_xmin) >= age(xid($1::xid8))
+		    OR age(backend_xid) >= age(xid($1::xid8))))
+	AND NOT EXISTS (SELECT 1 FROM pg_locks l
+		WHERE l.locktype = 'virtualxid' AND l.pid <> pg_backend_pid()
+		  AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.pid = l.pid))`
+
+// snapshotsPastNow reports whether snapshotsPastNowSQL holds for the
+// transaction id now.
 func snapshotsPastNow(ctx context.Context, pool *pgxpool.Pool, now string) (bool, error) {
 	if strings.TrimSpace(now) == "" {
 		// PG 14 reads '' as transaction id 0, which every snapshot is past.
 		return false, errors.New("no transaction id to compare snapshots with")
 	}
 	var clear bool
-	err := pool.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity
-		WHERE pid <> pg_backend_pid() AND backend_xmin IS NOT NULL
-		  AND (datid IS NULL OR datname = current_database())
-		  AND age(backend_xmin) >= age(xid($1::xid8)))`, now).Scan(&clear)
+	err := pool.QueryRow(ctx, snapshotsPastNowSQL, now).Scan(&clear)
 	return clear, err
 }
