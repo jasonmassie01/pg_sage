@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +19,7 @@ import (
 
 // holdLocks opens a session holding mode on the sage tables (relkind r, p;
 // only on table when it is set) until the test ends.
-func holdLocks(t *testing.T, pool *pgxpool.Pool, mode, table string) (pgx.Tx, uint32) {
+func holdLocks(t *testing.T, pool *pgxpool.Pool, mode, table string) pgx.Tx {
 	t.Helper()
 	ctx := context.Background()
 	conn, err := pool.Acquire(ctx)
@@ -45,21 +46,55 @@ func holdLocks(t *testing.T, pool *pgxpool.Pool, mode, table string) (pgx.Tx, ui
 		" IN "+mode+" MODE"); err != nil {
 		t.Fatalf("lock %d sage tables in %s: %v", len(rels), mode, err)
 	}
-	var pid uint32
-	if err := tx.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
-		t.Fatalf("lock holder pid: %v", err)
+	return tx
+}
+
+// bootPool is a pool for the boot under test, configured as pool is, that
+// records the backend pid of every session it opens before the session runs
+// a statement. A watcher can then tell the boot's locks from those of the
+// server's own backends: autovacuum takes SHARE UPDATE EXCLUSIVE on each
+// table it vacuums or analyzes, and the boots before a test insert one
+// sage.schema_migrations row per step, past autovacuum's analyze threshold
+// (50 changed rows on a table never analyzed).
+func bootPool(t *testing.T, pool *pgxpool.Pool) (*pgxpool.Pool, func() []int64) {
+	t.Helper()
+	var mu sync.Mutex
+	var pids []int64
+	cfg := pool.Config()
+	prior := cfg.AfterConnect
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		mu.Lock()
+		pids = append(pids, int64(conn.PgConn().PID()))
+		mu.Unlock()
+		if prior != nil {
+			return prior(ctx, conn)
+		}
+		return nil
 	}
-	return tx, pid
+	boot, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("boot pool: %v", err)
+	}
+	t.Cleanup(boot.Close)
+	return boot, func() []int64 {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(pids)
+	}
 }
 
 // watchDDLLocks samples pg_locks until stop is closed and returns the locks
-// on sage tables, held or awaited by any session but skip, in a mode that
-// blocks writers or readers (a DDL lock).
-func watchDDLLocks(t *testing.T, pool *pgxpool.Pool, skip uint32) func() []string {
+// on sage tables held or awaited by the sessions sessions() names, in a mode
+// stronger than ROW EXCLUSIVE: one only DDL, VACUUM or ANALYZE takes. It
+// fails the test when no sample succeeded, so it never reports nothing
+// because it saw nothing.
+func watchDDLLocks(t *testing.T, pool *pgxpool.Pool, sessions func() []int64) func() []string {
 	t.Helper()
 	stop := make(chan struct{})
 	var mu sync.Mutex
 	seen := map[string]bool{}
+	var samples int
+	var sampleErr error
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -70,18 +105,13 @@ func watchDDLLocks(t *testing.T, pool *pgxpool.Pool, skip uint32) func() []strin
 				return
 			default:
 			}
-			rows, err := pool.Query(context.Background(), `
-SELECT l.relation::regclass::text || ' ' || l.mode
-  FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
- WHERE l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
-   AND c.relnamespace = 'sage'::regnamespace AND c.relkind IN ('r', 'p')
-   AND l.pid <> $1 AND l.pid <> pg_backend_pid()
-   AND l.mode NOT IN ('AccessShareLock', 'RowShareLock', 'RowExclusiveLock')`, skip)
-			if err != nil {
-				continue
-			}
-			found, _ := pgx.CollectRows(rows, pgx.RowTo[string])
+			found, err := sampleDDLLocks(pool, sessions())
 			mu.Lock()
+			if err != nil {
+				sampleErr = err
+			} else {
+				samples++
+			}
 			for _, f := range found {
 				seen[f] = true
 			}
@@ -93,6 +123,9 @@ SELECT l.relation::regclass::text || ' ' || l.mode
 		wg.Wait()
 		mu.Lock()
 		defer mu.Unlock()
+		if samples == 0 {
+			t.Fatalf("the lock watcher took no sample of pg_locks: %v", sampleErr)
+		}
 		var out []string
 		for k := range seen {
 			out = append(out, k)
@@ -101,23 +134,49 @@ SELECT l.relation::regclass::text || ' ' || l.mode
 	}
 }
 
+// sampleDDLLocks is one watchDDLLocks sample: the locks pids hold or await
+// on sage tables in a mode stronger than ROW EXCLUSIVE.
+func sampleDDLLocks(pool *pgxpool.Pool, pids []int64) ([]string, error) {
+	rows, err := pool.Query(context.Background(), `
+SELECT l.relation::regclass::text || ' ' || l.mode
+  FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+ WHERE l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+   AND c.relnamespace = 'sage'::regnamespace AND c.relkind IN ('r', 'p')
+   AND l.pid = ANY($1::int8[])
+   AND l.mode NOT IN ('AccessShareLock', 'RowShareLock', 'RowExclusiveLock')`, pids)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
 // Happy path, the pg_dump case: a second boot while another session holds
 // ACCESS SHARE on every sage table finishes at once and takes no DDL lock.
 // Before config-04 the first ALTER queued behind the dump until the boot
-// deadline.
+// deadline. Only the boot's sessions are watched: an autovacuum worker may
+// analyze a sage table meanwhile (bootPool).
 func TestBootstrap_SecondBootUnderAccessShareTakesNoDDLLock(t *testing.T) {
 	pool := freshSchemaPool(t, "schema_boot_dump")
-	_, holder := holdLocks(t, pool, "ACCESS SHARE", "")
-	collect := watchDDLLocks(t, pool, holder)
+	holdLocks(t, pool, "ACCESS SHARE", "")
+	boot, sessions := bootPool(t, pool)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	// Connect before the timed boot, and before the watcher starts, so each
+	// sample names a boot session and a failed ping leaves no watcher behind.
+	if err := boot.Ping(ctx); err != nil {
+		t.Fatalf("boot pool: %v", err)
+	}
+	collect := watchDDLLocks(t, pool, sessions)
 	start := time.Now()
-	err := Bootstrap(ctx, pool)
+	err := Bootstrap(ctx, boot)
 	took := time.Since(start)
 	ddl := collect()
 	if err != nil {
 		t.Fatalf("second boot under ACCESS SHARE: %v", err)
+	}
+	if len(sessions()) == 0 {
+		t.Fatal("the boot pool recorded no session: the watcher watched nothing")
 	}
 	if took >= migrationLockTimeout {
 		t.Errorf("second boot took %s, want under %s (no lock wait)", took,
@@ -125,6 +184,31 @@ func TestBootstrap_SecondBootUnderAccessShareTakesNoDDLLock(t *testing.T) {
 	}
 	if len(ddl) > 0 {
 		t.Errorf("second boot took DDL locks on sage tables: %v", ddl)
+	}
+}
+
+// The watcher's sample reports a DDL-mode lock a boot session holds and not
+// one another session holds, as an autovacuum worker's ANALYZE does.
+func TestSampleDDLLocks_ReportsOnlyTheBootSessions(t *testing.T) {
+	pool := freshSchemaPool(t, "schema_boot_watch")
+	holdLocks(t, pool, "SHARE UPDATE EXCLUSIVE", "findings")
+	boot, sessions := bootPool(t, pool)
+	ctx := context.Background()
+	tx, err := boot.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin on the boot pool: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "LOCK TABLE sage.config IN SHARE UPDATE EXCLUSIVE MODE"); err != nil {
+		t.Fatalf("lock sage.config: %v", err)
+	}
+	got, err := sampleDDLLocks(pool, sessions())
+	want := []string{"sage.config ShareUpdateExclusiveLock"}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("sample = %v (%v), want %v", got, err, want)
+	}
+	if got, err := sampleDDLLocks(pool, nil); err != nil || len(got) != 0 {
+		t.Fatalf("sample of no session = %v (%v), want none", got, err)
 	}
 }
 
@@ -138,7 +222,7 @@ func TestBootstrap_BlockedStepRetriesThenFailsNamingIt(t *testing.T) {
 		"ALTER TABLE sage.action_log DROP COLUMN approved_by"); err != nil {
 		t.Fatalf("drop column: %v", err)
 	}
-	holder, _ := holdLocks(t, pool, "ACCESS EXCLUSIVE", "action_log")
+	holder := holdLocks(t, pool, "ACCESS EXCLUSIVE", "action_log")
 
 	bctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
