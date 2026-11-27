@@ -74,25 +74,45 @@ func byKey(results []selfconfig.Result) map[string]selfconfig.Result {
 	return out
 }
 
+// idleProbes pins ev's timed probes to an idle server's: a small
+// database's catalog, statements and sequence reads take milliseconds, and
+// the collector cycle estimate is the catalog read plus the statements
+// read, as Gather computes it.
+func idleProbes(ev selfconfig.Evidence) selfconfig.Evidence {
+	ev.CatalogScanMs, ev.StatementsScanMs = selfconfig.Known(10), selfconfig.Known(10)
+	ev.CollectorCycleMs, ev.SequenceScanMs = selfconfig.Known(20), selfconfig.Known(10)
+	return ev
+}
+
 // On a small database every rule's evidence supports the default: nothing
-// is shadowed, nothing changes and the ledger stays empty. The catalog
-// evidence is read from the test database; its temp-file rate is pinned
-// idle, because the shared CI database's cumulative temp_bytes come from
-// other tests' workload, not from this database's size.
+// is shadowed, nothing changes and the ledger stays empty. The counts are
+// read from the test database; its temp-file rate and the probes' times
+// are pinned idle, because on the shared CI server the cumulative
+// temp_bytes come from other tests' workload and the probes' times from
+// its load (every database's pg_stat_statements, PostgreSQL 14's shared
+// statistics collector, the host's CPU), not from this database's size.
 func TestSelfConfigOnASmallDatabaseKeepsTheDefaults(t *testing.T) {
 	pool := selfConfigPool(t)
 	cfg := config.DefaultConfig()
 	logs := &logCapture{}
 	r := newTestRunner(pool, cfg, logs)
+	var gathered selfconfig.Evidence
+	var gatherErr error
 	r.gather = func(ctx context.Context) (selfconfig.Evidence, error) {
-		ev, err := selfconfig.Gather(ctx, pool)
+		gathered, gatherErr = selfconfig.Gather(ctx, pool)
+		ev := idleProbes(gathered)
 		ev.TempBytes = selfconfig.Known(0)
 		ev.TempBytesPerSecond = selfconfig.Known(0)
-		return ev, err
+		return ev, gatherErr
 	}
 	results, err := r.pass(t.Context(), selfconfig.PhaseStartup)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if gatherErr != nil || !gathered.Relations.Known || !gathered.Sequences.Known ||
+		!gathered.MaxConnections.Known {
+		t.Fatalf("Gather on the test database: %+v (%v), want its counts read",
+			gathered, gatherErr)
 	}
 	if len(results) != len(selfconfig.Rules()) {
 		t.Fatalf("results %+v", results)
