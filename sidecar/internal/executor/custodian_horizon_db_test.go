@@ -45,10 +45,19 @@ func horizonExecutor(pool *pgxpool.Pool) *Executor {
 	return New(pool, config.DefaultConfig(), zeroTime(), func(string, string, ...any) {})
 }
 
+// horizonAgeReason is why a test that bounds a table's XID age from above
+// holds the exclusive server: the age counts the whole cluster's XIDs and
+// the freeze stops at the cluster's horizon, and on the shared server
+// other packages burn XIDs by the ten thousand and, on PostgreSQL 14, hold
+// every database's horizon through each backend still logging in (CI,
+// PG14: a table frozen just before read 161018 XIDs old).
+const horizonAgeReason = "an upper bound on relfrozenxid age needs a cluster " +
+	"no other package ages or holds back"
+
 // A heap reloption lowers the maximum the horizon is measured against:
 // 80,000 of 100,000 is red, as the custodian measured it.
 func TestReadFreezeHorizonUsesTheTablesReloption(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := exclusiveDB(t, horizonAgeReason)
 	horizonTable(t, ctx, pool, "horizon_reloption",
 		"autovacuum_enabled = false, autovacuum_freeze_max_age = 100000", 80_000)
 
@@ -88,7 +97,7 @@ func TestReadFreezeHorizonTakesTheMoreAdvancedTOAST(t *testing.T) {
 // Without reloptions the server settings remain the maxima (boundary:
 // a 200M setting reloption equal to the setting changes nothing).
 func TestReadFreezeHorizonWithoutReloptionUsesTheSettings(t *testing.T) {
-	pool, ctx := requireDB(t)
+	pool, ctx := exclusiveDB(t, horizonAgeReason)
 	var xidMax, mxidMax int64
 	if err := pool.QueryRow(ctx, `SELECT current_setting('autovacuum_freeze_max_age')::bigint,
 		current_setting('autovacuum_multixact_freeze_max_age')::bigint`).
