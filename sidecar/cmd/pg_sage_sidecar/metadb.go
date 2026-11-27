@@ -10,6 +10,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/fleet"
 	"github.com/pg-sage/sidecar/internal/llm"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 	"github.com/pg-sage/sidecar/internal/schema"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/store"
@@ -44,7 +45,7 @@ type metaDBState struct {
 // 1s, 2s, 4s, 8s before giving up; each attempt resolves the Lakebase
 // endpoint afresh.
 func connectMetaDB(dsn string) (*pgxpool.Pool, error) {
-	base, err := pgxpool.ParseConfig(dsn)
+	base, err := sagepool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parsing meta-db DSN: %w", err)
 	}
@@ -165,7 +166,7 @@ func connectMonitoredDBContext(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	base, err := pgxpool.ParseConfig(dsn)
+	base, err := sagepool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}

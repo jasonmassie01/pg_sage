@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/pg-sage/sidecar/internal/sagepool"
 )
 
 // A rehearsal runs statements on a clone that holds production data, so
@@ -134,7 +136,7 @@ func GuardedConnect(ctx context.Context, cl Clone, production IdentitySource,
 	if cl.DSN == "" {
 		return nil, fmt.Errorf("%w: clone %s has no DSN", ErrTargetUnverified, cl.ID)
 	}
-	parsed, err := pgxpool.ParseConfig(cl.DSN)
+	parsed, err := sagepool.ParseConfig(cl.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("parse rehearsal clone DSN: %w", err)
 	}

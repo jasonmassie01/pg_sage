@@ -16,7 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
-	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 )
 
 type resetConfig struct {
@@ -114,7 +114,7 @@ func productionResetDeps() resetDeps {
 // openResetPool connects and pings: a pool connects lazily, so an
 // unreachable server would otherwise surface at the first query.
 func openResetPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	pool, err := databricksauth.NewPool(ctx, dsn)
+	pool, err := sagepool.New(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}

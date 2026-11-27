@@ -12,6 +12,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/agentposture"
 	"github.com/pg-sage/sidecar/internal/firstlook"
 	"github.com/pg-sage/sidecar/internal/review/rubric"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 	"github.com/pg-sage/sidecar/internal/store"
 )
@@ -110,7 +111,7 @@ func DefaultObserveVisit(check ObserveCheck) ObserveVisit {
 // observeConnect is a pool of at most one connection, opened now, whose
 // transactions are read-only and whose lock waits are bounded.
 func observeConnect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := sagepool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}

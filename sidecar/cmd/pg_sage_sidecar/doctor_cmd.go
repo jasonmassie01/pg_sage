@@ -15,6 +15,7 @@ import (
 	"github.com/pg-sage/sidecar/internal/doctor"
 	"github.com/pg-sage/sidecar/internal/llm"
 	"github.com/pg-sage/sidecar/internal/schema"
+	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // "pg_sage doctor" (ux-04a) runs the read-only preflight against one
@@ -138,7 +139,8 @@ func loadDoctorConfig(o doctorOptions) (*config.Config, error) {
 }
 
 // openDoctorPool parses dsn and returns a lazy one-connection pool with
-// read-only, bounded session settings, and the DSN's password.
+// pg_sage's tag and pins and read-only, bounded session settings, and the
+// DSN's password.
 func openDoctorPool(ctx context.Context, dsn string) (*pgxpool.Pool, string, error) {
 	pc, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -149,6 +151,10 @@ func openDoctorPool(ctx context.Context, dsn string) (*pgxpool.Pool, string, err
 	if pc.ConnConfig.ConnectTimeout == 0 {
 		pc.ConnConfig.ConnectTimeout = doctorConnectTimeout
 	}
+	// The sidecar's own session (tag and pins), so doctor sees what it
+	// sees; doctor's session parameters, its application_name among them,
+	// are set after it.
+	selfmonitor.ConfigurePool(pc)
 	for k, v := range doctorSessionParams {
 		pc.ConnConfig.RuntimeParams[k] = v
 	}

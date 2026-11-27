@@ -9,13 +9,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pg-sage/sidecar/internal/databricksauth"
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/histstore"
 	"github.com/pg-sage/sidecar/internal/querystore"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 	"github.com/pg-sage/sidecar/internal/schema"
-	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
 // rebuildHourlyRollup rebuilds the derived hourly query rollup in a
@@ -109,30 +108,13 @@ func runHistoryCommand(ctx context.Context, args []string, getenv func(string) s
 	return 0
 }
 
-// historyPool opens a pool configured like the runtime's (pg_sage's
-// application_name, pinned search_path and statement tag, then the
-// Lakebase credential): history migrate runs the same partition and store
-// statements the runtime does, and on PostgreSQL 18 a statement whose tag
-// the pool's tagger did not move after its first keyword reads as workload.
-func historyPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return nil, err
-	}
-	selfmonitor.ConfigurePool(cfg)
-	if err := databricksauth.ConfigurePool(ctx, cfg); err != nil {
-		return nil, err
-	}
-	return pgxpool.NewWithConfig(ctx, cfg)
-}
-
 func runHistory(ctx context.Context, a historyArgs, stdout, stderr io.Writer) error {
-	mon, err := historyPool(ctx, a.monDSN)
+	mon, err := sagepool.New(ctx, a.monDSN)
 	if err != nil {
 		return fmt.Errorf("monitored database: %w", err)
 	}
 	defer mon.Close()
-	meta, err := historyPool(ctx, a.metaDSN)
+	meta, err := sagepool.New(ctx, a.metaDSN)
 	if err != nil {
 		return fmt.Errorf("meta database: %w", err)
 	}

@@ -9,8 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/pg-sage/sidecar/internal/databricksauth"
-
+	"github.com/pg-sage/sidecar/internal/sagepool"
 	"github.com/pg-sage/sidecar/internal/sre"
 )
 
@@ -94,7 +93,7 @@ func runExportReplay(ctx context.Context, args []string, getenv func(string) str
 
 func exportReplayCase(ctx context.Context, dsn string, id sre.UUID,
 	keep bool) (sre.ReplayCaseExport, error) {
-	pool, err := databricksauth.NewPool(ctx, dsn)
+	pool, err := sagepool.New(ctx, dsn)
 	if err != nil {
 		return sre.ReplayCaseExport{}, fmt.Errorf("connect to the control database: %w", err)
 	}

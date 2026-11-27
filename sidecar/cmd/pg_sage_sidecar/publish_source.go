@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/outcomes"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 	"github.com/pg-sage/sidecar/internal/verify/backtest"
 )
 
@@ -34,7 +34,7 @@ type pgPublishSource struct {
 }
 
 func openPublishSource(ctx context.Context, dsn string) (publishSource, error) {
-	pool, err := databricksauth.NewPool(ctx, dsn)
+	pool, err := sagepool.New(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}

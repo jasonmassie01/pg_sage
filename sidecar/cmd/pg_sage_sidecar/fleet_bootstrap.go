@@ -9,6 +9,7 @@ import (
 
 	"github.com/pg-sage/sidecar/internal/config"
 	"github.com/pg-sage/sidecar/internal/fleet"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 	"github.com/pg-sage/sidecar/internal/selfmonitor"
 )
 
@@ -105,7 +106,7 @@ func openFleetPoolAtStartup(dbCfg config.DatabaseConfig) (*pgxpool.Pool, error) 
 // openFleetPoolAttempts resolves, connects and pings a YAML database;
 // shutdown interrupts the retries.
 func openFleetPoolAttempts(dbCfg config.DatabaseConfig, attempts int) (*pgxpool.Pool, error) {
-	base, err := pgxpool.ParseConfig(dbCfg.ConnString())
+	base, err := sagepool.ParseConfig(dbCfg.ConnString())
 	if err != nil {
 		return nil, fmt.Errorf("invalid DSN: %w", err)
 	}

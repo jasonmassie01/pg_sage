@@ -25,18 +25,6 @@ var ErrUnverifiedTLS = errors.New("lakebase OAuth requires sslmode=verify-full "
 	"(got an unverified TLS mode); set sslmode=verify-full in SAGE_DATABASE_URL, " +
 	"SAGE_PG_SSLMODE or the fleet's databases[].sslmode")
 
-// NewPool is the OAuth-aware equivalent of pgxpool.New for CLI commands.
-func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return nil, err
-	}
-	if err := ConfigurePool(ctx, cfg); err != nil {
-		return nil, err
-	}
-	return pgxpool.NewWithConfig(ctx, cfg)
-}
-
 // ConfigureConnection obtains a credential for a single physical connection
 // using the same endpoint validation as a monitoring pool. Callers must retain
 // the logical endpoint hostname when pinning a resolved network address.

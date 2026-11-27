@@ -10,10 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/pg-sage/sidecar/internal/databricksauth"
 	"github.com/pg-sage/sidecar/internal/outcomes"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 )
 
 // pg_sage ledger (ux-02a): what pg_sage changed in one database over a
@@ -80,9 +78,9 @@ func (a *ledgerArgs) resolveDSN(getenv func(string) string) error {
 			"SAGE_META_DB, or pass --dsn")
 	}
 	if a.database == "" {
-		cfg, err := pgxpool.ParseConfig(a.dsn)
+		cfg, err := sagepool.ParseConfig(a.dsn)
 		if err != nil {
-			return errors.New("the DSN does not parse (check its form; it is not printed)")
+			return err
 		}
 		a.database = cfg.ConnConfig.Database
 	}
@@ -96,7 +94,7 @@ func runLedgerCommand(ctx context.Context, args []string, getenv func(string) st
 		_, _ = fmt.Fprintf(stderr, "ledger: %v\n%s\n", err, ledgerUsage)
 		return 2
 	}
-	pool, err := databricksauth.NewPool(ctx, a.dsn)
+	pool, err := sagepool.New(ctx, a.dsn)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "ledger: connect to %s: %v\n", a.database, err)
 		return 2

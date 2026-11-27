@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 )
 
 // apiauth-14: run is main's body; these tests pin its exit codes and messages.
@@ -183,6 +185,51 @@ func TestRunWithProductionDepsReportsAnUnreachableServer(t *testing.T) {
 			}
 			if strings.Contains(stderr.String(), goodPassword) {
 				t.Fatalf("stderr leaks the password: %q", stderr.String())
+			}
+		})
+	}
+}
+
+// adminHalfOne and adminHalfTwo are the pieces of a DSN password split at
+// '@', ':' or '/'. pgx's own parse error printed one of them: its redaction
+// keeps the piece after '@' or before ':', and the url error it wraps
+// quotes the piece before '/' as an invalid port.
+const adminHalfOne, adminHalfTwo = "Admin-Half-One", "Admin-Half-Two"
+
+// Invalid input: a DSN that does not parse fails openAdminPool with
+// sagepool.ErrUnparseableDSN and run's connect step with its fixed text,
+// and neither carries any piece of the DSN's password.
+func TestRunWithProductionDepsNeverPrintsAnUnparseableDSN(t *testing.T) {
+	want := "connect to admin database: " + sagepool.ErrUnparseableDSN.Error() + "\n"
+	split := func(sep, port string) string {
+		return "postgres://sage:" + adminHalfOne + sep + adminHalfTwo + "@127.0.0.1:" + port +
+			"/sage"
+	}
+	for name, dsn := range map[string]string{
+		"port":          "postgres://sage:" + adminHalfOne + "@127.0.0.1:notaport/sage",
+		"@ in password": split("@", "notaport"),
+		": in password": split(":", "notaport"),
+		"/ in password": split("/", "5432"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			pool, err := openAdminPool(context.Background(), dsn)
+			if pool != nil {
+				pool.Close()
+			}
+			if pool != nil || !errors.Is(err, sagepool.ErrUnparseableDSN) {
+				t.Errorf("openAdminPool = pool %v, %v; want none and sagepool.ErrUnparseableDSN",
+					pool != nil, err)
+			}
+			var stderr bytes.Buffer
+			code := run(adminEnv(dsn, "", goodPassword), &stderr, productionAdminDeps())
+			if code != 1 || stderr.String() != want {
+				t.Errorf("run = %d, stderr %q; want 1 and %q", code, stderr.String(), want)
+			}
+			printed := fmt.Sprint(err) + stderr.String()
+			for _, piece := range []string{adminHalfOne, adminHalfTwo, goodPassword} {
+				if strings.Contains(printed, piece) {
+					t.Errorf("output carries %q: %q", piece, printed)
+				}
 			}
 		})
 	}

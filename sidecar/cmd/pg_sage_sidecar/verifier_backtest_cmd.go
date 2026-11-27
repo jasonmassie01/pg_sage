@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/pg-sage/sidecar/internal/config"
-	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 	"github.com/pg-sage/sidecar/internal/verify/backtest"
 )
 
@@ -84,7 +84,7 @@ func defaultBacktestDeps() backtestDeps {
 			}
 			return config.Load([]string{"--config", path})
 		},
-		open: databricksauth.NewPool, now: time.Now}
+		open: sagepool.New, now: time.Now}
 }
 
 func runVerifierBacktestCommand(ctx context.Context, args []string, stdout,

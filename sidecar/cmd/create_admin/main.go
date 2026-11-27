@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pg-sage/sidecar/internal/auth"
-	"github.com/pg-sage/sidecar/internal/databricksauth"
+	"github.com/pg-sage/sidecar/internal/sagepool"
 )
 
 type adminConfig struct {
@@ -134,13 +134,15 @@ func productionAdminDeps() adminDeps {
 const minAdminConns = 2
 
 // openAdminPool connects and pings: a pool connects lazily, so an
-// unreachable server would otherwise surface at the first query.
+// unreachable server would otherwise surface at the first query. A DSN
+// that does not parse is sagepool.ErrUnparseableDSN, which prints no part
+// of it (pgx's own parse error can carry the password).
 func openAdminPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
+	cfg, err := sagepool.ParseConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
-	if err := databricksauth.ConfigurePool(ctx, cfg); err != nil {
+	if err := sagepool.Configure(ctx, cfg); err != nil {
 		return nil, err
 	}
 	if cfg.MaxConns < minAdminConns {
